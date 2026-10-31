@@ -108,6 +108,11 @@ impl LanguageServices {
         self.manager.restart();
     }
 
+    /// The servers extension packages declare, with the folders each may run in.
+    pub fn set_contributed(&self, servers: Vec<crate::infrastructure::lsp::manager::Contributed>) {
+        self.manager.set_contributed(servers);
+    }
+
     pub fn restart_instance(&self, id: u64) {
         self.manager.restart_instance(id);
     }

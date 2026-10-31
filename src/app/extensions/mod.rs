@@ -360,6 +360,18 @@ fn domains_of(grants: &Grants, package: &Package) -> Vec<String> {
     }
 }
 
+/// What a person is told when local execution is refused, and how to change it.
+fn execution_denial(denial: Denial) -> &'static str {
+    match denial {
+        Denial::PackageNotGranted => "this extension has not been granted local execution",
+        Denial::RootNotTrusted => "the folder is not trusted; run workspace::TrustWorkspace first",
+        Denial::RootNotGranted => {
+            "running programs in this folder has not been allowed; run workspace::AllowExtensionTools"
+        }
+        Denial::NoTargetRoot => "a task needs a folder",
+    }
+}
+
 /// A short stable name for a path: the first bytes of its SHA-256.
 fn stable_key(text: &str) -> String {
     use std::fmt::Write;
@@ -1941,6 +1953,67 @@ impl ExtensionService {
         path.to_string_lossy().into_owned()
     }
 
+    /// The language servers loaded packages declare, each with the open folders
+    /// it may run in. All three layers have to allow a folder: the package's
+    /// grant, the folder's trust and the folder's tool grant (design §9.1). A
+    /// declaration is data, so it is listed even when nothing allows it; the
+    /// language service then shows it as not started, with the reason.
+    pub fn language_servers(&self) -> Vec<crate::infrastructure::lsp::manager::Contributed> {
+        let mut servers = Vec::new();
+        for package in self.packages.values() {
+            if package.lifecycle.state() == State::Stopped {
+                continue;
+            }
+            for declaration in &package.manifest.contributes.language_servers {
+                let (name, mut definition) =
+                    crate::features::extensions::servers::definition(declaration);
+                // A path with a separator that is not absolute starts inside the package.
+                let command = declaration.command.as_str();
+                if command.contains(['/', '\\']) && Path::new(command).is_relative() {
+                    definition["command"] = package
+                        .dir
+                        .join(command)
+                        .to_string_lossy()
+                        .into_owned()
+                        .into();
+                }
+                let mut allowed = Vec::new();
+                let mut denial = Denial::NoTargetRoot;
+                for (index, (_, root)) in self.roots.iter().enumerate() {
+                    let trust = match &self.trust {
+                        Some(trust) if trust.is_trusted(root) => RootTrust::Trusted,
+                        _ => RootTrust::Untrusted,
+                    };
+                    match self.grants.authorize(
+                        &package.identity,
+                        "process.execute-local",
+                        Some((&Self::root_key(root), trust)),
+                    ) {
+                        Ok(()) => allowed.push(root.clone()),
+                        Err(reason) if index == 0 || allowed.is_empty() => denial = reason,
+                        Err(_) => {}
+                    }
+                }
+                // Without a grant of its own, say that first: it holds in every folder.
+                if self
+                    .grants
+                    .authorize(&package.identity, "process.execute-local", None)
+                    .is_err_and(|reason| reason == Denial::PackageNotGranted)
+                {
+                    denial = Denial::PackageNotGranted;
+                }
+                servers.push(crate::infrastructure::lsp::manager::Contributed {
+                    name,
+                    definition,
+                    allowed_roots: allowed,
+                    refusal: format!("{}: {}", declaration.id, execution_denial(denial)),
+                });
+            }
+        }
+        servers.sort_by(|a, b| a.name.cmp(&b.name));
+        servers
+    }
+
     /// Let the packages that declare local execution run programs for this
     /// root. The package grant, the folder's trust and this per-root grant are
     /// all required (design §9.1). Returns how many packages were granted.
@@ -2115,19 +2188,15 @@ impl ExtensionService {
                 "process.execute-local",
                 Some((
                     &Self::root_key(root),
-                    if trust { RootTrust::Trusted } else { RootTrust::Untrusted },
+                    if trust {
+                        RootTrust::Trusted
+                    } else {
+                        RootTrust::Untrusted
+                    },
                 )),
             )
             .map_err(|denial| {
-                ExtensionError::new(
-                    ErrorKind::PermissionDenied,
-                    match denial {
-                        Denial::PackageNotGranted => "this extension has not been granted local execution",
-                        Denial::RootNotTrusted => "the folder is not trusted; run workspace::TrustWorkspace first",
-                        Denial::RootNotGranted => "running programs in this folder has not been allowed; run workspace::AllowExtensionTools",
-                        Denial::NoTargetRoot => "a task needs a folder",
-                    },
-                )
+                ExtensionError::new(ErrorKind::PermissionDenied, execution_denial(denial))
             })?;
 
         let program = request.program.trim();

@@ -178,6 +178,8 @@ pub enum ManifestError {
         id: String,
         reason: String,
     },
+    /// A server is a program the machine runs, so the package must ask for that.
+    ServerNeedsExecution(String),
 }
 
 impl std::fmt::Display for ManifestError {
@@ -210,6 +212,10 @@ impl std::fmt::Display for ManifestError {
             Self::BadLanguageServer { id, reason } => {
                 write!(f, "language server `{id}`: {reason}")
             }
+            Self::ServerNeedsExecution(id) => write!(
+                f,
+                "language server `{id}` runs a program, so the package must declare `process.execute-local`"
+            ),
             Self::BadSettingDefault(key) => {
                 write!(f, "the default of setting `{key}` has the wrong type")
             }
@@ -353,6 +359,14 @@ impl Manifest {
             unique(&server.id)?;
             if server.languages.is_empty() {
                 return Err(ManifestError::EmptySelector(server.id.clone()));
+            }
+            // Declaring a server is data, but starting it is local execution.
+            if !self
+                .capabilities
+                .iter()
+                .any(|c| c == "process.execute-local")
+            {
+                return Err(ManifestError::ServerNeedsExecution(server.id.clone()));
             }
             // Checked with the rules the language service itself applies, so a
             // declaration that could never start is rejected when the package
@@ -588,9 +602,10 @@ mod tests {
     }
 
     #[test]
-    fn language_server_declarations_are_data_only() {
+    fn language_server_declarations_need_the_execution_capability() {
         let source = r#"{
             "schema": 1, "id": "acme.rust", "version": "1.0.0",
+            "capabilities": ["process.execute-local"],
             "contributes": { "language_servers": [
                 { "id": "acme.rust.analyzer", "languages": ["rust"], "command": "rust-analyzer", "args": ["--stdio"], "root_markers": ["Cargo.toml"] }
             ] }
@@ -600,6 +615,12 @@ mod tests {
             manifest.contributes.language_servers[0].command,
             "rust-analyzer"
         );
+        // Without the capability the declaration could never be allowed to run.
+        let without = source.replace("\"capabilities\": [\"process.execute-local\"],", "");
+        assert!(matches!(
+            Manifest::parse(&without),
+            Err(ManifestError::ServerNeedsExecution(_))
+        ));
     }
 
     #[test]

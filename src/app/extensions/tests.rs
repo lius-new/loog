@@ -957,7 +957,17 @@ fn task_json(script_windows: &str, script_unix: &str) -> String {
 impl Fixture {
     /// A fixture with a workspace folder, the task setting and (optionally) trust.
     fn tasks(name: &str, task: String, trusted: bool, allowed: bool) -> (Fixture, PathBuf) {
-        let mut f = fixture_with(name, "TODO text", 0..0, TASK_MANIFEST);
+        Self::tasks_with(TASK_MANIFEST, name, task, trusted, allowed)
+    }
+
+    fn tasks_with(
+        manifest: &str,
+        name: &str,
+        task: String,
+        trusted: bool,
+        allowed: bool,
+    ) -> (Fixture, PathBuf) {
+        let mut f = fixture_with(name, "TODO text", 0..0, manifest);
         let folder =
             std::env::temp_dir().join(format!("loom-task-root-{}-{name}", std::process::id()));
         std::fs::create_dir_all(folder.join("sub")).unwrap();
@@ -997,6 +1007,51 @@ impl Fixture {
                 == State::Active
         });
     }
+}
+
+#[test]
+fn a_declared_language_server_may_run_only_in_folders_every_layer_allows() {
+    let manifest = TASK_MANIFEST.replace(
+        "\"settings\": [",
+        "\"language_servers\": [{ \"id\": \"example.tools.lsp\", \"languages\": [\"rust\"], \
+         \"command\": \"tools/lsp\", \"root_markers\": [\"Cargo.toml\"] }], \"settings\": [",
+    );
+    let refusal = |trusted, allowed, name: &str| {
+        let (f, folder) = Fixture::tasks_with(&manifest, name, String::new(), trusted, allowed);
+        let mut f = f;
+        let effects = f.service.observe(&f.app);
+        f.apply(effects);
+        let servers = f.service.language_servers();
+        assert_eq!(servers.len(), 1);
+        let server = servers.into_iter().next().unwrap();
+        assert_eq!(server.name, "example-tools-lsp");
+        // A path with a separator starts inside the package, not in the project.
+        let command = server.definition["command"].as_str().unwrap().to_owned();
+        let package_dir = f.service.package("example.tools").unwrap().dir.clone();
+        assert!(
+            std::path::Path::new(&command).starts_with(&package_dir),
+            "{command}"
+        );
+        (server, folder)
+    };
+    let (untrusted, _) = refusal(false, false, "lsp-untrusted");
+    assert!(untrusted.allowed_roots.is_empty());
+    assert!(
+        untrusted.refusal.contains("not trusted"),
+        "{}",
+        untrusted.refusal
+    );
+
+    let (ungranted, _) = refusal(true, false, "lsp-ungranted");
+    assert!(ungranted.allowed_roots.is_empty());
+    assert!(
+        ungranted.refusal.contains("workspace::AllowExtensionTools"),
+        "{}",
+        ungranted.refusal
+    );
+
+    let (allowed, folder) = refusal(true, true, "lsp-allowed");
+    assert_eq!(allowed.allowed_roots, vec![folder]);
 }
 
 #[test]

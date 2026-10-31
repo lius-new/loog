@@ -22,6 +22,8 @@ struct Inner {
     application: ApplicationHandle,
     /// What to do when a save chain ends, by chain number.
     saves: Mutex<std::collections::HashMap<u64, SaveContinuation>>,
+    /// The language servers last handed to the language service.
+    published_servers: Mutex<Vec<crate::infrastructure::lsp::manager::Contributed>>,
 }
 
 /// Runs on the UI thread when the participants are done; `true` means write the files.
@@ -175,6 +177,7 @@ impl ExtensionHost {
             context: context.clone(),
             application: application.clone(),
             saves: Mutex::new(std::collections::HashMap::new()),
+            published_servers: Mutex::new(Vec::new()),
         });
         let _ = inner.self_ref.set(Arc::downgrade(&inner));
         inner.service.lock().unwrap().set_trust(inner.trust.clone());
@@ -309,11 +312,38 @@ impl ExtensionHost {
 
     /// Tell subscribed extensions about document changes this update made.
     pub(crate) fn observe(&self, app: &AppState) {
-        let effects = self.inner.service.lock().unwrap().observe(app);
+        let (effects, servers) = {
+            let mut service = self.inner.service.lock().unwrap();
+            let effects = service.observe(app);
+            (effects, service.language_servers())
+        };
         for effect in effects {
             if let (Effect::Submit(job), Some(executor)) = (effect, self.inner.executor.get()) {
                 executor.submit(job);
             }
+        }
+        self.publish_language_servers(servers);
+    }
+
+    /// Hand the language service the servers packages declare when they, or the
+    /// folders and permissions they run under, changed since the last time.
+    fn publish_language_servers(
+        &self,
+        servers: Vec<crate::infrastructure::lsp::manager::Contributed>,
+    ) {
+        let mut last = self.inner.published_servers.lock().unwrap();
+        if *last == servers {
+            return;
+        }
+        // Without a language service nothing is recorded, so the list is offered again.
+        if let Some(services) = self
+            .inner
+            .context
+            .services()
+            .and_then(|runtime| runtime.language_services())
+        {
+            last.clone_from(&servers);
+            services.set_contributed(servers);
         }
     }
 

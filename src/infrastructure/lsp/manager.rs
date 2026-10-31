@@ -139,6 +139,23 @@ pub(crate) struct Snapshot {
     pub languages: BTreeMap<String, LanguageSetting>,
 }
 
+/// A language server an extension package declares (design §6.6). It joins the
+/// catalogued and registered servers, but its process starts only for project
+/// folders the package may run programs in; the application decides that and
+/// lists the folders, so nothing here consults trust or grants itself.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Contributed {
+    /// The server's name, unique among all servers.
+    pub name: String,
+    /// The definition in the form `ServerSet` reads.
+    pub definition: Value,
+    /// The folders the program may start for: a project root inside one of
+    /// them is allowed.
+    pub allowed_roots: Vec<PathBuf>,
+    /// What an instance elsewhere shows as the reason it is not running.
+    pub refusal: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Status {
     /// The process is starting or answering `initialize`.
@@ -330,6 +347,8 @@ impl CodeActionContext {
 
 enum Msg {
     Snapshot(Box<Snapshot>),
+    /// The servers extensions declare, and where each may run. Replaces the last list.
+    Contributed(Vec<Contributed>),
     Saved {
         path: PathBuf,
         text: Arc<String>,
@@ -435,6 +454,8 @@ impl Manager {
             registry,
             base_servers: servers.clone(),
             servers,
+            contributed: Vec::new(),
+            contributed_accepted: Vec::new(),
             installer,
             _install_listener: install_listener,
             options,
@@ -478,6 +499,13 @@ impl Manager {
 
     pub fn update(&self, snapshot: Snapshot) {
         let _ = self.tx.send(Msg::Snapshot(Box::new(snapshot)));
+    }
+
+    /// Replaces the servers that extensions declare. A server that is gone, whose
+    /// definition changed or whose folders changed is stopped at once; the others
+    /// are left running (design §6.6.1: no duplicate servers for old and new).
+    pub fn set_contributed(&self, servers: Vec<Contributed>) {
+        let _ = self.tx.send(Msg::Contributed(servers));
     }
 
     /// A document was written to disk.
@@ -743,8 +771,12 @@ struct Coordinator {
     registry: &'static Registry,
     /// The catalogued servers.
     base_servers: Arc<ServerSet>,
-    /// The catalogued servers and those the person registered.
+    /// The catalogued servers, those the person registered and the extensions'.
     servers: Arc<ServerSet>,
+    /// What extensions declared last, and the names among them that `servers`
+    /// took in (a name already used by another server is left out).
+    contributed: Vec<Contributed>,
+    contributed_accepted: Vec<String>,
     installer: Option<Arc<Installer>>,
     _install_listener: Option<Arc<dyn Fn() + Send + Sync>>,
     options: Options,
@@ -840,6 +872,7 @@ impl Coordinator {
                     }
                 }
             }
+            Msg::Contributed(servers) => self.apply_contributed(servers),
             Msg::Saved { path, text } => self.saved(&path, &text),
             Msg::Restart => self.restart(),
             Msg::ResultsChanged => self.results_changed = true,
@@ -1059,12 +1092,92 @@ impl Coordinator {
         assignments
     }
 
+    /// The catalogued servers, then those the person registered, then those
+    /// extensions declare; a later one never replaces an earlier one's name.
+    fn rebuild_servers(&mut self, settings: &[LanguageServerSetting]) {
+        let (own, _) = registered(settings, &self.base_servers);
+        let with_own = self.base_servers.extended(&own).0;
+        let extra: Vec<(String, Value)> = self
+            .contributed
+            .iter()
+            .map(|c| (c.name.clone(), c.definition.clone()))
+            .collect();
+        let (all, problems) = with_own.extended(&extra);
+        self.contributed_accepted = self
+            .contributed
+            .iter()
+            .map(|c| c.name.clone())
+            .filter(|name| !problems.iter().any(|(rejected, _)| rejected == name))
+            .collect();
+        self.servers = Arc::new(all);
+    }
+
+    /// Why a program for `server` may not start for `root`: it is an extension's
+    /// and the application did not list a folder that holds `root`.
+    fn contributed_refusal(&self, server: &str, root: &Path) -> Option<String> {
+        if !self.contributed_accepted.iter().any(|name| name == server) {
+            return None;
+        }
+        let contribution = self.contributed.iter().find(|c| c.name == server)?;
+        if contribution
+            .allowed_roots
+            .iter()
+            .any(|allowed| root.starts_with(allowed))
+        {
+            None
+        } else {
+            Some(contribution.refusal.clone())
+        }
+    }
+
+    fn apply_contributed(&mut self, servers: Vec<Contributed>) {
+        if servers == self.contributed {
+            return;
+        }
+        let before = std::mem::replace(&mut self.contributed, servers);
+        // What an extension's server was started under no longer holds when its
+        // definition or folders changed or it went away: stop it now rather than
+        // after the idle time. Whatever is still wanted starts again below, once.
+        let names: Vec<String> = before
+            .iter()
+            .chain(&self.contributed)
+            .map(|c| c.name.clone())
+            .filter(|name| {
+                before.iter().find(|c| c.name == *name)
+                    != self.contributed.iter().find(|c| c.name == *name)
+            })
+            .collect();
+        let mut stopping = Vec::new();
+        let mut lost = Vec::new();
+        self.instances.retain_mut(|instance| {
+            if !names.iter().any(|name| **name == *instance.key.server) {
+                return true;
+            }
+            lost.push(instance.id);
+            stopping.push(std::mem::replace(
+                &mut instance.phase,
+                Phase::Failed(String::new()),
+            ));
+            false
+        });
+        for id in lost {
+            self.requests_lost(id);
+        }
+        for phase in stopping {
+            stop_in_background(phase);
+        }
+        let settings = self.snapshot.servers.clone();
+        self.rebuild_servers(&settings);
+        self.assignments.clear();
+        // The open documents look for their servers again.
+        let snapshot = self.snapshot.clone();
+        self.apply_snapshot(snapshot);
+    }
+
     fn apply_snapshot(&mut self, snapshot: Snapshot) {
         // New roots or settings may move every document, so look again.
         if snapshot.servers != self.snapshot.servers {
-            // Servers the person registered join the catalogued ones.
-            let (extra, _) = registered(&snapshot.servers, &self.base_servers);
-            self.servers = Arc::new(self.base_servers.extended(&extra).0);
+            self.rebuild_servers(&snapshot.servers);
         }
         if snapshot.workspace_roots != self.snapshot.workspace_roots
             || snapshot.servers != self.snapshot.servers
@@ -1295,6 +1408,7 @@ impl Coordinator {
         let auto = install_policy(&self.snapshot.servers, &server) == InstallPolicy::Auto;
         let configuration = configuration_of(&self.snapshot.servers, &server);
         let gate = self.options.start_gate.clone();
+        let refusal = self.contributed_refusal(&server, &self.instances[at].key.root);
         let instance = &mut self.instances[at];
         instance.run += 1;
         instance.log.clear();
@@ -1308,6 +1422,10 @@ impl Coordinator {
             instance.phase = Phase::Unavailable("the project folder has no usable path".into());
             return;
         };
+        if let Some(reason) = refusal {
+            instance.phase = Phase::Unavailable(reason);
+            return;
+        }
         if let Some(StartGate(gate)) = &gate
             && let Err(reason) = gate(&key.root)
         {

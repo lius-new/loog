@@ -785,6 +785,108 @@ fn an_untrusted_root_never_starts_its_server_until_the_gate_opens() {
 }
 
 #[test]
+fn a_server_an_extension_declares_runs_only_where_it_is_allowed_and_stops_when_withdrawn() {
+    use crate::infrastructure::lsp::manager::Contributed;
+    let n = RUNS.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("loom-ext-{}-{n}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut definition: Value = serde_json::from_str(&definition_running(
+        &fake_server().display().to_string(),
+        "ext-fake",
+        "fake",
+        0,
+    ))
+    .unwrap();
+    definition["args"] = json!([
+        "--sync",
+        "full",
+        "--log",
+        dir.join("ext.log").display().to_string()
+    ]);
+    let declared = |allowed: Vec<PathBuf>| {
+        vec![Contributed {
+            name: "ext-fake".into(),
+            definition: definition.clone(),
+            allowed_roots: allowed,
+            refusal: "acme.fake: running programs here has not been allowed".into(),
+        }]
+    };
+    let manager = Manager::start(registry(), servers(&[]), None, options(), || {});
+    let wait =
+        |what: &str,
+         check: &dyn Fn(&[crate::infrastructure::lsp::manager::InstanceInfo]) -> bool| {
+            let limit = Instant::now() + Duration::from_secs(15);
+            while !check(&manager.infos()) {
+                assert!(
+                    Instant::now() < limit,
+                    "timed out waiting for {what}: {:?}",
+                    manager.infos()
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+    let path = dir.join("a.fk");
+    manager.update(Snapshot {
+        documents: vec![SnapshotDocument {
+            language: registry().resolve_path(&path),
+            path,
+            stamp: Stamp {
+                incarnation: 1,
+                version: 0,
+            },
+            text: Arc::new("x".to_owned()),
+        }],
+        workspace_roots: vec![dir.clone()],
+        servers: Vec::new(),
+        languages: Default::default(),
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(manager.infos().is_empty(), "nothing declares a server yet");
+
+    // Declared but no folder is allowed: the instance says why and runs nothing.
+    manager.set_contributed(declared(Vec::new()));
+    wait("the refusal", &|infos| {
+        infos.iter().any(
+            |i| matches!(&i.status, Status::Unavailable(m) if m.contains("has not been allowed")),
+        )
+    });
+    assert!(!dir.join("ext.log").exists(), "no process ran");
+
+    // Allowing the folder starts the same server for the same document.
+    manager.set_contributed(declared(vec![dir.clone()]));
+    wait("ready", &|infos| {
+        infos.iter().any(|i| i.status == Status::Ready)
+    });
+
+    // Withdrawing it stops the process at once, without waiting for the idle time.
+    manager.set_contributed(Vec::new());
+    wait("the instance to be gone", &|infos| infos.is_empty());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn an_extension_server_cannot_take_the_name_of_another_server() {
+    use crate::infrastructure::lsp::manager::Contributed;
+    let f = Fixture::new(&[]);
+    // Same name as the catalogued test server, so the declaration is left out and
+    // the catalogued one keeps serving.
+    f.mgr().set_contributed(vec![Contributed {
+        name: "fake-server".into(),
+        definition: serde_json::from_str(&definition_running(
+            "/bin/does-not-exist",
+            "fake-server",
+            "fake",
+            0,
+        ))
+        .unwrap(),
+        allowed_roots: Vec::new(),
+        refusal: "never shown".into(),
+    }]);
+    f.show(vec![f.doc("a.fk", 0, "hello")]);
+    f.wait_status("ready", |s| *s == Status::Ready);
+}
+
+#[test]
 fn findings_from_an_extension_show_for_their_state_survive_server_housekeeping_and_can_be_withdrawn()
  {
     use crate::features::language_service::diagnostics::{Diagnostic, Severity};
