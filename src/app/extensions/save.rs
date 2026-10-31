@@ -325,19 +325,18 @@ impl ExtensionService {
     /// End a chain without changing anything; participants still holding the
     /// restriction are released.
     pub(super) fn fail(&mut self, id: u64, message: String, effects: &mut Vec<Effect>) {
-        if let Some(chain) = self.saves.remove(&id) {
-            if let Some(current) = chain.current {
-                if let Some(request) = current.request {
-                    self.save_calls.remove(&request);
-                    if let Some(call) = self.provider_calls.remove(&request) {
-                        let generation = call.generation;
-                        effects.push(Effect::Submit(Job::EndSave {
-                            id: call.extension,
-                            generation,
-                            request,
-                        }));
-                    }
-                }
+        if let Some(chain) = self.saves.remove(&id)
+            && let Some(current) = chain.current
+            && let Some(request) = current.request
+        {
+            self.save_calls.remove(&request);
+            if let Some(call) = self.provider_calls.remove(&request) {
+                let generation = call.generation;
+                effects.push(Effect::Submit(Job::EndSave {
+                    id: call.extension,
+                    generation,
+                    request,
+                }));
             }
         }
         effects.push(Effect::SaveReady {

@@ -268,10 +268,10 @@ fn apply_to_workspace(app: &mut AppState, ops: &[Op]) -> Vec<FileChange> {
     for op in ops {
         match op {
             Op::Create { path, text, .. } => {
-                if let Some(id) = app.workspace.file_id_for_path(path) {
-                    if let Some(document) = app.workspace.documents.get_mut(&id) {
-                        document.buffer.reload(text.clone().unwrap_or_default());
-                    }
+                if let Some(id) = app.workspace.file_id_for_path(path)
+                    && let Some(document) = app.workspace.documents.get_mut(&id)
+                {
+                    document.buffer.reload(text.clone().unwrap_or_default());
                 }
                 changes.push(FileChange::Created(path.clone()));
             }

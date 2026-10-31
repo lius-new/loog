@@ -171,8 +171,10 @@ language and its snippets in the editor's snippet syntax:
 ```
 
 The snippets appear in the completion list of that language after the language
-servers' items (up to 500 per file). `contributes.languages` resources are only
-checked as JSON so far; grammars still come from language packs.
+servers' items (up to 500 per file). A `contributes.languages` resource is the
+`tree-sitter.json` of a language pack inside the package; it is found at startup
+and needs a restart (see `docs/languages.md`). The roadmap of what is not done
+yet is `docs/extensions-roadmap.md`.
 
 ## Language servers
 

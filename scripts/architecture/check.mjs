@@ -103,6 +103,7 @@ export function allowed(file, dependency) {
   if(file==='src/infrastructure/file_watcher.rs')return ['infrastructure','notify','std::fs','std::thread'].includes(root);
   if(file==='src/infrastructure/lsp_watch.rs')return ['infrastructure','features','serde_json','std::fs','std::thread'].includes(root);
   if(file==='src/features/language_service/watch.rs'&&root==='regex')return true;
+  if(file==='src/ui/theme_package.rs'&&root==='serde_json')return true;
   if(file==='src/features/language_service/snippet/transform.rs'&&root==='fancy_regex')return true;
   if(file==='src/infrastructure/file_drop.rs')return ['infrastructure','domain','lgui','windows_sys'].includes(root);
   if(file==='src/infrastructure/syntax_worker.rs'||file==='src/infrastructure/syntax_worker_tests.rs'||file==='src/infrastructure/syntax_worker_bench.rs'||file==='src/infrastructure/syntax_worker_retained.rs')return ['infrastructure','features','domain','std::thread'].includes(root);

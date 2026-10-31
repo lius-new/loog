@@ -218,16 +218,28 @@ pub(crate) struct Packages {
 }
 impl Packages {
     pub(crate) fn discover(bundled: &Path, user: Option<&Path>) -> Self {
+        Self::discover_with(bundled, &[], user)
+    }
+
+    /// Like [`Self::discover`], with the language packs that extension packages
+    /// contribute (see [`extension_packs`]) between the bundled collections and
+    /// the user's: they cannot replace a bundled collection, and the user's
+    /// copies still win over both.
+    pub(crate) fn discover_with(
+        bundled: &Path,
+        extension_packs: &[PathBuf],
+        user: Option<&Path>,
+    ) -> Self {
         let mut source = Self {
             packages: BTreeMap::new(),
             loaded: Mutex::default(),
             catalog: None,
             disabled: BTreeSet::new(),
         };
-        for (root, replace) in [(Some(bundled), false), (user, true)] {
-            if let Some(root) = root {
-                source.scan(root, replace);
-            }
+        source.scan(bundled, false);
+        source.add_directories(extension_packs.to_vec(), false);
+        if let Some(user) = user {
+            source.scan(user, true);
         }
         source
     }
@@ -268,6 +280,10 @@ impl Packages {
                 ),
             }
         }
+        self.add_directories(directories, replace);
+    }
+
+    fn add_directories(&mut self, mut directories: Vec<PathBuf>, replace: bool) {
         directories.sort();
         for directory in directories {
             // Ignore unrelated folders and partially downloaded packages.
@@ -650,6 +666,77 @@ impl Resources for Packages {
         Self::report(&mut self.loaded.lock().unwrap(), error);
     }
 }
+/// The language packs extension packages contribute: for every package folder
+/// in `extensions` whose manifest lists a `contributes.languages` resource named
+/// `tree-sitter.json` (or `package.json`), the folder that file is in. The
+/// manifest is read with the extension loader's own rules and a package whose
+/// manifest it rejects contributes nothing; nothing here runs or loads a module.
+pub(crate) fn extension_packs(extensions: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(extensions) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for entry in entries.flatten() {
+        let package = entry.path();
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) || entry.file_name() == ".cache" {
+            continue;
+        }
+        let Ok(manifest) =
+            read_text(&package.join("manifest.json"), MAX_MANIFEST).and_then(|text| {
+                crate::features::extensions::manifest::Manifest::parse(&text)
+                    .map_err(|error| error.to_string())
+            })
+        else {
+            continue;
+        };
+        for resource in &manifest.contributes.languages {
+            if let Some(directory) = pack_directory(&package, &resource.path) {
+                found.push(directory);
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    found.truncate(MAX_PACKAGES);
+    found
+}
+
+/// The pack folder a package's language resource `path` names: its parent, when
+/// the file is a pack manifest and stays inside the package after resolving links.
+fn pack_directory(package: &Path, path: &str) -> Option<PathBuf> {
+    let file = Path::new(path).file_name()?.to_str()?;
+    if !matches!(file, "tree-sitter.json" | "package.json") {
+        return None;
+    }
+    let base = package.canonicalize().ok()?;
+    let directory = package.join(path).parent()?.canonicalize().ok()?;
+    directory.starts_with(&base).then_some(directory)
+}
+
+/// Why a language resource of an extension package cannot be used, checked the
+/// way startup discovery would: the pack's manifest, its grammars and file types.
+pub(crate) fn check_extension_pack(package: &Path, path: &str) -> Result<(), String> {
+    let directory = pack_directory(package, path)
+        .ok_or("a language resource must be a tree-sitter.json inside the package")?;
+    let installed = if directory.join("tree-sitter.json").is_file() {
+        standard::read(&directory)?
+    } else {
+        let text = read_text(&directory.join("package.json"), MAX_MANIFEST)?;
+        let manifest: Manifest = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        manifest.validate(&directory)?;
+        Installed {
+            manifest,
+            root: directory.clone(),
+            standard: None,
+        }
+    };
+    registry(&BTreeMap::from([(
+        installed.manifest.id.clone(),
+        installed,
+    )]))
+    .map(|_| ())
+}
+
 /// Where the application keeps its bundled resource directory `name`: beside the
 /// executable, or in the bundle's `Resources` on macOS.
 pub(crate) fn bundled_directory(executable: &Path, name: &str) -> PathBuf {
@@ -729,7 +816,12 @@ pub(crate) fn resources() -> Arc<Packages> {
             {
                 let bundled = locations(&executable);
                 let user = user_directory();
-                let mut source = Packages::discover(&bundled, user.as_deref());
+                // Packs inside extension packages are found now, like the others; a
+                // pack added later is seen after a restart, as for any language pack.
+                let contributed = user_resource_directory("extensions")
+                    .map(|directory| extension_packs(&directory))
+                    .unwrap_or_default();
+                let mut source = Packages::discover_with(&bundled, &contributed, user.as_deref());
                 if let Err(error) = source.enable_catalog(
                     &bundled.join("language-packs.toml"),
                     user.map(|p| p.join(".managed")),
@@ -743,10 +835,10 @@ pub(crate) fn resources() -> Arc<Packages> {
 }
 pub(crate) fn initialize() {
     let source = resources();
-    if let Ok(registry) = source.registry() {
-        if let Err(error) = Registry::install(registry) {
-            eprintln!("language packages: {error}");
-        }
+    if let Ok(registry) = source.registry()
+        && let Err(error) = Registry::install(registry)
+    {
+        eprintln!("language packages: {error}");
     }
 }
 pub(crate) fn index() -> TreeIndex {

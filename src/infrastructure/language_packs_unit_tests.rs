@@ -319,6 +319,116 @@ fn upstream_manifest_alone_registers_suffixes_without_loading_any_payload() {
     assert_eq!(source.activity(), Activity::default());
 }
 
+/// An extension package folder with a manifest that lists `resources` as language resources.
+fn extension_package(temp: &Temp, name: &str, resources: &[&str]) -> PathBuf {
+    let package = temp.0.join("extensions").join(name);
+    fs::create_dir_all(&package).unwrap();
+    let list: Vec<Value> = resources
+        .iter()
+        .enumerate()
+        .map(|(n, path)| json!({ "id": format!("acme.{name}.lang{n}"), "path": path }))
+        .collect();
+    fs::write(
+        package.join("manifest.json"),
+        json!({ "schema": 1, "id": format!("acme.{name}"), "version": "1.0.0",
+                "contributes": { "languages": list } })
+        .to_string(),
+    )
+    .unwrap();
+    package
+}
+
+fn write_pack(package: &Path, directory: &str, grammar: &str, suffix: &str) {
+    let root = package.join(directory);
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("tree-sitter.json"),
+        json!({"grammars":[{"name":grammar,"file-types":[suffix]}]}).to_string(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_language_pack_inside_an_extension_package_is_found_at_startup() {
+    let temp = Temp::new();
+    let package = extension_package(&temp, "weave", &["grammars/weave/tree-sitter.json"]);
+    write_pack(&package, "grammars/weave", "weave", "wv");
+    // A package whose resource is not a pack manifest, or leaves the package, contributes nothing.
+    extension_package(
+        &temp,
+        "other",
+        &["notes/readme.json", "../outside/tree-sitter.json"],
+    );
+    fs::create_dir_all(temp.0.join("extensions/other/notes")).unwrap();
+    fs::write(temp.0.join("extensions/other/notes/readme.json"), "{}").unwrap();
+    write_pack(&temp.0, "outside", "outside", "ou");
+
+    let found = extension_packs(&temp.0.join("extensions"));
+    assert_eq!(
+        found,
+        [package.join("grammars/weave").canonicalize().unwrap()]
+    );
+
+    let bundled = temp.0.join("bundled");
+    let source = Packages::discover_with(&bundled, &found, None);
+    let registry = source.registry().unwrap();
+    for (file, expected) in [("a.wv", "weave"), ("a.ou", "plaintext")] {
+        assert_eq!(
+            registry
+                .definition_of(registry.resolve_path(Path::new(file)))
+                .name
+                .as_ref(),
+            expected,
+            "{file}"
+        );
+    }
+    assert!(check_extension_pack(&package, "grammars/weave/tree-sitter.json").is_ok());
+    assert!(check_extension_pack(&package, "grammars/weave/readme.json").is_err());
+}
+
+#[test]
+fn an_extension_pack_cannot_replace_a_bundled_collection_but_a_user_copy_replaces_both() {
+    let temp = Temp::new();
+    let bundled = temp.0.join("bundled");
+    write_pack(&bundled, "tree-sitter-weave", "weave", "wv");
+    let package = extension_package(&temp, "weave", &["g/tree-sitter.json"]);
+    write_pack(&package, "g", "weave", "weave2");
+    let found = extension_packs(&temp.0.join("extensions"));
+
+    let source = Packages::discover_with(&bundled, &found, None);
+    let registry = source.registry().unwrap();
+    let name = |file: &str| {
+        registry
+            .definition_of(registry.resolve_path(Path::new(file)))
+            .name
+            .to_string()
+    };
+    assert_eq!(name("a.wv"), "weave", "the bundled collection stays");
+    assert_eq!(name("a.weave2"), "plaintext", "the duplicate was refused");
+    assert!(
+        source
+            .activity()
+            .errors
+            .iter()
+            .any(|e| e.contains("duplicate")),
+        "{:?}",
+        source.activity().errors
+    );
+
+    let user = temp.0.join("user");
+    write_pack(&user, "mine", "weave", "mine");
+    let registry = Packages::discover_with(&bundled, &found, Some(&user))
+        .registry()
+        .unwrap();
+    assert_eq!(
+        registry
+            .definition_of(registry.resolve_path(Path::new("a.mine")))
+            .name
+            .as_ref(),
+        "weave"
+    );
+}
+
 #[test]
 fn standard_suffixes_include_dotfiles_and_longest_suffix_wins() {
     let temp = Temp::new();

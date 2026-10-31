@@ -31,6 +31,26 @@ may retain upstream names, such as tree-sitter-rust; they need not equal a gramm
 name. Directory symlinks and unrelated folders are ignored. Restart after manually
 installing, removing or updating resources. Catalog downloads activate without restart.
 
+## Language packs inside extension packages
+
+An extension package can carry a language pack. List the pack's `tree-sitter.json`
+(or `package.json`) under `contributes.languages` in the package manifest:
+
+~~~json
+{ "contributes": { "languages": [
+  { "id": "acme.weave.grammar", "path": "grammars/weave/tree-sitter.json" }
+] } }
+~~~
+
+The folder that file is in is read like any other collection, with the same
+files and rules. At startup it is discovered after the application's collections
+and before the user's: it cannot replace a bundled collection (the duplicate is
+reported and refused), and a collection in the user location replaces it. The
+file must stay inside the package after resolving links. Extension packs are
+read at startup, so install or change one and restart Loom; `workspace::ShowExtensions`
+lists a pack that does not pass the same checks. The pack runs no code of its
+own: grammars are WASM modules loaded by the language runtime as usual.
+
 ## Automatic installation from the bundled catalog
 
 At startup Loom reads `language-packs.toml` beside the bundled collections once.

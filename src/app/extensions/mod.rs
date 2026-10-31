@@ -352,8 +352,10 @@ fn accept_resources(
         }
     }
     for resource in &c.languages {
-        match read_resource(dir, &resource.path) {
-            Ok(_) => accepted.languages.push(resource.id.clone()),
+        // A language resource is a language pack; startup discovery loads it
+        // (design §6.6.1), so it is held to the rules of a pack here.
+        match crate::infrastructure::language_packs::check_extension_pack(dir, &resource.path) {
+            Ok(()) => accepted.languages.push(resource.id.clone()),
             Err(reason) => accepted.rejected.push((resource.id.clone(), reason)),
         }
     }
@@ -2181,12 +2183,12 @@ impl ExtensionService {
                         .collect();
                     let (json, dropped) =
                         providers::completion_json(&call.extension, &call.provider, &offered);
-                    if dropped > 0 {
-                        if let Some(package) = self.packages.get_mut(id) {
-                            package
-                                .logs
-                                .push((1, format!("{dropped} completion item(s) were dropped")));
-                        }
+                    if dropped > 0
+                        && let Some(package) = self.packages.get_mut(id)
+                    {
+                        package
+                            .logs
+                            .push((1, format!("{dropped} completion item(s) were dropped")));
                     }
                     match (call.job.kind, call.item_raw.clone()) {
                         (WireKind::CompletionResolve, Some(raw)) if on_time => json
@@ -2280,16 +2282,16 @@ impl ExtensionService {
                     text: call.text.clone(),
                     items: converted.diagnostics,
                 }];
-                if converted.dropped > 0 {
-                    if let Some(package) = self.packages.get_mut(id) {
-                        package.logs.push((
-                            1,
-                            format!(
-                                "{} diagnostic(s) could not be placed and were dropped",
-                                converted.dropped
-                            ),
-                        ));
-                    }
+                if converted.dropped > 0
+                    && let Some(package) = self.packages.get_mut(id)
+                {
+                    package.logs.push((
+                        1,
+                        format!(
+                            "{} diagnostic(s) could not be placed and were dropped",
+                            converted.dropped
+                        ),
+                    ));
                 }
                 effects.shrink_to_fit();
                 effects
