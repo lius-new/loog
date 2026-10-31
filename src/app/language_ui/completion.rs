@@ -832,6 +832,8 @@ fn ask_extensions(
     if let Some(session) = app.editor.language.completion.as_mut() {
         session.external_pending = asked;
     }
+    // Snippets of packages need no waiting: they join the list at once.
+    host.offer_snippets(app, start);
 }
 
 /// An extension answered a completion request (or could not in time:
@@ -847,6 +849,52 @@ pub fn offer_external(
     rank: usize,
     items: Option<(Vec<serde_json::Value>, bool)>,
 ) {
+    offer(
+        app,
+        file,
+        incarnation,
+        word_start,
+        source,
+        rank,
+        items,
+        true,
+    );
+}
+
+/// Items that were not asked for, such as a package's snippets: they join the
+/// list like an answer but no answer was owed for them.
+pub fn offer_snippets(
+    app: &mut AppState,
+    file: FileId,
+    incarnation: u64,
+    word_start: usize,
+    source: u64,
+    rank: usize,
+    items: Vec<serde_json::Value>,
+) {
+    offer(
+        app,
+        file,
+        incarnation,
+        word_start,
+        source,
+        rank,
+        Some((items, false)),
+        false,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn offer(
+    app: &mut AppState,
+    file: FileId,
+    incarnation: u64,
+    word_start: usize,
+    source: u64,
+    rank: usize,
+    items: Option<(Vec<serde_json::Value>, bool)>,
+    answers_a_request: bool,
+) {
     let text = app_text(app);
     let Some(session) = app.editor.language.completion.as_mut() else {
         return;
@@ -857,7 +905,9 @@ pub fn offer_external(
     {
         return;
     }
-    session.external_pending = session.external_pending.saturating_sub(1);
+    if answers_a_request {
+        session.external_pending = session.external_pending.saturating_sub(1);
+    }
     let mut data = session.data.clone();
     if let Some((json, incomplete)) = items {
         let list = reply::CompletionList {

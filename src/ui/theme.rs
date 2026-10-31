@@ -444,8 +444,46 @@ const HIGH_CONTRAST: Palette = Palette {
 
 pub use crate::features::settings::theme_id::ThemeId;
 impl ThemeId {
+    /// The theme to draw with. A contributed theme that is gone draws as the default.
     pub fn theme(self) -> &'static Theme {
-        &THEMES[self.index()]
+        match self.index().checked_sub(THEMES.len()) {
+            None => &THEMES[self.index()],
+            Some(at) => CONTRIBUTED
+                .read()
+                .unwrap()
+                .get(at)
+                .copied()
+                .flatten()
+                .unwrap_or(&THEMES[0]),
+        }
+    }
+}
+
+/// Themes from extension packages, by the index `ThemeId` gives them (after the
+/// built-in ones). `None` once the package that provided one is gone.
+static CONTRIBUTED: std::sync::RwLock<Vec<Option<&'static Theme>>> =
+    std::sync::RwLock::new(Vec::new());
+
+/// Make exactly these package themes available: `(id, name, palette)`. A theme
+/// keeps its place when it is still listed; an unlisted one stops being offered.
+pub(crate) fn set_package_themes(themes: Vec<(String, String, Palette)>) {
+    let ids: Vec<&str> = themes.iter().map(|(id, ..)| id.as_str()).collect();
+    let places = ThemeId::set_contributed(&ids);
+    let mut slots = CONTRIBUTED.write().unwrap();
+    for slot in slots.iter_mut() {
+        *slot = None;
+    }
+    for ((id, name, palette), place) in themes.into_iter().zip(places) {
+        let at = place - THEMES.len();
+        if slots.len() <= at {
+            slots.resize(at + 1, None);
+        }
+        let theme: &'static Theme = Box::leak(Box::new(Theme {
+            id: Box::leak(id.into_boxed_str()),
+            name: Box::leak(name.into_boxed_str()),
+            palette,
+        }));
+        slots[at] = Some(theme);
     }
 }
 
@@ -705,8 +743,12 @@ mod tests {
 
     #[test]
     fn theme_ids_are_unique() {
+        // Built-in themes come first; contributed ones, if any test added them, follow.
         assert_eq!(
-            ThemeId::all().map(ThemeId::id).collect::<Vec<_>>(),
+            ThemeId::all()
+                .take(THEMES.len())
+                .map(ThemeId::id)
+                .collect::<Vec<_>>(),
             THEMES.iter().map(|theme| theme.id).collect::<Vec<_>>()
         );
         for (index, theme) in THEMES.iter().enumerate() {
@@ -725,7 +767,7 @@ mod tests {
 
     #[test]
     fn theme_ids_round_trip_as_json_strings() {
-        for id in ThemeId::all() {
+        for id in ThemeId::all().take(THEMES.len()) {
             let json = serde_json::to_string(&id).unwrap();
             assert_eq!(json, format!("\"{}\"", id.theme().id));
             assert_eq!(serde_json::from_str::<ThemeId>(&json).unwrap(), id);

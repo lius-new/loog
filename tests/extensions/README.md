@@ -124,6 +124,48 @@ inside a character, a parent that is missing) is dropped and logged; a code
 action with a bad edit is dropped as a whole. An extension may have 32 requests
 open at once; the newest beyond that gets no answer.
 
+## Themes and snippets
+
+A package needs no component to contribute themes or snippets. Both are data:
+they need no grant and no trusted folder, each file is checked on its own when
+the package loads, and one that is wrong is rejected whole with the reason shown
+by `workspace::ShowExtensions` while the package's other files stay in use.
+
+`contributes.themes` lists `{ "id", "path" }`. A theme file starts from a
+built-in theme and changes what it names:
+
+```json
+{
+  "name": "Acme Night",
+  "base": "aura-dark",
+  "colors": { "bg": "#101418", "accent": "#ff8800", "git.added": "#00cc66" },
+  "ansi": ["#000000", "... 16 colors ..."],
+  "shadow_alpha": 120,
+  "syntax": { "keyword": "#ff8800", "comment": { "fg": "#888888", "italic": true } }
+}
+```
+
+Color names are the palette fields (`bg`, `sidebar`, `text`, `diff.add_bg`,
+`git.added`, `badge.rust` and so on), syntax names the highlight classes
+(`keyword`, `function.method`, `string`...). An unknown name, a color that is not
+`#rrggbb` or an unknown field rejects the theme. The theme appears in Settings
+under the id from the manifest. A theme chosen in settings is applied once its
+package has loaded; if the package goes away the choice draws as the default
+theme until it returns.
+
+`contributes.snippets` lists `{ "id", "path" }`. A snippet file names one
+language and its snippets in the editor's snippet syntax:
+
+```json
+{ "language": "rust", "snippets": [
+  { "prefix": "tfn", "body": ["#[test]", "fn ${1:name}() {", "\t$0", "}"], "description": "A test" }
+] }
+```
+
+The snippets appear in the completion list of that language after the language
+servers' items (up to 500 per file). `contributes.languages` resources are only
+checked as JSON so far; grammars still come from language packs.
+
 ## Language servers
 
 `contributes.language_servers` declares a server (`id`, `languages`, `command`,

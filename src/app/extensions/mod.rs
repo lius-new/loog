@@ -181,6 +181,16 @@ pub enum Effect {
         rank: usize,
         items: Option<(Vec<serde_json::Value>, bool)>,
     },
+    /// Snippets of a package for the language being completed. Unlike a
+    /// provider's answer nothing is awaited, so the session does not count them.
+    OfferSnippets {
+        file: FileId,
+        incarnation: u64,
+        word_start: usize,
+        source: u64,
+        rank: usize,
+        items: Vec<serde_json::Value>,
+    },
     /// A completion item was resolved by the extension that offered it.
     ResolvedCompletion {
         source: u64,
@@ -281,7 +291,7 @@ pub struct Accepted {
 
 /// Check a data resource: inside the package after resolving links, readable,
 /// and valid JSON. Contents are checked again by the subsystem that loads them.
-fn check_resource(dir: &Path, path: &str) -> Result<(), String> {
+fn read_resource(dir: &Path, path: &str) -> Result<String, String> {
     let base = dir.canonicalize().map_err(|e| e.to_string())?;
     let file = dir
         .join(path)
@@ -290,32 +300,76 @@ fn check_resource(dir: &Path, path: &str) -> Result<(), String> {
     if !file.starts_with(&base) {
         return Err("the file is outside the package".to_owned());
     }
+    if std::fs::metadata(&file).map_err(|e| e.to_string())?.len() > MAX_RESOURCE_BYTES {
+        return Err("the file is too large".to_owned());
+    }
     let text = std::fs::read_to_string(&file).map_err(|e| e.to_string())?;
     serde_json::from_str::<serde_json::Value>(&text).map_err(|e| format!("invalid JSON: {e}"))?;
-    Ok(())
+    Ok(text)
 }
 
-fn accept_resources(dir: &Path, manifest: &Manifest) -> Accepted {
+/// Largest data resource a package may contribute.
+const MAX_RESOURCE_BYTES: u64 = 1024 * 1024;
+
+/// A theme a package contributes: id, name and the finished palette.
+pub(crate) type PackageTheme = (String, String, crate::ui::theme::Palette);
+
+/// Check every data resource on its own. Themes are read completely, so one that
+/// names a color wrongly is rejected here with the reason rather than drawn wrong.
+fn accept_resources(
+    dir: &Path,
+    manifest: &Manifest,
+) -> (Accepted, Vec<PackageTheme>, Vec<PackageSnippets>) {
     let mut accepted = Accepted::default();
+    let mut themes = Vec::new();
+    let mut snippets = Vec::new();
     let c = &manifest.contributes;
-    for (list, kind) in [(&c.themes, 0), (&c.languages, 1), (&c.snippets, 2)] {
-        for resource in list {
-            match check_resource(dir, &resource.path) {
-                Ok(()) => match kind {
-                    0 => accepted.themes.push(resource.id.clone()),
-                    1 => accepted.languages.push(resource.id.clone()),
-                    _ => accepted.snippets.push(resource.id.clone()),
-                },
-                Err(reason) => accepted.rejected.push((resource.id.clone(), reason)),
+    for resource in &c.themes {
+        match read_resource(dir, &resource.path)
+            .and_then(|text| crate::ui::theme_package::parse(&text))
+        {
+            Ok(parsed) => {
+                accepted.themes.push(resource.id.clone());
+                let name = if parsed.name.is_empty() {
+                    resource.id.clone()
+                } else {
+                    parsed.name
+                };
+                themes.push((resource.id.clone(), name, parsed.palette));
             }
+            Err(reason) => accepted.rejected.push((resource.id.clone(), reason)),
         }
     }
-    accepted
+    for resource in &c.snippets {
+        match read_resource(dir, &resource.path)
+            .and_then(|text| crate::features::extensions::snippets::parse(&text))
+        {
+            Ok(file) => {
+                accepted.snippets.push(resource.id.clone());
+                snippets.push((resource.id.clone(), file));
+            }
+            Err(reason) => accepted.rejected.push((resource.id.clone(), reason)),
+        }
+    }
+    for resource in &c.languages {
+        match read_resource(dir, &resource.path) {
+            Ok(_) => accepted.languages.push(resource.id.clone()),
+            Err(reason) => accepted.rejected.push((resource.id.clone(), reason)),
+        }
+    }
+    (accepted, themes, snippets)
 }
+
+/// A snippet file a package contributes, under its resource id.
+pub(crate) type PackageSnippets = (String, crate::features::extensions::snippets::File);
 
 pub struct Package {
     pub manifest: Manifest,
     pub resources: Accepted,
+    /// The accepted themes, ready to draw with.
+    themes: Vec<PackageTheme>,
+    /// The accepted snippet files.
+    snippets: Vec<PackageSnippets>,
     feeds: HashMap<u64, Feed>,
     /// Resolved setting values (JSON text per key) and what could not be used.
     resolved: crate::features::extensions::settings::Resolved,
@@ -368,6 +422,8 @@ pub struct ExtensionService {
     trust: Option<std::sync::Arc<crate::infrastructure::extensions::trust_store::TrustStore>>,
     /// Provider request -> the language request it answers.
     language_calls: HashMap<u64, u64>,
+    /// Moves on whenever the set of package themes may have changed.
+    themes_revision: u64,
 }
 
 /// The setting files as last read.
@@ -491,7 +547,12 @@ impl ExtensionService {
             storage_dir,
             trust: None,
             language_calls: HashMap::new(),
+            themes_revision: 0,
         }
+    }
+
+    pub(crate) fn themes_revision(&self) -> u64 {
+        self.themes_revision
     }
 
     pub fn set_clock(&mut self, clock: impl Fn() -> u64 + Send + 'static) {
@@ -551,7 +612,8 @@ impl ExtensionService {
             self.calls
                 .retain(|_, call| call.extension != old.manifest.id);
         }
-        let resources = accept_resources(dir, &manifest);
+        let (resources, themes, snippets) = accept_resources(dir, &manifest);
+        self.themes_revision += 1;
         let resolved = crate::features::extensions::settings::resolve(
             &manifest.contributes.settings,
             &self.settings.user,
@@ -563,6 +625,8 @@ impl ExtensionService {
             Package {
                 manifest,
                 resources,
+                themes,
+                snippets,
                 dir: dir.to_path_buf(),
                 identity,
                 lifecycle,
@@ -920,6 +984,7 @@ impl ExtensionService {
         if package.lifecycle.stopping().is_ok() {
             let _ = package.lifecycle.stopped();
         }
+        self.themes_revision += 1;
         self.calls.retain(|_, call| call.extension != id);
         let mut effects = self.clear_sources(id);
         effects.extend(self.cancel_tasks_of(id));
@@ -1835,6 +1900,47 @@ impl ExtensionService {
         (asked, effects)
     }
 
+    /// The snippets that packages contribute for the active document's language.
+    /// Packages that were stopped offer nothing; snippets are data, so no grant
+    /// is needed.
+    pub fn snippet_offers(&mut self, app: &AppState, word_start: usize) -> Vec<Effect> {
+        let Some(file) = app.workspace.active_document() else {
+            return Vec::new();
+        };
+        let Some(document) = app.workspace.documents.get(&file) else {
+            return Vec::new();
+        };
+        let language = document.meta.lang.definition().name.to_string();
+        let incarnation = document.stamp(file).incarnation;
+        let mut found: Vec<(String, String, Vec<serde_json::Value>)> = Vec::new();
+        for (owner, package) in &self.packages {
+            if package.lifecycle.state() == State::Stopped {
+                continue;
+            }
+            for (id, snippets) in &package.snippets {
+                if snippets.language == language {
+                    found.push((
+                        owner.clone(),
+                        id.clone(),
+                        crate::features::extensions::snippets::completion_items(snippets),
+                    ));
+                }
+            }
+        }
+        found.sort_by(|a, b| a.1.cmp(&b.1));
+        found
+            .into_iter()
+            .map(|(owner, id, items)| Effect::OfferSnippets {
+                file,
+                incarnation,
+                word_start,
+                source: self.source_for(&owner, &id),
+                rank: COMPLETION_RANK,
+                items,
+            })
+            .collect()
+    }
+
     /// Ask the extension that offered a completion item to complete it. The
     /// `raw` JSON carries the origin; an item whose origin does not match
     /// the source it is filed under is not resolved.
@@ -2284,6 +2390,19 @@ impl ExtensionService {
 
     fn root_key(path: &Path) -> String {
         path.to_string_lossy().into_owned()
+    }
+
+    /// The themes of loaded packages that were not stopped, in id order. Themes
+    /// are data, so they need no grant and no trusted folder.
+    pub(crate) fn themes(&self) -> Vec<PackageTheme> {
+        let mut themes: Vec<PackageTheme> = self
+            .packages
+            .values()
+            .filter(|package| package.lifecycle.state() != State::Stopped)
+            .flat_map(|package| package.themes.iter().cloned())
+            .collect();
+        themes.sort_by(|a, b| a.0.cmp(&b.0));
+        themes
     }
 
     /// The language servers loaded packages declare, each with the open folders

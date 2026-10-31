@@ -108,6 +108,7 @@ pub mod device_scale;
 pub mod file_icons;
 pub mod fonts;
 pub mod theme;
+pub(crate) mod theme_package;
 
 pub(crate) mod settings_binding;
 

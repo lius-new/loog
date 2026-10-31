@@ -33,6 +33,8 @@ struct Inner {
     language_sinks: Mutex<std::collections::HashMap<u64, (PartSink, usize)>>,
     next_language: std::sync::atomic::AtomicU64,
     hooked: std::sync::atomic::AtomicBool,
+    /// The themes revision last published.
+    themes_seen: std::sync::atomic::AtomicU64,
 }
 
 /// Runs on the UI thread when the participants are done; `true` means write the files.
@@ -102,6 +104,22 @@ impl Inner {
                 Effect::ResolvedCompletion { source, raw, item } => {
                     crate::app::language_ui::completion::offer_resolved(app, source, &raw, &item)
                 }
+                Effect::OfferSnippets {
+                    file,
+                    incarnation,
+                    word_start,
+                    source,
+                    rank,
+                    items,
+                } => crate::app::language_ui::completion::offer_snippets(
+                    app,
+                    file,
+                    incarnation,
+                    word_start,
+                    source,
+                    rank,
+                    items,
+                ),
                 Effect::RunFileOps { key, ops } => {
                     let inner = self.context.clone();
                     let application = self.application.clone();
@@ -274,6 +292,7 @@ impl ExtensionHost {
             language_sinks: Mutex::new(std::collections::HashMap::new()),
             next_language: std::sync::atomic::AtomicU64::new(1),
             hooked: std::sync::atomic::AtomicBool::new(false),
+            themes_seen: std::sync::atomic::AtomicU64::new(0),
         });
         let _ = inner.self_ref.set(Arc::downgrade(&inner));
         inner.service.lock().unwrap().set_trust(inner.trust.clone());
@@ -403,6 +422,18 @@ impl ExtensionHost {
         asked
     }
 
+    /// Add the snippets packages contribute for this language to the open
+    /// completion session.
+    pub(crate) fn offer_snippets(&self, app: &mut AppState, word_start: usize) {
+        let effects = self
+            .inner
+            .service
+            .lock()
+            .unwrap()
+            .snippet_offers(app, word_start);
+        self.inner.apply(app, effects);
+    }
+
     /// Ask the extension that offered a completion item to complete it.
     pub(crate) fn request_completion_resolve(
         &self,
@@ -430,17 +461,40 @@ impl ExtensionHost {
     /// Tell subscribed extensions about document changes this update made.
     pub(crate) fn observe(&self, app: &AppState) {
         self.attach_language_hook();
-        let (effects, servers) = {
+        let (effects, servers, themes) = {
             let mut service = self.inner.service.lock().unwrap();
             let effects = service.observe(app);
-            (effects, service.language_servers())
+            let revision = service.themes_revision();
+            let themes = (self.inner.themes_seen.swap(revision, Ordering::Relaxed) != revision)
+                .then(|| service.themes());
+            (effects, service.language_servers(), themes)
         };
+        if let Some(themes) = themes {
+            self.publish_themes(themes);
+        }
         for effect in effects {
             if let (Effect::Submit(job), Some(executor)) = (effect, self.inner.executor.get()) {
                 executor.submit(job);
             }
         }
         self.publish_language_servers(servers);
+    }
+
+    /// Make the packages' themes available for choosing. A theme that settings
+    /// named before its package loaded is chosen now, from the next turn of the
+    /// application (this runs inside an update).
+    fn publish_themes(&self, themes: Vec<super::PackageTheme>) {
+        crate::ui::theme::set_package_themes(themes);
+        if let Some(wanted) = crate::features::settings::theme_id::ThemeId::take_wanted() {
+            let context = self.inner.context.clone();
+            self.inner.application.post(move || {
+                context.update(|app| {
+                    if app.preferences.values().theme == Default::default() {
+                        app.preferences.values_mut().theme = wanted;
+                    }
+                });
+            });
+        }
     }
 
     /// Hand the language service the servers packages declare when they, or the

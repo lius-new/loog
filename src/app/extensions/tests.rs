@@ -212,6 +212,9 @@ impl Fixture {
                     self.resolved.push((source, item))
                 }
                 Effect::LanguageAnswer { token, answer } => self.language.push((token, answer)),
+                Effect::OfferSnippets { source, items, .. } => {
+                    self.offered.push((source, Some((items, false))))
+                }
             }
         }
         messages
@@ -673,6 +676,130 @@ fn a_resource_only_package_loads_without_a_component_and_bad_resources_are_dropp
     );
     // A package without behaviour never activates, whatever happens to its resources.
     assert!(service.commands().is_empty());
+}
+
+#[test]
+fn package_snippets_are_offered_for_their_language_only_and_a_bad_file_is_rejected_whole() {
+    let probe = std::env::temp_dir().join(format!("loom-ext-doc-{}-snip.txt", std::process::id()));
+    let language = language_of(&probe);
+    let dir = std::env::temp_dir().join(format!("loom-ext-snippets-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("snippets")).unwrap();
+    let file = |language: &str| {
+        format!(
+            r#"{{ "language": "{language}", "snippets": [
+                {{ "prefix": "hello", "body": ["Hello, ${{1:name}}!", "$0"], "description": "Greeting" }}
+            ] }}"#
+        )
+    };
+    std::fs::write(dir.join("snippets/here.json"), file(&language)).unwrap();
+    std::fs::write(
+        dir.join("snippets/elsewhere.json"),
+        file("no-such-language"),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("snippets/bad.json"),
+        r#"{ "language": "x", "snippets": [{ "prefix": "a" }] }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("manifest.json"),
+        r#"{ "schema": 1, "id": "acme.snip", "version": "1.0.0",
+            "contributes": { "snippets": [
+                { "id": "acme.snip.here", "path": "snippets/here.json" },
+                { "id": "acme.snip.elsewhere", "path": "snippets/elsewhere.json" },
+                { "id": "acme.snip.bad", "path": "snippets/bad.json" }
+            ] } }"#,
+    )
+    .unwrap();
+    let mut f = fixture_with("snip", "he", 0..0, &provider_manifest(&language));
+    let id = f.service.load_package(&dir).unwrap();
+    let package = f.service.package(&id).unwrap();
+    assert_eq!(package.resources.snippets.len(), 2);
+    assert!(
+        package.resources.rejected[0]
+            .1
+            .contains("snippet 1 needs a \"body\"")
+    );
+
+    let effects = f.service.snippet_offers(&f.app, 0);
+    assert_eq!(effects.len(), 1, "only the file for this language");
+    f.apply(effects);
+    let (source, items) = f.offered.last().cloned().unwrap();
+    assert!(source & crate::infrastructure::lsp::manager::EXTERNAL_SOURCE != 0);
+    let (items, incomplete) = items.unwrap();
+    assert!(!incomplete);
+    assert_eq!(items[0]["label"], "hello");
+    assert_eq!(items[0]["insertText"], "Hello, ${1:name}!\n$0");
+    assert_eq!(items[0]["insertTextFormat"], 2);
+
+    // A stopped package offers nothing.
+    f.service.stop("acme.snip");
+    assert!(f.service.snippet_offers(&f.app, 0).is_empty());
+}
+
+#[test]
+fn a_package_theme_is_read_completely_offered_by_id_and_withdrawn_with_its_package() {
+    let _turn = crate::features::settings::theme_id::REGISTRY_TURN
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("loom-ext-theme-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).unwrap();
+    std::fs::write(
+        dir.join("themes/dark.json"),
+        r##"{ "name": "Acme Night", "colors": { "bg": "#101418" }, "syntax": { "keyword": "#ff8800" } }"##,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("themes/typo.json"),
+        r##"{ "colors": { "bgg": "#101418" } }"##,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("manifest.json"),
+        r#"{ "schema": 1, "id": "acme.look", "version": "1.0.0",
+            "contributes": { "themes": [
+                { "id": "acme.look.night", "path": "themes/dark.json" },
+                { "id": "acme.look.typo", "path": "themes/typo.json" }
+            ] } }"#,
+    )
+    .unwrap();
+    let mut service = ExtensionService::new(std::env::temp_dir().join("loom-ext-cache-theme"));
+    let id = service.load_package(&dir).unwrap();
+    let package = service.package(&id).unwrap();
+    assert_eq!(package.resources.themes, ["acme.look.night"]);
+    assert!(
+        package.resources.rejected[0]
+            .1
+            .contains("unknown color \"bgg\""),
+        "{:?}",
+        package.resources.rejected
+    );
+
+    let themes = service.themes();
+    assert_eq!(themes.len(), 1);
+    assert_eq!(
+        (themes[0].0.as_str(), themes[0].1.as_str()),
+        ("acme.look.night", "Acme Night")
+    );
+    assert_eq!(themes[0].2.bg.0, 0x101418);
+
+    // Offered by id, drawn with its own palette, and gone with the package.
+    crate::ui::theme::set_package_themes(themes);
+    let chosen = crate::features::settings::theme_id::ThemeId::parse("acme.look.night").unwrap();
+    assert_eq!(chosen.theme().palette.bg.0, 0x101418);
+    let revision = service.themes_revision();
+    service.stop("acme.look");
+    assert!(service.themes_revision() > revision);
+    crate::ui::theme::set_package_themes(service.themes());
+    assert!(crate::features::settings::theme_id::ThemeId::parse("acme.look.night").is_none());
+    assert_eq!(
+        chosen.theme().id,
+        "aura-dark",
+        "a gone theme draws as the default"
+    );
 }
 
 pub(crate) fn provider_manifest(language: &str) -> String {

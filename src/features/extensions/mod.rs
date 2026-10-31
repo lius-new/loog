@@ -10,4 +10,5 @@ pub mod providers;
 pub mod savediff;
 pub mod servers;
 pub mod settings;
+pub mod snippets;
 pub mod trust;
