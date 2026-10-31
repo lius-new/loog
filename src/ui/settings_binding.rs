@@ -1,7 +1,6 @@
 //! Settings value frame, projected drafts and semantic command port.
 use super::settings::{FontField, FontTarget, Setting};
 use crate::features::settings::rules::Settings;
-use crate::features::settings::theme_id::ThemeId;
 use crate::ui::components::{input::InputState, state_access::StateAccess};
 use std::sync::Arc;
 #[derive(Clone, Default)]
@@ -19,7 +18,6 @@ pub struct Frame {
 }
 pub enum Command {
     Toggle(Setting),
-    Theme(ThemeId),
     UiScaleStep(bool),
     UiScaleReset,
     FontPreset(FontTarget, String),

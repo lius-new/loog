@@ -18,7 +18,8 @@ user data between the Roaming and Local AppData folders.
 A workspace folder can override settings in `.loom/settings.json`; the
 `workspace::OpenProjectSettingsFile` action creates and opens it. Appearance
 preferences, such as the theme and the interface scale, can only be set in the
-user `settings.json`.
+user `settings.json`. Choose the theme with **Select Theme** in the command
+palette (`Ctrl+Shift+P`), which lists every theme and saves the choice.
 
 ## Interface size
 

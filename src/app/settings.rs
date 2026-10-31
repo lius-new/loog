@@ -48,7 +48,6 @@ pub fn run(state: &AppContext, command: Command) {
     }
     state.update(|app| match command {
         Command::Toggle(setting) => setting.toggle(app),
-        Command::Theme(id) => app.preferences.values_mut().theme = id,
         Command::UiScaleStep(up) => {
             app.preferences.values_mut().ui_scale =
                 crate::features::settings::scale::step(app.preferences.values().ui_scale, up);
@@ -74,7 +73,7 @@ pub fn run(state: &AppContext, command: Command) {
 impl Setting {
     pub(crate) fn toggle(self, app: &mut AppState) {
         match self {
-            Self::Theme | Self::UiScale | Self::DefaultShell => {}
+            Self::UiScale | Self::DefaultShell => {}
             Self::EditorFontFamily
             | Self::EditorFontSize
             | Self::EditorFontWeight
@@ -293,15 +292,6 @@ mod tests {
         assert_eq!(Setting::DefaultShell.enabled(&frame(&app)), None);
         Setting::DefaultShell.toggle(&mut app);
         assert_eq!(app.preferences.values().default_shell, before);
-    }
-
-    #[test]
-    fn theme_is_a_choice_not_a_toggle() {
-        let mut app = AppState::new();
-        let before = app.preferences.values().theme;
-        assert_eq!(Setting::Theme.enabled(&frame(&app)), None);
-        Setting::Theme.toggle(&mut app);
-        assert_eq!(app.preferences.values().theme, before);
     }
 
     #[test]

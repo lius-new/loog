@@ -3,10 +3,9 @@
 //! Controls dispatch semantic commands; app-level effects persist the
 //! values, so there is no separate apply/save step.
 
-use crate::features::highlighting::HighlightId;
 use lgui::core::{CursorIcon, EventPolicy, TextStyle, UiEventContext, WheelUnit, clip};
 use lgui::prelude::{
-    Color, Element, TextAlign, UiRect, VisualStyle, component, group, panel, text,
+    Element, TextAlign, UiRect, VisualStyle, component, group, panel, text,
 };
 
 use crate::features::update::About;
@@ -16,7 +15,7 @@ use crate::ui::components::input::{
 use crate::ui::fonts::{self, FontSettings};
 use crate::ui::settings_binding::{Binding, Command, Frame, SettingsUiState};
 use crate::ui::tabs::{TEXT_MARGIN, measure};
-use crate::ui::theme::{self, ThemeId};
+use crate::ui::theme;
 use std::sync::Arc;
 
 const MAX_PAGE_W: f32 = 720.0;
@@ -33,11 +32,6 @@ const KNOB: f32 = 12.0;
 const SEGMENT_W: f32 = 64.0;
 const SEGMENT_H: f32 = 24.0;
 const SCROLL_STEP: f32 = 24.0;
-const THEME_CARD_H: f32 = 72.0;
-const THEME_CARD_MAX_W: f32 = 168.0;
-const THEME_CARD_GAP: f32 = 12.0;
-const THEME_NAME_H: f32 = 24.0;
-const THEME_ROW_H: f32 = ROW_H + THEME_CARD_H + 18.0;
 const FAMILY_INPUT_W: f32 = 220.0;
 const FAMILY_INPUT_H: f32 = 26.0;
 const PRESET_H: f32 = 24.0;
@@ -61,7 +55,6 @@ const FONT_PRESETS: [&str; 5] = [
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Setting {
-    Theme,
     UiScale,
     EditorFontFamily,
     EditorFontSize,
@@ -88,7 +81,7 @@ pub(crate) enum Setting {
 }
 
 const SECTIONS: [(&str, &[Setting]); 6] = [
-    ("APPEARANCE", &[Setting::Theme, Setting::UiScale]),
+    ("APPEARANCE", &[Setting::UiScale]),
     (
         "EDITOR",
         &[
@@ -127,7 +120,6 @@ const SECTIONS: [(&str, &[Setting]); 6] = [
 impl Setting {
     fn label(self) -> &'static str {
         match self {
-            Self::Theme => "Color theme",
             Self::UiScale => "Interface scale",
             Self::EditorFontFamily | Self::TerminalFontFamily => "Font family",
             Self::EditorFontSize | Self::TerminalFontSize => "Font size",
@@ -152,7 +144,6 @@ impl Setting {
 
     fn description(self) -> &'static str {
         match self {
-            Self::Theme => "Colors used across the editor, panels and terminal.",
             Self::UiScale => "Scale the entire app, including tabs, panels and menus.",
             Self::EditorFontFamily => {
                 "Font for code, diffs and change previews. Leave empty for the default."
@@ -196,7 +187,7 @@ impl Setting {
     /// Current value of an on/off setting; `None` for choice settings.
     pub(crate) fn enabled(self, app: &Frame) -> Option<bool> {
         match self {
-            Self::Theme | Self::UiScale | Self::DefaultShell => None,
+            Self::UiScale | Self::DefaultShell => None,
             Self::EditorFontFamily
             | Self::EditorFontSize
             | Self::EditorFontWeight
@@ -223,7 +214,6 @@ impl Setting {
 
     fn height(self, app: &Frame) -> f32 {
         match self {
-            Self::Theme => THEME_ROW_H,
             Self::EditorFontFamily | Self::TerminalFontFamily => FAMILY_ROW_H,
             Self::DefaultShell => {
                 crate::ui::terminal::settings::height(&app.profile, &app.terminal_ui)
@@ -569,8 +559,6 @@ fn setting_row(row: UiRect, setting: Setting, app: &Frame, state: Binding) -> El
     let control_w = match setting.font() {
         Some((_, FontField::Family)) => FAMILY_INPUT_W,
         Some(_) => STEPPER_W,
-        // The theme cards sit below the label, so the text spans the row.
-        None if setting == Setting::Theme => 0.0,
         None if setting == Setting::UiScale => STEPPER_W + 62.0,
         None => SWITCH_W,
     };
@@ -609,14 +597,6 @@ fn setting_row(row: UiRect, setting: Setting, app: &Frame, state: Binding) -> El
                     ),
                     on,
                 ));
-        }
-        None if setting == Setting::Theme => {
-            let cards_top = row.top + ROW_H - 4.0;
-            element = element.child(theme_picker(
-                UiRect::new(row.left, cards_top, row.right, cards_top + THEME_CARD_H),
-                app.prefs.theme,
-                state,
-            ));
         }
         None if setting == Setting::UiScale => {
             let top = row.top + (ROW_H - STEPPER_H) / 2.0;
@@ -943,100 +923,3 @@ fn switch(rect: UiRect, on: bool) -> Element {
     ))
 }
 
-/// One card per built-in theme, each drawn in its own palette with a tiny
-/// code preview so the choice is visible before it is applied.
-fn theme_picker(rect: UiRect, selected: ThemeId, state: Binding) -> Element {
-    let count = ThemeId::all().count() as f32;
-    let card_w =
-        ((rect.width() - THEME_CARD_GAP * (count - 1.0)) / count).clamp(0.0, THEME_CARD_MAX_W);
-    let mut picker = group(rect);
-    for (index, id) in ThemeId::all().enumerate() {
-        let entry = id.theme();
-        let p = &entry.palette;
-        let active = id == selected;
-        let left = rect.left + index as f32 * (card_w + THEME_CARD_GAP);
-        let card = UiRect::new(left, rect.top, left + card_w, rect.bottom);
-        let (ring, ring_w) = if active {
-            (theme::c().accent, 2.0)
-        } else {
-            (theme::c().border, 1.0)
-        };
-
-        // Mini code lines: (indent, [(width, color)]).
-        let lines: [(f32, &[(f32, Color)]); 3] = [
-            (
-                0.0,
-                &[
-                    (18.0, p.syntax_color(HighlightId::KEYWORD)),
-                    (30.0, p.syntax_color(HighlightId::FUNCTION)),
-                ],
-            ),
-            (
-                10.0,
-                &[
-                    (22.0, p.syntax_color(HighlightId::PROPERTY)),
-                    (36.0, p.syntax_color(HighlightId::STRING)),
-                ],
-            ),
-            (10.0, &[(44.0, p.syntax_color(HighlightId::COMMENT))]),
-        ];
-        let mut element = theme::bordered(card, p.bg, ring, 6.0, ring_w);
-        for (row, (indent, bars)) in lines.into_iter().enumerate() {
-            let y = card.top + 12.0 + row as f32 * 9.0;
-            let mut x = card.left + 12.0 + indent;
-            for &(width, color) in bars {
-                let right = (x + width).min(card.right - 12.0);
-                if right > x {
-                    element = element.child(panel(
-                        UiRect::new(x, y, right, y + 4.0),
-                        VisualStyle::filled(color).radius(2.0),
-                    ));
-                }
-                x += width + 5.0;
-            }
-        }
-        let name_top = card.bottom - THEME_NAME_H;
-        element = element
-            .child(panel(
-                UiRect::new(
-                    card.left + ring_w,
-                    name_top,
-                    card.right - ring_w,
-                    name_top + 1.0,
-                ),
-                VisualStyle::filled(p.border),
-            ))
-            .child(text(
-                UiRect::new(
-                    card.left + 10.0,
-                    name_top + 4.0,
-                    card.right - 22.0,
-                    card.bottom - 2.0,
-                ),
-                entry.name,
-                theme::sans(
-                    if active { p.text_bright } else { p.text_muted },
-                    theme::SMALL + 1.0,
-                ),
-            ))
-            .child(panel(
-                UiRect::new(
-                    card.right - 16.0,
-                    name_top + 8.0,
-                    card.right - 8.0,
-                    name_top + 16.0,
-                ),
-                VisualStyle::filled(p.accent).radius(4.0),
-            ));
-
-        let select_state = state.clone();
-        picker = picker.child(
-            element
-                .key(format!("settings-theme-{}", entry.id))
-                .event_policy(EventPolicy::INTERACTIVE)
-                .cursor(CursorIcon::Pointer)
-                .on_click(move || select_state.run(Command::Theme(id))),
-        );
-    }
-    picker
-}
