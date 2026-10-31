@@ -385,7 +385,7 @@ interface host {
     read-file: func(root: u64, path: string, max-bytes: u32) -> result<file-content, host-error>;
 
     /// Relative paths of files in a folder matching a glob (for example
-    /// `**/*.rs`), honoring ignore files, at most `limit` of them.
+    /// `src/**.rs`), honoring ignore files, at most `limit` of them.
     find-files: func(root: u64, pattern: string, limit: u32) -> result<list<string>, host-error>;
 
     /// A bounded GET request. Only hosts the manifest declares (and the user
