@@ -5,7 +5,7 @@
 use loom_extension_api::ErrorKind;
 use loom_extension_host::{
     ByteRange, CommandContext, CommittedReceipt, Completion, Inbound, Limits, Provided,
-    ProviderKind, ProviderRequest, RoundStatus, Runtime, Selection,
+    ProviderKind, ProviderRequest, RoundStatus, Runtime, Selection, WireCompletionItem,
 };
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -254,6 +254,9 @@ fn provider_request(kind: ProviderKind, text: &str) -> Inbound {
         version: 3,
         length: text.len() as u64,
         range: None,
+        cursor: None,
+        trigger: None,
+        item: None,
     })
 }
 
@@ -297,4 +300,57 @@ fn a_formatting_provider_answers_with_edits_against_the_snapshot() {
     let ranges: Vec<(u64, u64)> = edits.iter().map(|e| (e.range.start, e.range.end)).collect();
     assert_eq!(ranges, [(1, 3), (8, 10)]);
     assert!(edits.iter().all(|e| e.text.is_empty()));
+}
+
+#[test]
+fn a_completion_provider_offers_items_and_resolves_one_back_to_its_origin() {
+    let (runtime, component) = runtime();
+    let mut instance = runtime.instantiate(&component, limits()).unwrap();
+    instance.put_snapshot(9, String::from("lo"));
+    let mut ask = provider_request(ProviderKind::Completion, "lo");
+    if let Inbound::ProviderRequest(request) = &mut ask {
+        request.cursor = Some(2);
+        request.trigger = Some(".".into());
+    }
+    instance.dispatch(&[ask]).unwrap();
+    let provided = instance.take_provided();
+    let [
+        Provided::Completions {
+            request,
+            items,
+            incomplete,
+        },
+    ] = provided.as_slice()
+    else {
+        panic!("{provided:?}");
+    };
+    assert_eq!(*request, 41);
+    assert!(!incomplete);
+    let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+    assert_eq!(labels, ["loom_hello", "loom_world"]);
+    assert_eq!(items[0].insert_text.as_deref(), Some("loom_hello()"));
+
+    // The opaque data comes back unchanged with the resolve request.
+    let mut resolve = provider_request(ProviderKind::CompletionResolve, "lo");
+    if let Inbound::ProviderRequest(request) = &mut resolve {
+        request.request = 42;
+        request.item = Some(items[1].clone());
+    }
+    instance.put_snapshot(9, String::from("lo"));
+    instance.dispatch(&[resolve]).unwrap();
+    let provided = instance.take_provided();
+    let [
+        Provided::Completions {
+            request,
+            items: resolved,
+            ..
+        },
+    ] = provided.as_slice()
+    else {
+        panic!("{provided:?}");
+    };
+    assert_eq!(*request, 42);
+    assert_eq!(resolved[0].label, "loom_world");
+    assert_eq!(resolved[0].documentation.as_deref(), Some("docs for world"));
+    let _: Option<&WireCompletionItem> = resolved.first();
 }

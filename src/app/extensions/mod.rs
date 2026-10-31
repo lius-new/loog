@@ -35,6 +35,8 @@ pub(crate) mod host;
 
 const PROVIDER_DEADLINE_MS: u64 = 500;
 const FORMAT_DEADLINE_MS: u64 = 5_000;
+/// Extension candidates list after every language server's.
+const COMPLETION_RANK: usize = 1000;
 const EXTERNAL_SOURCE: u64 = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE;
 
 /// The state of a document a provider is asked about.
@@ -46,6 +48,13 @@ struct Target {
     doc_id: u64,
     version: u64,
     range: Option<Range<usize>>,
+    /// Completion: where the word being completed starts, the caret, the
+    /// triggering character and (for a resolve request) the item.
+    word_start: usize,
+    cursor: Option<usize>,
+    trigger: Option<String>,
+    item: Option<loom_extension_host::WireCompletionItem>,
+    item_raw: Option<serde_json::Value>,
 }
 
 /// A provider request in flight, with the state it was asked about.
@@ -60,6 +69,8 @@ struct ProviderCall {
     doc_id: u64,
     deadline: u64,
     range: Option<Range<usize>>,
+    word_start: usize,
+    item_raw: Option<serde_json::Value>,
     job: ProviderJob,
 }
 
@@ -125,6 +136,21 @@ pub enum Effect {
     },
     ClearDiagnostics {
         source: u64,
+    },
+    /// A completion provider answered (or could not in time: `items` is `None`).
+    OfferCompletion {
+        file: FileId,
+        incarnation: u64,
+        word_start: usize,
+        source: u64,
+        rank: usize,
+        items: Option<(Vec<serde_json::Value>, bool)>,
+    },
+    /// A completion item was resolved by the extension that offered it.
+    ResolvedCompletion {
+        source: u64,
+        raw: serde_json::Value,
+        item: serde_json::Value,
     },
     Toast(String),
     Error(String),
@@ -308,6 +334,10 @@ impl ExtensionService {
             sources: HashMap::new(),
             next_source: 0,
         }
+    }
+
+    pub fn set_clock(&mut self, clock: impl Fn() -> u64 + Send + 'static) {
+        self.clock = Box::new(clock);
     }
 
     /// Replace the clock (milliseconds); tests drive time by hand.
@@ -817,7 +847,7 @@ impl ExtensionService {
                     .collect();
                 self.queued.retain(|request| !ready.contains(request));
                 for request in ready {
-                    let job = self.provider_calls[&request].job.clone();
+                    let job = Box::new(self.provider_calls[&request].job.clone());
                     effects.push(Effect::Submit(Job::Provide {
                         id: id.to_owned(),
                         generation,
@@ -1180,20 +1210,19 @@ impl ExtensionService {
         self.next_request += 1;
         self.next_token += 1;
         let (request, token) = (self.next_request, self.next_token);
-        let wanted_diagnostics = matches!(kind, WireKind::Diagnostics);
         self.provider_calls.retain(|_, call| {
             !(call.extension == owner
                 && call.provider == provider
                 && call.file == target.file
-                && matches!(call.job.kind, WireKind::Diagnostics) == wanted_diagnostics)
+                && std::mem::discriminant(&call.job.kind) == std::mem::discriminant(&kind))
         });
         self.queued
             .retain(|queued| self.provider_calls.contains_key(queued));
         let now = (self.clock)();
-        let limit = if wanted_diagnostics {
-            PROVIDER_DEADLINE_MS
-        } else {
+        let limit = if matches!(kind, WireKind::Formatting) {
             FORMAT_DEADLINE_MS
+        } else {
+            PROVIDER_DEADLINE_MS
         };
         let Some(package) = self.packages.get_mut(owner) else {
             return;
@@ -1208,13 +1237,16 @@ impl ExtensionService {
             document: target.doc_id,
             version: target.version,
             range: target.range.clone(),
+            cursor: target.cursor,
+            trigger: target.trigger.clone(),
+            item: target.item.clone(),
         };
         let mut load = None;
         match package.lifecycle.state() {
             State::Active => effects.push(Effect::Submit(Job::Provide {
                 id: owner.to_owned(),
                 generation,
-                job: job.clone(),
+                job: Box::new(job.clone()),
             })),
             State::Dormant => {
                 let _ = package.lifecycle.activating();
@@ -1244,9 +1276,156 @@ impl ExtensionService {
                 doc_id: target.doc_id,
                 deadline: now + limit,
                 range: target.range,
+                word_start: target.word_start,
+                item_raw: target.item_raw,
                 job,
             },
         );
+    }
+
+    /// Ask every completion provider registered for the active document's
+    /// language. Returns the requests that were actually issued; the answers
+    /// arrive as [`Effect::OfferCompletion`].
+    pub fn request_completion(
+        &mut self,
+        app: &AppState,
+        word_start: usize,
+        cursor: usize,
+        trigger: Option<char>,
+    ) -> (usize, Vec<Effect>) {
+        let mut effects = Vec::new();
+        let Some(file) = app.workspace.active_document() else {
+            return (0, effects);
+        };
+        let Some(document) = app.workspace.documents.get(&file) else {
+            return (0, effects);
+        };
+        let language = document.meta.lang.definition().name.to_string();
+        let mut wanted: Vec<(String, String)> = Vec::new();
+        for (owner, package) in &self.packages {
+            let allowed = ["documents.read", "languages"]
+                .iter()
+                .all(|c| self.authorize(package, c).is_ok());
+            if !allowed || !package.manifest.has_behaviour() {
+                continue;
+            }
+            for provider in &package.manifest.contributes.providers {
+                if provider.kind == DeclKind::Completion
+                    && provider.selector.languages.contains(&language)
+                {
+                    wanted.push((owner.clone(), provider.id.clone()));
+                }
+            }
+        }
+        wanted.sort();
+        let doc_id = match self.seen.get(&file) {
+            Some(id) => *id,
+            None => {
+                self.next_document += 1;
+                self.seen.insert(file, self.next_document);
+                self.next_document
+            }
+        };
+        let mut asked = 0;
+        for (owner, provider) in wanted {
+            let target = Target {
+                file,
+                stamp: document.stamp(file),
+                path: document.meta.path.clone(),
+                text: document.buffer.text_snapshot(),
+                doc_id,
+                version: document.buffer.version(),
+                range: None,
+                word_start,
+                cursor: Some(cursor),
+                trigger: trigger.map(|c| c.to_string()),
+                item: None,
+                item_raw: None,
+            };
+            let before = self.provider_calls.len();
+            self.issue(
+                &owner,
+                &provider,
+                WireKind::Completion,
+                target,
+                &mut effects,
+            );
+            if self.provider_calls.values().any(|c| {
+                c.extension == owner
+                    && c.provider == provider
+                    && c.file == file
+                    && matches!(c.job.kind, WireKind::Completion)
+            }) {
+                asked += 1;
+            }
+            let _ = before;
+        }
+        (asked, effects)
+    }
+
+    /// Ask the extension that offered a completion item to complete it. The
+    /// `raw` JSON carries the origin; an item whose origin does not match
+    /// the source it is filed under is not resolved.
+    pub fn request_completion_resolve(
+        &mut self,
+        app: &AppState,
+        source: u64,
+        raw: &serde_json::Value,
+    ) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        let origin = &raw["x-loom"];
+        let (Some(extension), Some(provider)) =
+            (origin["extension"].as_str(), origin["provider"].as_str())
+        else {
+            return effects;
+        };
+        if self
+            .sources
+            .get(&(extension.to_owned(), provider.to_owned()))
+            != Some(&source)
+        {
+            return effects;
+        }
+        let Some(file) = app.workspace.active_document() else {
+            return effects;
+        };
+        let Some(document) = app.workspace.documents.get(&file) else {
+            return effects;
+        };
+        let text_of = |key: &str| raw[key].as_str().map(str::to_owned);
+        let item = loom_extension_host::WireCompletionItem {
+            label: text_of("label").unwrap_or_default(),
+            detail: text_of("detail"),
+            documentation: text_of("documentation"),
+            kind: raw["kind"].as_u64().map(|k| k as u32),
+            insert_text: text_of("insertText"),
+            sort_text: text_of("sortText"),
+            filter_text: text_of("filterText"),
+            data: origin["data"].as_str().map(str::to_owned),
+        };
+        let doc_id = self.seen.get(&file).copied().unwrap_or(0);
+        let target = Target {
+            file,
+            stamp: document.stamp(file),
+            path: document.meta.path.clone(),
+            text: document.buffer.text_snapshot(),
+            doc_id,
+            version: document.buffer.version(),
+            range: None,
+            word_start: 0,
+            cursor: None,
+            trigger: None,
+            item: Some(item),
+            item_raw: Some(raw.clone()),
+        };
+        self.issue(
+            extension,
+            provider,
+            WireKind::CompletionResolve,
+            target,
+            &mut effects,
+        );
+        effects
     }
 
     /// Request formatting from an extension provider for the active document,
@@ -1301,6 +1480,11 @@ impl ExtensionService {
             doc_id,
             version: document.buffer.version(),
             range,
+            word_start: 0,
+            cursor: None,
+            trigger: None,
+            item: None,
+            item_raw: None,
         };
         let mut effects = Vec::new();
         self.issue(
@@ -1321,7 +1505,9 @@ impl ExtensionService {
         answer: Provided,
     ) -> Vec<Effect> {
         let request = match &answer {
-            Provided::Diagnostics { request, .. } | Provided::Edits { request, .. } => *request,
+            Provided::Diagnostics { request, .. }
+            | Provided::Edits { request, .. }
+            | Provided::Completions { request, .. } => *request,
         };
         let Some(call) = self.provider_calls.get(&request) else {
             return Vec::new();
@@ -1338,6 +1524,69 @@ impl ExtensionService {
             return Vec::new();
         }
         let formatting = matches!(call.job.kind, WireKind::Formatting);
+        let completion = matches!(
+            call.job.kind,
+            WireKind::Completion | WireKind::CompletionResolve
+        );
+        if completion {
+            // Typing continues while a provider works, so the text may have moved on;
+            // the answer still serves the session while the word being completed is
+            // the same. A document that was closed and reopened is a different one.
+            let same_life = app
+                .workspace
+                .documents
+                .get(&call.file)
+                .is_some_and(|d| d.stamp(call.file).incarnation == call.stamp.incarnation);
+            let source = self.source_for(&call.extension, &call.provider);
+            let offer = |items| Effect::OfferCompletion {
+                file: call.file,
+                incarnation: call.stamp.incarnation,
+                word_start: call.word_start,
+                source,
+                rank: COMPLETION_RANK,
+                items,
+            };
+            let on_time = (self.clock)() <= call.deadline && same_life;
+            return match answer {
+                Provided::Completions {
+                    items, incomplete, ..
+                } => {
+                    let offered: Vec<providers::Offered> = items
+                        .into_iter()
+                        .map(|i| providers::Offered {
+                            label: i.label,
+                            detail: i.detail,
+                            documentation: i.documentation,
+                            kind: i.kind,
+                            insert_text: i.insert_text,
+                            sort_text: i.sort_text,
+                            filter_text: i.filter_text,
+                            data: i.data,
+                        })
+                        .collect();
+                    let (json, dropped) =
+                        providers::completion_json(&call.extension, &call.provider, &offered);
+                    if dropped > 0 {
+                        if let Some(package) = self.packages.get_mut(id) {
+                            package
+                                .logs
+                                .push((1, format!("{dropped} completion item(s) were dropped")));
+                        }
+                    }
+                    match (call.job.kind, call.item_raw.clone()) {
+                        (WireKind::CompletionResolve, Some(raw)) if on_time => json
+                            .into_iter()
+                            .next()
+                            .map(|item| vec![Effect::ResolvedCompletion { source, raw, item }])
+                            .unwrap_or_default(),
+                        (WireKind::CompletionResolve, _) => Vec::new(),
+                        _ if on_time => vec![offer(Some((json, incomplete)))],
+                        _ => vec![offer(None)],
+                    }
+                }
+                _ => vec![offer(None)],
+            };
+        }
         // An answer that came too late, or describes a state that is gone, is
         // never shown. For diagnostics the current state is asked about again, so
         // a slow cold start still ends with findings for what is on screen.
@@ -1375,6 +1624,11 @@ impl ExtensionService {
                     doc_id: call.doc_id,
                     version,
                     range: None,
+                    word_start: 0,
+                    cursor: None,
+                    trigger: None,
+                    item: None,
+                    item_raw: None,
                 };
                 self.issue(
                     &call.extension,
@@ -1501,6 +1755,11 @@ impl ExtensionService {
                     doc_id,
                     version: *version,
                     range: None,
+                    word_start: 0,
+                    cursor: None,
+                    trigger: None,
+                    item: None,
+                    item_raw: None,
                 };
                 self.issue(owner, provider, WireKind::Diagnostics, target, effects);
             }
@@ -1518,4 +1777,4 @@ impl ExtensionService {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

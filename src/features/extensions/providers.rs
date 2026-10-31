@@ -168,3 +168,119 @@ mod tests {
         assert_eq!(kept[0].0, 5..6);
     }
 }
+
+/// A completion candidate as the guest offered it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Offered {
+    pub label: String,
+    pub detail: Option<String>,
+    pub documentation: Option<String>,
+    pub kind: Option<u32>,
+    pub insert_text: Option<String>,
+    pub sort_text: Option<String>,
+    pub filter_text: Option<String>,
+    /// Opaque to the host; returned unchanged when the item is resolved.
+    pub data: Option<String>,
+}
+
+/// Most items one answer may carry.
+pub const MAX_COMPLETIONS: usize = 500;
+const MAX_TEXT: usize = 4000;
+
+fn cut(text: &str) -> &str {
+    if text.len() <= MAX_TEXT {
+        return text;
+    }
+    let mut end = MAX_TEXT;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// The items as the JSON a completion list is read from. Each carries
+/// `x-loom` with its origin, so a later resolve goes back to the extension and
+/// provider that offered it and nowhere else. Empty labels and items past the
+/// limit are dropped; the count of dropped items is returned.
+pub fn completion_json(extension: &str, provider: &str, items: &[Offered]) -> (Vec<Value>, usize) {
+    let mut out = Vec::new();
+    let mut dropped = 0;
+    for item in items {
+        if item.label.trim().is_empty() || out.len() >= MAX_COMPLETIONS {
+            dropped += 1;
+            continue;
+        }
+        let mut json = serde_json::json!({
+            "label": cut(&item.label),
+            "x-loom": { "extension": extension, "provider": provider, "data": item.data },
+        });
+        let object = json.as_object_mut().expect("an object");
+        for (key, value) in [
+            ("detail", item.detail.as_deref()),
+            ("documentation", item.documentation.as_deref()),
+            ("insertText", item.insert_text.as_deref()),
+            ("sortText", item.sort_text.as_deref()),
+            ("filterText", item.filter_text.as_deref()),
+        ] {
+            if let Some(value) = value {
+                object.insert(key.to_owned(), Value::from(cut(value)));
+            }
+        }
+        if let Some(kind) = item.kind {
+            object.insert("kind".to_owned(), Value::from(kind));
+        }
+        out.push(json);
+    }
+    (out, dropped)
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+
+    #[test]
+    fn items_carry_their_origin_and_only_what_was_given() {
+        let item = Offered {
+            label: "loom_hello".into(),
+            insert_text: Some("loom_hello()".into()),
+            kind: Some(3),
+            data: Some("hello".into()),
+            ..Offered::default()
+        };
+        let (json, dropped) = completion_json("example.tools", "example.tools.complete", &[item]);
+        assert_eq!(dropped, 0);
+        assert_eq!(json[0]["insertText"], "loom_hello()");
+        assert_eq!(json[0]["x-loom"]["extension"], "example.tools");
+        assert_eq!(json[0]["x-loom"]["data"], "hello");
+        assert!(json[0].get("detail").is_none());
+    }
+
+    #[test]
+    fn empty_labels_and_overflow_are_dropped_and_counted() {
+        let mut items: Vec<Offered> = (0..MAX_COMPLETIONS + 2)
+            .map(|i| Offered {
+                label: format!("item{i}"),
+                ..Offered::default()
+            })
+            .collect();
+        items.push(Offered {
+            label: "  ".into(),
+            ..Offered::default()
+        });
+        let (json, dropped) = completion_json("a.b", "a.b.c", &items);
+        assert_eq!(json.len(), MAX_COMPLETIONS);
+        assert_eq!(dropped, 3);
+    }
+
+    #[test]
+    fn long_text_is_cut_on_a_character_boundary() {
+        let item = Offered {
+            label: "x".into(),
+            documentation: Some("中".repeat(3000)),
+            ..Offered::default()
+        };
+        let (json, _) = completion_json("a.b", "a.b.c", &[item]);
+        let docs = json[0]["documentation"].as_str().unwrap();
+        assert!(docs.len() <= MAX_TEXT && docs.chars().all(|c| c == '中'));
+    }
+}

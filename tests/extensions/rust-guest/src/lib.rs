@@ -15,6 +15,9 @@ use loom::extension::types::{
     ApplyEditRequest, ByteRange, Completion, Diagnostic, DocumentEdits, ErrorKind, HostError, Inbound,
     ProviderKind, RoundStatus, TextEdit,
 };
+use loom::extension::types::{
+    CompletionItem,
+};
 
 #[derive(Default)]
 struct State {
@@ -98,6 +101,47 @@ impl Guest for Extension {
                 Inbound::DocumentChanged(c) => host::log(0, &format!("changed {} {}->{} x{}", c.document, c.from_version, c.to_version, c.edits)),
                 Inbound::DocumentResync(d) => host::log(0, &format!("resync {} v{}", d.document, d.version)),
                 Inbound::DocumentClosed(d) => host::log(0, &format!("closed {} life {}", d.document, d.lifecycle)),
+                Inbound::ProviderRequest(request)
+                    if matches!(
+                        request.kind,
+                        ProviderKind::Completion | ProviderKind::CompletionResolve
+                    ) =>
+                {
+                    match request.kind {
+                        ProviderKind::Completion => {
+                            let items = vec![
+                                CompletionItem {
+                                    label: "loom_hello".into(),
+                                    detail: Some("from the extension".into()),
+                                    documentation: None,
+                                    kind: Some(3),
+                                    insert_text: Some("loom_hello()".into()),
+                                    sort_text: None,
+                                    filter_text: None,
+                                    data: Some("hello".into()),
+                                },
+                                CompletionItem {
+                                    label: "loom_world".into(),
+                                    detail: None,
+                                    documentation: None,
+                                    kind: Some(3),
+                                    insert_text: None,
+                                    sort_text: None,
+                                    filter_text: None,
+                                    data: Some("world".into()),
+                                },
+                            ];
+                            let _ = host::provide_completions(request.request, &items, false);
+                        }
+                        _ => {
+                            if let Some(mut item) = request.item.clone() {
+                                item.documentation =
+                                    Some(format!("docs for {}", item.data.clone().unwrap_or_default()));
+                                let _ = host::provide_completions(request.request, &[item], false);
+                            }
+                        }
+                    }
+                }
                 Inbound::ProviderRequest(request) => {
                     let text = host::read_range(
                         request.snapshot,
@@ -121,6 +165,7 @@ impl Guest for Extension {
                             }
                             let _ = host::provide_diagnostics(request.request, &items);
                         }
+                        ProviderKind::Completion | ProviderKind::CompletionResolve => {}
                         ProviderKind::Formatting => {
                             let mut edits = Vec::new();
                             let mut offset = 0usize;

@@ -34,6 +34,11 @@ pub struct ProviderJob {
     pub document: u64,
     pub version: u64,
     pub range: Option<Range<usize>>,
+    /// Completion: the caret, the triggering character and, for a resolve request,
+    /// the item to complete.
+    pub cursor: Option<usize>,
+    pub trigger: Option<String>,
+    pub item: Option<loom_extension_host::WireCompletionItem>,
 }
 
 /// What the application tells an instance happened to an operation.
@@ -83,7 +88,7 @@ pub enum Job {
     Provide {
         id: String,
         generation: u64,
-        job: ProviderJob,
+        job: Box<ProviderJob>,
     },
     /// New resolved setting values; `changed` lists the keys whose value differs.
     Settings {
@@ -296,6 +301,7 @@ impl Worker {
                     generation,
                     job,
                 } => {
+                    let job = *job;
                     let message = Inbound::ProviderRequest(ProviderRequest {
                         request: job.request,
                         provider: job.provider,
@@ -308,6 +314,9 @@ impl Worker {
                             start: range.start as u64,
                             end: range.end as u64,
                         }),
+                        cursor: job.cursor.map(|cursor| cursor as u64),
+                        trigger: job.trigger,
+                        item: job.item,
                     });
                     if let Some(slot) = self.slot(&id, generation) {
                         slot.instance.put_snapshot(job.token, job.text);

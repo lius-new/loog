@@ -53,6 +53,25 @@ impl Inner {
                         services.clear_external(source);
                     }
                 }
+                Effect::OfferCompletion {
+                    file,
+                    incarnation,
+                    word_start,
+                    source,
+                    rank,
+                    items,
+                } => crate::app::language_ui::completion::offer_external(
+                    app,
+                    file,
+                    incarnation,
+                    word_start,
+                    source,
+                    rank,
+                    items,
+                ),
+                Effect::ResolvedCompletion { source, raw, item } => {
+                    crate::app::language_ui::completion::offer_resolved(app, source, &raw, &item)
+                }
                 Effect::Toast(message) => app.show_toast(message),
                 Effect::Error(message) => app.show_error(message),
             }
@@ -139,6 +158,55 @@ impl ExtensionHost {
             .lock()
             .unwrap()
             .set_setting_sources(user, project, trusted);
+        for effect in effects {
+            if let (Effect::Submit(job), Some(executor)) = (effect, self.inner.executor.get()) {
+                executor.submit(job);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn service(&self) -> std::sync::MutexGuard<'_, ExtensionService> {
+        self.inner.service.lock().unwrap()
+    }
+
+    /// Ask the extensions' completion providers about the word being typed.
+    /// Returns how many were asked; their answers reach the open completion
+    /// session through [`Effect::OfferCompletion`].
+    pub(crate) fn request_completion(
+        &self,
+        app: &AppState,
+        word_start: usize,
+        cursor: usize,
+        trigger: Option<char>,
+    ) -> usize {
+        let (asked, effects) = self
+            .inner
+            .service
+            .lock()
+            .unwrap()
+            .request_completion(app, word_start, cursor, trigger);
+        self.submit(effects);
+        asked
+    }
+
+    /// Ask the extension that offered a completion item to complete it.
+    pub(crate) fn request_completion_resolve(
+        &self,
+        app: &AppState,
+        source: u64,
+        raw: &serde_json::Value,
+    ) {
+        let effects = self
+            .inner
+            .service
+            .lock()
+            .unwrap()
+            .request_completion_resolve(app, source, raw);
+        self.submit(effects);
+    }
+
+    fn submit(&self, effects: Vec<Effect>) {
         for effect in effects {
             if let (Effect::Submit(job), Some(executor)) = (effect, self.inner.executor.get()) {
                 executor.submit(job);

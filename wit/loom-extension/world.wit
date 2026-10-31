@@ -103,6 +103,23 @@ interface types {
     enum provider-kind {
         diagnostics,
         formatting,
+        completion,
+        /// Complete one item of an earlier completion answer (documentation, detail).
+        completion-resolve,
+    }
+
+    /// One completion candidate. `data` is opaque to the host and comes back
+    /// unchanged in a resolve request, so the answer is routed to its origin.
+    record completion-item {
+        label: string,
+        detail: option<string>,
+        documentation: option<string>,
+        /// LSP completion item kind number.
+        kind: option<u32>,
+        insert-text: option<string>,
+        sort-text: option<string>,
+        filter-text: option<string>,
+        data: option<string>,
     }
 
     /// A request to a registered provider for one state of a document. The text
@@ -119,6 +136,11 @@ interface types {
         length: u64,
         /// Restrict a formatting request to this range.
         range: option<byte-range>,
+        /// Completion: the caret, and the character that triggered the request.
+        cursor: option<u64>,
+        trigger: option<string>,
+        /// Completion resolve: the item to complete.
+        item: option<completion-item>,
     }
 
     record diagnostic {
@@ -158,7 +180,7 @@ interface types {
 }
 
 interface host {
-    use types.{apply-edit-request, diagnostic, host-error, operation-id, snapshot-token, byte-range, text-edit};
+    use types.{apply-edit-request, completion-item, diagnostic, host-error, operation-id, snapshot-token, byte-range, text-edit};
 
     /// Read a bounded range of a captured snapshot. Fast, never blocks on the UI.
     read-range: func(snapshot: snapshot-token, range: byte-range) -> result<string, host-error>;
@@ -176,6 +198,10 @@ interface host {
     /// Answer a diagnostics request. Only the latest answer for the document's
     /// current state is shown; an answer for an older state is discarded.
     provide-diagnostics: func(request: u64, items: list<diagnostic>) -> result<_, host-error>;
+
+    /// Answer a completion request (several items) or a resolve request (the
+    /// one completed item). `incomplete` asks to be asked again as typing continues.
+    provide-completions: func(request: u64, items: list<completion-item>, incomplete: bool) -> result<_, host-error>;
 
     /// Answer a formatting request with edits against the requested snapshot.
     provide-edits: func(request: u64, edits: list<text-edit>) -> result<_, host-error>;

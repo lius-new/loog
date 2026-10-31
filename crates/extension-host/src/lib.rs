@@ -67,6 +67,7 @@ pub struct AcceptedEdit {
     pub documents: Vec<DocumentEdits>,
 }
 
+pub use bindings::loom::extension::types::CompletionItem as WireCompletionItem;
 pub use bindings::loom::extension::types::Diagnostic as WireDiagnostic;
 
 /// An answer a provider gave, in the order it was given.
@@ -79,6 +80,11 @@ pub enum Provided {
     Edits {
         request: u64,
         edits: Vec<TextEdit>,
+    },
+    Completions {
+        request: u64,
+        items: Vec<WireCompletionItem>,
+        incomplete: bool,
     },
 }
 
@@ -206,6 +212,26 @@ impl host::Host for HostState {
             ));
         }
         self.provided.push(Provided::Diagnostics { request, items });
+        Ok(())
+    }
+
+    fn provide_completions(
+        &mut self,
+        request: u64,
+        items: Vec<WireCompletionItem>,
+        incomplete: bool,
+    ) -> Result<(), HostError> {
+        if self.provided.len() >= self.pending_limit {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "too many unconsumed provider answers",
+            ));
+        }
+        self.provided.push(Provided::Completions {
+            request,
+            items,
+            incomplete,
+        });
         Ok(())
     }
 

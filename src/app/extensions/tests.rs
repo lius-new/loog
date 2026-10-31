@@ -12,7 +12,7 @@ fn repo() -> PathBuf {
 }
 
 /// Build the guest once and return the component bytes.
-fn component() -> &'static [u8] {
+pub(crate) fn component() -> &'static [u8] {
     static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
     BYTES.get_or_init(|| {
         let root = repo();
@@ -65,7 +65,7 @@ fn package_dir(name: &str) -> PathBuf {
     package_dir_with(name, MANIFEST)
 }
 
-fn package_dir_with(name: &str, manifest: &str) -> PathBuf {
+pub(crate) fn package_dir_with(name: &str, manifest: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("loom-ext-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -73,6 +73,9 @@ fn package_dir_with(name: &str, manifest: &str) -> PathBuf {
     std::fs::write(dir.join("extension.wasm"), component()).unwrap();
     dir
 }
+
+/// A completion answer: its source and, if it came in time, the items and the incomplete flag.
+type OfferedList = (u64, Option<(Vec<serde_json::Value>, bool)>);
 
 struct Fixture {
     service: ExtensionService,
@@ -85,6 +88,8 @@ struct Fixture {
         Vec<crate::features::language_service::diagnostics::Diagnostic>,
     )>,
     cleared: Vec<u64>,
+    offered: Vec<OfferedList>,
+    resolved: Vec<(u64, serde_json::Value)>,
 }
 
 fn fixture(name: &str, text: &str, select: std::ops::Range<usize>) -> Fixture {
@@ -124,6 +129,8 @@ fn fixture_with(name: &str, text: &str, select: std::ops::Range<usize>, manifest
         path,
         published: Vec::new(),
         cleared: Vec::new(),
+        offered: Vec::new(),
+        resolved: Vec::new(),
     }
 }
 
@@ -144,6 +151,10 @@ impl Fixture {
                     self.published.push((source, items))
                 }
                 Effect::ClearDiagnostics { source } => self.cleared.push(source),
+                Effect::OfferCompletion { source, items, .. } => self.offered.push((source, items)),
+                Effect::ResolvedCompletion { source, item, .. } => {
+                    self.resolved.push((source, item))
+                }
             }
         }
         messages
@@ -610,7 +621,7 @@ fn a_resource_only_package_loads_without_a_component_and_bad_resources_are_dropp
     assert!(service.commands().is_empty());
 }
 
-fn provider_manifest(language: &str) -> String {
+pub(crate) fn provider_manifest(language: &str) -> String {
     r#"{
     "schema": 1,
     "id": "example.tools",
@@ -620,13 +631,14 @@ fn provider_manifest(language: &str) -> String {
     "capabilities": ["documents.read", "workspace.edit", "languages"],
     "contributes": { "providers": [
         { "id": "example.tools.todo", "kind": "diagnostics", "selector": { "languages": ["LANG"] } },
-        { "id": "example.tools.trim", "kind": "formatting", "selector": { "languages": ["LANG"] } }
+        { "id": "example.tools.trim", "kind": "formatting", "selector": { "languages": ["LANG"] } },
+        { "id": "example.tools.complete", "kind": "completion", "selector": { "languages": ["LANG"] } }
     ] }
 }"#
     .replace("LANG", language)
 }
 
-fn language_of(path: &Path) -> String {
+pub(crate) fn language_of(path: &Path) -> String {
     let mut app = AppState::new();
     app.workspace.open_path(path.to_path_buf(), String::new());
     let id = app.workspace.file_id_for_path(path).unwrap();
@@ -786,4 +798,79 @@ fn stopping_or_failing_an_extension_withdraws_what_it_published() {
     let effects = f.service.stop("example.tools");
     f.apply(effects);
     assert_eq!(f.cleared, [source]);
+}
+
+#[test]
+fn a_completion_provider_answers_with_items_that_carry_their_origin_and_resolve_back_to_it() {
+    let mut f = Fixture::provider_fixture("complete", "lo");
+    f.service.set_clock(|| 0); // cold-start time is not what this test measures
+    let (asked, effects) = f.service.request_completion(&f.app, 0, 2, None);
+    assert_eq!(asked, 1);
+    f.apply(effects);
+    f.pump_until(|f| !f.offered.is_empty());
+    let (source, items) = f.offered[0].clone();
+    assert!(source & crate::infrastructure::lsp::manager::EXTERNAL_SOURCE != 0);
+    let (items, incomplete) = items.expect("an answer in time");
+    assert!(!incomplete);
+    let labels: Vec<_> = items.iter().map(|i| i["label"].as_str().unwrap()).collect();
+    assert_eq!(labels, ["loom_hello", "loom_world"]);
+    assert_eq!(items[1]["x-loom"]["extension"], "example.tools");
+    assert_eq!(items[1]["x-loom"]["data"], "world");
+
+    // The item goes back to the extension that offered it, with its own data.
+    let effects = f
+        .service
+        .request_completion_resolve(&f.app, source, &items[1]);
+    f.apply(effects);
+    f.pump_until(|f| !f.resolved.is_empty());
+    assert_eq!(f.resolved[0].1["documentation"], "docs for world");
+}
+
+#[test]
+fn an_item_filed_under_another_source_is_never_sent_for_resolving() {
+    let mut f = Fixture::provider_fixture("forged", "lo");
+    f.service.set_clock(|| 0); // cold-start time is not what this test measures
+    let (_, effects) = f.service.request_completion(&f.app, 0, 2, None);
+    f.apply(effects);
+    f.pump_until(|f| !f.offered.is_empty());
+    let (source, items) = f.offered[0].clone();
+    let item = items.unwrap().0[0].clone();
+    assert!(
+        f.service
+            .request_completion_resolve(&f.app, source | 0x40, &item)
+            .is_empty()
+    );
+    let mut forged = item.clone();
+    forged["x-loom"]["extension"] = serde_json::json!("other.ext");
+    assert!(
+        f.service
+            .request_completion_resolve(&f.app, source, &forged)
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_completion_answer_that_misses_its_deadline_is_reported_as_no_items() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let mut f = Fixture::provider_fixture("slow", "lo");
+    let now = Arc::new(AtomicU64::new(0));
+    let clock = now.clone();
+    f.service.set_clock(move || clock.load(Ordering::Relaxed));
+    let (_, effects) = f.service.request_completion(&f.app, 0, 2, None);
+    f.apply(effects);
+    now.store(60_000, Ordering::Relaxed); // the cold start took far too long
+    f.pump_until(|f| !f.offered.is_empty());
+    assert!(
+        f.offered[0].1.is_none(),
+        "the session is told to stop waiting"
+    );
+}
+
+#[test]
+fn languages_without_a_completion_provider_ask_nobody() {
+    let mut f = fixture_with("nobody", "lo", 0..0, &provider_manifest("no-such-language"));
+    let (asked, effects) = f.service.request_completion(&f.app, 0, 2, None);
+    assert_eq!(asked, 0);
+    assert!(effects.is_empty());
 }

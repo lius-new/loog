@@ -72,6 +72,18 @@ export const guest = {
         case 'document-closed': host.log(0, `closed ${message.val.document} life ${message.val.lifecycle}`); break;
         case 'provider-request': {
           const request = message.val;
+          if (request.kind === 'completion') {
+            host.provideCompletions(request.request, [
+              { label: 'loom_hello', detail: 'from the extension', kind: 3, insertText: 'loom_hello()', data: 'hello' },
+              { label: 'loom_world', kind: 3, data: 'world' },
+            ], false);
+            break;
+          }
+          if (request.kind === 'completion-resolve') {
+            const item = { ...request.item, documentation: 'docs for ' + (request.item.data ?? '') };
+            host.provideCompletions(request.request, [item], false);
+            break;
+          }
           const text = host.readRange(request.snapshot, { start: 0n, end: request.length });
           if (request.kind === 'diagnostics') {
             const items = [];

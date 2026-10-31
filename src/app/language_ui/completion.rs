@@ -40,6 +40,14 @@ pub struct Session {
     resolving: Option<(usize, Arc<RequestHandle>)>,
     last_cursor: usize,
     last_version: u64,
+    /// Lists extensions offered for this session, by source. They are merged
+    /// with every server answer, so neither replaces the other.
+    external: Vec<(u64, usize, reply::CompletionList)>,
+    /// Extension requests still in flight; the list is not closed as empty while
+    /// one may still answer.
+    external_pending: usize,
+    /// Items already sent to their extension for resolving: (source, raw JSON).
+    resolve_asked: Vec<(u64, String)>,
 }
 
 impl Session {
@@ -415,6 +423,9 @@ fn publish_words(
         resolving: None,
         last_cursor: t.cursor,
         last_version: t.stamp.version,
+        external: Vec::new(),
+        external_pending: 0,
+        resolve_asked: Vec::new(),
     });
     let typed = t.text[start..t.cursor].to_owned();
     if let Some(session) = app.editor.language.completion.as_mut() {
@@ -493,6 +504,7 @@ pub fn request(ctx: &AppContext, app: &mut AppState, manual: bool, trigger: Opti
             session.local_identity = None;
             session.data.cursor = t.cursor;
         }
+        ask_extensions(ctx, app, start, t.cursor, trigger);
         return;
     }
     app.editor.language.completion = Some(Session {
@@ -517,7 +529,11 @@ pub fn request(ctx: &AppContext, app: &mut AppState, manual: bool, trigger: Opti
         resolving: None,
         last_cursor: t.cursor,
         last_version: t.stamp.version,
+        external: Vec::new(),
+        external_pending: 0,
+        resolve_asked: Vec::new(),
     });
+    ask_extensions(ctx, app, start, t.cursor, trigger);
 }
 
 /// Keeps the list in step with the text. Returns false when the list should go.
@@ -657,7 +673,7 @@ pub fn tick(app: &mut AppState) -> bool {
     let mut changed = false;
     if let Some(handle) = session.handle.clone() {
         let progress = handle.poll();
-        let sources: Vec<(u64, usize, reply::CompletionList)> = progress
+        let server_sources: Vec<(u64, usize, reply::CompletionList)> = progress
             .parts
             .iter()
             .map(|part| {
@@ -668,7 +684,9 @@ pub fn tick(app: &mut AppState) -> bool {
                 )
             })
             .collect();
-        if !sources.is_empty() || progress.finished {
+        if !server_sources.is_empty() || progress.finished {
+            let mut sources = server_sources;
+            sources.extend(session.external.iter().cloned());
             let word_start = session.data.word_start;
             let cursor = session.data.cursor;
             let merged = Completion::merge(word_start, cursor, sources);
@@ -677,7 +695,11 @@ pub fn tick(app: &mut AppState) -> bool {
             }
             let typed = typed_prefix(text, session);
             replace_candidates(session, merged, &typed);
-            if session.shown.is_empty() && session.handle.is_none() && !session.data.incomplete {
+            if session.shown.is_empty()
+                && session.handle.is_none()
+                && !session.data.incomplete
+                && session.external_pending == 0
+            {
                 app.editor.language.completion = None;
             }
             changed = true;
@@ -768,6 +790,19 @@ pub fn resolve_selected(ctx: &AppContext, app: &mut AppState) {
     if entry.resolved || entry.item.documentation.is_some() {
         return;
     }
+    if entry.instance & crate::infrastructure::lsp::manager::EXTERNAL_SOURCE != 0 {
+        // Offered by an extension: only that extension can complete it.
+        let (source, raw) = (entry.instance, entry.item.raw.clone());
+        let key = (source, raw.to_string());
+        if session.resolve_asked.contains(&key) {
+            return;
+        }
+        session.resolve_asked.push(key);
+        if let Some(host) = ctx.services().and_then(|runtime| runtime.extensions()) {
+            host.request_completion_resolve(app, source, &raw);
+        }
+        return;
+    }
     let Some(services) = services(ctx) else {
         return;
     };
@@ -779,6 +814,111 @@ pub fn resolve_selected(ctx: &AppContext, app: &mut AppState) {
         ),
     );
     session.resolving = Some((index, handle));
+}
+
+/// Ask the extensions with a completion provider for this language. Their
+/// answers arrive later through [`offer_external`].
+fn ask_extensions(
+    ctx: &AppContext,
+    app: &mut AppState,
+    start: usize,
+    cursor: usize,
+    trigger: Option<char>,
+) {
+    let Some(host) = ctx.services().and_then(|runtime| runtime.extensions()) else {
+        return;
+    };
+    let asked = host.request_completion(app, start, cursor, trigger);
+    if let Some(session) = app.editor.language.completion.as_mut() {
+        session.external_pending = asked;
+    }
+}
+
+/// An extension answered a completion request (or could not in time:
+/// `items` is `None`). The answer serves the session while it is the same
+/// document life and the same word is being completed; typing since is handled
+/// by the ordinary filter.
+pub fn offer_external(
+    app: &mut AppState,
+    file: FileId,
+    incarnation: u64,
+    word_start: usize,
+    source: u64,
+    rank: usize,
+    items: Option<(Vec<serde_json::Value>, bool)>,
+) {
+    let text = app_text(app);
+    let Some(session) = app.editor.language.completion.as_mut() else {
+        return;
+    };
+    if session.document != file
+        || session.incarnation != incarnation
+        || session.data.word_start != word_start
+    {
+        return;
+    }
+    session.external_pending = session.external_pending.saturating_sub(1);
+    let mut data = session.data.clone();
+    if let Some((json, incomplete)) = items {
+        let list = reply::CompletionList {
+            items: json
+                .iter()
+                .filter_map(|item| {
+                    reply::completion_item(
+                        item,
+                        crate::features::language_service::capabilities::PositionEncoding::Utf16,
+                    )
+                })
+                .collect(),
+            incomplete,
+        };
+        session.external.retain(|(known, ..)| *known != source);
+        session.external.push((source, rank, list.clone()));
+        // A new answer from this source replaces its earlier items.
+        data.entries.retain(|entry| entry.instance != source);
+        data.add(source, rank, list);
+    }
+    let typed = typed_prefix(text, session);
+    replace_candidates(session, data, &typed);
+    if session.shown.is_empty()
+        && session.handle.is_none()
+        && !session.data.incomplete
+        && session.external_pending == 0
+    {
+        app.editor.language.completion = None;
+    }
+}
+
+/// The extension that offered an item completed it (documentation, detail).
+pub fn offer_resolved(
+    app: &mut AppState,
+    source: u64,
+    raw: &serde_json::Value,
+    item: &serde_json::Value,
+) {
+    let Some(session) = app.editor.language.completion.as_mut() else {
+        return;
+    };
+    let Some(mut resolved) = reply::completion_item(
+        item,
+        crate::features::language_service::capabilities::PositionEncoding::Utf16,
+    ) else {
+        return;
+    };
+    let Some(entry) = session
+        .data
+        .entries
+        .iter_mut()
+        .find(|entry| entry.instance == source && entry.item.raw == *raw)
+    else {
+        return;
+    };
+    // Keep the original identity so later lists still match this entry.
+    resolved.raw = entry.item.raw.clone();
+    entry.item = resolved;
+    entry.documentation =
+        crate::features::language_service::completion::item_documentation(&entry.item);
+    entry.resolved = true;
 }
 
 /// How the list is drawn.
@@ -1058,6 +1198,323 @@ mod tests {
                 reused
             );
         }
+    }
+
+    fn extension_item(label: &str, data: &str) -> serde_json::Value {
+        json!({
+            "label": label,
+            "insertText": format!("{label}()"),
+            "x-loom": { "extension": "example.tools", "provider": "example.tools.complete", "data": data },
+        })
+    }
+
+    /// A live session on a document: returns the app and the session's identity.
+    fn app_with_session() -> (AppState, FileId, u64, usize) {
+        let mut app = AppState::new();
+        app.workspace.open_path(
+            std::env::temp_dir().join("completion-external.rs"),
+            "lo".into(),
+        );
+        app.workspace.active_editor_mut().unwrap().set_cursor(2);
+        let mut session = word_session();
+        let file = app.workspace.active_document().unwrap();
+        session.document = file;
+        session.incarnation = app.workspace.documents[&file].stamp(file).incarnation;
+        session.data = Completion {
+            word_start: 0,
+            cursor: 2,
+            ..Completion::default()
+        };
+        session.external_pending = 1;
+        let incarnation = session.incarnation;
+        app.editor.language.completion = Some(session);
+        (app, file, incarnation, 0)
+    }
+
+    #[test]
+    fn an_extensions_items_join_the_list_filter_with_typing_and_keep_their_origin() {
+        let source = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE | 1;
+        let (mut app, file, incarnation, word_start) = app_with_session();
+        offer_external(
+            &mut app,
+            file,
+            incarnation,
+            word_start,
+            source,
+            1000,
+            Some((
+                vec![
+                    extension_item("loom_hello", "h"),
+                    extension_item("other", "o"),
+                ],
+                false,
+            )),
+        );
+        let session = app
+            .editor
+            .language
+            .completion
+            .as_ref()
+            .expect("the list stays open");
+        assert_eq!(session.external_pending, 0);
+        let shown: Vec<_> = session
+            .shown
+            .iter()
+            .map(|s| session.data.entries[s.entry].item.label.as_str())
+            .collect();
+        assert_eq!(shown, ["loom_hello"], "filtered by the typed \"lo\"");
+        let entry = &session.data.entries[session.shown[0].entry];
+        assert_eq!(entry.instance, source);
+        assert_eq!(entry.item.plain_insert(), "loom_hello()");
+    }
+
+    #[test]
+    fn an_answer_for_another_word_or_document_life_is_ignored() {
+        let source = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE | 1;
+        let (mut app, file, incarnation, _) = app_with_session();
+        for (inc, start) in [(incarnation + 1, 0), (incarnation, 5)] {
+            offer_external(
+                &mut app,
+                file,
+                inc,
+                start,
+                source,
+                1000,
+                Some((vec![extension_item("loom_hello", "h")], false)),
+            );
+        }
+        let session = app.editor.language.completion.as_ref().unwrap();
+        assert!(session.data.entries.is_empty());
+        assert_eq!(
+            session.external_pending, 1,
+            "still waiting for the right answer"
+        );
+    }
+
+    #[test]
+    fn a_session_with_nothing_to_show_closes_only_after_every_extension_answered() {
+        let source = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE | 1;
+        let (mut app, file, incarnation, word_start) = app_with_session();
+        app.editor
+            .language
+            .completion
+            .as_mut()
+            .unwrap()
+            .external_pending = 2;
+        offer_external(
+            &mut app,
+            file,
+            incarnation,
+            word_start,
+            source,
+            1000,
+            Some((vec![], false)),
+        );
+        assert!(
+            app.editor.language.completion.is_some(),
+            "one extension is still working"
+        );
+        offer_external(
+            &mut app,
+            file,
+            incarnation,
+            word_start,
+            source | 2,
+            1000,
+            None,
+        );
+        assert!(app.editor.language.completion.is_none());
+    }
+
+    #[test]
+    fn a_new_answer_from_a_source_replaces_its_earlier_items_and_survives_server_merges() {
+        let source = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE | 1;
+        let (mut app, file, incarnation, word_start) = app_with_session();
+        offer_external(
+            &mut app,
+            file,
+            incarnation,
+            word_start,
+            source,
+            1000,
+            Some((vec![extension_item("loom_a", "a")], true)),
+        );
+        offer_external(
+            &mut app,
+            file,
+            incarnation,
+            word_start,
+            source,
+            1000,
+            Some((vec![extension_item("loom_b", "b")], false)),
+        );
+        let session = app.editor.language.completion.as_ref().unwrap();
+        let labels: Vec<_> = session
+            .data
+            .entries
+            .iter()
+            .map(|e| e.item.label.as_str())
+            .collect();
+        assert_eq!(labels, ["loom_b"]);
+        // The stored lists are what a later server answer is merged with.
+        assert_eq!(session.external.len(), 1);
+    }
+
+    #[test]
+    fn a_resolved_item_updates_only_the_entry_that_matches_its_origin() {
+        let source = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE | 1;
+        let (mut app, file, incarnation, word_start) = app_with_session();
+        let offered = extension_item("loom_hello", "h");
+        offer_external(
+            &mut app,
+            file,
+            incarnation,
+            word_start,
+            source,
+            1000,
+            Some((vec![offered.clone()], false)),
+        );
+        let mut done = offered.clone();
+        done["documentation"] = json!("docs for h");
+        offer_resolved(&mut app, source | 9, &offered, &done);
+        assert!(
+            !app.editor
+                .language
+                .completion
+                .as_ref()
+                .unwrap()
+                .data
+                .entries[0]
+                .resolved,
+            "another source"
+        );
+        offer_resolved(&mut app, source, &offered, &done);
+        let entry = &app
+            .editor
+            .language
+            .completion
+            .as_ref()
+            .unwrap()
+            .data
+            .entries[0];
+        assert!(entry.resolved && entry.documentation.is_some());
+        assert_eq!(entry.item.raw, offered, "the original identity is kept");
+    }
+
+    #[test]
+    fn extension_items_reach_a_live_session_through_the_running_host() {
+        use crate::app::extensions::host::ExtensionHost;
+        use crate::app::extensions::tests::{language_of, package_dir_with, provider_manifest};
+        use crate::app::{
+            runtime::AppRuntime,
+            test_support::{UiTasks, live},
+        };
+        use std::time::Instant;
+
+        let path =
+            std::env::temp_dir().join(format!("loom-live-completion-{}.txt", std::process::id()));
+        let queue = UiTasks::default();
+        let runtime = Arc::new(AppRuntime::default());
+        runtime.set_application(queue.application());
+        let mut app = AppState::new();
+        app.workspace.open_path(path.clone(), "lo".into());
+        app.workspace.active_editor_mut().unwrap().set_cursor(2);
+        let file = app.workspace.active_document().unwrap();
+        let mut session = word_session();
+        let pane = app.workspace.active_pane();
+        let t = target(&app, pane).unwrap();
+        session.pane = pane;
+        session.document = file;
+        session.view = t.view;
+        session.input_generation = t.input_generation;
+        session.requested = t.text.clone();
+        session.last_cursor = t.cursor;
+        session.last_version = t.stamp.version;
+        session.incarnation = t.stamp.incarnation;
+        session.data = Completion {
+            word_start: 0,
+            cursor: 2,
+            ..Completion::default()
+        };
+        app.editor.language.completion = Some(session);
+        let state = live(app).with_runtime(&runtime);
+
+        let host = ExtensionHost::start(
+            state.clone(),
+            queue.application(),
+            std::env::temp_dir().join(format!("loom-live-completion-cache-{}", std::process::id())),
+            runtime.trust().clone(),
+            None,
+        )
+        .unwrap();
+        host.service().set_clock(|| 0); // cold start time is not under test
+        host.load_package(&package_dir_with(
+            "live-completion",
+            &provider_manifest(&language_of(&path)),
+        ))
+        .unwrap();
+        runtime.install_extensions(host);
+
+        state.update(|app| ask_extensions(&state, app, 0, 2, None));
+        assert_eq!(
+            state
+                .get()
+                .editor
+                .language
+                .completion
+                .as_ref()
+                .unwrap()
+                .external_pending,
+            1
+        );
+
+        let limit = Instant::now() + Duration::from_secs(60);
+        loop {
+            queue.run_all();
+            let app = state.get();
+            let session = app
+                .editor
+                .language
+                .completion
+                .as_ref()
+                .expect("the list stays open");
+            if !session.data.entries.is_empty() {
+                let labels: Vec<_> = session
+                    .data
+                    .entries
+                    .iter()
+                    .map(|e| e.item.label.clone())
+                    .collect();
+                assert_eq!(labels, ["loom_hello", "loom_world"]);
+                assert_eq!(session.external_pending, 0);
+                assert_eq!(session.shown.len(), 2, "both match the typed \"lo\"");
+                break;
+            }
+            assert!(Instant::now() < limit, "the extension never answered");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        // Resolving the highlighted item goes back to the extension that offered it.
+        state.update(|app| resolve_selected(&state, app));
+        let limit = Instant::now() + Duration::from_secs(60);
+        loop {
+            queue.run_all();
+            let app = state.get();
+            let session = app.editor.language.completion.as_ref().unwrap();
+            if session.data.entries.iter().any(|e| e.resolved) {
+                let docs = session
+                    .data
+                    .entries
+                    .iter()
+                    .find(|e| e.resolved)
+                    .and_then(|e| e.item.documentation.clone());
+                assert!(docs.is_some(), "the resolved item has documentation");
+                break;
+            }
+            assert!(Instant::now() < limit, "the resolve never came back");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        runtime.clear_extensions();
     }
 
     #[test]

@@ -69,11 +69,17 @@ settings. Linux and macOS are not yet verified.
 
 ## Providers
 
-Declare providers under `contributes.providers` (`diagnostics` and `formatting`
-are served; `completion` and `code-actions` are accepted by the manifest but not
+Declare providers under `contributes.providers` (`diagnostics`, `formatting` and
+`completion` are served; `code-actions` is accepted by the manifest but not
 routed yet). A document in a selected language wakes the extension and the
 host sends a `provider-request` for that exact document state; answer it with
 `provide-diagnostics` or `provide-edits`. An answer that arrives late or for an
 older state is discarded and the current state is asked again. When a formatting
 provider matches the language, `editor::Format` uses it instead of the language
 server.
+
+A completion answer carries items with an opaque `data` string. Highlighting an
+item asks the same provider to complete it (`completion-resolve`), and the
+request carries the item with its `data` unchanged; an item is never sent to
+any other extension. Items from extensions are listed after the language
+servers' and merged with them as the list is filtered while typing.
