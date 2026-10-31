@@ -14,7 +14,7 @@ export {parse as parseToml, stringify as stringifyToml, tar};
 
 export const ROOT = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
 export const RECIPES = path.join(ROOT, 'scripts/language-packs/build.toml');
-export const CATALOG = path.join(ROOT, 'assets/language-packs/language-packs.toml');
+export const CATALOG = path.join(ROOT, 'assets/extensions/registry.toml');
 export const WORK = path.join(ROOT, '.packaging/language-packs');
 export const ID = /^[a-z][a-z0-9_-]*$/;
 const GRAMMAR = /^[a-z][a-z0-9_]*$/;

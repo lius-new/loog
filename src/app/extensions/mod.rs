@@ -114,9 +114,7 @@ pub(crate) fn start(
         }
     };
     let mut problems = Vec::new();
-    let (shipped, errors) = bundled::unpack(&root);
-    problems.extend(errors);
-    for dir in shipped {
+    for dir in bundled::directories() {
         if let Err(error) = host.load_package(&dir) {
             problems.push(format!("{}: {error}", dir.display()));
         }

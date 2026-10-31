@@ -15,6 +15,8 @@ mod rules;
 #[allow(unused_imports)]
 pub(crate) use self::descriptor::is_canonical_name;
 #[allow(unused_imports)]
+pub use self::descriptor::Highlight;
+#[allow(unused_imports)]
 pub use self::registry::{LanguageDefinition, PLAIN_TEXT, Registry};
 // The settings and the application use these; the domain-only verification
 // package compiles this module without those users.

@@ -1,7 +1,7 @@
 //! The set of known languages: ids, display data and how files are recognised.
 //! Built from descriptions, never from per-language code.
 use crate::domain::language::descriptor::{
-    Comments, Descriptor, normalize_extension, normalize_file_name, normalize_suffix,
+    Comments, Descriptor, Highlight, normalize_extension, normalize_file_name, normalize_suffix,
 };
 use crate::domain::language::{GrammarId, LanguageId, ResolvedLanguage, VariantId};
 use std::collections::HashMap;
@@ -45,6 +45,8 @@ pub struct LanguageDefinition {
     pub badge: Box<str>,
     pub aliases: Vec<Box<str>>,
     pub comments: Comments,
+    /// Rules for colouring the language when no grammar does.
+    pub highlight: Highlight,
     /// Never empty; the first one is the default.
     pub variants: Vec<LanguageVariant>,
 }
@@ -153,6 +155,7 @@ impl Registry {
                     .map(|a| a.as_str().into())
                     .collect(),
                 comments: descriptor.comments.clone(),
+                highlight: descriptor.highlight.clone(),
                 variants: language_variants,
             });
         }

@@ -101,13 +101,14 @@ export function allowed(file, dependency) {
   if(file==='src/infrastructure/editorconfig.rs')return ['infrastructure','domain','std::fs','globset','loom_editor_core'].includes(root);
   if(file==='src/infrastructure/edit_journal.rs')return ['infrastructure','std::fs','std::process'].includes(root);
   if(file==='src/infrastructure/file_watcher.rs')return ['infrastructure','notify','std::fs','std::thread'].includes(root);
+  if(file==='src/infrastructure/query_watcher.rs')return ['infrastructure','notify','std::fs','std::thread'].includes(root);
   if(file==='src/infrastructure/lsp_watch.rs')return ['infrastructure','features','serde_json','std::fs','std::thread'].includes(root);
   if(file==='src/features/language_service/watch.rs'&&root==='regex')return true;
   if(file==='src/ui/theme_package.rs'&&root==='serde_json')return true;
   if(file==='src/features/language_service/snippet/transform.rs'&&root==='fancy_regex')return true;
   if(file==='src/infrastructure/file_drop.rs')return ['infrastructure','domain','lgui','windows_sys'].includes(root);
   if(file==='src/infrastructure/syntax_worker.rs'||file==='src/infrastructure/syntax_worker_tests.rs'||file==='src/infrastructure/syntax_worker_bench.rs'||file==='src/infrastructure/syntax_worker_retained.rs')return ['infrastructure','features','domain','std::thread'].includes(root);
-  if(file==='src/infrastructure/language_packs.rs'||file==='src/infrastructure/language_packs_unit_tests.rs'||file==='src/infrastructure/language_standard.rs')return ['infrastructure','features','domain','libloading','serde','serde_json','tree_sitter','tree_sitter_language','std::fs'].includes(root)||(file.endsWith('_tests.rs')&&root==='std::process');
+  if(file==='src/infrastructure/language_packs.rs'||file==='src/infrastructure/language_packs_unit_tests.rs'||file==='src/infrastructure/language_queries_tests.rs'||file==='src/infrastructure/language_standard.rs')return ['infrastructure','features','domain','libloading','serde','serde_json','tree_sitter','tree_sitter_language','std::fs'].includes(root)||(file.endsWith('_tests.rs')&&root==='std::process');
   if(file==='src/infrastructure/language_catalog.rs'||file==='src/infrastructure/language_catalog_tests.rs')return ['infrastructure','features','domain','ring','serde','serde_json','toml','tar','flate2','ureq','std::fs','std::thread','std::process','loom_editor_core'].includes(root);
   if(file==='src/infrastructure/lsp_install.rs'||file==='src/infrastructure/lsp_install_tests.rs')return ['infrastructure','features','domain','serde_json','ring','tar','flate2','ureq','std::fs','std::thread','std::process'].includes(root);
   if(file==='src/infrastructure/lsp_catalog.rs'||file==='src/infrastructure/lsp_catalog_tests.rs')return ['infrastructure','features','domain','serde','serde_json','toml','std::fs'].includes(root);
@@ -142,7 +143,7 @@ export function allowed(file, dependency) {
   // Native parsers: only the grammar table names grammar crates; the engine files use the runtime.
   if(file==='src/features/syntax/grammars.rs')return ['features','domain','tree_sitter'].includes(root);
   if(file==='src/features/syntax/queries.rs'||file==='src/features/syntax/treesitter_tests.rs'||file==='src/features/syntax/treesitter_bench.rs')return ['features','domain','tree_sitter'].includes(root);
-  if(['src/features/syntax/treesitter.rs','src/features/syntax/injections.rs'].includes(file))return ['features','domain','tree_sitter','streaming_iterator'].includes(root);
+  if(['src/features/syntax/treesitter.rs','src/features/syntax/injections.rs','src/features/syntax/inspect.rs'].includes(file))return ['features','domain','tree_sitter','streaming_iterator'].includes(root);
   if(file==='src/features/syntax/layers.rs')return ['features','domain','tree_sitter'].includes(root);
   if(file.startsWith('src/features/language_service/'))return ['features','domain','serde_json'].includes(root);
   if(own==='features')return ['features','domain','input'].includes(root);

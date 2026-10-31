@@ -409,11 +409,11 @@ sha256 = "c5e35c68897a0f3793937095d8d9c13340fa18e727a3696ae16fa0edd1d08d23"
 licenses = [ "LICENSE" ]
 
 [sources.bundled-json]
-directory = "assets/language-packs/json"
+directory = "assets/extensions/loom.lang.json"
 licenses = [ "LICENSE" ]
 
 [sources.bundled-markdown]
-directory = "assets/language-packs/markdown"
+directory = "assets/extensions/loom.lang.markdown"
 licenses = [ "LICENSE" ]
 
 [sources.loom-queries]

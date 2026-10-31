@@ -46,28 +46,27 @@ does not change Windows-wide mitigation settings.
 
 ## Layout
 
-Application assembly copies the complete Markdown and JSON packages directly
-from assets/language-packs, including their WASM modules, metadata, queries and
-licenses. It copies language-packs.toml alongside them. Local, CI and release
-packaging all consume these same checked-in files; no language archive download,
-feed variables or grammar compilation is required.
+Application assembly copies every extension in assets/extensions (the color
+themes and the JSON and Markdown languages) as it is into `extensions/` beside the
+executable, and registry.toml alongside them. Local, CI and release packaging all
+consume these same checked-in files; no language archive download, feed variables
+or grammar compilation is required.
 
-Markdown and JSON are still produced by the separate
-[language-package producer](../language-packs/README.md). Their complete bundled
-packages are maintained manually in assets/language-packs. The producer and
-publisher do not automatically replace them. Cargo does not link a grammar
-producer or any language-specific wrapper.
+JSON and Markdown are still built by the separate
+[language-package producer](../language-packs/README.md), but the packages in
+assets/extensions are maintained manually: the producer and publisher do not
+automatically replace them. Cargo does not link a grammar producer or any
+language-specific wrapper.
 
-A package may contain standard .wasm files or native modules. Stems prefer the
-upstream tree-sitter-<stem>.wasm download, then <stem>.wasm, then the native
-platform filename, matching runtime discovery. WASM bytes are copied unchanged
-on every platform. For macOS, supply universal native modules; only native
-modules are individually signed. The app carries allow-jit for Wasmtime. Missing
-or platform-incompatible native files stop assembly.
-No Cargo profile or grammar source directory is consulted. Consumer tests:
+Grammars are WebAssembly and are copied unchanged on every platform; a native
+library never stands in for one, and a missing module, an extension whose id
+differs from its folder, a resource path that leaves the package, or a link or
+special file stops assembly. Nothing in them is signed on macOS; the app carries
+allow-jit for Wasmtime. No Cargo profile or grammar source directory is consulted.
+Consumer tests:
 
 ~~~sh
-node --test scripts/package/lib/language-packs.test.mjs
+node --test scripts/package/lib/extensions.test.mjs
 ~~~
 
 All downloads, tools, staging folders and artifacts live in the git-ignored

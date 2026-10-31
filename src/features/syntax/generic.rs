@@ -10,6 +10,7 @@
 //! do not know which one made them. Whatever provides real syntax (today
 //! Tree-sitter, later an extension) replaces it for the languages it covers.
 use super::TokenSpan;
+use crate::domain::language::LanguageDefinition;
 use crate::features::highlighting::HighlightId;
 use std::ops::Range;
 
@@ -17,7 +18,7 @@ use std::ops::Range;
 pub(crate) const MAX_LINE_BYTES: usize = 4096;
 
 /// Words that rarely appear in prose, so they are safe to colour in code.
-const KEYWORDS: &[&str] = &[
+pub(crate) const KEYWORDS: &[&str] = &[
     "if",
     "else",
     "elif",
@@ -64,7 +65,7 @@ const KEYWORDS: &[&str] = &[
     "throws",
     "raise",
 ];
-const CONSTANTS: &[&str] = &[
+pub(crate) const CONSTANTS: &[&str] = &[
     "true",
     "false",
     "null",
@@ -74,14 +75,66 @@ const CONSTANTS: &[&str] = &[
     "False",
     "undefined",
 ];
+pub(crate) const QUOTES: [char; 3] = ['"', '\'', '`'];
+
+/// Languages whose words are data or prose, not keywords: unless their
+/// description lists some, only comments, strings and numbers are coloured.
+const WITHOUT_WORDS: &[&str] = &[
+    "markdown", "json", "jsonc", "toml", "yaml", "ini", "html", "css", "xml",
+];
+
+/// A set of words the scan colours.
+pub(crate) enum Words<'a> {
+    Off,
+    Builtin(&'static [&'static str]),
+    List(&'a [String]),
+}
+
+impl Words<'_> {
+    fn has(&self, word: &str) -> bool {
+        match self {
+            Self::Off => false,
+            Self::Builtin(list) => list.contains(&word),
+            Self::List(list) => list.iter().any(|known| known == word),
+        }
+    }
+}
 
 /// What a language declares that the scan can use.
 pub(crate) struct Rules<'a> {
     pub line_comment: Option<&'a str>,
     pub block_comment: Option<(&'a str, &'a str)>,
-    /// Colour keywords and constants. Off for prose-like or data languages,
-    /// where those words are ordinary text.
-    pub keywords: bool,
+    /// Characters that open a string ending on the same line.
+    pub quotes: &'a [char],
+    pub numbers: bool,
+    pub keywords: Words<'a>,
+    pub constants: Words<'a>,
+}
+
+impl<'a> Rules<'a> {
+    /// The rules a language's description gives, with built-in lists for what it
+    /// leaves out.
+    pub(crate) fn for_language(definition: &'a LanguageDefinition) -> Self {
+        let highlight = &definition.highlight;
+        let words_off = WITHOUT_WORDS.contains(&&*definition.name);
+        let words = |given: &'a Option<Vec<String>>, builtin: &'static [&'static str]| match given {
+            Some(list) => Words::List(list),
+            None if words_off => Words::Off,
+            None => Words::Builtin(builtin),
+        };
+        Self {
+            line_comment: definition.comments.line.as_deref(),
+            block_comment: definition
+                .comments
+                .block
+                .as_ref()
+                .map(|[open, close]| (open.as_str(), close.as_str())),
+            quotes: highlight.strings.as_deref().unwrap_or(&QUOTES),
+            numbers: highlight.numbers.unwrap_or(true),
+            keywords: words(&highlight.keywords, KEYWORDS),
+            constants: words(&highlight.constants, CONSTANTS),
+        }
+    }
 }
 
 /// Spans that tile `window` exactly, which lies inside `line` of `text`.
@@ -177,7 +230,7 @@ fn scan(
     {
         return (rest.len(), Some(HighlightId::COMMENT));
     }
-    if matches!(c, '"' | '\'' | '`') {
+    if rules.quotes.contains(&c) {
         // An apostrophe inside a word is not a quote.
         let apostrophe = c == '\'' && previous.is_some_and(is_word);
         if !apostrophe && let Some(end) = string_end(rest, c) {
@@ -185,7 +238,7 @@ fn scan(
         }
         return (c.len_utf8(), None);
     }
-    if c.is_ascii_digit() && !previous.is_some_and(is_word) {
+    if rules.numbers && c.is_ascii_digit() && !previous.is_some_and(is_word) {
         let mut end = 0;
         let mut chars = rest.char_indices().peekable();
         while let Some((at, ch)) = chars.next() {
@@ -200,11 +253,9 @@ fn scan(
     if c.is_alphabetic() || c == '_' {
         let end = rest.find(|ch: char| !is_word(ch)).unwrap_or(rest.len());
         let word = &rest[..end];
-        let class = if !rules.keywords {
-            None
-        } else if KEYWORDS.contains(&word) {
+        let class = if rules.keywords.has(word) {
             Some(HighlightId::KEYWORD)
-        } else if CONSTANTS.contains(&word) {
+        } else if rules.constants.has(word) {
             Some(HighlightId::CONSTANT_BUILTIN)
         } else {
             None
@@ -234,7 +285,10 @@ mod tests {
     const C_LIKE: Rules = Rules {
         line_comment: Some("//"),
         block_comment: Some(("/*", "*/")),
-        keywords: true,
+        quotes: &QUOTES,
+        numbers: true,
+        keywords: Words::Builtin(KEYWORDS),
+        constants: Words::Builtin(CONSTANTS),
     };
 
     /// `(text, class)` pairs of the whole single-line `text`.
@@ -300,7 +354,8 @@ mod tests {
     #[test]
     fn keywords_are_off_for_languages_that_ask_for_it() {
         let prose = Rules {
-            keywords: false,
+            keywords: Words::Off,
+            constants: Words::Off,
             ..C_LIKE
         };
         assert_eq!(
@@ -308,6 +363,68 @@ mod tests {
             [("if true then ", None), ("1", Some(HighlightId::NUMBER))]
         );
         assert_eq!(parts("if true", &C_LIKE).len(), 3);
+    }
+
+    #[test]
+    fn a_description_can_replace_the_lists_the_quotes_and_the_numbers() {
+        let definition = |highlight: &str, name: &str| {
+            let json = format!(
+                r#"{{ "name": "{name}", "display_name": "D", "badge": "D",
+                    "comments": {{ "line": "--" }}, "highlight": {highlight},
+                    "variants": [{{ "id": "{name}" }}] }}"#
+            );
+            // A test lives briefly; the registry may as well live as long as it.
+            let registry: &'static crate::domain::language::Registry = Box::leak(Box::new(
+                crate::domain::language::Registry::from_sources(
+                    &[
+                        (
+                            "plaintext",
+                            r#"{"name":"plaintext","display_name":"Plain Text","badge":"TXT","variants":[{"id":"plaintext"}]}"#,
+                        ),
+                        (name, &json),
+                    ],
+                    &[],
+                )
+                .unwrap(),
+            ));
+            let language = registry.language_by_name(name).unwrap();
+            registry.definition(language)
+        };
+        // Its own words, only its own quote, no numbers.
+        let sql = definition(
+            r#"{ "keywords": ["select", "from"], "constants": ["null"], "strings": ["'"], "numbers": false }"#,
+            "sql",
+        );
+        let rules = Rules::for_language(sql);
+        type H = HighlightId;
+        assert_eq!(
+            parts("select 1 from t where x = 'a' -- c \"q\"", &rules),
+            [
+                ("select", Some(H::KEYWORD)),
+                (" 1 ", None),
+                ("from", Some(H::KEYWORD)),
+                (" t where x = ", None),
+                ("'a'", Some(H::STRING)),
+                (" ", None),
+                ("-- c \"q\"", Some(H::COMMENT)),
+            ]
+        );
+        // Without a `highlight` entry the built-in lists apply, except for
+        // data languages, which get no words.
+        let rust = definition("{}", "rust");
+        assert_eq!(parts("let n", &Rules::for_language(rust)).len(), 2);
+        let json = definition("{}", "json");
+        assert_eq!(
+            parts("true 1", &Rules::for_language(json)),
+            [("true ", None), ("1", Some(H::NUMBER))]
+        );
+        // A data language that lists words gets them.
+        let toml = definition(r#"{ "constants": ["true"] }"#, "toml");
+        assert_eq!(parts("true", &Rules::for_language(toml)).len(), 1);
+        assert_eq!(
+            parts("true", &Rules::for_language(toml))[0].1,
+            Some(H::CONSTANT_BUILTIN)
+        );
     }
 
     #[test]
@@ -361,7 +478,7 @@ mod tests {
         let none = Rules {
             line_comment: None,
             block_comment: None,
-            keywords: true,
+            ..C_LIKE
         };
         assert_eq!(parts("// x # y", &none), [("// x # y", None)]);
     }

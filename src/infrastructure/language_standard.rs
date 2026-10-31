@@ -199,19 +199,8 @@ pub(super) fn from_json(root: &Path, json: &str) -> Result<Installed, String> {
 }
 
 pub(super) fn module_path(root: &Path, name: &str, grammar_path: &str) -> PathBuf {
-    let extension = match std::env::consts::OS {
-        "windows" => "dll",
-        "macos" => "dylib",
-        _ => "so",
-    };
-    let files = [
-        format!("tree-sitter-{name}.wasm"),
-        format!("{name}.wasm"),
-        format!("{name}.{extension}"),
-        format!("libtree-sitter-{name}.{extension}"),
-        format!("parser.{extension}"),
-    ];
-    // Prefer WASM across both standard locations before considering native.
+    let files = [format!("tree-sitter-{name}.wasm"), format!("{name}.wasm")];
+    // Both standard locations: the pack's root and the grammar's own directory.
     let candidates: Vec<_> = files
         .iter()
         .flat_map(|file| [root.join(file), root.join(grammar_path).join(file)])

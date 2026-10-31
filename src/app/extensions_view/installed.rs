@@ -67,6 +67,21 @@ fn entry(package: &Package) -> Entry {
         );
     }
     table(
+        "Queries",
+        "extensions",
+        ["Identifier", "Grammar and file", "File"],
+        c.queries
+            .iter()
+            .map(|query| {
+                [
+                    query.id.clone(),
+                    format!("{}/{}", query.grammar, query.file),
+                    query.path.clone(),
+                ]
+            })
+            .collect(),
+    );
+    table(
         "Language features",
         "extension-code",
         ["Identifier", "Feature", "Languages"],

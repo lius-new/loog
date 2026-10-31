@@ -7,7 +7,10 @@ use crate::{
         identity::{FileId, PaneId},
         language::{PLAIN_TEXT, ResolvedLanguage},
     },
-    features::syntax::{Freshness, Source, TokenSpan, TreeStats, Window, WindowTokens, generic},
+    features::syntax::{
+        Freshness, Resources, Source, TokenSpan, TreeIndex, TreeStats, Window, WindowTokens,
+        generic, provider::SpanProvider,
+    },
 };
 use std::{
     collections::{HashMap, VecDeque},
@@ -19,11 +22,11 @@ use std::{
 };
 
 const WINDOW_BUDGET: usize = 4 * 1024 * 1024;
-/// Languages whose words are data or prose, not keywords: the generic
-/// highlighter colours only their comments, strings and numbers.
-const GENERIC_WITHOUT_KEYWORDS: &[&str] = &[
-    "markdown", "json", "jsonc", "toml", "yaml", "ini", "html", "css", "xml",
-];
+
+/// The engine Loom ships: Tree-sitter, driven by the grammars extensions supply.
+fn tree_sitter_engine(resources: Arc<dyn Resources>) -> Box<dyn SpanProvider> {
+    Box::new(TreeIndex::new(resources))
+}
 // Cache pages are anchored to source lines, independently of caret, scroll,
 // viewport width and language. Screen clipping never invalidates known tokens.
 const PAGE_BYTES: usize = 1024;
@@ -190,14 +193,30 @@ impl Worker {
             wake: Condvar::new(),
             stopped: AtomicBool::new(false),
         });
-        Self::start_resources(shared, resources, ready, || {})
+        Self::start_resources(shared, resources, ready, || {}, tree_sitter_engine)
     }
     pub fn new(ready: impl Fn(DocumentStamp) + Send + Sync + 'static) -> Self {
         Self::start(ready, || {})
     }
+    /// A worker whose engine is `engine`, built on the worker's own thread from the
+    /// language resources. This is how a different engine than Tree-sitter plugs in.
+    #[allow(dead_code)]
+    pub(crate) fn with_engine(
+        engine: impl FnOnce(Arc<dyn Resources>) -> Box<dyn SpanProvider> + Send + 'static,
+        ready: impl Fn(DocumentStamp) + Send + Sync + 'static,
+    ) -> Self {
+        Self::start_with(ready, || {}, engine)
+    }
     fn start(
         ready: impl Fn(DocumentStamp) + Send + Sync + 'static,
         before_prepare: impl Fn() + Send + 'static,
+    ) -> Self {
+        Self::start_with(ready, before_prepare, tree_sitter_engine)
+    }
+    fn start_with(
+        ready: impl Fn(DocumentStamp) + Send + Sync + 'static,
+        before_prepare: impl Fn() + Send + 'static,
+        engine: impl FnOnce(Arc<dyn Resources>) -> Box<dyn SpanProvider> + Send + 'static,
     ) -> Self {
         let shared = Arc::new(Shared {
             state: Mutex::new(State::default()),
@@ -205,13 +224,14 @@ impl Worker {
             stopped: AtomicBool::new(false),
         });
         let resources = crate::infrastructure::language_packs::resources();
-        Self::start_resources(shared, resources, ready, before_prepare)
+        Self::start_resources(shared, resources, ready, before_prepare, engine)
     }
     fn start_resources(
         shared: Arc<Shared>,
-        resources: Arc<dyn crate::features::syntax::Resources>,
+        resources: Arc<dyn Resources>,
         ready: impl Fn(DocumentStamp) + Send + Sync + 'static,
         before_prepare: impl Fn() + Send + 'static,
+        engine: impl FnOnce(Arc<dyn Resources>) -> Box<dyn SpanProvider> + Send + 'static,
     ) -> Self {
         let weak = Arc::downgrade(&shared);
         let changed: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
@@ -242,7 +262,7 @@ impl Worker {
         thread::Builder::new()
             .name("loom-syntax".into())
             .spawn(move || {
-                let mut trees = crate::features::syntax::TreeIndex::new(resources);
+                let mut trees = engine(resources);
                 loop {
                     let job = {
                         let mut state = background.state.lock().unwrap();
@@ -262,14 +282,14 @@ impl Worker {
                             for id in forgotten {
                                 trees.forget(id);
                             }
-                            background.state.lock().unwrap().tree_stats = trees.stats;
+                            background.state.lock().unwrap().tree_stats = trees.stats();
                             continue;
                         }
                         if let Some(open) = state.prune.take() {
                             drop(state);
                             trees.retain(&open);
                             let mut state = background.state.lock().unwrap();
-                            state.tree_stats = trees.stats;
+                            state.tree_stats = trees.stats();
                             continue;
                         }
                         let document = state.pending.pop_front().unwrap();
@@ -317,7 +337,7 @@ impl Worker {
                     let structural = trees.folding(request.document, &request.source, &cancel);
                     let mut state = background.state.lock().unwrap();
                     state.running = None;
-                    state.tree_stats = trees.stats;
+                    state.tree_stats = trees.stats();
                     if background.stopped.load(Ordering::Acquire) {
                         break;
                     }
@@ -431,16 +451,7 @@ impl Worker {
             }
             // Text no grammar covers still gets the generic highlighter, which
             // reads one line and keeps nothing between requests.
-            let definition = lang.definition();
-            let rules = generic::Rules {
-                line_comment: definition.comments.line.as_deref(),
-                block_comment: definition
-                    .comments
-                    .block
-                    .as_ref()
-                    .map(|[open, close]| (open.as_str(), close.as_str())),
-                keywords: !GENERIC_WITHOUT_KEYWORDS.contains(&&*definition.name),
-            };
+            let rules = generic::Rules::for_language(lang.definition());
             return windows
                 .into_iter()
                 .filter(|window| window.range.end <= source.text.len())
@@ -783,6 +794,82 @@ mod tests {
         let plain = query(code, language::from_path(std::path::Path::new("a.txt")));
         assert_eq!(plain[0].spans.len(), 1);
         assert_eq!(plain[0].spans[0].class, None);
+    }
+
+    #[test]
+    fn another_engine_colours_a_language_in_place_of_tree_sitter() {
+        use std::{sync::mpsc, time::Duration};
+        /// Colours every window as a keyword, and notes what it was asked.
+        struct Everything(Arc<Mutex<Vec<FileId>>>);
+        impl SpanProvider for Everything {
+            fn prepare(
+                &mut self,
+                id: FileId,
+                _source: Source,
+                _language: ResolvedLanguage,
+                windows: &[Window],
+                _cancel: &AtomicBool,
+            ) -> Option<Vec<WindowTokens>> {
+                self.0.lock().unwrap().push(id);
+                Some(
+                    windows
+                        .iter()
+                        .map(|window| {
+                            WindowTokens::fresh(
+                                window.range.clone(),
+                                vec![TokenSpan {
+                                    range: window.range.clone(),
+                                    class: Some(HighlightId::KEYWORD),
+                                }],
+                            )
+                        })
+                        .collect(),
+                )
+            }
+            fn folding(
+                &mut self,
+                _id: FileId,
+                _source: &Source,
+                _cancel: &AtomicBool,
+            ) -> Option<Arc<[std::ops::Range<usize>]>> {
+                None
+            }
+            fn forget(&mut self, _id: FileId) {}
+            fn retain(&mut self, _open: &[FileId]) {}
+            fn stats(&self) -> TreeStats {
+                TreeStats::default()
+            }
+        }
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let record = asked.clone();
+        let (done, finished) = mpsc::channel();
+        let worker = Worker::with_engine(
+            move |_resources| Box::new(Everything(record)),
+            move |stamp| {
+                let _ = done.send(stamp);
+            },
+        );
+        let buffer = TextBuffer::new("plain words");
+        let document = FileId::new(7);
+        let stamp = DocumentStamp::new(document, 1, 0, &buffer);
+        let query = || {
+            worker.query(
+                PaneId::new(1),
+                stamp,
+                Source::new(&buffer),
+                language::builtin("javascript"),
+                vec![Window {
+                    line: 0..buffer.len(),
+                    range: 0..buffer.len(),
+                }],
+            )
+        };
+        assert!(query().iter().all(|tokens| !tokens.complete));
+        finished.recv_timeout(Duration::from_secs(5)).unwrap();
+        let coloured = query();
+        assert!(coloured[0].complete);
+        assert_eq!(coloured[0].spans[0].class, Some(HighlightId::KEYWORD));
+        assert_eq!(*asked.lock().unwrap(), [document]);
     }
 
     #[test]

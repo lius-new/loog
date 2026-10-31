@@ -13,6 +13,8 @@ pub(crate) struct Descriptor {
     pub aliases: Vec<String>,
     #[serde(default)]
     pub comments: Comments,
+    #[serde(default)]
+    pub highlight: Highlight,
     pub variants: Vec<VariantDescriptor>,
     #[serde(default)]
     pub files: Vec<FileRuleDescriptor>,
@@ -24,6 +26,53 @@ pub(crate) struct Descriptor {
 pub struct Comments {
     pub line: Option<String>,
     pub block: Option<[String; 2]>,
+}
+
+/// Rules for the generic highlighter, which colours a language that no grammar
+/// covers. A list given here replaces the built-in one; a field left out keeps
+/// it, so a few lines of data are enough to colour a language.
+#[derive(Debug, Default, Deserialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Highlight {
+    pub keywords: Option<Vec<String>>,
+    /// Words like `true` and `null`, drawn as built-in constants.
+    pub constants: Option<Vec<String>>,
+    /// Characters that open a string ending on the same line.
+    pub strings: Option<Vec<char>>,
+    pub numbers: Option<bool>,
+}
+
+const MAX_WORDS: usize = 512;
+const MAX_WORD_CHARS: usize = 40;
+
+impl Highlight {
+    fn validate(&self) -> Result<(), String> {
+        for (what, words) in [("keywords", &self.keywords), ("constants", &self.constants)] {
+            let Some(words) = words else { continue };
+            if words.len() > MAX_WORDS {
+                return Err(format!(
+                    "highlight {what} may list at most {MAX_WORDS} words"
+                ));
+            }
+            for word in words {
+                let usable = !word.is_empty()
+                    && word.chars().count() <= MAX_WORD_CHARS
+                    && word.chars().all(|c| c.is_alphanumeric() || c == '_');
+                if !usable {
+                    return Err(format!("highlight {what}: `{word}` is not a plain word"));
+                }
+            }
+        }
+        if let Some(strings) = &self.strings
+            && (strings.len() > 8
+                || strings
+                    .iter()
+                    .any(|c| c.is_alphanumeric() || c.is_whitespace() || c.is_control()))
+        {
+            return Err("highlight strings must be at most 8 punctuation characters".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,6 +184,7 @@ impl Descriptor {
         {
             return Err("block comment markers must both be non-empty".into());
         }
+        self.highlight.validate()?;
         if self.variants.is_empty() {
             return Err("at least one variant is required".into());
         }
@@ -194,6 +244,39 @@ mod tests {
     #[test]
     fn a_complete_description_is_accepted() {
         check(GOOD).unwrap();
+    }
+
+    #[test]
+    fn highlight_rules_are_plain_words_and_punctuation() {
+        let with = |rules: &str| {
+            GOOD.replace(
+                "\"aliases\"",
+                &format!("\"highlight\": {rules}, \"aliases\""),
+            )
+        };
+        let good = with(
+            r#"{ "keywords": ["let", "fn_2"], "constants": [], "strings": ["\"", "'"], "numbers": false }"#,
+        );
+        let parsed = Descriptor::parse(&good).unwrap();
+        parsed.validate("demo").unwrap();
+        assert_eq!(
+            parsed.highlight.keywords.as_deref().map(<[_]>::len),
+            Some(2)
+        );
+        assert_eq!(parsed.highlight.strings, Some(vec!['"', '\'']));
+        assert_eq!(
+            Descriptor::parse(GOOD).unwrap().highlight,
+            Highlight::default()
+        );
+        for bad in [
+            with(r#"{ "keywords": ["two words"] }"#),
+            with(r#"{ "constants": [""] }"#),
+            with(r#"{ "strings": ["a"] }"#),
+            with(r#"{ "strings": ["\"","'","`","<",">","(",")","[","]"] }"#),
+        ] {
+            assert!(check(&bad).is_err(), "{bad}");
+        }
+        assert!(Descriptor::parse(&with(r#"{ "colours": [] }"#)).is_err());
     }
 
     #[test]

@@ -12,9 +12,15 @@ test('the host is independent of the language producer and concrete grammar crat
   for (const file of ['Cargo.toml', 'crates/editor-core/Cargo.toml', 'crates/workspace-tests/Cargo.toml', 'tests/language-runtime/Cargo.toml']) {
     assert.deepEqual(runtimeGrammarManifestErrors(fs.readFileSync(path.join(root, file), 'utf8')), [], file);
   }
-  const resources = path.join(root, 'assets/language-packs');
-  assert.deepEqual(fs.readdirSync(resources).filter(id => fs.statSync(path.join(resources,id)).isDirectory()).sort(), ['json','markdown']);
-  for (const id of fs.readdirSync(resources).filter(id => fs.statSync(path.join(resources, id)).isDirectory())) {
+  assert.equal(fs.existsSync(path.join(root, 'assets/language-packs')), false, 'language packs are extensions now');
+  const resources = path.join(root, 'assets/extensions');
+  // The grammars that ship with Loom, each inside its own extension package.
+  const languages = fs.readdirSync(resources).filter(id => fs.existsSync(path.join(resources, id, 'tree-sitter.json'))).sort();
+  assert.deepEqual(languages, ['loom.lang.json', 'loom.lang.markdown']);
+  for (const id of languages) {
+    const extension = JSON.parse(fs.readFileSync(path.join(resources, id, 'manifest.json')));
+    assert.equal(extension.id, id);
+    assert.deepEqual(extension.contributes.languages.map(language => language.path), ['tree-sitter.json']);
     const manifest = JSON.parse(fs.readFileSync(path.join(resources, id, 'tree-sitter.json')));
     assert.equal(fs.existsSync(path.join(resources, id, 'package.json')), false);
     assert.ok(Array.isArray(manifest.grammars));
@@ -25,7 +31,6 @@ test('the host is independent of the language producer and concrete grammar crat
       for (const file of [grammar.highlights].flat()) assert.ok(fs.statSync(path.join(resources, id, file)).size > 0);
     }
   }
-  for (const id of ['json', 'markdown']) assert.ok(fs.existsSync(path.join(resources, id, 'tree-sitter.json')));
   for (const manifest of ['Cargo.toml', 'tests/language-runtime/Cargo.toml']) {
     assert.match(fs.readFileSync(path.join(root, manifest), 'utf8'), /tree-sitter\s*=\s*\{[^}]*features\s*=\s*\[[^\]]*"wasm"/);
   }

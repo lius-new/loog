@@ -7,7 +7,7 @@ import {execFileSync, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const catalog = 'assets/language-packs/language-packs.toml';
+const catalog = 'assets/extensions/registry.toml';
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/language-packs.yml'), 'utf8').replaceAll('\r\n', '\n');
 const step = workflow.split('      - name: Commit and push the released catalog\n')[1].split('\n      - ')[0];
 const script = step.split('        run: |\n')[1].split('\n').map(line => line.slice(10)).join('\n');

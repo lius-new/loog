@@ -48,6 +48,15 @@ pub(crate) fn compile(resources: &dyn Resources, grammar: &str) -> Result<Compil
     compile_source(&language, &source).map_err(|error| format!("grammar `{grammar}`: {error}"))
 }
 
+/// Whether `source` is a `file` query (`highlights.scm` or `injections.scm`) that
+/// Loom accepts for `language`, with the same compilers the worker uses.
+pub(crate) fn check_query(language: &Language, file: &str, source: &str) -> Result<(), String> {
+    match file {
+        HIGHLIGHTS => compile_source(language, source).map(|_| ()),
+        _ => super::injections::compile_source(language, source).map(|_| ()),
+    }
+}
+
 pub(crate) fn compile_source(language: &Language, source: &str) -> Result<CompiledQuery, String> {
     let query = Query::new(language, source).map_err(|error| error.to_string())?;
     let classes = query

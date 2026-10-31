@@ -37,15 +37,15 @@ fn manifest() -> Value {
 
 #[test]
 fn standard_entry_points_are_inferred_and_explicit_aliases_are_preserved() {
-    let default: Module = serde_json::from_value(json!({"module":"python.dll"})).unwrap();
+    let default: Module = serde_json::from_value(json!({"module":"python.wasm"})).unwrap();
     assert_eq!(default.entry_point("python"), "tree_sitter_python");
     let alias: Module =
-        serde_json::from_value(json!({"module":"python.dll","symbol":"tree_sitter_python"}))
+        serde_json::from_value(json!({"module":"python.wasm","symbol":"tree_sitter_python"}))
             .unwrap();
     assert_eq!(alias.entry_point("my_python"), "tree_sitter_python");
     let temp = Temp::new();
     let mut value = manifest();
-    value["grammars"]["sample"] = json!({"module":"sample.dll"});
+    value["grammars"]["sample"] = json!({"module":"sample.wasm"});
     temp.write("sample", &value);
     let source = Packages::discover(&temp.0, None);
     assert!(
@@ -59,23 +59,17 @@ fn standard_entry_points_are_inferred_and_explicit_aliases_are_preserved() {
 }
 
 #[test]
-fn standard_native_filenames_are_used_without_renaming_or_path_escape() {
-    for (platform, extension) in [("windows", "dll"), ("linux", "so"), ("macos", "dylib")] {
-        assert_eq!(
-            module_file("python", platform).unwrap(),
-            format!("python.{extension}")
-        );
-        for file in [
-            "python.dll",
-            "python.so",
-            "python.dylib",
-            "libtree-sitter-python.so",
-            "tree-sitter-python.wasm",
-        ] {
-            assert_eq!(module_file(file, platform).unwrap(), file);
-        }
+fn only_webassembly_filenames_are_used_without_renaming_or_path_escape() {
+    assert_eq!(module_file("python").unwrap(), "python.wasm");
+    for file in ["python.wasm", "tree-sitter-python.wasm"] {
+        assert_eq!(module_file(file).unwrap(), file);
     }
     for invalid in [
+        // Native libraries are not run inside Loom.
+        "python.dll",
+        "python.so",
+        "python.dylib",
+        "libtree-sitter-python.so",
         "../python.dll",
         "a/python.so",
         "a\\python.dll",
@@ -87,19 +81,19 @@ fn standard_native_filenames_are_used_without_renaming_or_path_escape() {
         "python.wasm.dll",
         "",
     ] {
-        assert!(module_file(invalid, "windows").is_err(), "{invalid}");
+        assert!(module_file(invalid).is_err(), "{invalid}");
     }
 }
 
 #[test]
-fn wasm_downloads_are_preferred_for_stems_and_explicit_filenames_select_one_format() {
+fn upstream_wasm_downloads_are_found_for_stems_and_explicit_filenames_select_one_file() {
     let temp = Temp::new();
     let mut value = manifest();
     value["grammars"]["sample"] = json!({"module":"sample"});
     temp.write("sample", &value);
     let modules = temp.0.join("sample/modules");
     fs::create_dir_all(&modules).unwrap();
-    for file in module_candidates("sample", std::env::consts::OS) {
+    for file in module_candidates("sample") {
         fs::write(modules.join(file), "unloaded payload").unwrap();
     }
     let source = Packages::discover(&temp.0, None);
@@ -111,10 +105,6 @@ fn wasm_downloads_are_preferred_for_stems_and_explicit_filenames_select_one_form
     assert_eq!(
         Packages::module_path(package, "sample.wasm"),
         modules.join("sample.wasm")
-    );
-    assert_eq!(
-        Packages::module_path(package, "sample.dll"),
-        modules.join("sample.dll")
     );
     assert_eq!(source.activity(), Activity::default());
 }
@@ -271,16 +261,20 @@ fn invalid_packages_do_not_corrupt_valid_metadata() {
 fn platform_paths_are_absolute_and_portable_directories_are_not_cargo_profiles() {
     let home = std::env::temp_dir().join("loom-data");
     assert_eq!(
-        user_directory_from("windows", |_| Some(home.clone().into_os_string())),
-        Some(home.join("Loom/language-packs"))
+        user_resource_directory_from(
+            "windows",
+            |_| Some(home.clone().into_os_string()),
+            "extensions"
+        ),
+        Some(home.join("Loom/extensions"))
     );
     assert_eq!(
-        user_directory_from("windows", |_| Some("relative".into())),
+        user_resource_directory_from("windows", |_| Some("relative".into()), "extensions"),
         None
     );
     assert_eq!(
-        locations(Path::new("/portable/deps/Loom.exe")),
-        PathBuf::from("/portable/deps/language-packs")
+        bundled_directory(Path::new("/portable/deps/Loom.exe"), "extensions"),
+        PathBuf::from("/portable/deps/extensions")
     );
 }
 

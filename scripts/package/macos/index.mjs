@@ -10,7 +10,7 @@ import {prepareDependencies} from '../../dependencies/ensure.mjs';
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { stageLanguagePacks } from '../lib/language-packs.mjs';
+import { stageExtensions } from '../lib/extensions.mjs';
 import { stageLspServers } from '../lib/lsp-servers.mjs';
 
 import {
@@ -172,13 +172,8 @@ export function packageApp({ version }) {
     fs.copyFileSync(path.join(ROOT, file), path.join(resources, file));
   }
   writeIcon(path.join(resources, 'Loom.icns'));
-  const modules = stageLanguagePacks({
-    destination: path.join(resources, 'language-packs'),
-    platform: 'darwin',
-  });
-  for (const module of modules) {
-    if (path.extname(module) !== '.wasm') sign(module, identity);
-  }
+  // Grammars are WebAssembly, which is data to the system: nothing to sign.
+  stageExtensions({ destination: path.join(resources, 'extensions') });
   stageLspServers({ destination: path.join(resources, 'lsp-servers') });
 
   sign(app, identity, path.join(ROOT, 'scripts/package/macos/entitlements.plist'));

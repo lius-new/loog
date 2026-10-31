@@ -12,7 +12,8 @@ session (`workspace.json`) live in the user configuration folder:
 | Linux | `$XDG_CONFIG_HOME/loom`, or `~/.config/loom` |
 
 On Windows, all persistent user data uses `%APPDATA%\Loom` (Roaming), including
-downloaded language resources under `language-packs\.managed`. Loom does not split
+installed extensions (including downloaded languages) under `extensions` and your
+own highlight queries under `queries`. Loom does not split
 user data between the Roaming and Local AppData folders.
 
 A workspace folder can override settings in `.loom/settings.json`; the

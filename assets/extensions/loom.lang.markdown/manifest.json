@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "loom.lang.markdown",
+  "version": "0.1.8",
+  "name": "Markdown Language",
+  "publisher": "Loom",
+  "description": "Syntax highlighting for Markdown, with fenced code blocks highlighted in their own language.",
+  "categories": ["Languages"],
+  "keywords": ["markdown", "syntax", "tree-sitter"],
+  "license": "MIT",
+  "repository": "https://github.com/lius-new/loom",
+  "readme": "README.md",
+  "engines": { "loom": "0.1.8" },
+  "contributes": {
+    "languages": [{ "id": "loom.lang.markdown.grammar", "path": "tree-sitter.json" }]
+  }
+}

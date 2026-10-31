@@ -124,6 +124,9 @@ pub struct Contributes {
     pub languages: Vec<ResourceDecl>,
     #[serde(default)]
     pub snippets: Vec<ResourceDecl>,
+    /// Highlight and injection queries for a grammar, layered over its own.
+    #[serde(default)]
+    pub queries: Vec<QueryDecl>,
     #[serde(default)]
     pub language_servers: Vec<LanguageServerDecl>,
     #[serde(default)]
@@ -195,6 +198,20 @@ pub struct ResourceDecl {
     pub path: String,
 }
 
+/// A query file for a grammar the package may not own. It is stacked on the
+/// grammar's own query: appended when it starts with `; extends`, otherwise it
+/// replaces what is below it.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QueryDecl {
+    pub id: String,
+    /// The grammar's canonical name, such as `rust`.
+    pub grammar: String,
+    /// `highlights.scm` or `injections.scm`.
+    pub file: String,
+    pub path: String,
+}
+
 /// Declarative language server integration. Parsing never starts a program.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -233,6 +250,8 @@ pub enum ManifestError {
     EmptySelector(String),
     /// A setting's default does not have the declared type.
     BadSettingDefault(String),
+    /// A query names a grammar or a query file that does not exist.
+    BadQuery(String),
     /// A network domain is not a plain host name pattern, or is declared without the capability.
     BadDomain(String),
     /// The server declaration is not one the language service accepts.
@@ -281,6 +300,10 @@ impl std::fmt::Display for ManifestError {
                 "language server `{id}` runs a program, so the package must declare `process.execute-local`"
             ),
             Self::BadMetadata(problem) => write!(f, "{problem}"),
+            Self::BadQuery(id) => write!(
+                f,
+                "query `{id}` needs a lowercase grammar name and highlights.scm or injections.scm"
+            ),
             Self::BadSettingDefault(key) => {
                 write!(f, "the default of setting `{key}` has the wrong type")
             }
@@ -584,6 +607,23 @@ impl Manifest {
             self.namespaced(&resource.id)?;
             unique(&resource.id)?;
             check_package_path(&resource.path)?;
+        }
+        for query in &c.queries {
+            self.namespaced(&query.id)?;
+            unique(&query.id)?;
+            check_package_path(&query.path)?;
+            let canonical = query
+                .grammar
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_lowercase())
+                && query
+                    .grammar
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+            if !canonical || !["highlights.scm", "injections.scm"].contains(&query.file.as_str()) {
+                return Err(ManifestError::BadQuery(query.id.clone()));
+            }
         }
         for setting in &c.settings {
             self.namespaced(&setting.key)?;
@@ -975,6 +1015,30 @@ mod tests {
         assert!(matches!(
             with("0.1.0\",\n        \"api", "1.0\",\n        \"api"),
             Err(ManifestError::InvalidVersion(_))
+        ));
+    }
+
+    #[test]
+    fn queries_name_a_grammar_a_query_file_and_a_path_inside_the_package() {
+        let parse = |query: &str| {
+            Manifest::parse(&format!(
+                r#"{{ "schema": 1, "id": "acme.q", "version": "0.1.0",
+                     "contributes": {{ "queries": [{query}] }} }}"#
+            ))
+        };
+        let good = r#"{ "id": "acme.q.rust", "grammar": "rust", "file": "highlights.scm",
+                         "path": "queries/rust.scm" }"#;
+        assert_eq!(parse(good).unwrap().contributes.queries.len(), 1);
+        for bad in [
+            good.replace("rust\",", "Rust\","),
+            good.replace("highlights.scm", "folds.scm"),
+            good.replace("acme.q.rust", "other.rust"),
+        ] {
+            assert!(parse(&bad).is_err(), "{bad}");
+        }
+        assert!(matches!(
+            parse(&good.replace("queries/rust.scm", "../rust.scm")),
+            Err(ManifestError::UnsafePath(_))
         ));
     }
 }

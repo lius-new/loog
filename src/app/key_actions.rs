@@ -437,6 +437,14 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             super::extensions_view::import_package(&env.state);
             true
         }
+        Action::InspectHighlight => {
+            super::highlight_inspect::inspect_cursor(&env.state);
+            true
+        }
+        Action::ShowQueryProblems => {
+            super::highlight_inspect::show_problems(&env.state);
+            true
+        }
         Action::RetryExtensions | Action::StopExtensions => {
             match env
                 .state

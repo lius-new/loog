@@ -111,14 +111,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: released-language-package-catalog
-          path: assets/language-packs/language-packs.toml
+          path: assets/extensions/registry.toml
           if-no-files-found: error
       - name: Commit and push the released catalog
         env:
           CATALOG_BRANCH: ${{ github.ref_name }}
           RESOURCE_TAG: ${{ inputs.release }}
         run: |
-          catalog=assets/language-packs/language-packs.toml
+          catalog=assets/extensions/registry.toml
           git add -- "$catalog"
           if git diff --cached --quiet; then
             echo 'The released catalog is already committed.' >> "$GITHUB_STEP_SUMMARY"

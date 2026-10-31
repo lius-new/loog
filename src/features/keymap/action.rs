@@ -102,6 +102,8 @@ actions! {
     ShowExtensions => "workspace::ShowExtensions", "Show the state of the installed extensions";
     ReloadExtensions => "workspace::ReloadExtensions", "Reload the installed extensions from disk";
     ImportExtension => "workspace::ImportExtension", "Install an extension from a .loomext package";
+    InspectHighlight => "editor::InspectHighlight", "Show how the code at the cursor is coloured and which query rule decides it";
+    ShowQueryProblems => "workspace::ShowQueryProblems", "Show custom highlight queries that were left out, and why";
     RetryExtensions => "workspace::RetryExtensions", "Start the extensions that failed again";
     StopExtensions => "workspace::StopExtensions", "Stop every running extension and its language servers until they are reloaded";
     TrustWorkspace => "workspace::TrustWorkspace", "Trust the current folder so language servers and tools may run";

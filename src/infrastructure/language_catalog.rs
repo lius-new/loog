@@ -170,7 +170,11 @@ pub(crate) struct Info {
 pub(super) struct Manager {
     catalog: Catalog,
     pub(super) descriptions: BTreeMap<String, Installed>,
+    /// Downloaded archives, kept so a restart installs without the network.
     cache: Option<PathBuf>,
+    /// The folder extensions are installed into: a language becomes the extension
+    /// `loom.lang.<name>` there.
+    extensions: Option<PathBuf>,
     work: Mutex<Work>,
     revision: AtomicU64,
     listeners: Mutex<Vec<Weak<Listener>>>,
@@ -181,19 +185,22 @@ impl Manager {
         catalog: Catalog,
         descriptions: BTreeMap<String, Installed>,
         cache: Option<PathBuf>,
+        extensions: Option<PathBuf>,
     ) -> Arc<Self> {
-        Self::with_download(catalog, descriptions, cache, Arc::new(download))
+        Self::with_download(catalog, descriptions, cache, extensions, Arc::new(download))
     }
     fn with_download(
         catalog: Catalog,
         descriptions: BTreeMap<String, Installed>,
         cache: Option<PathBuf>,
+        extensions: Option<PathBuf>,
         download: Arc<Download>,
     ) -> Arc<Self> {
         Arc::new(Self {
             catalog,
             descriptions,
             cache,
+            extensions,
             work: Mutex::default(),
             revision: AtomicU64::new(0),
             listeners: Mutex::default(),
@@ -411,19 +418,42 @@ impl Manager {
         for grammar in &expected {
             crate::features::syntax::validate_resources(&validation, grammar)?;
         }
-        let destination = cache.join(format!("{id}-{}", p.sha256));
+        // The language is installed as an ordinary extension: a manifest names its
+        // grammar, and a marker records that the registry put it there.
+        let extensions = self
+            .extensions
+            .as_ref()
+            .ok_or("No user directory is available for extensions")?;
+        let extension = extension_id(id);
+        fs::write(
+            directory.join("manifest.json"),
+            registry_manifest(&extension, p),
+        )
+        .map_err(|e| e.to_string())?;
+        fs::write(
+            directory.join(REGISTRY_MARKER),
+            serde_json::json!({"sha256": p.sha256, "release": p.release}).to_string(),
+        )
+        .map_err(|e| e.to_string())?;
+        fs::create_dir_all(extensions).map_err(|e| e.to_string())?;
+        let destination = extensions.join(&extension);
         let quarantine = Temporary::new(cache)?;
         // Existing files are reused only if every extracted byte matches the pinned archive.
         if destination.exists() {
+            // An extension of the same name that the user installed is theirs.
+            if !destination.join(REGISTRY_MARKER).is_file() {
+                return Err(format!(
+                    "{extension}: an extension with this name is already installed"
+                ));
+            }
             if inventory(&directory)? == inventory(&destination).unwrap_or_default() {
                 return standard::read(&destination);
             }
-            // Move only our hash-addressed cache aside before installing verified bytes.
-            // Manual/user collections never enter this directory.
+            // Move only what the registry installed aside before installing verified bytes.
             match fs::rename(&destination, quarantine.0.join("corrupt")) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(format!("repair cached language package {id}: {e}")),
+                Err(e) => return Err(format!("repair language extension {id}: {e}")),
             }
         }
         match fs::rename(&directory, &destination) {
@@ -450,6 +480,43 @@ impl Manager {
         fs::rename(file, archive).map_err(|e| format!("cache language archive: {e}"))?;
         Ok(bytes)
     }
+}
+
+/// Present in a folder the registry installed, so it is never taken for one the
+/// user installed.
+const REGISTRY_MARKER: &str = ".registry.json";
+
+/// The extension a registry language is installed as.
+fn extension_id(id: &str) -> String {
+    format!("loom.lang.{}", id.replace('_', "-"))
+}
+
+/// The manifest of a registry language: a resource-only extension that
+/// contributes its grammar.
+fn registry_manifest(extension: &str, package: &Package) -> String {
+    let release = package
+        .release
+        .strip_prefix("language-packs-")
+        .unwrap_or("");
+    let parts: Vec<&str> = release.split('.').take(3).collect();
+    let version = if parts.len() == 3 && parts.iter().all(|p| p.parse::<u32>().is_ok()) {
+        parts.join(".")
+    } else {
+        "0.0.0".to_owned()
+    };
+    serde_json::json!({
+        "schema": 1,
+        "id": extension,
+        "version": version,
+        "name": format!("{} Language", package.name),
+        "publisher": "Loom",
+        "description": format!("Syntax highlighting for {}.", package.name),
+        "categories": ["Languages"],
+        "contributes": {
+            "languages": [{ "id": format!("{extension}.grammar"), "path": "tree-sitter.json" }]
+        }
+    })
+    .to_string()
 }
 
 fn download(url: &str, size: u64) -> Result<Vec<u8>, String> {

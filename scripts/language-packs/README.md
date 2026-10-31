@@ -8,14 +8,16 @@ independently of Cargo and the application installer build.
 - `scripts/language-packs/build.toml`: maintained producer recipes, pinned CLI,
   WASI SDK, Binaryen, source commits/archive hashes, queries, licenses and samples.
   It has no release tags or output hashes.
-- `assets/language-packs/language-packs.toml`: successfully published package
-  names, grammar/file associations, fixed resource tags, archive hashes and sizes.
-  It has no build recipes and is copied to the application installation.
+- `assets/extensions/registry.toml`: the extension registry. It lists successfully
+  published package names, grammar/file associations, fixed resource tags, archive
+  hashes and sizes. It has no build recipes and is copied to the application
+  installation. A listed package is installed on demand as the extension
+  `loom.lang.<name>`.
 
 The initial publication catalog is empty: recipes do not imply that a package
-already exists remotely. Only Markdown and JSON directories remain under
-`assets/language-packs`, as complete packages including WASM. Other inputs come
-from the producer recipes.
+already exists remotely. Only Markdown and JSON remain under `assets/extensions`
+(`loom.lang.json`, `loom.lang.markdown`), as complete extensions including WASM.
+Other inputs come from the producer recipes.
 
 ## Build
 
@@ -75,7 +77,7 @@ are cached by source/toolchain inputs and validated again when reused.
 
 Markdown and JSON use this same producer and produce individual archives like
 other packages. Their validated WASM files have been manually placed in the
-complete packages under assets/language-packs. Application packaging consumes
+complete extensions under assets/extensions. Application packaging consumes
 that checked-in directory directly. The producer does not copy results back
 there and does not create an installer collection archive.
 

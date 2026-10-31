@@ -691,8 +691,8 @@ fn standard_templates_highlight_every_bundled_language_without_legacy_files() {
         let target = temp.0.join(format!("tree-sitter-{id}"));
         copy_resources(
             &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../assets/language-packs")
-                .join(id),
+                .join("../../assets/extensions")
+                .join(format!("loom.lang.{id}")),
             &target,
         );
         let document: Value =

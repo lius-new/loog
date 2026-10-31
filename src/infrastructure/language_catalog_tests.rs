@@ -5,9 +5,9 @@ use std::sync::atomic::AtomicUsize;
 fn bundled() -> PathBuf {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     if env!("CARGO_PKG_NAME") == "loom-language-runtime-tests" {
-        root.join("../../assets/language-packs")
+        root.join("../../assets/extensions")
     } else {
-        root.join("assets/language-packs")
+        root.join("assets/extensions")
     }
 }
 fn archive() -> Option<Vec<u8>> {
@@ -19,13 +19,15 @@ fn archive() -> Option<Vec<u8>> {
         Vec::new(),
         flate2::Compression::default(),
     ));
-    for path in [
-        "json/tree-sitter.json",
-        "json/tree-sitter-json.wasm",
-        "json/queries/highlights.scm",
-        "json/LICENSE",
+    // The bundled JSON extension, repacked as the registry's `json` archive.
+    for file in [
+        "tree-sitter.json",
+        "tree-sitter-json.wasm",
+        "queries/highlights.scm",
+        "LICENSE",
     ] {
-        let bytes = fs::read(root.join(path)).unwrap();
+        let path = format!("json/{file}");
+        let bytes = fs::read(root.join("loom.lang.json").join(file)).unwrap();
         let mut header = tar::Header::new_gnu();
         header.set_size(bytes.len() as u64);
         header.set_mode(0o644);
@@ -37,7 +39,7 @@ fn archive() -> Option<Vec<u8>> {
     Some(archive.into_inner().unwrap().finish().unwrap())
 }
 fn catalog_file(root: &Path, bytes: &[u8]) -> PathBuf {
-    let file = root.join("language-packs.toml");
+    let file = root.join("registry.toml");
     fs::write(
         &file,
         format!(
@@ -71,9 +73,11 @@ fn source(root: &Path, bytes: &[u8], download: Arc<Download>) -> Arc<Packages> {
             catalog,
             descriptions,
             Some(root.join("cache")),
+            Some(root.join("extensions")),
             download,
         )),
         disabled: BTreeSet::new(),
+        layering: Default::default(),
     })
 }
 fn wait(mut done: impl FnMut() -> bool) {
@@ -130,7 +134,11 @@ fn explicitly_disabled_user_collections_are_not_reenabled_by_the_catalog() {
     let file = catalog_file(&root.0, b"unused archive");
     let mut resources = Packages::discover(&bundled(), Some(&user));
     resources
-        .enable_catalog(&file, Some(root.0.join("cache")))
+        .enable_catalog(
+            &file,
+            Some(root.0.join("cache")),
+            Some(root.0.join("extensions")),
+        )
         .unwrap();
     let registry = resources.registry().unwrap();
     assert_eq!(
@@ -148,7 +156,7 @@ fn explicitly_disabled_user_collections_are_not_reenabled_by_the_catalog() {
 #[test]
 fn publication_catalog_is_valid_and_respects_installed_resources() {
     let root = Temporary::new(&std::env::temp_dir()).unwrap();
-    let file = bundled().join("language-packs.toml");
+    let file = bundled().join("registry.toml");
     if !file.exists() {
         return;
     }
@@ -157,7 +165,11 @@ fn publication_catalog_is_valid_and_respects_installed_resources() {
     let bundled = file.parent().unwrap();
     let mut source = Packages::discover(bundled, None);
     source
-        .enable_catalog(&file, Some(root.0.join("cache")))
+        .enable_catalog(
+            &file,
+            Some(root.0.join("cache")),
+            Some(root.0.join("extensions")),
+        )
         .unwrap();
     let registry = source.registry().unwrap();
     for path in [
@@ -193,6 +205,53 @@ fn publication_catalog_is_valid_and_respects_installed_resources() {
             .contains_key("markdown")
     );
     assert_eq!(source.activity(), Activity::default());
+}
+
+#[test]
+fn a_downloaded_language_becomes_an_extension_with_a_manifest_and_is_found_after_restart() {
+    let root = Temporary::new(&std::env::temp_dir()).unwrap();
+    let Some(bytes) = archive() else {
+        return;
+    };
+    let download = bytes.clone();
+    let source = source(&root.0, &bytes, Arc::new(move |_, _| Ok(download.clone())));
+    assert!(source.language("json").is_err(), "it is downloading");
+    ready(&source);
+    assert!(source.language("json").is_ok());
+
+    let folder = root.0.join("extensions/loom.lang.json");
+    assert!(folder.join(".registry.json").is_file());
+    let manifest = crate::features::extensions::manifest::Manifest::parse(
+        &fs::read_to_string(folder.join("manifest.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest.id, "loom.lang.json");
+    assert_eq!(manifest.contributes.languages[0].path, "tree-sitter.json");
+    assert_eq!(manifest.version, "0.0.0", "a test release has no date");
+    // The next start finds it as any other extension's language pack.
+    assert_eq!(
+        extension_packs(&root.0.join("extensions")),
+        [folder.canonicalize().unwrap()]
+    );
+}
+
+#[test]
+fn a_registry_install_never_replaces_an_extension_the_user_installed() {
+    let root = Temporary::new(&std::env::temp_dir()).unwrap();
+    let Some(bytes) = archive() else {
+        return;
+    };
+    let mine = root.0.join("extensions/loom.lang.json");
+    fs::create_dir_all(&mine).unwrap();
+    fs::write(mine.join("note.txt"), "mine").unwrap();
+    let download = bytes.clone();
+    let source = source(&root.0, &bytes, Arc::new(move |_, _| Ok(download.clone())));
+    assert!(source.language("json").is_err());
+    wait(|| source.download_infos().iter().any(|i| i.error.is_some()));
+    let error = source.download_infos()[0].error.clone().unwrap();
+    assert!(error.contains("already installed"), "{error}");
+    assert_eq!(fs::read_to_string(mine.join("note.txt")).unwrap(), "mine");
+    assert!(!mine.join("manifest.json").exists());
 }
 
 #[test]
@@ -362,7 +421,7 @@ fn injected_grammar_is_installed_only_when_its_region_is_visible() {
     };
     let fixture_bytes = bytes.clone();
     copy(
-        &bundled().join("markdown"),
+        &bundled().join("loom.lang.markdown"),
         &root.0.join("application/markdown"),
     );
     let mut resources = Packages::discover(&root.0.join("application"), None);
@@ -376,6 +435,7 @@ fn injected_grammar_is_installed_only_when_its_region_is_visible() {
         catalog.clone(),
         catalog.descriptions().unwrap(),
         Some(root.0.join("cache")),
+        Some(root.0.join("extensions")),
         Arc::new(move |_, _| {
             requests.fetch_add(1, Ordering::SeqCst);
             let mut done = gate.0.lock().unwrap();
@@ -475,15 +535,15 @@ fn a_matching_archive_digest_does_not_bypass_module_and_query_validation() {
         assert!(resources.language("json").is_err());
         wait(|| resources.download_infos().iter().any(|i| i.error.is_some()));
         assert_eq!(resources.generation(), 0);
-        if native {
-            assert!(
-                resources.download_infos()[0]
-                    .error
-                    .as_ref()
+        // An archive that ships a native library instead of the WebAssembly
+        // grammar is refused: nothing was installed as an extension.
+        assert!(
+            !root.0.join("extensions").exists()
+                || fs::read_dir(root.0.join("extensions"))
                     .unwrap()
-                    .contains("WASM")
-            );
-        }
+                    .next()
+                    .is_none()
+        );
         assert!(resources.activity().wasm_modules.is_empty());
     }
 }
@@ -620,6 +680,7 @@ fn only_two_downloads_run_and_other_packages_queue_without_duplicate_requests() 
         catalog,
         descriptions,
         Some(root.0.join("cache")),
+        Some(root.0.join("extensions")),
         Arc::new(move |_, _| {
             requests.fetch_add(1, Ordering::SeqCst);
             maximum.fetch_max(running.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);

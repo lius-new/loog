@@ -148,7 +148,7 @@ jobs:
           $packageDir = Join-Path dist $env:PACKAGE
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
           Copy-Item target/release/Loom.exe, README.md, LICENSE-MIT, LICENSE-APACHE, THIRD_PARTY_NOTICES.md $packageDir
-          node scripts/package/stage-languages.mjs (Join-Path $packageDir 'language-packs')
+          node scripts/package/stage-extensions.mjs (Join-Path $packageDir 'extensions')
           $gitExe = (Get-Command git).Source
           $gitRoot = Split-Path (Split-Path $gitExe -Parent) -Parent
           $gitVersion = (& $gitExe --version).Split(' ')[2]

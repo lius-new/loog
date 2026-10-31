@@ -31,6 +31,7 @@ pub mod document_filesystem;
 pub mod file_dialogs;
 pub mod file_drop;
 pub(crate) mod language_packs;
+pub mod query_watcher;
 pub(crate) mod lsp_catalog;
 pub(crate) mod lsp_install;
 pub(crate) mod syntax_worker;

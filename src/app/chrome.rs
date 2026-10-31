@@ -280,6 +280,16 @@ fn language_status(
             },
         });
     }
+    let left_out = crate::infrastructure::language_packs::resources().query_problem_count();
+    if left_out > 0 {
+        notes.push(StatusNote {
+            text: format!(
+                "{left_out} highlight {} left out",
+                if left_out == 1 { "query was" } else { "queries were" }
+            ),
+            level: NoteLevel::Warning,
+        });
+    }
     let Some(id) = app.workspace.active_document() else {
         return (None, notes);
     };

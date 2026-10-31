@@ -25,6 +25,11 @@ pub(crate) trait Resources: Send + Sync {
         Ok(parser)
     }
     fn text(&self, grammar: &str, file: &str) -> Result<Option<Arc<str>>, String>;
+    /// The file and 1-based line that supplied byte `at` of what `text` returned
+    /// for `grammar` and `file`, when the adapter keeps track.
+    fn origin(&self, _grammar: &str, _file: &str, _at: usize) -> Option<(String, usize)> {
+        None
+    }
     fn report(&self, _error: &str) {}
 }
 

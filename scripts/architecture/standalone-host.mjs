@@ -9,7 +9,8 @@ import {execFileSync} from 'node:child_process';
 export function hostFile(file) {
   return !file.startsWith('tests/language-runtime/') && !file.startsWith('language-packs/') && !file.startsWith('crates/language-packs/') &&
     !file.startsWith('assets/grammars/') && !file.startsWith('assets/languages/') &&
-    !file.startsWith('assets/servers/') && !file.startsWith('assets/language-packs/');
+    !file.startsWith('assets/servers/') && !file.startsWith('assets/extensions/loom.lang.') &&
+    file !== 'assets/extensions/registry.toml';
 }
 if(path.resolve(process.argv[1]??'')===fileURLToPath(import.meta.url)) {
   const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
@@ -26,6 +27,7 @@ if(path.resolve(process.argv[1]??'')===fileURLToPath(import.meta.url)) {
     fs.mkdirSync(path.dirname(out),{recursive:true});fs.copyFileSync(path.join(root,file),out);
   }
   assert.equal(fs.existsSync(path.join(target,'language-packs')),false);
+  assert.equal(fs.existsSync(path.join(target,'assets/extensions/loom.lang.json')),false);
   // Avoid overwriting an editor the user may currently be running. Only the
   // output binary name changes; the full application sources are identical.
   const manifest=path.join(target,'Cargo.toml');

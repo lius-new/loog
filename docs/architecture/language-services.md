@@ -20,7 +20,9 @@ Unavailable resources or servers must leave plain-text editing usable.
 | `src/domain/language/` | Open language, variant and grammar identities; recognition and registry rules |
 | `src/features/highlighting/` | Language-independent classes and sparse style resolution |
 | `src/features/syntax/` | Trees, queries, injections, display projection and the `Resources` port |
-| `src/infrastructure/language_packs.rs`, `language_standard.rs`, `language_catalog.rs` | Manifest/resource I/O, dynamic modules and catalog installation |
+| `src/infrastructure/language_packs.rs`, `language_standard.rs`, `language_catalog.rs` | Grammar packs of extensions, WebAssembly loading, stacked query layers and registry installation |
+| `src/infrastructure/query_watcher.rs` | Debounced watching of query files and extension manifests for hot reload |
+| `src/features/syntax/query_stack.rs`, `inspect.rs`, `generic.rs` | Query layering with file/line tracing, the highlight inspector, and the built-in highlighter for text no grammar covers |
 | `src/infrastructure/syntax_worker.rs`, `syntax_worker_retained.rs` | Background scheduling, exact-result cache and display retention |
 | `src/app/syntax.rs`, `runtime.rs` | Service lifetime and coalesced, version-checked UI invalidation |
 | `src/ui/editor/syntax.rs` | Current-theme colors, grapheme-safe ranges and default-text gaps |

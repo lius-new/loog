@@ -69,7 +69,7 @@ fn paint(index: &mut TreeIndex, buffer: &TextBuffer) -> Vec<WindowTokens> {
 #[test]
 fn checked_in_json_and_markdown_are_complete_loadable_wasm_packages() {
     use crate::features::syntax::{Resources, validate_producer_grammar};
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/language-packs");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/extensions");
     let source = Packages::discover(&root, None);
     assert!(
         source.activity().errors.is_empty(),

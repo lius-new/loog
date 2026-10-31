@@ -899,7 +899,7 @@ fn stale_frame_release_cancels_the_gesture_without_opening_a_link() {
 
 #[test]
 fn visible_snippets_load_known_wasm_resources_and_unknown_languages_remain_plain() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/language-packs");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/extensions");
     let packages = Arc::new(crate::infrastructure::language_packs::Packages::discover(
         &root, None,
     ));
@@ -913,7 +913,7 @@ fn visible_snippets_load_known_wasm_resources_and_unknown_languages_remain_plain
     assert_eq!(packages.activity().wasm_loads, 0);
     let text = "{\"中文\": true, \"count\": 123}";
     let spans = highlighter.highlight("json", text, &cancelled);
-    if !root.join("json").is_dir() {
+    if !root.join("loom.lang.json").is_dir() {
         assert!(
             spans.is_empty(),
             "standalone host must fall back without language artifacts"

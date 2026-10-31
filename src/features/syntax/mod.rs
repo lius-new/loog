@@ -7,11 +7,15 @@ pub(crate) mod generic;
 mod grammars;
 pub(crate) use self::grammars::{EmptyResources, Resources};
 mod injections;
+pub(crate) mod inspect;
 mod layers;
 pub(crate) mod presentation;
 #[cfg(test)]
 mod presentation_tests;
+pub(crate) mod provider;
 mod queries;
+pub(crate) use self::queries::check_query;
+pub(crate) mod query_stack;
 mod treesitter;
 mod window;
 pub(crate) use self::treesitter::MAX_DOCUMENT_BYTES;

@@ -1,8 +1,8 @@
 // Discover independent language packages at startup; open native modules and
 // queries only when the syntax worker requests them. Catalog resources install on demand.
 use crate::domain::language::Registry;
+use crate::features::syntax::query_stack::{self, Layer, Origin, Rejected, Stacked};
 use crate::features::syntax::{Resources, TreeIndex};
-use libloading::Library;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
@@ -10,10 +10,12 @@ use std::{
     fs,
     io::Read,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 use tree_sitter::{Language, Parser, WasmStore, wasmtime};
-use tree_sitter_language::LanguageFn;
 
 #[path = "language_catalog.rs"]
 mod catalog;
@@ -73,36 +75,29 @@ fn name(value: &str) -> bool {
     chars.next().is_some_and(|c| c.is_ascii_lowercase())
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
-// Preserve standard WASM/native filenames, including Neovim's .so on macOS.
-// For a stem, the native fallback gains its platform extension without lib.
-fn module_file(module: &str, platform: &str) -> Result<String, String> {
+// Grammars are WebAssembly modules: they run in a sandbox, so a downloaded or
+// extension-supplied language cannot execute native code inside Loom. A stem
+// names the upstream download without renaming it.
+fn module_file(module: &str) -> Result<String, String> {
     if name(module) {
-        let extension = match platform {
-            "windows" => "dll",
-            "macos" => "dylib",
-            _ => "so",
-        };
-        return Ok(format!("{module}.{extension}"));
+        return Ok(format!("{module}.wasm"));
     }
-    if let Some((stem, extension)) = module.rsplit_once('.') {
+    if let Some((stem, "wasm")) = module.rsplit_once('.') {
         let mut chars = stem.chars();
         if chars.next().is_some_and(|c| c.is_ascii_lowercase())
             && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
-            && matches!(extension, "dll" | "so" | "dylib" | "wasm")
         {
             return Ok(module.to_owned());
         }
     }
-    Err(format!("invalid language module filename {module}"))
+    Err(format!(
+        "invalid language module filename {module}; only WebAssembly (.wasm) grammars are supported"
+    ))
 }
-fn module_candidates(module: &str, platform: &str) -> Vec<String> {
-    let file = module_file(module, platform).expect("validated module filename");
+fn module_candidates(module: &str) -> Vec<String> {
+    let file = module_file(module).expect("validated module filename");
     if name(module) {
-        vec![
-            format!("tree-sitter-{module}.wasm"),
-            format!("{module}.wasm"),
-            file,
-        ]
+        vec![format!("tree-sitter-{module}.wasm"), file]
     } else {
         vec![file]
     }
@@ -172,7 +167,7 @@ impl Manifest {
         }
         for (grammar, module) in &self.grammars {
             if !name(grammar)
-                || module_file(&module.module, std::env::consts::OS).is_err()
+                || module_file(&module.module).is_err()
                 || module.symbol.as_deref().is_some_and(|symbol| !name(symbol))
             {
                 return Err(format!("invalid language module entry {grammar}"));
@@ -206,8 +201,26 @@ type TextResult = Result<Option<Arc<str>>, String>;
 struct Loaded {
     languages: HashMap<String, Result<Language, String>>,
     texts: HashMap<(String, String), TextResult>,
+    /// Which file supplied each part of a text above, by the same key.
+    origins: HashMap<(String, String), Vec<Origin>>,
     text_bytes: usize,
     activity: Activity,
+}
+
+type Listener = Arc<dyn Fn() + Send + Sync>;
+
+/// Query files stacked on the grammars' own (see `query_stack`), and what to tell
+/// the syntax worker when they change.
+#[derive(Default)]
+struct Layering {
+    /// The user's `queries` folder: `<grammar>/<file>` replaces or extends.
+    user: Mutex<Option<PathBuf>>,
+    extensions: Mutex<Vec<ExtensionQuery>>,
+    /// Advances every time the stacked queries are read again.
+    generation: AtomicU64,
+    listeners: Mutex<Vec<Listener>>,
+    /// Layers that could not be used, by `(grammar, file)`.
+    rejected: Mutex<BTreeMap<(String, String), Vec<Rejected>>>,
 }
 
 pub(crate) struct Packages {
@@ -215,6 +228,7 @@ pub(crate) struct Packages {
     loaded: Mutex<Loaded>,
     catalog: Option<Arc<catalog::Manager>>,
     disabled: BTreeSet<String>,
+    layering: Layering,
 }
 impl Packages {
     pub(crate) fn discover(bundled: &Path, user: Option<&Path>) -> Self {
@@ -230,17 +244,30 @@ impl Packages {
         extension_packs: &[PathBuf],
         user: Option<&Path>,
     ) -> Self {
-        let mut source = Self {
-            packages: BTreeMap::new(),
-            loaded: Mutex::default(),
-            catalog: None,
-            disabled: BTreeSet::new(),
-        };
+        let mut source = Self::empty();
         source.scan(bundled, false);
         source.add_directories(extension_packs.to_vec(), false);
         if let Some(user) = user {
             source.scan(user, true);
         }
+        source
+    }
+
+    fn empty() -> Self {
+        Self {
+            packages: BTreeMap::new(),
+            loaded: Mutex::default(),
+            catalog: None,
+            disabled: BTreeSet::new(),
+            layering: Layering::default(),
+        }
+    }
+
+    /// The grammars of the language packs in these folders: the folders enabled
+    /// extensions name in their `contributes.languages`.
+    pub(crate) fn from_directories(directories: Vec<PathBuf>) -> Self {
+        let mut source = Self::empty();
+        source.add_directories(directories, false);
         source
     }
 
@@ -356,7 +383,15 @@ impl Packages {
         }
         registry(&packages)
     }
-    fn enable_catalog(&mut self, file: &Path, cache: Option<PathBuf>) -> Result<(), String> {
+    /// Offer the languages of the registry `file` for download on demand. Archives
+    /// are kept in `cache`; an installed language becomes an extension in
+    /// `extensions`.
+    fn enable_catalog(
+        &mut self,
+        file: &Path,
+        cache: Option<PathBuf>,
+        extensions: Option<PathBuf>,
+    ) -> Result<(), String> {
         if !file.exists() {
             return Ok(());
         }
@@ -394,7 +429,12 @@ impl Packages {
                 ),
             }
         }
-        self.catalog = Some(catalog::Manager::new(catalog, descriptions, cache));
+        self.catalog = Some(catalog::Manager::new(
+            catalog,
+            descriptions,
+            cache,
+            extensions,
+        ));
         Ok(())
     }
     fn available(&self, grammar: &str) -> Result<(Installed, Module), String> {
@@ -445,7 +485,7 @@ impl Packages {
         // A stem accepts an upstream WASM download without renaming. Explicit
         // filenames select exactly one format; never borrow another package.
         let root = package.root.join("modules");
-        let candidates = module_candidates(module, std::env::consts::OS);
+        let candidates = module_candidates(module);
         candidates
             .iter()
             .map(|file| root.join(file))
@@ -456,6 +496,154 @@ impl Packages {
         if loaded.activity.errors.insert(error.to_owned()) {
             eprintln!("language package: {error}");
         }
+    }
+
+    /// The grammar's own `file` query with the extensions' and the user's layers
+    /// stacked on it. `None` when an optional query exists nowhere.
+    fn stacked_text(
+        &self,
+        package: &Installed,
+        grammar: &str,
+        file: &str,
+    ) -> Result<Option<Stacked>, String> {
+        let paths = if let Some(grammars) = &package.standard {
+            grammars[grammar].queries(file)
+        } else {
+            vec![format!("grammars/{grammar}/{file}")]
+        };
+        let optional = file == "injections.scm";
+        let mut base = Vec::new();
+        let mut size = 0;
+        for relative in paths {
+            let path = package.root.join(&relative);
+            if optional && !path.exists() {
+                continue;
+            }
+            standard::contained(&package.root, &path)?;
+            let text = read_text(&path, MAX_QUERY)?;
+            size += text.len() + 1;
+            if size > MAX_QUERY as usize {
+                return Err("combined query exceeds byte limit".to_owned());
+            }
+            base.push((path.display().to_string(), text));
+        }
+        let (layers, mut rejected) = self.layers_for(grammar, file);
+        // A layer is checked against the grammar; without one it cannot be.
+        let language = if layers.is_empty() {
+            None
+        } else {
+            self.language(grammar).ok()
+        };
+        let mut stacked = query_stack::stack(base, &layers, |candidate| match &language {
+            Some(language) => crate::features::syntax::check_query(language, file, candidate),
+            None => Ok(()),
+        });
+        if stacked.text.len() > MAX_QUERY as usize {
+            return Err("combined query exceeds byte limit".to_owned());
+        }
+        rejected.append(&mut stacked.rejected);
+        for problem in &rejected {
+            eprintln!(
+                "query {grammar}/{file}: {}: {}",
+                problem.source, problem.error
+            );
+        }
+        self.layering
+            .rejected
+            .lock()
+            .unwrap()
+            .insert((grammar.to_owned(), file.to_owned()), rejected);
+        Ok((!(optional && stacked.text.trim().is_empty())).then_some(stacked))
+    }
+
+    /// The layers above the grammar's query: extensions in id order, then the
+    /// user's file. A file that cannot be read is reported, not stacked.
+    fn layers_for(&self, grammar: &str, file: &str) -> (Vec<Layer>, Vec<Rejected>) {
+        let mut layers = Vec::new();
+        let mut rejected = Vec::new();
+        let mut add = |source: String, path: &Path| match read_text(path, MAX_QUERY) {
+            Ok(text) => layers.push(Layer { source, text }),
+            Err(error) => rejected.push(Rejected { source, error }),
+        };
+        for query in self.layering.extensions.lock().unwrap().iter() {
+            if query.grammar == grammar && query.file == file {
+                add(
+                    format!("{} ({})", query.extension, query.path.display()),
+                    &query.path,
+                );
+            }
+        }
+        if let Some(user) = self.layering.user.lock().unwrap().as_ref() {
+            let path = user.join(grammar).join(file);
+            if path.is_file() {
+                add(path.display().to_string(), &path);
+            }
+        }
+        (layers, rejected)
+    }
+
+    /// Read every stacked query again and tell the syntax worker, so open
+    /// documents are coloured with the new rules.
+    pub(crate) fn reload_queries(&self) {
+        {
+            let mut loaded = self.loaded.lock().unwrap();
+            loaded.texts.clear();
+            loaded.origins.clear();
+            loaded.text_bytes = 0;
+        }
+        self.layering.rejected.lock().unwrap().clear();
+        self.layering.generation.fetch_add(1, Ordering::AcqRel);
+        let listeners = self.layering.listeners.lock().unwrap().clone();
+        for listener in listeners {
+            listener();
+        }
+    }
+
+    /// Set where layers come from. The queries are read again when that changed,
+    /// or when `force` says a file under the same names was edited.
+    pub(crate) fn set_query_sources(
+        &self,
+        user: Option<PathBuf>,
+        extensions: Vec<ExtensionQuery>,
+        force: bool,
+    ) {
+        let changed = {
+            let mut current_user = self.layering.user.lock().unwrap();
+            let mut current = self.layering.extensions.lock().unwrap();
+            let changed = *current_user != user || *current != extensions;
+            *current_user = user;
+            *current = extensions;
+            changed
+        };
+        if changed || force {
+            self.reload_queries();
+        }
+    }
+
+    /// How many layers were left out of the queries read so far.
+    pub(crate) fn query_problem_count(&self) -> usize {
+        self.layering
+            .rejected
+            .lock()
+            .unwrap()
+            .values()
+            .map(Vec::len)
+            .sum()
+    }
+
+    /// Layers left out of the queries read so far, one line each, for display.
+    pub(crate) fn query_problems(&self) -> Vec<String> {
+        self.layering
+            .rejected
+            .lock()
+            .unwrap()
+            .iter()
+            .flat_map(|((grammar, file), problems)| {
+                problems.iter().map(move |problem| {
+                    format!("{grammar}/{file}: {}: {}", problem.source, problem.error)
+                })
+            })
+            .collect()
     }
 }
 // One lazy, immutable engine; every parser owns a separate mutable WASM store.
@@ -505,50 +693,20 @@ fn validate_abi(path: &Path, language: &Language) -> Result<(), String> {
     }
     Ok(())
 }
-// Tree-sitter's Language, Tree and Query all contain pointers into native
-// modules. Keep handles until process exit, including after a worker is dropped.
-// Catalog/package updates take effect on restart; this cache has a fixed cap.
-fn load_native(path: &Path, symbol: &str) -> Result<Language, String> {
-    static MODULES: OnceLock<Mutex<HashMap<PathBuf, Library>>> = OnceLock::new();
-    let mut modules = MODULES.get_or_init(Mutex::default).lock().unwrap();
-    let key = path
-        .canonicalize()
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-    if !modules.contains_key(&key) {
-        if modules.len() >= MAX_MODULES {
-            return Err("native language module limit reached; restart to release modules".into());
-        }
-        // SAFETY: packages are installed application resources, loaded through
-        // an explicit absolute path, with an agreed Tree-sitter C entry point.
-        let library =
-            unsafe { Library::new(&key) }.map_err(|e| format!("{}: {e}", path.display()))?;
-        modules.insert(key.clone(), library);
-    }
-    let library = &modules[&key];
-    // SAFETY: standard Tree-sitter entry points use this C signature. Keep the
-    // owning Library in MODULES for the entire lifetime of every Language.
-    let function = unsafe { library.get::<unsafe extern "C" fn() -> *const ()>(symbol.as_bytes()) }
-        .map_err(|e| format!("{} ({symbol}): {e}", path.display()))?;
-    // Reject an invalid null entry point before Tree-sitter dereferences it.
-    if unsafe { function() }.is_null() {
-        return Err(format!(
-            "{} ({symbol}) returned a null grammar",
-            path.display()
-        ));
-    }
-    let language = Language::new(unsafe { LanguageFn::from_raw(*function) });
-    validate_abi(path, &language)?;
-    Ok(language)
-}
-
 impl Resources for Packages {
     fn generation(&self) -> u64 {
         self.catalog.as_ref().map_or(0, |c| c.generation())
+            + self.layering.generation.load(Ordering::Acquire)
     }
     fn pending(&self, grammar: &str) -> bool {
         self.catalog.as_ref().is_some_and(|c| c.pending(grammar))
     }
     fn subscribe(&self, changed: Arc<dyn Fn() + Send + Sync>) {
+        self.layering
+            .listeners
+            .lock()
+            .unwrap()
+            .push(changed.clone());
         if let Some(catalog) = &self.catalog {
             catalog.subscribe(changed);
         }
@@ -571,10 +729,12 @@ impl Resources for Packages {
                     .insert(grammar.to_owned(), Err(error.clone()));
                 return Err(error);
             }
-            if path
-                .extension()
-                .is_some_and(|extension| extension == "wasm")
-            {
+            if path.extension().is_none_or(|extension| extension != "wasm") {
+                Err(format!(
+                    "{}: only WebAssembly (.wasm) grammars are supported",
+                    path.display()
+                ))
+            } else {
                 loaded.activity.wasm_loads += 1;
                 loaded
                     .activity
@@ -594,8 +754,6 @@ impl Resources for Packages {
                         .wasm_name(grammar)
                         .and_then(|name| load_wasm(&path, &name))
                 }
-            } else {
-                load_native(&path, &module.entry_point(grammar))
             }
         };
         if let Err(error) = &result {
@@ -619,48 +777,37 @@ impl Resources for Packages {
         if !["highlights.scm", "injections.scm"].contains(&file) {
             return Err(format!("unknown language resource {grammar}/{file}"));
         }
-        let mut loaded = self.loaded.lock().unwrap();
         let key = (grammar.to_owned(), file.to_owned());
-        if let Some(text) = loaded.texts.get(&key) {
+        if let Some(text) = self.loaded.lock().unwrap().texts.get(&key) {
             return text.clone();
         }
+        // Reading and checking layers can load the grammar, which takes the lock.
+        let result = self.stacked_text(&package, grammar, file);
+        let mut loaded = self.loaded.lock().unwrap();
         loaded.activity.queries.insert(key.clone());
         loaded.activity.query_reads += 1;
-        let paths = if let Some(grammars) = &package.standard {
-            grammars[grammar].queries(file)
-        } else {
-            vec![format!("grammars/{grammar}/{file}")]
-        };
-        let optional = file == "injections.scm";
-        let result = (|| {
-            let mut combined = String::new();
-            for relative in paths {
-                let path = package.root.join(relative);
-                if optional && !path.exists() {
-                    continue;
-                }
-                standard::contained(&package.root, &path)?;
-                let text = read_text(&path, MAX_QUERY)?;
-                if combined.len() + text.len() + 1 > MAX_QUERY as usize {
-                    return Err("combined query exceeds byte limit".to_owned());
-                }
-                combined.push_str(&text);
-                combined.push('\n');
+        let result = result.and_then(|stacked| match stacked {
+            Some(stacked) if loaded.text_bytes + stacked.text.len() > MAX_QUERY_CACHE => {
+                Err("language query cache budget exceeded".to_owned())
             }
-            if optional && combined.is_empty() {
-                return Ok(None);
+            Some(stacked) => {
+                loaded.text_bytes += stacked.text.len();
+                loaded.origins.insert(key.clone(), stacked.origins);
+                Ok(Some(Arc::from(stacked.text)))
             }
-            if loaded.text_bytes + combined.len() > MAX_QUERY_CACHE {
-                return Err("language query cache budget exceeded".to_owned());
-            }
-            loaded.text_bytes += combined.len();
-            Ok(Some(Arc::from(combined)))
-        })();
+            None => Ok(None),
+        });
         if let Err(error) = &result {
             Self::report(&mut loaded, error);
         }
         loaded.texts.insert(key, result.clone());
         result
+    }
+    fn origin(&self, grammar: &str, file: &str, at: usize) -> Option<(String, usize)> {
+        let loaded = self.loaded.lock().unwrap();
+        let key = (grammar.to_owned(), file.to_owned());
+        let text = loaded.texts.get(&key)?.as_ref().ok()?.as_ref()?;
+        query_stack::locate(text, loaded.origins.get(&key)?, at)
     }
     fn report(&self, error: &str) {
         Self::report(&mut self.loaded.lock().unwrap(), error);
@@ -672,27 +819,58 @@ impl Resources for Packages {
 /// manifest is read with the extension loader's own rules and a package whose
 /// manifest it rejects contributes nothing; nothing here runs or loads a module.
 pub(crate) fn extension_packs(extensions: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(extensions) else {
-        return Vec::new();
-    };
-    let disabled = super::extensions::disabled::read(extensions);
+    packs_of(enabled_extensions(
+        &[extensions.to_owned()],
+        &super::extensions::disabled::read(extensions),
+    ))
+}
+
+type Enabled = Vec<(PathBuf, crate::features::extensions::manifest::Manifest)>;
+
+/// The folders extensions are loaded from: the ones that ship with Loom, then the
+/// user's. What the user disabled is listed in the user's folder.
+fn extension_roots() -> (Vec<PathBuf>, BTreeSet<String>) {
+    let user = user_resource_directory("extensions");
+    let disabled = user
+        .as_deref()
+        .map(super::extensions::disabled::read)
+        .unwrap_or_default();
+    let roots = [bundled_extensions_directory(), user]
+        .into_iter()
+        .flatten()
+        .collect();
+    (roots, disabled)
+}
+
+/// The language packs of every enabled extension, bundled and installed.
+pub(crate) fn installed_extension_packs() -> Vec<PathBuf> {
+    let (roots, disabled) = extension_roots();
+    packs_of(enabled_extensions(&roots, &disabled))
+}
+
+/// The queries of every enabled extension, bundled and installed.
+pub(crate) fn installed_extension_queries() -> Vec<ExtensionQuery> {
+    let (roots, disabled) = extension_roots();
+    queries_of(enabled_extensions(&roots, &disabled))
+}
+
+/// Where the extensions that ship with Loom are kept: `extensions` beside the
+/// executable (in the bundle's `Resources` on macOS). Tests use the source tree.
+pub(crate) fn bundled_extensions_directory() -> Option<PathBuf> {
+    #[cfg(test)]
+    {
+        Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/extensions"))
+    }
+    #[cfg(not(test))]
+    {
+        let executable = std::env::current_exe().ok()?;
+        Some(bundled_directory(&executable, "extensions"))
+    }
+}
+
+fn packs_of(enabled: Enabled) -> Vec<PathBuf> {
     let mut found = Vec::new();
-    for entry in entries.flatten() {
-        let package = entry.path();
-        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) || entry.file_name() == ".cache" {
-            continue;
-        }
-        let Ok(manifest) =
-            read_text(&package.join("manifest.json"), MAX_MANIFEST).and_then(|text| {
-                crate::features::extensions::manifest::Manifest::parse(&text)
-                    .map_err(|error| error.to_string())
-            })
-        else {
-            continue;
-        };
-        if disabled.contains(&manifest.id) {
-            continue;
-        }
+    for (package, manifest) in enabled {
         for resource in &manifest.contributes.languages {
             if let Some(directory) = pack_directory(&package, &resource.path) {
                 found.push(directory);
@@ -702,6 +880,73 @@ pub(crate) fn extension_packs(extensions: &Path) -> Vec<PathBuf> {
     found.sort();
     found.dedup();
     found.truncate(MAX_PACKAGES);
+    found
+}
+
+/// The extension packages under `roots` that are not disabled and whose manifest
+/// is valid, with their folders.
+fn enabled_extensions(roots: &[PathBuf], disabled: &BTreeSet<String>) -> Enabled {
+    let mut folders = Vec::new();
+    for root in roots {
+        let Ok(entries) = fs::read_dir(root) else {
+            continue;
+        };
+        let mut found: Vec<_> = entries
+            .flatten()
+            .filter(|entry| {
+                entry.file_type().is_ok_and(|kind| kind.is_dir())
+                    && !entry.file_name().to_string_lossy().starts_with('.')
+            })
+            .map(|entry| entry.path())
+            .collect();
+        found.sort();
+        folders.extend(found);
+    }
+    folders
+        .into_iter()
+        .filter_map(|package| {
+            let manifest =
+                read_text(&package.join("manifest.json"), MAX_MANIFEST).and_then(|text| {
+                    crate::features::extensions::manifest::Manifest::parse(&text)
+                        .map_err(|error| error.to_string())
+                });
+            manifest.ok().map(|manifest| (package, manifest))
+        })
+        .filter(|(_, manifest)| !disabled.contains(&manifest.id))
+        .collect()
+}
+
+/// A query file an extension package stacks on a grammar's own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ExtensionQuery {
+    pub extension: String,
+    pub grammar: String,
+    pub file: String,
+    pub path: PathBuf,
+}
+
+/// The queries enabled extension packages contribute, in extension id order.
+fn queries_of(enabled: Enabled) -> Vec<ExtensionQuery> {
+    let mut found = Vec::new();
+    for (package, manifest) in enabled {
+        let Ok(base) = package.canonicalize() else {
+            continue;
+        };
+        for query in &manifest.contributes.queries {
+            let Ok(path) = package.join(&query.path).canonicalize() else {
+                continue;
+            };
+            if path.starts_with(&base) {
+                found.push(ExtensionQuery {
+                    extension: manifest.id.clone(),
+                    grammar: query.grammar.clone(),
+                    file: query.file.clone(),
+                    path,
+                });
+            }
+        }
+    }
+    found.sort_by(|a, b| a.extension.cmp(&b.extension).then(a.path.cmp(&b.path)));
     found
 }
 
@@ -758,17 +1003,6 @@ pub(crate) fn bundled_directory(executable: &Path, name: &str) -> PathBuf {
     }
 }
 
-fn locations(executable: &Path) -> PathBuf {
-    bundled_directory(executable, "language-packs")
-}
-
-fn user_directory_from(
-    platform: &str,
-    get: impl Fn(&str) -> Option<std::ffi::OsString>,
-) -> Option<PathBuf> {
-    user_resource_directory_from(platform, get, "language-packs")
-}
-
 /// The directory `name` in Loom's per-user data location.
 pub(crate) fn user_resource_directory(name: &str) -> Option<PathBuf> {
     user_resource_directory_from(std::env::consts::OS, |key| std::env::var_os(key), name)
@@ -792,16 +1026,11 @@ fn user_resource_directory_from(
     };
     base.filter(|p| p.is_absolute()).map(|p| p.join(name))
 }
-fn user_directory() -> Option<PathBuf> {
-    user_directory_from(std::env::consts::OS, |name| std::env::var_os(name))
-}
 
 pub(crate) fn resources() -> Arc<Packages> {
     static RESOURCES: OnceLock<Arc<Packages>> = OnceLock::new();
     RESOURCES
         .get_or_init(|| {
-            #[cfg(not(test))]
-            let executable = std::env::current_exe().expect("locate Loom language resources");
             #[cfg(test)]
             {
                 let root = std::env::var_os("LOOM_TEST_LANGUAGE_PACKS");
@@ -812,26 +1041,33 @@ pub(crate) fn resources() -> Arc<Packages> {
                         loaded: Mutex::default(),
                         catalog: None,
                         disabled: BTreeSet::new(),
+                        layering: Layering::default(),
                     },
                 };
                 Arc::new(source)
             }
             #[cfg(not(test))]
             {
-                let bundled = locations(&executable);
-                let user = user_directory();
-                // Packs inside extension packages are found now, like the others; a
-                // pack added later is seen after a restart, as for any language pack.
-                let contributed = user_resource_directory("extensions")
-                    .map(|directory| extension_packs(&directory))
-                    .unwrap_or_default();
-                let mut source = Packages::discover_with(&bundled, &contributed, user.as_deref());
-                if let Err(error) = source.enable_catalog(
-                    &bundled.join("language-packs.toml"),
-                    user.map(|p| p.join(".managed")),
-                ) {
+                // Grammars come from extensions: the ones that ship with Loom and
+                // the ones installed. One added later is seen after a restart,
+                // unless it is downloaded on demand from the registry below.
+                let mut source = Packages::from_directories(installed_extension_packs());
+                let user = user_resource_directory("extensions");
+                if let Some(registry) =
+                    bundled_extensions_directory().map(|directory| directory.join("registry.toml"))
+                    && let Err(error) = source.enable_catalog(
+                        &registry,
+                        user.as_ref().map(|p| p.join(".cache").join("languages")),
+                        user,
+                    )
+                {
                     Packages::report(source.loaded.get_mut().unwrap(), &error);
                 }
+                source.set_query_sources(
+                    user_resource_directory("queries"),
+                    installed_extension_queries(),
+                    false,
+                );
                 Arc::new(source)
             }
         })
@@ -844,11 +1080,40 @@ pub(crate) fn initialize() {
     {
         eprintln!("language packages: {error}");
     }
+    #[cfg(not(test))]
+    watch_queries();
+}
+
+/// Read the stacked queries again whenever a query file or an extension's
+/// manifest changes, so editing a highlight rule shows in open documents.
+#[cfg(not(test))]
+fn watch_queries() {
+    static WATCHERS: OnceLock<Vec<super::query_watcher::DirWatcher>> = OnceLock::new();
+    WATCHERS.get_or_init(|| {
+        let reload = || {
+            let packages = resources();
+            packages.set_query_sources(
+                user_resource_directory("queries"),
+                installed_extension_queries(),
+                true,
+            );
+        };
+        ["queries", "extensions"]
+            .into_iter()
+            .filter_map(user_resource_directory)
+            .filter_map(|directory| {
+                super::query_watcher::watch(&directory, super::query_watcher::relevant, reload)
+            })
+            .collect()
+    });
 }
 pub(crate) fn index() -> TreeIndex {
     TreeIndex::new(resources())
 }
 
+#[cfg(test)]
+#[path = "language_queries_tests.rs"]
+mod query_tests;
 #[cfg(test)]
 #[path = "language_packs_unit_tests.rs"]
 mod unit_tests;
