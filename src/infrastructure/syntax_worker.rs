@@ -5,9 +5,9 @@ use crate::{
     domain::{
         document::DocumentStamp,
         identity::{FileId, PaneId},
-        language::ResolvedLanguage,
+        language::{PLAIN_TEXT, ResolvedLanguage},
     },
-    features::syntax::{Freshness, Source, TokenSpan, TreeStats, Window, WindowTokens},
+    features::syntax::{Freshness, Source, TokenSpan, TreeStats, Window, WindowTokens, generic},
 };
 use std::{
     collections::{HashMap, VecDeque},
@@ -19,6 +19,11 @@ use std::{
 };
 
 const WINDOW_BUDGET: usize = 4 * 1024 * 1024;
+/// Languages whose words are data or prose, not keywords: the generic
+/// highlighter colours only their comments, strings and numbers.
+const GENERIC_WITHOUT_KEYWORDS: &[&str] = &[
+    "markdown", "json", "jsonc", "toml", "yaml", "ini", "html", "css", "xml",
+];
 // Cache pages are anchored to source lines, independently of caret, scroll,
 // viewport width and language. Screen clipping never invalidates known tokens.
 const PAGE_BYTES: usize = 1024;
@@ -424,20 +429,35 @@ impl Worker {
                 state.forget.push(document);
                 shared.wake.notify_one();
             }
+            // Text no grammar covers still gets the generic highlighter, which
+            // reads one line and keeps nothing between requests.
+            let definition = lang.definition();
+            let rules = generic::Rules {
+                line_comment: definition.comments.line.as_deref(),
+                block_comment: definition
+                    .comments
+                    .block
+                    .as_ref()
+                    .map(|[open, close]| (open.as_str(), close.as_str())),
+                keywords: !GENERIC_WITHOUT_KEYWORDS.contains(&&*definition.name),
+            };
             return windows
                 .into_iter()
                 .filter(|window| window.range.end <= source.text.len())
                 .map(|window| {
-                    let range = window.range;
-                    let spans = if range.is_empty() {
-                        Vec::new()
+                    let spans = if lang.name() == PLAIN_TEXT {
+                        if window.range.is_empty() {
+                            Vec::new()
+                        } else {
+                            vec![TokenSpan {
+                                range: window.range.clone(),
+                                class: None,
+                            }]
+                        }
                     } else {
-                        vec![TokenSpan {
-                            range: range.clone(),
-                            class: None,
-                        }]
+                        generic::highlight(&source.text, &window.line, &window.range, &rules)
                     };
-                    WindowTokens::fresh(range, spans)
+                    WindowTokens::fresh(window.range, spans)
                 })
                 .collect();
         }
@@ -680,6 +700,7 @@ mod retained;
 mod tests {
     use super::*;
     use crate::domain::language;
+    use crate::features::highlighting::HighlightId;
     use loom_editor_core::text::TextBuffer;
     use std::sync::atomic::AtomicUsize;
 
@@ -728,6 +749,40 @@ mod tests {
             assert!(state.epochs.is_empty());
         }
         assert_eq!(notifications.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn text_without_a_grammar_gets_the_generic_highlighter_but_plain_text_does_not() {
+        let worker = Worker::new(|_| {});
+        // Past the size a grammar is used for, a known language still gets colour.
+        let code = format!(
+            "const a = 1; // c\n{}",
+            "x".repeat(crate::features::syntax::MAX_DOCUMENT_BYTES)
+        );
+        let first = code.find('\n').unwrap();
+        let query = |text: String, lang| {
+            let buffer = TextBuffer::new(text);
+            let stamp = DocumentStamp::new(FileId::new(1), 1, 0, &buffer);
+            worker.query(
+                PaneId::new(1),
+                stamp,
+                Source::new(&buffer),
+                lang,
+                vec![Window {
+                    line: 0..first,
+                    range: 0..first,
+                }],
+            )
+        };
+        let coloured = query(code.clone(), language::builtin("javascript"));
+        let classes: Vec<_> = coloured[0].spans.iter().map(|s| s.class).collect();
+        assert!(classes.contains(&Some(HighlightId::KEYWORD)), "{classes:?}");
+        assert!(classes.contains(&Some(HighlightId::COMMENT)), "{classes:?}");
+        assert!(coloured[0].complete);
+
+        let plain = query(code, language::from_path(std::path::Path::new("a.txt")));
+        assert_eq!(plain[0].spans.len(), 1);
+        assert_eq!(plain[0].spans[0].class, None);
     }
 
     #[test]

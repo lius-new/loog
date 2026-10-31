@@ -3,6 +3,7 @@
 pub(crate) mod baseline;
 #[cfg(test)]
 pub(crate) mod bench_support;
+pub(crate) mod generic;
 mod grammars;
 pub(crate) use self::grammars::{EmptyResources, Resources};
 mod injections;
