@@ -45,7 +45,10 @@ Bind a command in `keymap.json`:
 
 `workspace::ShowExtensions` prints each package's state, failure stage,
 permissions, ignored settings, rejected resources and its latest log lines (never
-document text). A failed extension stays stopped until retried.
+document text). A failed extension stays stopped until retried:
+`workspace::RetryExtensions` gives every failed one a new generation, and
+`workspace::StopExtensions` stops them all (and the language servers they
+declare) until `workspace::ReloadExtensions` brings them back.
 
 ## Trust
 

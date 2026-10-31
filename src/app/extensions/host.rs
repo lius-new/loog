@@ -576,6 +576,44 @@ impl ExtensionHost {
         });
     }
 
+    /// Give every failed extension a new generation; it starts again when it is next needed.
+    pub(crate) fn retry_failed(&self, context: &AppContext) {
+        context.update(|app| {
+            let mut service = self.inner.service.lock().unwrap();
+            let failed: Vec<String> = service
+                .packages()
+                .filter(|p| p.lifecycle.state() == super::State::Failed)
+                .map(|p| p.manifest.id.clone())
+                .collect();
+            let retried = failed.iter().filter(|id| service.retry(id).is_ok()).count();
+            app.show_toast(match retried {
+                0 => "No extension has failed".to_owned(),
+                n => format!("Retrying {n} extension(s) when they are next needed"),
+            });
+        });
+    }
+
+    /// Stop every running extension, which also stops the language servers they
+    /// declare. `workspace::ReloadExtensions` brings them back.
+    pub(crate) fn stop_all(&self, context: &AppContext) {
+        context.update(|app| {
+            let mut service = self.inner.service.lock().unwrap();
+            let running: Vec<String> = service
+                .packages()
+                .filter(|p| p.lifecycle.state() != super::State::Stopped)
+                .map(|p| p.manifest.id.clone())
+                .collect();
+            let count = running.len();
+            for id in running {
+                let effects = service.stop(&id);
+                self.inner.apply(app, effects);
+            }
+            app.show_toast(format!(
+                "Stopped {count} extension(s); reload them with workspace::ReloadExtensions"
+            ));
+        });
+    }
+
     pub(crate) fn report(&self) -> String {
         self.inner.service.lock().unwrap().report()
     }

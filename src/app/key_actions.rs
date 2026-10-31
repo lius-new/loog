@@ -431,6 +431,22 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             }
             true
         }
+        Action::RetryExtensions | Action::StopExtensions => {
+            match env
+                .state
+                .services()
+                .and_then(|runtime| runtime.extensions())
+            {
+                Some(host) if matches!(action, Action::RetryExtensions) => {
+                    host.retry_failed(&env.state)
+                }
+                Some(host) => host.stop_all(&env.state),
+                None => env
+                    .state
+                    .update(|app| app.show_error("Extensions are not available")),
+            }
+            true
+        }
         Action::ShowExtensions => {
             let report = env
                 .state

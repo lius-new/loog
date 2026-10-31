@@ -98,6 +98,8 @@ actions! {
     OpenKeymapFile => "workspace::OpenKeymapFile", "Open the user keymap.json";
     ShowExtensions => "workspace::ShowExtensions", "Show the state of the installed extensions";
     ReloadExtensions => "workspace::ReloadExtensions", "Reload the installed extensions from disk";
+    RetryExtensions => "workspace::RetryExtensions", "Start the extensions that failed again";
+    StopExtensions => "workspace::StopExtensions", "Stop every running extension and its language servers until they are reloaded";
     TrustWorkspace => "workspace::TrustWorkspace", "Trust the current folder so language servers and tools may run";
     RevokeWorkspaceTrust => "workspace::RevokeWorkspaceTrust", "Stop trusting the current folder and stop its servers";
     AllowExtensionTools => "workspace::AllowExtensionTools", "Let extensions run programs from the current folder (no sandbox)";

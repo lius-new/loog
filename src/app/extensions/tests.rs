@@ -1213,6 +1213,23 @@ fn a_declared_language_server_may_run_only_in_folders_every_layer_allows() {
 }
 
 #[test]
+fn stopping_an_extension_withdraws_the_servers_it_declares_until_it_is_loaded_again() {
+    let manifest = TASK_MANIFEST.replace(
+        "\"settings\": [",
+        "\"language_servers\": [{ \"id\": \"example.tools.lsp\", \"languages\": [\"rust\"], \
+         \"command\": \"lsp\", \"root_markers\": [\"Cargo.toml\"] }], \"settings\": [",
+    );
+    let (mut f, _) = Fixture::tasks_with(&manifest, "lsp-stop", String::new(), true, true);
+    assert_eq!(f.service.language_servers().len(), 1);
+    let effects = f.service.stop("example.tools");
+    f.apply(effects);
+    assert!(
+        f.service.language_servers().is_empty(),
+        "a stopped extension declares nothing"
+    );
+}
+
+#[test]
 fn without_trust_or_a_tool_grant_a_task_is_refused_before_anything_starts() {
     for (trusted, allowed, expected) in [
         (false, false, "not trusted"),

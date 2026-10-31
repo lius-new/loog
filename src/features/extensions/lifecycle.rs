@@ -114,8 +114,13 @@ impl Lifecycle {
     }
 
     /// Stopping bumps the generation first so late work of the old one is refused.
+    /// A dormant package can be stopped too: it then declares nothing until retried.
     pub fn stopping(&mut self) -> Result<(), InvalidTransition> {
-        self.step("stop", &[State::Activating, State::Active], State::Stopping)?;
+        self.step(
+            "stop",
+            &[State::Dormant, State::Activating, State::Active],
+            State::Stopping,
+        )?;
         self.generation += 1;
         Ok(())
     }
@@ -171,6 +176,19 @@ mod tests {
         l.stopping().unwrap();
         l.stopped().unwrap();
         assert_eq!(l.state(), State::Stopped);
+    }
+
+    #[test]
+    fn a_dormant_package_can_be_stopped_and_brought_back_by_a_retry() {
+        let mut l = Lifecycle::default();
+        l.validated().unwrap();
+        l.dormant().unwrap();
+        let before = l.generation();
+        l.stopping().unwrap();
+        l.stopped().unwrap();
+        assert!(l.generation() > before);
+        l.retry().unwrap();
+        assert_eq!(l.state(), State::Dormant);
     }
 
     #[test]
