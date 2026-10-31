@@ -52,7 +52,9 @@ document text). A failed extension stays stopped until retried.
 New folders are untrusted: language servers are not started for them. Run
 `workspace::TrustWorkspace` while a file of the folder is active (and
 `workspace::RevokeWorkspaceTrust` to undo it). The decision is stored in
-`trust/roots.json` next to the extensions directory.
+`trust/roots.json` next to the extensions directory. The innermost open folder
+that holds a file decides: a folder opened inside a trusted folder has to be
+trusted on its own.
 
 ## Settings
 
@@ -60,6 +62,31 @@ Declare settings under `contributes.settings` (namespaced keys). Users set
 values in `<extensions dir>/settings.json`; a trusted folder may override
 project-scoped settings in `.loom/extension-settings.json`. Both files are read
 at start and on reload.
+
+## Compatibility
+
+The contract is `loom:extension@0.1.0` and it is not frozen: a component is
+linked only against the exact interface it was built for, and an enum or record
+that changed makes an older component fail at load with a type mismatch. Rebuild
+the component with the current `wit/loom-extension/world.wit` after every change
+of the contract (the JavaScript guest is rebuilt by deleting
+`target/extension-guest/js_guest.wasm`).
+
+| Check | What it covers | Where |
+| --- | --- | --- |
+| Compatibility fixtures | unknown imports, a newer Loom interface, a missing guest export, a wrong export version, an unused WASI import | `crates/extension-host/tests/compatibility.rs` |
+| Rust guest | commands, edits, providers of every kind, tasks, storage, files, network, save participants, file operations | `crates/extension-host/tests/rust_guest.rs`, `src/app/extensions/tests.rs` |
+| JavaScript guest | rounds, suspended callbacks resuming, interrupted loops and microtask floods, providers | `crates/extension-host/tests/js_guest.rs` |
+| Measurements | compile, instantiate and warm round times, component size | `crates/extension-host/tests/measure.rs` (ignored by default) |
+
+| Platform | Rust guest | JavaScript guest | Process tasks and language servers |
+| --- | --- | --- | --- |
+| Windows x64 | run | run | run |
+| Linux x64 | not run | not run | process group path not run |
+| macOS | not run | not run | process group path not run |
+
+A platform that was not run counts as not passing; the contract stays unfrozen
+until the Linux and macOS rows are filled in.
 
 ## Known gaps
 
@@ -69,14 +96,45 @@ settings. Linux and macOS are not yet verified.
 
 ## Providers
 
-Declare providers under `contributes.providers` (`diagnostics`, `formatting` and
-`completion` are served; `code-actions` is accepted by the manifest but not
-routed yet). A document in a selected language wakes the extension and the
-host sends a `provider-request` for that exact document state; answer it with
-`provide-diagnostics` or `provide-edits`. An answer that arrives late or for an
-older state is discarded and the current state is asked again. When a formatting
-provider matches the language, `editor::Format` uses it instead of the language
-server.
+Declare providers under `contributes.providers` (`diagnostics`, `formatting`,
+`completion`, `save-participant`, `hover`, `definition`, `document-symbols`,
+`signature-help`, `inlay-hints` and `code-actions` are served). A document in a
+selected language wakes the extension and the host sends a `provider-request`
+for that exact document state; answer it with `provide-diagnostics` or
+`provide-edits`. An answer that arrives late or for an older state is discarded
+and the current state is asked again. When a formatting provider matches the
+language, `editor::Format` uses it instead of the language server.
+
+### Hover, definition, outline, signature, inlay hints and code actions
+
+These providers are asked whenever the language UI asks the language servers,
+for the same document state, and need the `documents.read` and `languages`
+capabilities. The request carries the caret in `cursor` (hover, definition,
+signature help) or a `range` (inlay hints, code actions); the answer goes to
+`provide-hover`, `provide-locations`, `provide-symbols`, `provide-signature`,
+`provide-inlay-hints` or `provide-code-actions`. Offsets are UTF-8 bytes of the
+snapshot; a location is a zero-based line and a UTF-8 column. The host turns the
+answer into the reply a language server would give, so the existing hover popup,
+go to definition, outline, signature help, inlay hints and lightbulb show it
+after the servers' own results. An entry that cannot be placed (outside the text,
+inside a character, a parent that is missing) is dropped and logged; a code
+action with a bad edit is dropped as a whole. An extension may have 32 requests
+open at once; the newest beyond that gets no answer.
+
+## Language servers
+
+`contributes.language_servers` declares a server (`id`, `languages`, `command`,
+`args`, `root_markers`, `initialization_options`). A package that declares one
+must also declare `process.execute-local`, because starting it runs a program.
+A command with a path separator that is not absolute starts inside the package;
+a bare name is looked up on `PATH` by the system. Loading a package only checks
+the declaration; the server starts for a project folder only when the package is
+granted local execution, the folder is trusted (`workspace::TrustWorkspace`) and
+the folder's tools are allowed (`workspace::AllowExtensionTools`). Otherwise the
+language panel lists the server as not started and says which of the three is
+missing. Revoking any of them, reloading a changed package or removing it stops
+the server at once; a name used by a catalogued or your own server is never
+replaced.
 
 A completion answer carries items with an opaque `data` string. Highlighting an
 item asks the same provider to complete it (`completion-resolve`), and the
