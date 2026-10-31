@@ -2,6 +2,7 @@
 use super::{Effect, ExtensionService};
 use crate::app::context::AppContext;
 use crate::app::state::AppState;
+use crate::domain::identity::FileId;
 use crate::infrastructure::extensions::tasks;
 use crate::infrastructure::extensions::trust_store::TrustStore;
 use crate::infrastructure::extensions::{Event, Executor};
@@ -16,7 +17,13 @@ struct Inner {
     trust: Arc<TrustStore>,
     user_settings: Option<PathBuf>,
     context: AppContext,
+    application: ApplicationHandle,
+    /// What to do when a save chain ends, by chain number.
+    saves: Mutex<std::collections::HashMap<u64, SaveContinuation>>,
 }
+
+/// Runs on the UI thread when the participants are done; `true` means write the files.
+pub(crate) type SaveContinuation = Box<dyn FnOnce(&AppContext, bool) + Send>;
 
 fn read_json(path: &Path) -> Option<serde_json::Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
@@ -82,6 +89,18 @@ impl Inner {
                 Effect::ResolvedCompletion { source, raw, item } => {
                     crate::app::language_ui::completion::offer_resolved(app, source, &raw, &item)
                 }
+                Effect::SaveReady { chain, ok, message } => {
+                    if let Some(message) = message {
+                        app.show_error(format!(
+                            "Not saved: {message}. Use Save Without Extensions to skip them."
+                        ));
+                    }
+                    if let Some(then) = self.saves.lock().unwrap().remove(&chain) {
+                        // Not inside this update: the continuation updates the state itself.
+                        let context = self.context.clone();
+                        self.application.post(move || then(&context, ok));
+                    }
+                }
                 Effect::StartTask { task, spec } => {
                     if let Some(runner) = self.runner.get() {
                         runner.start(task, spec);
@@ -120,6 +139,8 @@ impl ExtensionHost {
             trust,
             user_settings,
             context: context.clone(),
+            application: application.clone(),
+            saves: Mutex::new(std::collections::HashMap::new()),
         });
         inner.service.lock().unwrap().set_trust(inner.trust.clone());
         // Output and exits of tasks reach their guest through the UI thread, where
@@ -274,6 +295,61 @@ impl ExtensionHost {
                 runner.cancel(task);
             }
         }
+    }
+
+    /// Whether save participants would run for these files.
+    pub(crate) fn participates(&self, app: &AppState, files: &[FileId]) -> bool {
+        self.inner
+            .service
+            .lock()
+            .unwrap()
+            .has_participants(app, files)
+    }
+
+    /// Run the save participants over `files`, then call `then` on the UI
+    /// thread with whether the files may be written. Without any participant
+    /// it is called straight away.
+    pub(crate) fn prepare_save(
+        &self,
+        context: &AppContext,
+        files: Vec<FileId>,
+        then: SaveContinuation,
+    ) {
+        let mut then = Some(then);
+        context.update(|app| {
+            let busy = {
+                let service = self.inner.service.lock().unwrap();
+                files.iter().any(|file| service.saving(*file))
+            };
+            if busy {
+                app.show_error("A save is already waiting for the extensions");
+                if let Some(then) = then.take() {
+                    let context = self.inner.context.clone();
+                    self.inner.application.post(move || then(&context, false));
+                }
+                return;
+            }
+            let (chain, effects) = self.inner.service.lock().unwrap().begin_save(app, files);
+            if let Some(then) = then.take() {
+                self.inner.saves.lock().unwrap().insert(chain, then);
+            }
+            self.inner.apply(app, effects);
+            // A participant that never answers is cut off by the chain deadline.
+            let inner = self.inner.clone();
+            let context = self.inner.context.clone();
+            let application = self.inner.application.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(
+                    super::save::SAVE_DEADLINE_MS + 100,
+                ));
+                application.post(move || {
+                    context.update(|app| {
+                        let effects = inner.service.lock().unwrap().expire_save(chain);
+                        inner.apply(app, effects);
+                    });
+                });
+            });
+        });
     }
 
     /// Format the active document with an extension provider if one is

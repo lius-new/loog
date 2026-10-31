@@ -451,6 +451,10 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             open_settings_file(env);
             true
         }
+        Action::SaveWithoutExtensions => {
+            crate::app::workspace_commands::save_active_document_without_participants(&env.state);
+            true
+        }
         Action::Save => {
             workspace_actions::save_active_document(&env.state);
             true

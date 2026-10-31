@@ -2,6 +2,7 @@
 use super::{context::AppContext, state::CloseContinuation};
 use crate::domain::document::{DiskState, FileId, SaveSnapshot};
 use crate::infrastructure::document_filesystem;
+use std::sync::Arc;
 
 #[derive(Clone, Default)]
 pub(crate) struct State {
@@ -109,6 +110,56 @@ pub(crate) fn document(
     id: FileId,
     done: impl FnOnce(&AppContext, bool) + Send + 'static,
 ) -> bool {
+    save_document(state, id, false, done)
+}
+
+/// Like [`document`], but never runs save participants.
+pub(crate) fn document_without_participants(
+    state: &AppContext,
+    id: FileId,
+    done: impl FnOnce(&AppContext, bool) + Send + 'static,
+) -> bool {
+    save_document(state, id, true, done)
+}
+
+/// The extensions that change a file before it is saved, if any apply.
+fn participants(
+    state: &AppContext,
+    files: &[FileId],
+) -> Option<Arc<super::extensions::host::ExtensionHost>> {
+    let host = state.services()?.extensions()?;
+    host.participates(&state.get(), files).then_some(host)
+}
+
+fn save_document(
+    state: &AppContext,
+    id: FileId,
+    skip: bool,
+    done: impl FnOnce(&AppContext, bool) + Send + 'static,
+) -> bool {
+    if state.get().workspace.shared_save_snapshot(id).is_none() {
+        return false;
+    }
+    if !skip && let Some(host) = participants(state, &[id]) {
+        // Counted as a save in progress, so closing the window waits for the
+        // participants too (design §6.5).
+        state.update(|app| app.editor.saving.pending += 1);
+        host.prepare_save(
+            state,
+            vec![id],
+            Box::new(move |state, ok| {
+                state.update(|app| app.editor.saving.pending -= 1);
+                // The snapshot is taken now, so it holds what the participants did.
+                match state.get().workspace.shared_save_snapshot(id) {
+                    Some(saved) if ok => {
+                        submit(state, vec![saved], done);
+                    }
+                    _ => done(state, false),
+                }
+            }),
+        );
+        return true;
+    }
     let Some(saved) = state.get().workspace.shared_save_snapshot(id) else {
         return false;
     };
@@ -140,6 +191,15 @@ pub(crate) fn close(
                 .map(|d| (id, d.stamp(id), d.meta.path.clone()))
         })
         .collect::<Vec<_>>();
+    let ids: Vec<FileId> = if save {
+        app.workspace
+            .released_by(&request.targets)
+            .into_iter()
+            .filter(|id| app.workspace.is_dirty(*id))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let files = if save {
         app.workspace
             .released_by(&request.targets)
@@ -151,7 +211,7 @@ pub(crate) fn close(
         Vec::new()
     };
     drop(app);
-    let queued = submit(state, files, move |state, success| {
+    let finish = move |state: &AppContext, success: bool| {
         let mut continuation = None;
         state.update(|app| {
             app.editor.saving.closing = false;
@@ -214,7 +274,38 @@ pub(crate) fn close(
         if let Some(next) = continuation {
             done(state, next);
         }
-    });
+    };
+    // The extensions that change files before saving run first. This stage is
+    // part of the save for closing purposes: the close barrier waits for it.
+    if save && let Some(host) = participants(state, &ids) {
+        state.update(|app| {
+            app.editor.saving.closing = true;
+            app.editor.saving.pending += 1;
+        });
+        host.prepare_save(
+            state,
+            ids.clone(),
+            Box::new(move |state, ok| {
+                state.update(|app| app.editor.saving.pending -= 1);
+                if !ok {
+                    // Nothing was written; the close request stays open.
+                    state.update(|app| app.editor.saving.closing = false);
+                    return;
+                }
+                let files = {
+                    let app = state.get();
+                    ids.iter()
+                        .filter(|id| app.workspace.is_dirty(**id))
+                        .filter_map(|id| app.workspace.shared_save_snapshot(*id))
+                        .collect()
+                };
+                let queued = submit(state, files, finish);
+                state.update(|app| app.editor.saving.closing = queued);
+            }),
+        );
+        return true;
+    }
+    let queued = submit(state, files, finish);
     if queued {
         state.update(|app| app.editor.saving.closing = true);
     }

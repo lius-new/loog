@@ -170,6 +170,9 @@ pub struct HostState {
     live_tasks: usize,
     task_limit: usize,
     published: Vec<PublishedDiagnostics>,
+    /// Open save-participant requests. While any is open the instance may
+    /// read but not cause side effects (design §6.5).
+    save_requests: std::collections::BTreeSet<u64>,
     storage: Option<Box<dyn StoragePort>>,
     files: Option<Box<dyn FilePort>>,
     http: Option<Box<dyn HttpPort>>,
@@ -183,6 +186,18 @@ pub struct HostState {
 }
 
 impl HostState {
+    /// Refuse an import that causes a side effect while a save participant runs.
+    fn unrestricted(&self, what: &str) -> Result<(), HostError> {
+        if self.save_requests.is_empty() {
+            Ok(())
+        } else {
+            Err(host_error(
+                ErrorKind::PermissionDenied,
+                &format!("{what} is not allowed while a save participant runs"),
+            ))
+        }
+    }
+
     fn scope_key(&self, scope: &StorageScope) -> Result<String, HostError> {
         match scope {
             StorageScope::User => Ok("user".to_owned()),
@@ -261,6 +276,7 @@ impl HostState {
             live_tasks: 0,
             task_limit: limits.tasks,
             published: Vec::new(),
+            save_requests: std::collections::BTreeSet::new(),
             storage: None,
             files: None,
             http: None,
@@ -325,6 +341,7 @@ impl host::Host for HostState {
     }
 
     fn apply_edit(&mut self, request: ApplyEditRequest) -> Result<u64, HostError> {
+        self.unrestricted("applying an edit")?;
         if self.outstanding >= self.pending_limit {
             return Err(host_error(
                 ErrorKind::LimitExceeded,
@@ -392,6 +409,8 @@ impl host::Host for HostState {
                 "too many unconsumed provider answers",
             ));
         }
+        // Answering ends the restriction of a save request.
+        self.save_requests.remove(&request);
         self.provided.push(Provided::Edits { request, edits });
         Ok(())
     }
@@ -407,6 +426,7 @@ impl host::Host for HostState {
         key: String,
         value: String,
     ) -> Result<(), HostError> {
+        self.unrestricted("storing a value")?;
         let scope = self.scope_key(&scope)?;
         if key.is_empty() || key.len() > storage_limits::KEY {
             return Err(host_error(
@@ -439,6 +459,7 @@ impl host::Host for HostState {
     }
 
     fn storage_delete(&mut self, scope: StorageScope, key: String) -> Result<(), HostError> {
+        self.unrestricted("deleting a value")?;
         let scope = self.scope_key(&scope)?;
         let Some(values) = self.scope_values(&scope) else {
             return Err(host_error(
@@ -454,6 +475,7 @@ impl host::Host for HostState {
     }
 
     fn http_get(&mut self, url: String, max_bytes: u32) -> Result<HttpResponse, HostError> {
+        self.unrestricted("a network request")?;
         let port = self.http.as_deref().ok_or_else(|| {
             host_error(
                 ErrorKind::PermissionDenied,
@@ -493,6 +515,7 @@ impl host::Host for HostState {
     }
 
     fn task_start(&mut self, request: TaskRequest) -> Result<u64, HostError> {
+        self.unrestricted("starting a task")?;
         if self.live_tasks >= self.task_limit {
             return Err(host_error(
                 ErrorKind::LimitExceeded,
@@ -517,6 +540,7 @@ impl host::Host for HostState {
         version: u64,
         items: Vec<WireDiagnostic>,
     ) -> Result<(), HostError> {
+        self.unrestricted("publishing diagnostics")?;
         if self.published.len() >= self.pending_limit {
             return Err(host_error(
                 ErrorKind::LimitExceeded,
@@ -772,6 +796,16 @@ impl Instance {
     /// Provide snapshot text readable through `read-range`.
     pub fn put_snapshot(&mut self, token: u64, text: impl Into<Arc<String>>) {
         self.store.data_mut().snapshots.insert(token, text.into());
+    }
+
+    /// A save-participant request is about to be delivered: restrict side effects.
+    pub fn begin_save(&mut self, request: u64) {
+        self.store.data_mut().save_requests.insert(request);
+    }
+
+    /// The chain ended without an answer (timeout, failure): lift the restriction.
+    pub fn end_save(&mut self, request: u64) {
+        self.store.data_mut().save_requests.remove(&request);
     }
 
     /// Replace the resolved setting values the guest can read.

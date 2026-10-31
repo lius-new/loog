@@ -106,6 +106,10 @@ interface types {
         completion,
         /// Complete one item of an earlier completion answer (documentation, detail).
         completion-resolve,
+        /// Change a file before it is saved. The snapshot is a temporary copy that
+        /// earlier participants already changed; answer with `provide-edits`. While
+        /// the request is open, calls with side effects fail with permission-denied.
+        save,
     }
 
     /// One completion candidate. `data` is opaque to the host and comes back

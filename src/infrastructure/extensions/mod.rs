@@ -102,6 +102,12 @@ pub enum Job {
         generation: u64,
         job: Box<ProviderJob>,
     },
+    /// Lift the side-effect restriction of a save request that ended unanswered.
+    EndSave {
+        id: String,
+        generation: u64,
+        request: u64,
+    },
     /// The workspace folders the extension may name.
     Roots {
         id: String,
@@ -375,8 +381,20 @@ impl Worker {
                     });
                     if let Some(slot) = self.slot(&id, generation) {
                         slot.instance.put_snapshot(job.token, job.text);
+                        if matches!(job.kind, ProviderKind::Save) {
+                            slot.instance.begin_save(job.request);
+                        }
                     }
                     self.deliver(&id, generation, vec![message]);
+                }
+                Job::EndSave {
+                    id,
+                    generation,
+                    request,
+                } => {
+                    if let Some(slot) = self.slot(&id, generation) {
+                        slot.instance.end_save(request);
+                    }
                 }
                 Job::Roots {
                     id,

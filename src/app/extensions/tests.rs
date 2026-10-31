@@ -92,6 +92,8 @@ struct Fixture {
     )>,
     cleared: Vec<u64>,
     offered: Vec<OfferedList>,
+    ready: Vec<(u64, bool, Option<String>)>,
+    submitted: Vec<Job>,
     resolved: Vec<(u64, serde_json::Value)>,
 }
 
@@ -140,6 +142,8 @@ fn fixture_with(name: &str, text: &str, select: std::ops::Range<usize>, manifest
         published: Vec::new(),
         cleared: Vec::new(),
         offered: Vec::new(),
+        ready: Vec::new(),
+        submitted: Vec::new(),
         resolved: Vec::new(),
     }
 }
@@ -174,12 +178,18 @@ impl Fixture {
         let mut messages = Vec::new();
         for effect in effects {
             match effect {
-                Effect::Submit(job) => assert!(self.executor.submit(job)),
+                Effect::Submit(job) => {
+                    if matches!(job, Job::EndSave { .. }) {
+                        self.submitted.push(Job::Shutdown);
+                    }
+                    assert!(self.executor.submit(job));
+                }
                 Effect::Toast(m) | Effect::Error(m) => messages.push(m),
                 Effect::PublishDiagnostics { source, items, .. } => {
                     self.published.push((source, items))
                 }
                 Effect::ClearDiagnostics { source } => self.cleared.push(source),
+                Effect::SaveReady { chain, ok, message } => self.ready.push((chain, ok, message)),
                 Effect::StartTask { task, spec } => self.runner.start(task, spec),
                 Effect::CancelTask { task } => self.runner.cancel(task),
                 Effect::OfferCompletion { source, items, .. } => self.offered.push((source, items)),
@@ -1404,4 +1414,307 @@ fn a_network_declaration_needs_the_capability_and_plain_host_names() {
         with(r#"["documents.read"]"#, r#"["api.example.com"]"#).is_err(),
         "declared without the capability"
     );
+}
+
+fn save_manifest(language: &str) -> String {
+    r#"{
+    "schema": 1,
+    "id": "example.tools",
+    "version": "0.1.0",
+    "api": "loom:extension@0.1.0",
+    "component": "extension.wasm",
+    "capabilities": ["documents.read", "workspace.edit"],
+    "contributes": { "providers": [
+        { "id": "example.tools.trim", "kind": "save-participant", "selector": { "languages": ["LANG"] } }
+    ] }
+}"#
+    .replace("LANG", language)
+}
+
+impl Fixture {
+    fn saver(name: &str, text: &str) -> Fixture {
+        let probe =
+            std::env::temp_dir().join(format!("loom-ext-doc-{}-{name}.txt", std::process::id()));
+        let mut f = fixture_with(name, text, 0..0, &save_manifest(&language_of(&probe)));
+        f.service.set_clock(|| 0); // cold start time is not what these tests measure
+        f
+    }
+
+    fn begin_save(&mut self) -> u64 {
+        let file = self.app.workspace.file_id_for_path(&self.path).unwrap();
+        let (chain, effects) = self.service.begin_save(&mut self.app, vec![file]);
+        self.apply(effects);
+        chain
+    }
+}
+
+#[test]
+fn participants_change_the_text_in_one_undoable_step_after_all_of_them_answered() {
+    let mut f = Fixture::saver("chain", "a  \nb  \nkeep\n");
+    let file = f.app.workspace.file_id_for_path(&f.path).unwrap();
+    assert!(f.service.has_participants(&f.app, &[file]));
+    let chain = f.begin_save();
+    assert_eq!(
+        f.text(),
+        "a  \nb  \nkeep\n",
+        "nothing changes before the participants answered"
+    );
+    f.pump_until(|f| !f.ready.is_empty());
+    assert_eq!(f.ready, [(chain, true, None)]);
+    assert_eq!(f.text(), "a\nb\nkeep\n");
+    f.app.workspace.document_editor_mut(file).unwrap().undo();
+    assert_eq!(f.text(), "a  \nb  \nkeep\n", "one undo step");
+}
+
+#[test]
+fn a_file_with_nothing_to_change_is_ready_without_an_edit() {
+    let mut f = Fixture::saver("clean", "already clean\n");
+    let before = f.app.workspace.documents[&f.app.workspace.file_id_for_path(&f.path).unwrap()]
+        .buffer
+        .version();
+    f.begin_save();
+    f.pump_until(|f| !f.ready.is_empty());
+    assert!(f.ready[0].1);
+    let after = f.app.workspace.documents[&f.app.workspace.file_id_for_path(&f.path).unwrap()]
+        .buffer
+        .version();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn a_language_without_a_participant_has_none() {
+    let f = fixture_with(
+        "other-lang",
+        "x  ",
+        0..0,
+        &save_manifest("no-such-language"),
+    );
+    let file = f.app.workspace.file_id_for_path(&f.path).unwrap();
+    assert!(!f.service.has_participants(&f.app, &[file]));
+}
+
+#[test]
+fn typing_while_the_participants_work_makes_them_run_again_on_the_new_text() {
+    let mut f = Fixture::saver("typing", "a  \n");
+    f.begin_save();
+    let id = f.app.workspace.file_id_for_path(&f.path).unwrap();
+    f.app
+        .workspace
+        .document_editor_mut(id)
+        .unwrap()
+        .set_cursor(4);
+    loom_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "b  ");
+    f.pump_until(|f| !f.ready.is_empty());
+    assert!(f.ready[0].1, "{:?}", f.ready);
+    assert_eq!(
+        f.text(),
+        "a\nb",
+        "the person's typing is kept and also cleaned"
+    );
+}
+
+#[test]
+fn an_answer_after_the_deadline_discards_everything_and_releases_the_participant() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let mut f = Fixture::saver("late", "a  \n");
+    let now = Arc::new(AtomicU64::new(0));
+    let clock = now.clone();
+    f.service.set_clock(move || clock.load(Ordering::Relaxed));
+    f.begin_save();
+    now.store(60_000, Ordering::Relaxed);
+    f.pump_until(|f| !f.ready.is_empty());
+    assert!(!f.ready[0].1);
+    assert!(
+        f.ready[0].2.as_deref().unwrap().contains("too late"),
+        "{:?}",
+        f.ready
+    );
+    assert_eq!(f.text(), "a  \n", "the real document is untouched");
+}
+
+#[test]
+fn a_stopped_participant_ends_the_chain_with_a_reason_and_changes_nothing() {
+    let mut f = Fixture::saver("stopped", "a  \n");
+    // A failed extension stays down until retried (a dormant one would simply be woken).
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .lifecycle
+        .fail(crate::features::extensions::lifecycle::FailureStage::Execution);
+    f.begin_save();
+    assert_eq!(f.ready.len(), 1);
+    assert!(!f.ready[0].1);
+    assert!(
+        f.ready[0].2.as_deref().unwrap().contains("not running"),
+        "{:?}",
+        f.ready
+    );
+    assert_eq!(f.text(), "a  \n");
+}
+
+#[test]
+fn the_timer_cuts_off_a_chain_whose_participant_never_answers() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let mut f = Fixture::saver("timer", "a  \n");
+    let now = Arc::new(AtomicU64::new(0));
+    let clock = now.clone();
+    f.service.set_clock(move || clock.load(Ordering::Relaxed));
+    let chain = f.begin_save();
+    assert!(f.service.expire_save(chain).is_empty(), "not due yet");
+    now.store(10_000, Ordering::Relaxed);
+    let effects = f.service.expire_save(chain);
+    f.apply(effects);
+    assert_eq!(
+        f.ready,
+        [(
+            chain,
+            false,
+            Some("a save participant did not answer in time".into())
+        )]
+    );
+    assert!(
+        !f.submitted.is_empty(),
+        "the restriction on the silent participant was lifted"
+    );
+    assert!(f.service.expire_save(chain).is_empty(), "a chain ends once");
+}
+
+#[test]
+fn saving_runs_the_participants_before_writing_and_closing_waits_for_them() {
+    use crate::app::saving;
+    use crate::app::test_support::SavingUi;
+    let dir = std::env::temp_dir().join(format!("loom-save-chain-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("file.txt");
+    std::fs::write(&path, "x  \ny  \n").unwrap();
+    let mut app = AppState::new();
+    let id = app.workspace.open_path(path.clone(), "x  \ny  \n".into());
+    {
+        // Make the document dirty so a save has something to write.
+        let mut editor = app.workspace.document_editor_mut(id).unwrap();
+        editor.select_to(usize::MAX, false);
+        editor
+            .replace_selection("x  \ny  \nz  \n", loom_editor_core::text::EditKind::Other)
+            .unwrap();
+    }
+    let ui = SavingUi::new(app);
+    let host = host::ExtensionHost::start(
+        ui.state.clone(),
+        ui.tasks.application(),
+        std::env::temp_dir().join(format!("loom-save-chain-cache-{}", std::process::id())),
+        ui.runtime.trust().clone(),
+        None,
+    )
+    .unwrap();
+    host.service().set_clock(|| 0);
+    host.load_package(&package_dir_with(
+        "save-live",
+        &save_manifest(&language_of(&path)),
+    ))
+    .unwrap();
+    ui.runtime.install_extensions(host);
+
+    assert!(saving::document(&ui.state, id, |_, _| {}));
+    assert!(
+        ui.state.get().editor.saving.pending > 0,
+        "the window cannot close while participants work"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "x  \ny  \n",
+        "nothing is written yet"
+    );
+    ui.wait();
+    let written = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        !written.contains("  ") && written.ends_with("z\n"),
+        "{written:?}"
+    );
+    assert_eq!(
+        ui.state.get().workspace.documents[&id].buffer.text(),
+        written
+    );
+    assert!(!ui.state.get().workspace.is_dirty(id));
+
+    // The way out: saving without the extensions writes the text as it is.
+    ui.state.update(|app| {
+        let mut editor = app.workspace.document_editor_mut(id).unwrap();
+        editor.select_to(usize::MAX, false);
+        editor
+            .replace_selection("raw  \n", loom_editor_core::text::EditKind::Other)
+            .unwrap();
+    });
+    assert!(saving::document_without_participants(
+        &ui.state,
+        id,
+        |_, _| {}
+    ));
+    ui.wait();
+    assert!(std::fs::read_to_string(&path).unwrap().contains("raw  \n"));
+    ui.runtime.clear_extensions();
+}
+
+#[test]
+fn a_failing_participant_keeps_the_file_from_being_written() {
+    use crate::app::saving;
+    use crate::app::test_support::SavingUi;
+    let dir = std::env::temp_dir().join(format!("loom-save-fail-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("file.txt");
+    std::fs::write(&path, "old\n").unwrap();
+    let mut app = AppState::new();
+    let id = app.workspace.open_path(path.clone(), "old\n".into());
+    {
+        let mut editor = app.workspace.document_editor_mut(id).unwrap();
+        editor.select_to(usize::MAX, false);
+        editor
+            .replace_selection("new  \n", loom_editor_core::text::EditKind::Other)
+            .unwrap();
+    }
+    let ui = SavingUi::new(app);
+    let host = host::ExtensionHost::start(
+        ui.state.clone(),
+        ui.tasks.application(),
+        std::env::temp_dir().join(format!("loom-save-fail-cache-{}", std::process::id())),
+        ui.runtime.trust().clone(),
+        None,
+    )
+    .unwrap();
+    let extension = host
+        .load_package(&package_dir_with(
+            "save-fail",
+            &save_manifest(&language_of(&path)),
+        ))
+        .unwrap();
+    host.service()
+        .packages
+        .get_mut(&extension)
+        .unwrap()
+        .lifecycle
+        .fail(crate::features::extensions::lifecycle::FailureStage::Execution);
+    ui.runtime.install_extensions(host);
+
+    let reported = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let sink = reported.clone();
+    assert!(saving::document(&ui.state, id, move |_, ok| *sink
+        .lock()
+        .unwrap() =
+        Some(ok)));
+    ui.wait();
+    assert_eq!(*reported.lock().unwrap(), Some(false));
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "old\n",
+        "nothing was written"
+    );
+    assert!(
+        ui.state.get().workspace.is_dirty(id),
+        "the person's changes are still there"
+    );
+    ui.runtime.clear_extensions();
 }

@@ -7,6 +7,7 @@ pub mod command;
 pub mod lifecycle;
 pub mod manifest;
 pub mod providers;
+pub mod savediff;
 pub mod servers;
 pub mod settings;
 pub mod trust;

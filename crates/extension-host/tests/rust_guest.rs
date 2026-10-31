@@ -456,3 +456,72 @@ fn an_instance_cannot_have_more_tasks_running_than_its_limit() {
         .unwrap();
     assert_eq!(instance.take_started_tasks().len(), 1);
 }
+
+#[test]
+fn side_effects_are_refused_while_a_save_participant_runs_and_allowed_again_after_its_answer() {
+    let (runtime, component) = runtime();
+    let mut instance = runtime.instantiate(&component, Limits::default()).unwrap();
+    instance.put_snapshot(5, String::from("hello"));
+
+    // Another callback tries to edit while a save request (99) is open.
+    instance.begin_save(99);
+    instance
+        .dispatch(&[command(
+            "example.tools.uppercase",
+            Some(5),
+            vec![selection(0, 5)],
+        )])
+        .unwrap();
+    assert!(instance.take_accepted().is_empty());
+    assert!(
+        instance
+            .state()
+            .logs
+            .iter()
+            .any(|(_, text)| text.contains("not allowed while a save participant runs")),
+        "{:?}",
+        instance.state().logs
+    );
+
+    // Ending the request (a timeout, say) lifts the restriction.
+    instance.end_save(99);
+    instance.put_snapshot(5, String::from("hello"));
+    instance
+        .dispatch(&[command(
+            "example.tools.uppercase",
+            Some(5),
+            vec![selection(0, 5)],
+        )])
+        .unwrap();
+    assert_eq!(instance.take_accepted().len(), 1);
+}
+
+#[test]
+fn a_save_participant_answers_with_edits_and_that_answer_lifts_the_restriction() {
+    let (runtime, component) = runtime();
+    let mut instance = runtime.instantiate(&component, Limits::default()).unwrap();
+    let text = "a  \nb\n";
+    instance.put_snapshot(9, String::from(text));
+    instance.begin_save(41);
+    instance
+        .dispatch(&[provider_request(ProviderKind::Save, text)])
+        .unwrap();
+    let provided = instance.take_provided();
+    let [Provided::Edits { request, edits }] = provided.as_slice() else {
+        panic!("{provided:?}");
+    };
+    assert_eq!((*request, edits.len()), (41, 1));
+    instance.put_snapshot(5, String::from("hello"));
+    instance
+        .dispatch(&[command(
+            "example.tools.uppercase",
+            Some(5),
+            vec![selection(0, 5)],
+        )])
+        .unwrap();
+    assert_eq!(
+        instance.take_accepted().len(),
+        1,
+        "the answer ended the restriction"
+    );
+}

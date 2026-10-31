@@ -114,6 +114,7 @@ pub enum ProviderKind {
     Diagnostics,
     Formatting,
     CodeActions,
+    SaveParticipant,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

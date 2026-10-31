@@ -108,3 +108,17 @@ folder; paths may not leave it, not even through a link. `network` plus
 only (`*.example.com` covers subdomains); redirects are checked again and a
 downgrade to http is refused. All three are plain package grants: without the
 grant the call fails with `permission-denied`.
+
+## Save participants
+
+A provider of kind `save-participant` changes a file just before it is saved.
+Participants run one after another on a temporary copy, each seeing the previous
+one's result, and answer with `provide-edits`. Only when all have answered is the
+result committed to the real document, as one undo step, and the file written. If
+a participant fails, answers too late (the whole chain has 3 seconds), returns
+edits that do not fit, or the text keeps changing under it, nothing is changed
+and the save is not done; the message says why. `editor::SaveWithoutExtensions`
+saves without them. While a participant works, its calls with side effects
+(edits, tasks, network, storing values, publishing) fail with
+`permission-denied`; reading stays possible. Closing the window waits for the
+participants as it waits for writes.

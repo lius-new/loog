@@ -40,6 +40,15 @@ pub fn save_active_document(state: &AppContext) -> bool {
     save_document(state, id)
 }
 
+/// Save the active file without running save participants (the way out when
+/// an extension keeps a file from being saved).
+pub fn save_active_document_without_participants(state: &AppContext) -> bool {
+    let Some(id) = state.get().workspace.active_document() else {
+        return false;
+    };
+    crate::app::saving::document_without_participants(state, id, |_, _| {})
+}
+
 /// Returns whether the request was queued; completion is reported on the UI thread.
 pub fn save_document(state: &AppContext, id: FileId) -> bool {
     crate::app::saving::document(state, id, |_, _| {})

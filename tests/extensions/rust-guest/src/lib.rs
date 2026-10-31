@@ -308,7 +308,7 @@ impl Guest for Extension {
                             let _ = host::provide_diagnostics(request.request, &items);
                         }
                         ProviderKind::Completion | ProviderKind::CompletionResolve => {}
-                        ProviderKind::Formatting => {
+                        ProviderKind::Formatting | ProviderKind::Save => {
                             let mut edits = Vec::new();
                             let mut offset = 0usize;
                             for line in text.split_inclusive('\n') {

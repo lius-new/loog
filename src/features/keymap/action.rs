@@ -134,6 +134,7 @@ actions! {
     MarkdownPreviewToSide => "markdown::OpenPreviewToSide", "Open or focus the associated Markdown reading view";
     MarkdownOpenSource => "markdown::OpenSource", "Focus the corresponding source view";
     Save => "editor::Save", "Save the active file";
+    SaveWithoutExtensions => "editor::SaveWithoutExtensions", "Save the active file without the extensions that change files on save";
     Undo => "editor::Undo", "Undo";
     Redo => "editor::Redo", "Redo";
     SelectAll => "editor::SelectAll", "Select all text";

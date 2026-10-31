@@ -34,6 +34,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 pub(crate) mod host;
+mod save;
 
 const PROVIDER_DEADLINE_MS: u64 = 500;
 const FORMAT_DEADLINE_MS: u64 = 5_000;
@@ -147,6 +148,12 @@ pub enum Effect {
     },
     ClearDiagnostics {
         source: u64,
+    },
+    /// A save chain ended. `ok` means the files may be written now.
+    SaveReady {
+        chain: u64,
+        ok: bool,
+        message: Option<String>,
     },
     StartTask {
         task: u64,
@@ -299,6 +306,10 @@ pub struct ExtensionService {
     next_root: u64,
     tasks: HashMap<u64, TaskRecord>,
     next_task: u64,
+    saves: HashMap<u64, save::Chain>,
+    /// Open save-participant requests and the chain each belongs to.
+    save_calls: HashMap<u64, u64>,
+    next_save: u64,
     storage_dir: PathBuf,
     trust: Option<std::sync::Arc<crate::infrastructure::extensions::trust_store::TrustStore>>,
 }
@@ -404,6 +415,9 @@ impl ExtensionService {
             next_root: 0,
             tasks: HashMap::new(),
             next_task: 0,
+            saves: HashMap::new(),
+            save_calls: HashMap::new(),
+            next_save: 0,
             storage_dir,
             trust: None,
         }
@@ -1639,6 +1653,22 @@ impl ExtensionService {
             .is_some_and(|p| p.lifecycle.accepts(generation))
         {
             return Vec::new();
+        }
+        if matches!(call.job.kind, WireKind::Save) {
+            return match answer {
+                Provided::Edits { edits, .. } => self.save_answered(app, request, edits),
+                _ => {
+                    let mut effects = Vec::new();
+                    if let Some(chain) = self.save_calls.remove(&request) {
+                        self.fail(
+                            chain,
+                            "unexpected answer from a save participant".into(),
+                            &mut effects,
+                        );
+                    }
+                    effects
+                }
+            };
         }
         let formatting = matches!(call.job.kind, WireKind::Formatting);
         let completion = matches!(
