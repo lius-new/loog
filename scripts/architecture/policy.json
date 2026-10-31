@@ -44,6 +44,10 @@
       "owner": "app/state/chrome: TerminalChrome",
       "remove_in": "composition"
     },
+    "extensions_ui": {
+      "owner": "ui/extensions_binding: ExtensionsUiState (source, filter, selection, tab, search)",
+      "remove_in": "composition"
+    },
     "settings_ui": {
       "owner": "ui/settings_binding: SettingsUiState",
       "remove_in": "composition"

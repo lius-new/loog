@@ -32,6 +32,9 @@ pub struct RequestKey {
     pub line_height: f32,
     pub base: Option<std::path::PathBuf>,
     pub remote: bool,
+    /// Lay out as a page (as the Markdown preview does) even though the request
+    /// comes from a card, such as the readme of an extension.
+    pub page: bool,
     pub fragment: Option<String>,
     pub horizontal: Vec<(crate::features::markdown::model::NodeId, f32)>,
 }
@@ -74,6 +77,7 @@ struct LayoutEntry {
     resources: u64,
     base: Option<std::path::PathBuf>,
     remote: bool,
+    page: bool,
     layout: Arc<DocumentLayout>,
     _lease: BudgetLease,
 }
@@ -226,6 +230,7 @@ fn compatible_status(status: Option<&Status>, key: &RequestKey) -> Status {
                 && old.key.ink == key.ink
                 && old.key.base == key.base
                 && old.key.remote == key.remote
+                && old.key.page == key.page
                 && old.key.font_size == key.font_size
                 && old.key.line_height == key.line_height =>
         {
@@ -418,26 +423,22 @@ fn render(
             && entry.resources == assets.version
             && entry.base == key.base
             && entry.remote == key.remote
+            && entry.page == key.page
     }) {
         let entry = layouts.remove(index).unwrap();
         layouts.push_back(entry.clone());
         entry
     } else {
+        // A card is the compact layout of hovers and completion details; a page
+        // is the one of the preview. A card may ask for the page layout.
+        let compact = matches!(request.view, Consumer::Card(_)) && !key.page;
         let style = LayoutStyle {
             width: key.width,
             scale: key.font_size / 16.0,
             line_height: key.line_height,
-            padding: if matches!(request.view, Consumer::Card(_)) {
-                0.0
-            } else {
-                12.0
-            },
-            gap: if matches!(request.view, Consumer::Card(_)) {
-                8.0
-            } else {
-                12.0
-            },
-            card: matches!(request.view, Consumer::Card(_)),
+            padding: if compact { 0.0 } else { 12.0 },
+            gap: if compact { 8.0 } else { 12.0 },
+            card: compact,
             ..Default::default()
         };
         let states = document
@@ -496,6 +497,7 @@ fn render(
             resources: assets.version,
             base: key.base.clone(),
             remote: key.remote,
+            page: key.page,
             layout: Arc::new(layout),
             _lease: lease,
         });

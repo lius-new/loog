@@ -46,6 +46,17 @@ pub struct ExtensionsUiState {
     pub tab: DetailTab,
 }
 
+impl ExtensionsUiState {
+    pub fn show_installed(&mut self, id: String) {
+        self.source = Source::Installed;
+        self.search.clear();
+        self.filter = StateFilter::All;
+        self.category = None;
+        self.selected = Some(id);
+        self.tab = DetailTab::Details;
+    }
+}
+
 /// A block of an extension's readme.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Block {
@@ -148,6 +159,19 @@ pub struct Market {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IconImage {
+    pub identity: u64,
+    /// Decoded and validated artwork, encoded as PNG for the renderer.
+    pub bytes: Arc<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Documentation {
+    pub content: crate::features::markdown::content::Markup,
+    pub path: std::path::PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub id: String,
     pub name: String,
@@ -157,16 +181,26 @@ pub struct Entry {
     pub updated: String,
     /// Icon key and the colour of its tile.
     pub icon: &'static str,
+    pub icon_image: Option<IconImage>,
     pub tint: u32,
     pub categories: Vec<String>,
     pub readme: Vec<Block>,
+    pub readme_document: Option<Documentation>,
     pub contributions: Vec<Contribution>,
     pub changelog: Vec<Release>,
+    pub changelog_document: Option<Documentation>,
     pub installed: Option<Installed>,
     pub market: Option<Market>,
 }
 
 impl Entry {
+    pub fn documentation(&self, tab: DetailTab) -> Option<&Documentation> {
+        match tab {
+            DetailTab::Details => self.readme_document.as_ref(),
+            DetailTab::Changelog => self.changelog_document.as_ref(),
+            _ => None,
+        }
+    }
     /// How many things the extension adds, as the Contributions tab counts them.
     pub fn contribution_count(&self) -> usize {
         self.contributions
@@ -239,8 +273,7 @@ pub enum Action {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FooterAction {
-    OpenFolder,
-    ReloadAll,
+    Import,
     RefreshMarketplace,
     UpdateAll,
 }
@@ -250,6 +283,8 @@ pub struct Binding {
     pub ui: StateAccess<ExtensionsUiState>,
     read: Arc<dyn Fn() -> Frame + Send + Sync>,
     run: Arc<dyn Fn(Command) + Send + Sync>,
+    documentation:
+        Arc<dyn Fn(&Entry, DetailTab) -> Option<crate::ui::markdown::card::Document> + Send + Sync>,
 }
 
 impl Binding {
@@ -262,7 +297,29 @@ impl Binding {
             ui,
             read: Arc::new(read),
             run: Arc::new(run),
+            documentation: Arc::new(|entry, tab| {
+                entry
+                    .documentation(tab)
+                    .map(|document| document.content.clone().into())
+            }),
         }
+    }
+    pub fn with_documentation(
+        mut self,
+        bind: impl Fn(&Entry, DetailTab) -> Option<crate::ui::markdown::card::Document>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        self.documentation = Arc::new(bind);
+        self
+    }
+    pub fn documentation(
+        &self,
+        entry: &Entry,
+        tab: DetailTab,
+    ) -> Option<crate::ui::markdown::card::Document> {
+        (self.documentation)(entry, tab)
     }
     pub fn frame(&self) -> Frame {
         (self.read)()

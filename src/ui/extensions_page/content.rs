@@ -553,6 +553,36 @@ pub(super) fn render(region: UiRect, ids: &mut Ids, body: Body<'_>) -> Element {
     if matches!(body.tab, DetailTab::Details | DetailTab::Contributions) {
         notices(&mut main, ids, &body);
     }
+    if let Some(document) = body.state.documentation(entry, body.tab) {
+        let top = main.y.min(region.bottom - 1.0);
+        let height = (region.bottom - top - 16.0).max(1.0);
+        let layout = crate::ui::markdown::card::Layout {
+            width: main_w,
+            height,
+            measured: true,
+            document,
+        };
+        let mut root = panel(region, VisualStyle::default())
+            .children(main.items)
+            .child(crate::ui::markdown::card::render(
+                &layout, left, top, height, None,
+            ));
+        if side {
+            let x = left + main_w + SIDE_GAP;
+            let mut aside = Flow::new(x, region.top + PAD_TOP, SIDE_W);
+            facts(&mut aside, entry, body.market);
+            root = root.child(
+                scroll_view(
+                    UiRect::new(x, region.top, region.right, region.bottom),
+                    (region.right - x, aside.y - region.top + 40.0),
+                )
+                .vertical()
+                .thumb_color(c.scrollbar)
+                .children(aside.items),
+            );
+        }
+        return root;
+    }
     let muted = theme::sans(c.text_muted, theme::UI_SIZE);
     match body.tab {
         DetailTab::Details => {

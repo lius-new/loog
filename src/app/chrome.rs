@@ -21,7 +21,7 @@ pub fn title_binding(state: &AppContext, terminal: Option<TerminalToggle>) -> Ti
                 settings_open: app.workspace.active_is_settings(),
                 extensions_open: app.workspace.active_page()
                     == Some(crate::app::workspace::AppPage::Extensions),
-                extensions_attention: crate::app::extensions_view::needs_attention(),
+                extensions_attention: crate::app::extensions_view::needs_attention(&reader),
                 maximized: crate::app::window::is_maximized(),
                 update: app.update.indicator(),
                 drawer_open: app.drawer.visible,

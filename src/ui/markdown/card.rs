@@ -6,10 +6,14 @@ use crate::ui::theme;
 use lgui::prelude::{Element, UiRect, text};
 use std::sync::Arc;
 pub type Painter = dyn Fn(&ReaderFrame, usize, UiRect, UiRect) -> Element + Send + Sync;
+pub type ImagePainter = dyn Fn(&ReaderFrame, &crate::features::markdown::layout::ImageBox, UiRect) -> Element
+    + Send
+    + Sync;
 #[derive(Clone)]
 pub struct Frame {
     pub reader: ReaderFrame,
     pub paint: Arc<Painter>,
+    pub paint_image: Arc<ImagePainter>,
 }
 #[derive(Default)]
 pub struct Effect {
@@ -110,6 +114,7 @@ pub fn render(
         };
         let read = frame.reader.clone();
         let paint = frame.paint.clone();
+        let paint_image = frame.paint_image.clone();
         let actions = interaction.clone();
         let binding = Binding::new(
             move || read.clone(),
@@ -131,7 +136,8 @@ pub fn render(
                 }
             },
             move |frame, index, bounds, clip| paint(frame, index, bounds, clip),
-        );
+        )
+        .with_images(move |frame, image, bounds| paint_image(frame, image, bounds));
         reader::render(id, rect, binding, focus)
     })
 }

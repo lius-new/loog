@@ -360,6 +360,19 @@ impl ExtensionHost {
         self.inner.service.lock().unwrap().commands()
     }
 
+    pub(crate) fn frame(&self) -> crate::ui::extensions_binding::Frame {
+        crate::app::extensions_view::installed_frame(&self.inner.service.lock().unwrap())
+    }
+
+    pub(crate) fn needs_attention(&self) -> bool {
+        self.inner
+            .service
+            .lock()
+            .unwrap()
+            .packages()
+            .any(|package| package.lifecycle.state() == super::State::Failed)
+    }
+
     pub(crate) fn run_command(&self, context: &AppContext, command: &str) {
         context.update(|app| {
             let effects = self.inner.service.lock().unwrap().run_command(app, command);
@@ -640,9 +653,13 @@ impl ExtensionHost {
                 .update(|app| app.show_error("There is no folder for extensions on this system"));
             return;
         };
+        self.import_into(context, archive, &directory);
+    }
+
+    pub(super) fn import_into(&self, context: &AppContext, archive: &Path, directory: &Path) {
         let imported = crate::infrastructure::extensions::package::import(
             archive,
-            &directory,
+            directory,
             env!("CARGO_PKG_VERSION"),
         );
         context.update(|app| match imported {
@@ -660,26 +677,52 @@ impl ExtensionHost {
                         .load_package(&done.directory)
                         .map(|id| service.grant_declared(&id))
                 };
+                let rejected = service
+                    .package(&done.id)
+                    .map(|package| {
+                        package
+                            .resources
+                            .rejected
+                            .iter()
+                            .map(|(id, error)| format!("{id}: {error}"))
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    })
+                    .unwrap_or_default();
                 drop(service);
                 self.refresh_settings(app);
-                app.show_toast(match loaded {
-                    Err(error) => format!("Imported {} but could not load it: {error}", done.name),
-                    Ok(()) => format!(
-                        "{} {} {}{}",
-                        if done.replaced.is_some() {
-                            "Updated"
-                        } else {
-                            "Imported"
-                        },
-                        done.name,
-                        done.version,
-                        if done.needs_restart {
-                            " (restart Loom to use its language)"
-                        } else {
-                            ""
+                match loaded {
+                    Err(error) => app.show_error(format!(
+                        "Imported {} but could not load it: {error}",
+                        done.name
+                    )),
+                    Ok(()) => {
+                        app.extensions_ui.show_installed(done.id);
+                        app.apply(crate::features::keymap::action::Action::OpenExtensions);
+                        if !rejected.is_empty() {
+                            app.show_error(format!(
+                                "Imported {} but some resources could not load: {rejected}",
+                                done.name
+                            ));
+                            return;
                         }
-                    ),
-                });
+                        app.show_success(format!(
+                            "{} {} {}{}",
+                            if done.replaced.is_some() {
+                                "Updated"
+                            } else {
+                                "Imported"
+                            },
+                            done.name,
+                            done.version,
+                            if done.needs_restart {
+                                " (restart Loom to use its language)"
+                            } else {
+                                ""
+                            }
+                        ));
+                    }
+                }
             }
         });
     }

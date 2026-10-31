@@ -13,6 +13,7 @@ use lgui::core::{UiFocusHandle, UiId, clip};
 use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel, scroll_view};
 use std::sync::Arc;
 
+use self::widgets::{Ids, Kind, Look, line};
 use crate::ui::components::input::{self, AccessInputOptions, InputBinding, InputStyle};
 use crate::ui::extensions_binding::{
     Action, Binding, CATEGORIES, Command, Entry, ExtensionsUiState, FooterAction, Frame, Source,
@@ -20,7 +21,6 @@ use crate::ui::extensions_binding::{
 };
 use crate::ui::tabs::{ellipsize, ellipsize_sans, icon, measure, measure_sans};
 use crate::ui::theme;
-use widgets::{Ids, Kind, Look, line};
 
 const LIST_MIN_W: f32 = 240.0;
 const LIST_MAX_W: f32 = 340.0;
@@ -151,7 +151,7 @@ fn empty(rect: UiRect, state: &Binding) -> Element {
         middle - 215.0,
         top + 130.0,
         430.0,
-        "Find extensions in the Marketplace, or put an extension folder (with its manifest.json) into the extensions folder.",
+        "Import a .loomext package to install an extension, or find extensions in the Marketplace.",
         widgets::aligned(theme::sans(c.text_muted, theme::UI_SIZE), TextAlign::Center),
         19.0,
     );
@@ -160,10 +160,10 @@ fn empty(rect: UiRect, state: &Binding) -> Element {
     }
     let y = top + 130.0 + height + 16.0;
     let browse = "Browse the Marketplace";
-    let folder = "Open extensions folder";
+    let import = "Import Extension";
     let browse_w = widgets::button_width(browse, false, theme::UI_SIZE);
-    let folder_w = widgets::button_width(folder, true, theme::UI_SIZE);
-    let left = middle - (browse_w + 8.0 + folder_w) / 2.0;
+    let import_w = widgets::button_width(import, false, theme::UI_SIZE);
+    let left = middle - (browse_w + 8.0 + import_w) / 2.0;
     let go = state.clone();
     let open = state.clone();
     root = root
@@ -178,17 +178,17 @@ fn empty(rect: UiRect, state: &Binding) -> Element {
         ))
         .child(widgets::button(
             &mut ids,
-            "ext.empty.folder".to_owned(),
+            "ext.empty.import".to_owned(),
             UiRect::new(
                 left + browse_w + 8.0,
                 y,
-                left + browse_w + 8.0 + folder_w,
+                left + browse_w + 8.0 + import_w,
                 y + 28.0,
             ),
-            folder,
-            Some("folder-opened"),
+            import,
+            None,
             Kind::Plain,
-            move || open.run(Command::Footer(FooterAction::OpenFolder)),
+            move || open.run(Command::Footer(FooterAction::Import)),
         ));
     root.into()
 }
@@ -429,47 +429,28 @@ fn list_column(
         footer.right,
         footer.top + 1.0,
     )));
-    let (left_link, right_link) = match ui.source {
-        Source::Installed => (
-            Some(("Open extensions folder", FooterAction::OpenFolder)),
-            Some(("Reload", FooterAction::ReloadAll)),
-        ),
-        Source::Marketplace => (None, Some(("Refresh", FooterAction::RefreshMarketplace))),
-        Source::Updates => (None, Some(("Update all", FooterAction::UpdateAll))),
+    let (label, action) = match ui.source {
+        Source::Installed => ("Import Extension", FooterAction::Import),
+        Source::Marketplace => ("Refresh", FooterAction::RefreshMarketplace),
+        Source::Updates => ("Update all", FooterAction::UpdateAll),
     };
     let label_style = theme::sans(c.text_dim, theme::SMALL + 1.0);
-    if let Some((label, action)) = left_link {
-        let run = state.clone();
-        let width = measure_sans(label, theme::SMALL + 1.0, 400) + 12.0;
-        column = column.child(widgets::link(
-            "ext.footer.left".to_owned(),
-            UiRect::new(
-                footer.left + 8.0,
-                footer.top + 4.0,
-                footer.left + 8.0 + width,
-                footer.bottom - 4.0,
-            ),
-            label,
-            TextAlign::Left,
-            move || run.run(Command::Footer(action)),
-        ));
-    } else {
-        let text = match ui.source {
-            Source::Marketplace => "Marketplace".to_owned(),
-            _ => format!("{updates} update(s)"),
-        };
-        column = column.child(line(
-            UiRect::new(
-                footer.left + MARGIN,
-                footer.top,
-                footer.right,
-                footer.bottom,
-            ),
-            text,
-            label_style,
-        ));
-    }
-    if let Some((label, action)) = right_link {
+    let text = match ui.source {
+        Source::Installed => String::new(),
+        Source::Marketplace => "Marketplace".to_owned(),
+        Source::Updates => format!("{updates} update(s)"),
+    };
+    column = column.child(line(
+        UiRect::new(
+            footer.left + MARGIN,
+            footer.top,
+            footer.right,
+            footer.bottom,
+        ),
+        text,
+        label_style,
+    ));
+    {
         let run = state.clone();
         let width = measure_sans(label, theme::SMALL + 1.0, 400) + 12.0;
         column = column.child(widgets::link(
@@ -722,7 +703,7 @@ fn row(
         rect.left + 10.0 + TILE,
         rect.top + (rect.height() + TILE) / 2.0,
     );
-    row = row.child(widgets::tile(ids, tile, entry.icon, entry.tint, quiet));
+    row = row.child(widgets::extension_tile(ids, tile, entry, quiet));
 
     // The right edge, from the outside in.
     let mut edge = rect.right - 10.0;

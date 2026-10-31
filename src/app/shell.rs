@@ -1326,6 +1326,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                 keymap_search_focus.clone(),
             ),
             MainSurface::Extensions => super::extensions_view::render(
+                pane,
                 body,
                 state.clone(),
                 extensions_search_id.clone(),

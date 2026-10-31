@@ -151,6 +151,7 @@ fn the_sample_language_extension_is_found_at_startup_and_highlights_with_its_mod
 /// comes from the manifest and the files it names.
 #[test]
 fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
+    let _turn = REGISTRY_TURN.lock().unwrap_or_else(|e| e.into_inner());
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let work = std::env::temp_dir().join(format!("loom-pack-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
@@ -186,6 +187,17 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
     }
 
     let mut service = service("packed");
+    let ui = crate::app::test_support::SavingUi::new(AppState::new());
+    let host = host::ExtensionHost::start(
+        ui.state.clone(),
+        ui.tasks.application(),
+        work.join("ui-cache"),
+        ui.runtime.trust().clone(),
+        None,
+    )
+    .unwrap();
+    ui.runtime.install_extensions(host);
+    let host = ui.runtime.extensions().unwrap();
     for archive in &packed {
         let imported = crate::infrastructure::extensions::package::import(
             archive,
@@ -220,7 +232,127 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
             assert!(std::fs::metadata(file).unwrap().len() > 0);
         }
         assert!(m.runs_on(env!("CARGO_PKG_VERSION")));
+
+        // Importing from any list clears filters and opens the actual package's detail.
+        ui.state.update(|app| {
+            use crate::ui::extensions_binding::{DetailTab, Source, StateFilter};
+            app.extensions_ui.source = Source::Marketplace;
+            app.extensions_ui.search = crate::ui::components::input::InputState::new("unrelated");
+            app.extensions_ui.filter = StateFilter::Disabled;
+            app.extensions_ui.category = Some("Linters");
+            app.extensions_ui.tab = DetailTab::Runtime;
+        });
+        host.import_into(&ui.state, archive, &work.join("ui-extensions"));
+        let app = ui.state.get();
+        use crate::ui::extensions_binding::{DetailTab, Source, StateFilter};
+        assert_eq!(app.extensions_ui.source, Source::Installed);
+        assert_eq!(app.extensions_ui.selected.as_deref(), Some(id.as_str()));
+        assert!(app.extensions_ui.search.text().is_empty());
+        assert_eq!(app.extensions_ui.filter, StateFilter::All);
+        assert_eq!(app.extensions_ui.category, None);
+        assert_eq!(app.extensions_ui.tab, DetailTab::Details);
+        assert_eq!(
+            app.workspace.active_page(),
+            Some(crate::app::workspace::AppPage::Extensions)
+        );
+        assert_eq!(
+            app.chrome.toast.as_ref().unwrap().kind,
+            crate::domain::notification::ToastKind::Success
+        );
+        let shown = crate::app::extensions_view::binding(&ui.state).frame();
+        let detail = shown.installed.iter().find(|entry| entry.id == id).unwrap();
+        assert_eq!(Some(detail.name.as_str()), m.name.as_deref());
+        assert!(detail.icon_image.is_some(), "packed artwork reaches the UI");
+        assert!(!detail.readme_document.as_ref().unwrap().content.is_empty());
+        assert!(
+            !detail
+                .changelog_document
+                .as_ref()
+                .unwrap()
+                .content
+                .is_empty()
+        );
+        assert!(detail.contribution_count() > 0);
     }
+    // Re-importing replaces one entry and selects it rather than adding a duplicate.
+    host.import_into(&ui.state, &packed[0], &work.join("ui-extensions"));
+    assert_eq!(host.frame().installed.len(), 2);
+    let selected = ui.state.get().extensions_ui.selected.clone();
+    let invalid = work.join("broken.loomext");
+    std::fs::write(&invalid, b"not an extension package").unwrap();
+    host.import_into(&ui.state, &invalid, &work.join("ui-extensions"));
+    let app = ui.state.get();
+    assert_eq!(app.extensions_ui.selected, selected);
+    assert_eq!(
+        app.chrome.toast.as_ref().unwrap().kind,
+        crate::domain::notification::ToastKind::Error
+    );
+    assert!(
+        app.chrome
+            .toast
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("Could not import")
+    );
+    assert_eq!(host.frame().installed.len(), 2);
+    // A valid archive with invalid theme data loads the package but reports the failure.
+    let broken_theme = work.join("broken-theme.loomext");
+    let encoder = flate2::write::GzEncoder::new(
+        std::fs::File::create(&broken_theme).unwrap(),
+        flate2::Compression::default(),
+    );
+    let mut tar = tar::Builder::new(encoder);
+    for file in [
+        "manifest.json",
+        "icon.svg",
+        "README.md",
+        "CHANGELOG.md",
+        "themes/midnight.json",
+        "themes/daybreak.json",
+    ] {
+        let bytes = if file.starts_with("themes/") {
+            b"invalid theme".to_vec()
+        } else {
+            std::fs::read(samples().join("loom-midnight").join(file)).unwrap()
+        };
+        let mut header = tar::Header::new_ustar();
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar.append_data(&mut header, file, bytes.as_slice())
+            .unwrap();
+    }
+    tar.into_inner().unwrap().finish().unwrap();
+    host.import_into(&ui.state, &broken_theme, &work.join("ui-extensions"));
+    let app = ui.state.get();
+    assert_eq!(app.extensions_ui.selected.as_deref(), Some("loom.midnight"));
+    assert_eq!(
+        app.chrome.toast.as_ref().unwrap().kind,
+        crate::domain::notification::ToastKind::Error
+    );
+    assert!(
+        app.chrome
+            .toast
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("could not load")
+    );
+    assert!(
+        host.frame()
+            .installed
+            .iter()
+            .find(|entry| entry.id == "loom.midnight")
+            .unwrap()
+            .installed
+            .as_ref()
+            .unwrap()
+            .warning
+            .is_some()
+    );
+    ui.runtime.clear_extensions();
+    crate::ui::theme::set_package_themes(Vec::new());
     // The language pack inside the installed extension is found at startup.
     assert_eq!(extension_packs(&installed).len(), 1);
     let _ = std::fs::remove_dir_all(&work);

@@ -72,8 +72,11 @@ fn weave() -> Entry {
         tagline: s("Language support for the Weave language."),
         updated: s("2026-10-12"),
         icon: "extension-code",
+        icon_image: None,
         tint: 0xa78bfa,
         categories: strings(&["Languages", "Snippets"]),
+        readme_document: None,
+        changelog_document: None,
         readme: vec![
             Block::Heading(s("Write Weave with confidence")),
             Block::Paragraph(s(
@@ -190,8 +193,11 @@ fn selection_tools() -> Entry {
         tagline: s("Small tools for everyday editing."),
         updated: s("2026-10-20"),
         icon: "extension-tools",
+        icon_image: None,
         tint: 0x60a5fa,
         categories: strings(&["Editing"]),
+        readme_document: None,
+        changelog_document: None,
         readme: vec![
             Block::Heading(s("Small things, within reach")),
             Block::Paragraph(s(
@@ -257,8 +263,11 @@ fn night() -> Entry {
         tagline: s("A quieter palette for late hours."),
         updated: s("2026-09-30"),
         icon: "extension-theme",
+        icon_image: None,
         tint: 0xfbbf24,
         categories: strings(&["Themes"]),
+        readme_document: None,
+        changelog_document: None,
         readme: vec![
             Block::Heading(s("Soft contrast, warm accents")),
             Block::Paragraph(s(
@@ -332,8 +341,11 @@ fn lint() -> Entry {
         tagline: s("Catch issues before they settle in."),
         updated: s("2026-10-03"),
         icon: "check",
+        icon_image: None,
         tint: 0xfb7185,
         categories: strings(&["Linters"]),
+        readme_document: None,
+        changelog_document: None,
         readme: vec![
             Block::Heading(s("Checks when you save")),
             Block::Paragraph(s(
@@ -392,8 +404,11 @@ fn notes() -> Entry {
         tagline: s("A place for the passing thought."),
         updated: s("2026-07-21"),
         icon: "extension-note",
+        icon_image: None,
         tint: 0x34d399,
         categories: strings(&["Productivity"]),
+        readme_document: None,
+        changelog_document: None,
         readme: vec![
             Block::Heading(s("Notes that stay with the project")),
             Block::Paragraph(s(
@@ -445,8 +460,11 @@ fn offered(
         tagline: s(tagline),
         updated: s(updated),
         icon,
+        icon_image: None,
         tint,
         categories: strings(categories),
+        readme_document: None,
+        changelog_document: None,
         readme,
         contributions,
         changelog,

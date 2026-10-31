@@ -1,11 +1,12 @@
 //! Drawing helpers shared by the extensions page: tiles, buttons, chips and
 //! text that wraps.
 use lgui::core::{
-    Color, CursorIcon, EventPolicy, SemanticRole, Semantics, TextStyle, UiElement, UiEventContext,
-    UiId,
+    Color, CursorIcon, EventPolicy, ImageFit, SemanticRole, Semantics, TextStyle, UiElement,
+    UiEventContext, UiId, UiImageSource,
 };
 use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel, text};
 
+use crate::ui::extensions_binding::Entry;
 use crate::ui::tabs::{icon, measure_sans};
 use crate::ui::theme;
 
@@ -96,7 +97,24 @@ pub(super) fn paragraph(
     (elements, height)
 }
 
-/// A rounded tile with `icon_key` in `tint`.
+/// Package artwork retains its colors and fills the tile in the list and detail.
+pub(super) fn extension_tile(ids: &mut Ids, rect: UiRect, entry: &Entry, quiet: bool) -> Element {
+    let Some(image) = &entry.icon_image else {
+        return tile(ids, rect, entry.icon, entry.tint, quiet);
+    };
+    let source = UiImageSource::bytes(
+        format!("extension-icon-{:016x}", image.identity),
+        0,
+        image.bytes.clone(),
+    );
+    let request = crate::ui::image_rendering::image(source)
+        .cache_policy(lgui::memory::ImageCachePolicy::WhileVisible)
+        .namespace("extension-icons");
+    let id = ids.next();
+    Element::new(move |_| UiElement::requested_image(id, rect, request, ImageFit::Contain))
+}
+
+/// A rounded fallback tile with `icon_key` in `tint`.
 pub(super) fn tile(
     ids: &mut Ids,
     rect: UiRect,

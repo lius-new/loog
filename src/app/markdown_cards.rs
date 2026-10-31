@@ -33,6 +33,7 @@ pub(super) struct Card {
     position: ReaderPosition,
     pub focused: bool,
     height: f32,
+    extension: Option<(String, std::path::PathBuf)>,
 }
 impl MarkdownService {
     pub(super) fn refresh_demands(&self) {
@@ -56,6 +57,37 @@ impl MarkdownService {
         slot: u8,
         document: Document,
     ) -> Document {
+        self.bind_document(view, input_generation, slot, document, None)
+    }
+    pub fn bind_extension_card(
+        self: &Arc<Self>,
+        view: ViewId,
+        input_generation: u64,
+        id: &str,
+        tab: crate::ui::extensions_binding::DetailTab,
+        document: &crate::ui::extensions_binding::Documentation,
+    ) -> Document {
+        let slot = if tab == crate::ui::extensions_binding::DetailTab::Details {
+            4
+        } else {
+            5
+        };
+        self.bind_document(
+            view,
+            input_generation,
+            slot,
+            document.content.clone().into(),
+            Some((id.to_owned(), document.path.clone())),
+        )
+    }
+    fn bind_document(
+        self: &Arc<Self>,
+        view: ViewId,
+        input_generation: u64,
+        slot: u8,
+        document: Document,
+        extension: Option<(String, std::path::PathBuf)>,
+    ) -> Document {
         let owner = view.get().wrapping_mul(16).wrapping_add(slot as u64);
         let content = document.content.clone();
         let identity = content.identity.clone();
@@ -77,19 +109,29 @@ impl MarkdownService {
                             generation: 0,
                             format: content.format,
                             syntax: SyntaxOptions::default(),
-                            limits: ParseLimits {
-                                source_bytes: 64 * 1024,
-                                display_bytes: 256 * 1024,
-                                events: 20_000,
-                                nodes: 20_000,
-                                retained_bytes: 4 * 1024 * 1024,
-                                ..Default::default()
+                            limits: if extension.is_some() {
+                                ParseLimits {
+                                    source_bytes:
+                                        crate::features::extensions::manifest::MAX_DOCUMENT_BYTES
+                                            as usize,
+                                    ..ParseLimits::automatic()
+                                }
+                            } else {
+                                ParseLimits {
+                                    source_bytes: 64 * 1024,
+                                    display_bytes: 256 * 1024,
+                                    events: 20_000,
+                                    nodes: 20_000,
+                                    retained_bytes: 4 * 1024 * 1024,
+                                    ..Default::default()
+                                }
                             },
                         },
                         interaction: InteractionState::default(),
                         position: ReaderPosition::default(),
                         focused: false,
                         height: 480.0,
+                        extension: extension.clone(),
                     },
                 );
             }
@@ -109,7 +151,12 @@ impl MarkdownService {
                 read.card_frame(owner, &identity, width, height)
             }),
             event: Box::new(move |event| {
-                let effect = write.card_event(owner, &event_identity, event);
+                let mut effect = write.card_event(owner, &event_identity, event);
+                if let Some((_, base)) = &extension {
+                    if let Some(link) = effect.link.take() {
+                        write.open_extension_link(view, base, &link);
+                    }
+                }
                 write.schedule_drag(Consumer::Card(owner));
                 effect
             }),
@@ -129,7 +176,7 @@ impl MarkdownService {
         width: f32,
         height: f32,
     ) -> Result<Option<Frame>, String> {
-        let (key, position, selection, focused, horizontal, height, scrollbar_dragging) = {
+        let (key, position, selection, focused, horizontal, height, scrollbar_dragging, base) = {
             let mut cards = self.cards.lock().unwrap();
             let card = cards
                 .get_mut(&owner)
@@ -146,6 +193,7 @@ impl MarkdownService {
                 card.interaction.horizontal.clone(),
                 card.height,
                 card.interaction.scrollbar.is_some(),
+                card.extension.as_ref().map(|(_, path)| path.clone()),
             )
         };
         let publication = match self.worker.query(Consumer::Card(owner), key) {
@@ -155,6 +203,14 @@ impl MarkdownService {
             ParseStatus::Stopped => return Err("Documentation service stopped".into()),
         };
         let ink = Ink::current();
+        let (font_size, line_height) = if base.is_some() {
+            let app = self.context.get();
+            let settings = &app.preferences.values().markdown;
+            let size = settings.font_size as f32;
+            (size, (settings.line_height as f32).max(size * 1.2))
+        } else {
+            (theme::UI_SIZE, 18.0)
+        };
         let result = match self.render.request(Request {
             view: Consumer::Card(owner),
             key: RequestKey {
@@ -167,10 +223,12 @@ impl MarkdownService {
                 position,
                 ink,
                 density: crate::ui::device_scale::observed(),
-                font_size: theme::UI_SIZE,
-                line_height: 18.0,
-                base: None,
-                remote: false,
+                font_size,
+                line_height,
+                remote: base.is_some(),
+                // An extension's readme reads like a Markdown page, not a hover card.
+                page: base.is_some(),
+                base,
                 fragment: None,
                 horizontal: {
                     let mut entries = horizontal
@@ -209,10 +267,14 @@ impl MarkdownService {
             extend_selection: false,
         };
         let paint = result.clone();
+        let images = result.clone();
         Ok(Some(Frame {
             reader,
             paint: Arc::new(move |_, paragraph, bounds, _| {
                 super::markdown_view::paint(&paint, paragraph, bounds)
+            }),
+            paint_image: Arc::new(move |frame, image, bounds| {
+                super::markdown_view::paint_image(&images, frame, image, bounds)
             }),
         }))
     }
@@ -221,10 +283,9 @@ impl MarkdownService {
         let result = self.render.latest(Consumer::Card(owner));
         let app = self.context.get();
         let mut cards = self.cards.lock().unwrap();
-        if !cards
-            .get(&owner)
-            .is_some_and(|card| current_host(&app, owner, card))
-        {
+        if !cards.get(&owner).is_some_and(|card| {
+            card.content.identity == *identity && current_host(&app, owner, card)
+        }) {
             return effect;
         }
         drop(app);
@@ -317,9 +378,45 @@ impl MarkdownService {
                 NodeKind::Link { destination, .. } => Some(destination.clone()),
                 _ => None,
             });
+        if card.extension.is_some() {
+            if let Some(fragment) = effect.link.as_ref().and_then(|link| link.strip_prefix('#')) {
+                if let Some((_, node)) =
+                    crate::features::markdown::resources::headings(&result.layout.document)
+                        .iter()
+                        .find(|(slug, _)| slug == fragment)
+                {
+                    card.position = ReaderPosition {
+                        source_byte: result.layout.document.nodes[node.0].source.start.0,
+                        block_fraction: 0.0,
+                    };
+                    effect.link = None;
+                }
+            }
+        }
         drop(cards);
         self.notify.send(());
         effect
+    }
+    fn open_extension_link(&self, view: ViewId, base: &std::path::Path, link: &str) {
+        use crate::features::markdown::resources::{Address, resolve};
+        match resolve(Some(base), link) {
+            Some(Address::Web(url)) => super::language_ui::open_link(&self.context, url),
+            Some(Address::Local { path, .. }) if path.is_dir() => {
+                super::explorer::reveal_folder(&self.context, &path)
+            }
+            Some(Address::Local { path, fragment }) => {
+                let pane = self.context.get().workspace.pane_of(view);
+                if let Some(pane) = pane {
+                    super::markdown_view::open_local(&self.context, pane, path, fragment);
+                }
+            }
+            Some(Address::Anchor(fragment)) => self
+                .context
+                .update(|app| app.show_error(format!("Heading not found: {fragment}"))),
+            None => self
+                .context
+                .update(|app| app.show_error("Unsupported Markdown link")),
+        }
     }
     pub fn card_key_action(
         &self,
@@ -360,7 +457,7 @@ pub(super) fn current_host(app: &super::state::AppState, owner: u64, card: &Card
     let Some(view) = app
         .workspace
         .view(card.view)
-        .filter(|view| view.accepts_text() && view.input_generation == card.input_generation)
+        .filter(|view| view.input_generation == card.input_generation)
     else {
         return false;
     };
@@ -371,6 +468,24 @@ pub(super) fn current_host(app: &super::state::AppState, owner: u64, card: &Card
     }) else {
         return false;
     };
+    if let Some((id, _)) = &card.extension {
+        use crate::ui::extensions_binding::{DetailTab, Source};
+        return view.target
+            == crate::domain::view::ViewTarget::Builtin(crate::domain::view::AppPage::Extensions)
+            && app.extensions_ui.source != Source::Marketplace
+            && app
+                .extensions_ui
+                .selected
+                .as_ref()
+                .is_none_or(|selected| selected == id)
+            && matches!(
+                (owner % 16, app.extensions_ui.tab),
+                (4, DetailTab::Details) | (5, DetailTab::Changelog)
+            );
+    }
+    if !view.accepts_text() {
+        return false;
+    }
     match owner % 16 {
         1 => view
             .document()

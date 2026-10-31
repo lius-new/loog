@@ -367,6 +367,9 @@ pub(crate) type PackageSnippets = (String, crate::features::extensions::snippets
 
 pub struct Package {
     pub manifest: Manifest,
+    pub icon: Option<std::sync::Arc<crate::domain::media::Image>>,
+    pub readme: Option<crate::features::markdown::content::Markup>,
+    pub changelog: Option<crate::features::markdown::content::Markup>,
     pub resources: Accepted,
     /// The accepted themes, ready to draw with.
     themes: Vec<PackageTheme>,
@@ -614,7 +617,29 @@ impl ExtensionService {
             self.calls
                 .retain(|_, call| call.extension != old.manifest.id);
         }
-        let (resources, themes, snippets) = accept_resources(dir, &manifest);
+        let (mut resources, themes, snippets) = accept_resources(dir, &manifest);
+        let icon = manifest.icon.as_deref().and_then(|path| {
+            match crate::infrastructure::extensions::icon::load(dir, path) {
+                Ok(image) => Some(std::sync::Arc::new(image)),
+                Err(error) => {
+                    resources.rejected.push(("icon".to_owned(), error));
+                    None
+                }
+            }
+        });
+        let mut document = |field: &str, path: Option<&str>| {
+            path.and_then(|path| {
+                match crate::infrastructure::extensions::documentation::load(dir, path) {
+                    Ok(content) => Some(content),
+                    Err(error) => {
+                        resources.rejected.push((field.to_owned(), error));
+                        None
+                    }
+                }
+            })
+        };
+        let readme = document("readme", manifest.readme.as_deref());
+        let changelog = document("changelog", manifest.changelog.as_deref());
         self.themes_revision += 1;
         let resolved = crate::features::extensions::settings::resolve(
             &manifest.contributes.settings,
@@ -626,6 +651,9 @@ impl ExtensionService {
             id.clone(),
             Package {
                 manifest,
+                icon,
+                readme,
+                changelog,
                 resources,
                 themes,
                 snippets,

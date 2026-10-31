@@ -5,9 +5,11 @@ node scripts/extensions/package/pack.mjs <extension folder> [--out <directory>]
 ```
 
 The result is `<id>-<version>.loomext` (default directory:
-`target/extension-packages`) and a `.sha256` file beside it. In Loom run
-**workspace::ImportExtension**, choose the file, and the extension is installed
-and loaded. An extension with the same id is replaced; a failed import leaves the
+`target/extension-packages`) and a `.sha256` file beside it. In Loom click
+**Import Extension** on the Extensions page (or run **workspace::ImportExtension**)
+and choose the file. The extension is installed, loaded, and selected in the
+detail pane; failures appear as error notifications. An extension with the same
+id is replaced; a failed import leaves the
 installed one as it was. An extension that carries a language grammar needs a
 restart of Loom before the language works.
 

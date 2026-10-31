@@ -237,6 +237,7 @@ pub fn render(
                             .view_meta(view.id)
                             .map(|meta| meta.path.clone()),
                         remote: true,
+                        page: true,
                     },
                     publication,
                 })
@@ -730,7 +731,7 @@ pub fn key_action(
     true
 }
 
-fn paint_image(
+pub(super) fn paint_image(
     result: &Rendered,
     frame: &ReaderFrame,
     image: &crate::features::markdown::layout::ImageBox,
