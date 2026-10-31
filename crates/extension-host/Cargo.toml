@@ -1,0 +1,13 @@
+[package]
+name = "loom-extension-host"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Wasmtime component host for Loom extensions"
+
+[dependencies]
+loom-extension-api = { path = "../extension-api" }
+wasmtime = { version = "50.0.1", default-features = false, features = ["runtime", "component-model", "cranelift", "std", "wat"] }
+
+[dev-dependencies]
+wit-component = "0.261"

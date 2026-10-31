@@ -83,10 +83,18 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                 super::language_ui::tick(&results_state);
             },
         );
-        loading_runtime.install_language_services(super::language_services::LanguageServices::new(
-            crate::features::language_service::server_set::ServerSet::current(),
-            move || results_ready.send(()),
-        ));
+        if let Some(directory) =
+            crate::infrastructure::language_packs::user_resource_directory("trust")
+        {
+            loading_runtime.trust().attach(directory.join("roots.json"));
+        }
+        loading_runtime.install_language_services(
+            super::language_services::LanguageServices::with_start_gate(
+                crate::features::language_service::server_set::ServerSet::current(),
+                Some(loading_runtime.trust().start_gate()),
+                move || results_ready.send(()),
+            ),
+        );
         loading_runtime.install_markdown(super::markdown_service::MarkdownService::new(
             loading_state.clone(),
             loading_application.clone(),
@@ -104,12 +112,14 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         // projection so every visible pane can request its initial windows.
         loading_state
             .update(|app| app.editor.syntax_revision = app.editor.syntax_revision.wrapping_add(1));
+        super::extensions::start(&loading_state, &loading_application, &loading_runtime);
         let loader =
             crate::app::file_loading::FileLoader::new(loading_state.clone(), loading_application);
         loading_runtime.install_file_loader(loader);
         move || {
             restore.shutdown();
             loading_runtime.clear_file_loader();
+            loading_runtime.clear_extensions();
             loading_runtime.clear_markdown();
             loading_runtime.clear_images();
             loading_runtime.clear_highlighter();

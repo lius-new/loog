@@ -5,3 +5,4 @@
 /scripts/language-packs/node_modules/
 /docs/prototypes/git-workbench/node_modules/
 /scripts/ci/node_modules/
+/tests/extensions/js-guest/node_modules/

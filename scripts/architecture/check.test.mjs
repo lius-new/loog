@@ -454,3 +454,13 @@ test('file encoding attributes stay pure, codec is independent, and UI receives 
   for(const source of ['use std::fs;','use crate::app::state::AppState;','use lgui::ApplicationHandle;'])assert.ok(violations({'src/features/encoding/mod.rs':source},policy()).length>0);
   assert.ok(violations({'src/ui/encoding_picker.rs':'use crate::app::context::AppContext;'},policy()).length>0);
 });
+
+test('extension model and executor keep their layers apart',()=>{
+  // The model has no runtime, file system or GUI; the executor has no GUI or application state.
+  for(const source of ['use wasmtime::Engine;','use loom_extension_host::Runtime;','use std::fs;','use lgui::prelude::*;','use crate::app::state::AppState;'])
+    assert.ok(violations({'src/features/extensions/manifest.rs':source},policy()).length>0,source);
+  for(const source of ['use lgui::prelude::*;','use crate::app::state::AppState;','use wasmtime::Engine;'])
+    assert.ok(violations({'src/infrastructure/extensions/mod.rs':source},policy()).length>0,source);
+  assert.deepEqual(violations({'src/features/extensions/manifest.rs':'use serde::Deserialize;\nuse crate::features::extensions::trust::Denial;'},policy()),[]);
+  assert.deepEqual(violations({'src/infrastructure/extensions/mod.rs':'use loom_extension_host::Runtime;\nuse loom_extension_api::ErrorKind;\nuse std::thread::JoinHandle;'},policy()),[]);
+});

@@ -3,6 +3,7 @@ pub(crate) mod ui_dispatch;
 
 pub(crate) mod edit_journal;
 pub(crate) mod explorer_filesystem;
+pub(crate) mod extensions;
 pub(crate) mod git;
 pub(crate) mod search_filesystem;
 pub(crate) mod session_filesystem;

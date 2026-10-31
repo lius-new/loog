@@ -13,6 +13,7 @@ pub(crate) struct AppRuntime {
     git_poll: PollControl,
     terminals: Arc<crate::infrastructure::terminal::runtime::TerminalRuntime>,
     terminal_mounts: Arc<crate::app::terminal_effects::Mounts>,
+    trust: Arc<crate::infrastructure::extensions::trust_store::TrustStore>,
 }
 
 #[derive(Default)]
@@ -24,6 +25,7 @@ struct Services {
     file_loader: Option<FileLoader>,
     application: Option<ApplicationHandle>,
     search_cancel: Option<Arc<AtomicBool>>,
+    extensions: Option<Arc<super::extensions::host::ExtensionHost>>,
 }
 
 impl AppRuntime {
@@ -143,6 +145,29 @@ impl AppRuntime {
         if let Some(loader) = loader {
             loader.shutdown();
         }
+    }
+
+    pub(crate) fn trust(&self) -> &Arc<crate::infrastructure::extensions::trust_store::TrustStore> {
+        &self.trust
+    }
+
+    pub(crate) fn extensions(&self) -> Option<Arc<super::extensions::host::ExtensionHost>> {
+        self.services.lock().unwrap().extensions.clone()
+    }
+
+    pub(crate) fn install_extensions(&self, host: super::extensions::host::ExtensionHost) {
+        let previous = self
+            .services
+            .lock()
+            .unwrap()
+            .extensions
+            .replace(Arc::new(host));
+        drop(previous);
+    }
+
+    pub(crate) fn clear_extensions(&self) {
+        let previous = self.services.lock().unwrap().extensions.take();
+        drop(previous);
     }
 
     pub(crate) fn application(&self) -> Option<ApplicationHandle> {

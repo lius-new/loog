@@ -1,0 +1,10 @@
+{
+  "name": "loom-js-guest",
+  "private": true,
+  "type": "module",
+  "description": "Reference JavaScript extension and its pinned component toolchain (EXTENSIONS_DESIGN.md M0-05)",
+  "devDependencies": {
+    "@bytecodealliance/componentize-js": "0.23.0",
+    "@bytecodealliance/jco": "1.40.0"
+  }
+}

@@ -5,11 +5,12 @@
 //! one undo step each, tagged with a shared transaction; undoing from any of
 //! them undoes them together, or says why it cannot.
 use super::{AppContext, AppState};
+use crate::app::workspace_edits;
 use crate::domain::document::DocumentStamp;
 use crate::domain::identity::FileId;
 use crate::features::language_service::reply::{Change, DocumentEdit, WorkspaceEdit};
 use crate::features::language_service::uri;
-use crate::model::text::{Assoc, Edit, EditKind, Selection, TextBuffer};
+use crate::model::text::{Edit, EditKind, Selection, TextBuffer};
 use lgui::prelude::UiRect;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -325,17 +326,13 @@ fn apply_steps(
                         app.workspace.open_path(planned.path.clone(), text)
                     }
                 };
-                let Some(mut editor) = app.workspace.document_editor_mut(id) else {
-                    return Err("a changed file cannot be edited".to_owned());
-                };
-                let cursor = editor.cursor();
-                if !documents.contains(&id) {
-                    editor.begin_transaction(transaction);
-                }
-                let done = editor.edit(EditKind::Other, planned.edits, |changes, _| {
-                    Selection::caret(changes.map(cursor, Assoc::After))
-                });
-                done.map_err(|error| error.to_string())?;
+                workspace_edits::apply_document_edits(
+                    app,
+                    id,
+                    transaction,
+                    !documents.contains(&id),
+                    planned.edits,
+                )?;
                 if !documents.contains(&id) {
                     documents.push(id);
                 }
@@ -400,26 +397,15 @@ fn apply_steps(
             }
         }
     }
-    for id in &documents {
-        if let Some(mut editor) = app.workspace.document_editor_mut(*id) {
-            editor.end_transaction();
-        }
-    }
+    workspace_edits::finish_transaction(app, transaction, documents);
     if let Some(active) = active {
         app.workspace.reveal(active);
-    }
-    if documents.len() > 1 {
-        app.editor
-            .language
-            .transactions
-            .insert(transaction, documents);
     }
     Ok(changed)
 }
 
 fn next_transaction(app: &mut AppState) -> u64 {
-    app.editor.language.next_transaction += 1;
-    app.editor.language.next_transaction
+    workspace_edits::next_transaction(app)
 }
 
 fn plan(

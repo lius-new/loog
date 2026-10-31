@@ -376,6 +376,19 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             }
             true
         }
+        Action::RunExtension(command) => {
+            match env
+                .state
+                .services()
+                .and_then(|runtime| runtime.extensions())
+            {
+                Some(host) => host.run_command(&env.state, &command.id()),
+                None => env
+                    .state
+                    .update(|app| app.show_error("Extensions are not available")),
+            }
+            true
+        }
         Action::VimKeys(keys) => {
             let clipboard = env.application.clipboard();
             vim_input::feed_keys(
@@ -387,6 +400,37 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
         }
         Action::OpenKeymapFile => {
             open_keymap_file(env);
+            true
+        }
+        Action::TrustWorkspace => {
+            change_trust(env, true);
+            true
+        }
+        Action::RevokeWorkspaceTrust => {
+            change_trust(env, false);
+            true
+        }
+        Action::ReloadExtensions => {
+            match env
+                .state
+                .services()
+                .and_then(|runtime| runtime.extensions())
+            {
+                Some(host) => host.reload_all(&env.state),
+                None => env
+                    .state
+                    .update(|app| app.show_error("Extensions are not available")),
+            }
+            true
+        }
+        Action::ShowExtensions => {
+            let report = env
+                .state
+                .services()
+                .and_then(|runtime| runtime.extensions())
+                .map(|host| host.report())
+                .unwrap_or_else(|| "Extensions are not available".to_owned());
+            env.state.update(|app| app.show_toast(report));
             true
         }
         Action::OpenProjectSettingsFile => {
@@ -667,4 +711,48 @@ pub fn editor_shortcut_label(app: &AppState, action: Action) -> Option<String> {
             context_stack::editor_context(app),
         ],
     )
+}
+
+/// Trust or stop trusting the folder of the active file (the innermost
+/// workspace folder that contains it, else its own directory). Servers that
+/// were refused are started again, and revoking stops the running ones.
+fn change_trust(env: &KeyEnv, trust: bool) {
+    let app = env.state.get();
+    let Some(path) = app.workspace.active_path().map(|p| p.to_path_buf()) else {
+        env.state
+            .update(|app| app.show_error("Open a file in the folder first"));
+        return;
+    };
+    let root = app
+        .workspace_folder_of(&path)
+        .map(|folder| folder.to_path_buf())
+        .or_else(|| path.parent().map(|parent| parent.to_path_buf()));
+    let Some(root) = root else {
+        return;
+    };
+    let Some(runtime) = env.state.services() else {
+        return;
+    };
+    let result = if trust {
+        runtime.trust().trust(&root)
+    } else {
+        runtime.trust().revoke(&root)
+    };
+    match result {
+        Ok(()) => {
+            if let Some(services) = runtime.language_services() {
+                services.restart();
+            }
+            let verb = if trust {
+                "Trusted"
+            } else {
+                "No longer trusting"
+            };
+            env.state
+                .update(|app| app.show_toast(format!("{verb} {}", root.display())));
+        }
+        Err(error) => env
+            .state
+            .update(|app| app.show_error(format!("Could not save the trust decision: {error}"))),
+    }
 }

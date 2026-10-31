@@ -35,6 +35,9 @@ impl AppContext {
         if let Some(markdown) = self.services().and_then(|r| r.markdown()) {
             markdown.sync(app);
         }
+        if let Some(extensions) = self.services().and_then(|r| r.extensions()) {
+            extensions.observe(app);
+        }
     }
     pub(crate) fn update(&self, change: impl FnOnce(&mut AppState)) {
         self.model.update(|app| {

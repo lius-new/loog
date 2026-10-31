@@ -538,6 +538,7 @@ fn options() -> Options {
         stable_after: Duration::from_secs(60),
         progress_timeout: Duration::from_secs(300),
         cancel_grace: Duration::from_millis(150),
+        start_gate: None,
     }
 }
 
@@ -744,6 +745,43 @@ fn a_marker_file_chooses_the_project_root() {
     f.show(vec![f.doc("proj/src/a.fk", 0, "x")]);
     f.wait_status("ready", |s| *s == Status::Ready);
     assert_eq!(f.mgr().infos()[0].root, project);
+}
+
+#[test]
+fn an_untrusted_root_never_starts_its_server_until_the_gate_opens() {
+    let open = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let gate_open = open.clone();
+    let gate = crate::infrastructure::lsp::manager::StartGate(Arc::new(move |root| {
+        if gate_open.load(Ordering::Relaxed) {
+            Ok(())
+        } else {
+            Err(format!("{} is not trusted", root.display()))
+        }
+    }));
+    let f = Fixture::with_options(
+        servers(&[("fake-server", "fake", 0)]),
+        &[("fake-server", &[])],
+        Options {
+            start_gate: Some(gate),
+            ..options()
+        },
+    );
+    f.show(vec![f.doc("a.fk", 0, "hello")]);
+    f.wait_status(
+        "refused",
+        |s| matches!(s, Status::Unavailable(m) if m.contains("not trusted")),
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        f.methods().is_empty(),
+        "no process ran, so nothing was logged"
+    );
+
+    // Trusting the folder and restarting lets the same document start its server.
+    open.store(true, Ordering::Relaxed);
+    f.mgr().restart();
+    f.wait_status("ready", |s| *s == Status::Ready);
+    f.wait_method_count("textDocument/didOpen", 1);
 }
 
 #[test]

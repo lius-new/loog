@@ -9,7 +9,7 @@ repository = "https://github.com/lius-new/loom"
 readme = "README.md"
 
 [workspace]
-members = ["crates/editor-core", "crates/workspace-tests", "crates/markdown-tests"]
+members = ["crates/editor-core", "crates/extension-api", "crates/extension-host", "crates/workspace-tests", "crates/markdown-tests"]
 default-members = [".", "crates/editor-core"]
 exclude = ["vendor/vt100"]
 resolver = "3"
@@ -25,6 +25,8 @@ path = "src/main.rs"
 encoding_rs = "0.8"
 chardetng = "0.1.17"
 loom-editor-core = { path = "crates/editor-core" }
+loom-extension-api = { path = "crates/extension-api" }
+loom-extension-host = { path = "crates/extension-host" }
 skia-safe = { version = "=0.99.0", default-features = false, features = ["binary-cache", "textlayout", "embed-icudtl"] }
 pulldown-cmark = { version = "=0.13.5", default-features = false }
 base64 = "0.22"
@@ -118,3 +120,6 @@ opt-level = 2
 opt-level = 2
 [profile.dev.package.gif]
 opt-level = 2
+
+[dev-dependencies.wit-component]
+version = "0.261"

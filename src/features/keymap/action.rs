@@ -28,6 +28,8 @@ macro_rules! actions {
             ActivateItem(usize),
             /// `["vim::Keys", "<Esc>"]`: send keys to Vim, without remapping them.
             VimKeys(VimKeys),
+            /// `["extension::Run", "vendor.name.command"]`: run an extension command.
+            RunExtension(ExtensionCommand),
             /// `null` in a keymap file: disables the keystroke in that context.
             NoAction,
         }
@@ -38,6 +40,11 @@ macro_rules! actions {
             ActionMeta {
                 name: "pane::ActivateItem",
                 description: "Activate the tab at a zero-based position",
+                takes_argument: true,
+            },
+            ActionMeta {
+                name: "extension::Run",
+                description: "Run a command contributed by an extension",
                 takes_argument: true,
             },
             ActionMeta {
@@ -60,6 +67,7 @@ macro_rules! actions {
                     $(Action::$variant => $name,)*
                     Action::ActivateItem(_) => "pane::ActivateItem",
                     Action::VimKeys(_) => "vim::Keys",
+                    Action::RunExtension(_) => "extension::Run",
                     Action::NoAction => "null",
                 }
             }
@@ -88,6 +96,10 @@ actions! {
     OpenSettings => "workspace::OpenSettings", "Open the Settings page";
     OpenKeymap => "workspace::OpenKeymap", "Open the Keymap page";
     OpenKeymapFile => "workspace::OpenKeymapFile", "Open the user keymap.json";
+    ShowExtensions => "workspace::ShowExtensions", "Show the state of the installed extensions";
+    ReloadExtensions => "workspace::ReloadExtensions", "Reload the installed extensions from disk";
+    TrustWorkspace => "workspace::TrustWorkspace", "Trust the current folder so language servers and tools may run";
+    RevokeWorkspaceTrust => "workspace::RevokeWorkspaceTrust", "Stop trusting the current folder and stop its servers";
     OpenSettingsFile => "workspace::OpenSettingsFile", "Open the user settings.json";
     OpenProjectSettingsFile => "workspace::OpenProjectSettingsFile", "Open the project .loom/settings.json";
     IncreaseFontSize => "workspace::IncreaseFontSize", "Increase the focused editor or terminal font size";
@@ -228,6 +240,34 @@ actions! {
     DialogSecondary => "dialog::Secondary", "Choose the dialog's secondary option";
 }
 
+/// Command id of an `extension::Run` binding, interned so `Action` stays `Copy`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ExtensionCommand(usize);
+
+fn interned_commands() -> &'static std::sync::Mutex<Vec<String>> {
+    static COMMANDS: std::sync::OnceLock<std::sync::Mutex<Vec<String>>> =
+        std::sync::OnceLock::new();
+    COMMANDS.get_or_init(Default::default)
+}
+
+impl ExtensionCommand {
+    pub fn intern(id: &str) -> Self {
+        let mut interned = interned_commands().lock().expect("interned commands lock");
+        let index = interned
+            .iter()
+            .position(|known| known == id)
+            .unwrap_or_else(|| {
+                interned.push(id.to_owned());
+                interned.len() - 1
+            });
+        Self(index)
+    }
+
+    pub fn id(self) -> String {
+        interned_commands().lock().expect("interned commands lock")[self.0].clone()
+    }
+}
+
 /// Keys of a `vim::Keys` binding, interned so `Action` stays `Copy`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct VimKeys(usize);
@@ -287,6 +327,18 @@ impl Action {
                         .ok_or_else(|| {
                             ActionError(
                                 "`pane::ActivateItem` needs a non-negative index".to_owned(),
+                            )
+                        }),
+                    "extension::Run" => argument
+                        .as_str()
+                        .filter(|id| {
+                            id.split('.').count() >= 3 && !id.contains(char::is_whitespace)
+                        })
+                        .map(|id| Action::RunExtension(ExtensionCommand::intern(id)))
+                        .ok_or_else(|| {
+                            ActionError(
+                                "`extension::Run` needs a command id like \"vendor.name.command\""
+                                    .to_owned(),
                             )
                         }),
                     "vim::Keys" => argument
@@ -398,6 +450,8 @@ mod tests {
         for meta in ACTIONS {
             let value = if meta.name == "vim::Keys" {
                 json!([meta.name, "<Esc>"])
+            } else if meta.name == "extension::Run" {
+                json!([meta.name, "example.tools.uppercase"])
             } else if meta.takes_argument {
                 json!([meta.name, 0])
             } else {
@@ -420,6 +474,25 @@ mod tests {
         assert!(Action::from_json(&json!(["editor::Undo", 1])).is_err());
         assert!(Action::from_json(&json!("editor::Nope")).is_err());
         assert!(Action::from_json(&json!(42)).is_err());
+    }
+
+    #[test]
+    fn extension_commands_are_a_typed_reference_with_an_argument() {
+        let action =
+            Action::from_json(&json!(["extension::Run", "example.tools.uppercase"])).unwrap();
+        let Action::RunExtension(command) = action else {
+            panic!("{action:?}")
+        };
+        assert_eq!(command.id(), "example.tools.uppercase");
+        assert_eq!(action.name(), "extension::Run");
+        assert_eq!(
+            action,
+            Action::from_json(&json!(["extension::Run", "example.tools.uppercase"])).unwrap()
+        );
+        // A bare name, a malformed id and a non-string are all refused.
+        assert!(Action::from_json(&json!("extension::Run")).is_err());
+        assert!(Action::from_json(&json!(["extension::Run", "uppercase"])).is_err());
+        assert!(Action::from_json(&json!(["extension::Run", 3])).is_err());
     }
 
     #[test]

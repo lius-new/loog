@@ -76,6 +76,25 @@ pub(crate) struct Options {
     pub progress_timeout: Duration,
     /// Wait for an end report after cancellation, then stop tracking the task.
     pub cancel_grace: Duration,
+    /// Asked before a server process is started for a project root; an `Err`
+    /// keeps the instance unavailable with that reason (design §9.1).
+    pub start_gate: Option<StartGate>,
+}
+
+/// Decides whether servers may be started for a root. Detecting servers and
+/// reading their configuration never starts anything; only this gate-guarded
+pub(crate) type GateCheck = dyn Fn(&std::path::Path) -> Result<(), String> + Send + Sync;
+
+/// Decides whether servers may be started for a root. Detecting servers and
+/// reading their configuration never starts anything; only this gate-guarded
+/// start does.
+#[derive(Clone)]
+pub(crate) struct StartGate(pub Arc<GateCheck>);
+
+impl std::fmt::Debug for StartGate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StartGate")
+    }
 }
 
 impl Default for Options {
@@ -91,6 +110,7 @@ impl Default for Options {
             stable_after: Duration::from_secs(60),
             progress_timeout: Duration::from_secs(300),
             cancel_grace: Duration::from_secs(5),
+            start_gate: None,
         }
     }
 }
@@ -1229,6 +1249,7 @@ impl Coordinator {
         let server = self.instances[at].key.server.clone();
         let auto = install_policy(&self.snapshot.servers, &server) == InstallPolicy::Auto;
         let configuration = configuration_of(&self.snapshot.servers, &server);
+        let gate = self.options.start_gate.clone();
         let instance = &mut self.instances[at];
         instance.run += 1;
         instance.log.clear();
@@ -1242,6 +1263,12 @@ impl Coordinator {
             instance.phase = Phase::Unavailable("the project folder has no usable path".into());
             return;
         };
+        if let Some(StartGate(gate)) = &gate
+            && let Err(reason) = gate(&key.root)
+        {
+            instance.phase = Phase::Unavailable(reason);
+            return;
+        }
         let mut command = key.launch.command.clone();
         let mut args = key.launch.args.clone();
         let mut options = key

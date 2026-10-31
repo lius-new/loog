@@ -117,6 +117,8 @@ export function allowed(file, dependency) {
   if(file.startsWith('src/features/terminal/'))return ['features','domain','serde','vt100'].includes(root);
   if(file.startsWith('src/features/explorer/'))return ['features','domain'].includes(root);
   if(file.startsWith('src/features/git/'))return ['features','domain'].includes(root);
+  if(file.startsWith('src/infrastructure/extensions/'))return ['infrastructure','features','domain','loom_extension_api','loom_extension_host','std::fs','std::thread'].includes(root)||(file==='src/infrastructure/extensions/trust_store.rs'&&root==='std::process');
+  if(file.startsWith('src/features/extensions/'))return ['features','domain','serde','serde_json'].includes(root);
   if(file.startsWith('src/features/update/'))return ['features','domain','serde','serde_json'].includes(root);
   if(file==='src/infrastructure/update.rs')return ['infrastructure','features','domain','base64','ureq','ring','serde','serde_json','windows_sys','std::fs','std::process','std::thread'].includes(root);
   if(file==='src/infrastructure/explorer_filesystem.rs')return ['features','domain','std::fs','std::process','windows_sys'].includes(root);

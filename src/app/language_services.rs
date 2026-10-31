@@ -33,12 +33,24 @@ impl LanguageServices {
         }
     }
     pub fn new(servers: Arc<ServerSet>, on_change: impl Fn() + Send + 'static) -> Self {
+        Self::with_start_gate(servers, None, on_change)
+    }
+
+    /// `gate` is asked before any server process starts for a project root.
+    pub fn with_start_gate(
+        servers: Arc<ServerSet>,
+        gate: Option<crate::infrastructure::lsp::manager::StartGate>,
+        on_change: impl Fn() + Send + 'static,
+    ) -> Self {
         Self {
             manager: Manager::start(
                 Registry::builtin(),
                 servers,
                 crate::infrastructure::lsp_catalog::installer(),
-                Options::default(),
+                Options {
+                    start_gate: gate,
+                    ..Options::default()
+                },
                 on_change,
             ),
             sent: Mutex::new(None),
