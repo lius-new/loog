@@ -228,6 +228,7 @@ fn language_kinds(
         Feature::DocumentSymbol => (WireKind::DocumentSymbols, DeclKind::DocumentSymbols),
         Feature::SignatureHelp => (WireKind::SignatureHelp, DeclKind::SignatureHelp),
         Feature::InlayHint => (WireKind::InlayHints, DeclKind::InlayHints),
+        Feature::CodeAction => (WireKind::CodeActions, DeclKind::CodeActions),
         _ => return None,
     })
 }
@@ -1485,8 +1486,10 @@ impl ExtensionService {
         };
         let text = document.buffer.text_snapshot();
         let range = match ask.feature {
-            crate::features::language_service::request::Feature::InlayHint => {
-                Some(ask.start.min(text.len())..ask.end.min(text.len()))
+            crate::features::language_service::request::Feature::InlayHint
+            | crate::features::language_service::request::Feature::CodeAction => {
+                let (start, end) = (ask.start.min(text.len()), ask.end.min(text.len()));
+                Some(start.min(end)..start.max(end))
             }
             _ => None,
         };
@@ -1609,6 +1612,23 @@ impl ExtensionService {
                     })
                     .collect();
                 lang::hints(text, &hints)
+            }
+            Provided::CodeActions { items, .. } => {
+                let actions: Vec<lang::Action> = items
+                    .into_iter()
+                    .map(|a| lang::Action {
+                        title: a.title,
+                        kind: a.kind,
+                        preferred: a.preferred,
+                        edits: a
+                            .edits
+                            .into_iter()
+                            .map(|e| (e.range.start as usize, e.range.end as usize, e.text))
+                            .collect(),
+                    })
+                    .collect();
+                let uri = crate::features::language_service::uri::file_uri(&call.path)?;
+                lang::code_actions(text, &uri, &actions)
             }
             _ => return None,
         };
@@ -1987,6 +2007,7 @@ impl ExtensionService {
                     | (WireKind::DocumentSymbols, Provided::Symbols { .. })
                     | (WireKind::SignatureHelp, Provided::Signature { .. })
                     | (WireKind::InlayHints, Provided::InlayHints { .. })
+                    | (WireKind::CodeActions, Provided::CodeActions { .. })
             );
             let answer = if fits {
                 self.language_reply(app, id, &call, answer)

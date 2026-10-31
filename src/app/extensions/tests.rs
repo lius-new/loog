@@ -889,6 +889,7 @@ fn language_providers_answer_with_the_replies_a_server_would_give_and_only_for_t
         ("document-symbols", "outline"),
         ("signature-help", "signature"),
         ("inlay-hints", "hints"),
+        ("code-actions", "actions"),
     ];
     let entries: String = kinds
         .iter()
@@ -956,6 +957,18 @@ fn language_providers_answer_with_the_replies_a_server_would_give_and_only_for_t
     let hints = answer_to(&mut f, 5, Feature::InlayHint, 0, 11);
     assert_eq!(hints[0]["label"], "hint:");
     assert_eq!(hints[0]["kind"], 2);
+
+    let actions = answer_to(&mut f, 6, Feature::CodeAction, 0, 5);
+    assert_eq!(actions[0]["title"], "Mark the selection");
+    let uri = crate::features::language_service::uri::file_uri(&f.path).unwrap();
+    assert_eq!(
+        actions[0]["edit"]["changes"][&uri][0]["newText"],
+        "[marked]"
+    );
+    assert_eq!(
+        actions[0]["edit"]["changes"][&uri][0]["range"]["end"]["character"],
+        5
+    );
 
     // A request for a state the document has left is not asked at all.
     let mut stale = LanguageAsk {

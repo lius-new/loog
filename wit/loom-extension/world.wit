@@ -121,6 +121,19 @@ interface types {
         /// Inline hints inside `range` (the whole text when absent); answer with
         /// `provide-inlay-hints`.
         inlay-hints,
+        /// Actions offered for `range` (the caret when empty); answer with
+        /// `provide-code-actions`.
+        code-actions,
+    }
+
+    /// An action offered for a range. Choosing it applies `edits` to the
+    /// requested snapshot as one change.
+    record code-action {
+        title: string,
+        /// LSP code action kind such as `quickfix` or `refactor.extract`.
+        kind: option<string>,
+        preferred: bool,
+        edits: list<text-edit>,
     }
 
     /// Text shown for a symbol, as Markdown, with the part of the text it is about.
@@ -349,7 +362,7 @@ interface types {
 }
 
 interface host {
-    use types.{apply-edit-request, completion-item, diagnostic, document-symbol, file-content, file-ops-request, hover-answer, host-error, http-response, inlay-hint, location, root-ref, signature-answer, storage-scope, task-id, task-request, operation-id, snapshot-token, byte-range, text-edit};
+    use types.{apply-edit-request, code-action, completion-item, diagnostic, document-symbol, file-content, file-ops-request, hover-answer, host-error, http-response, inlay-hint, location, root-ref, signature-answer, storage-scope, task-id, task-request, operation-id, snapshot-token, byte-range, text-edit};
 
     /// Read a bounded range of a captured snapshot. Fast, never blocks on the UI.
     read-range: func(snapshot: snapshot-token, range: byte-range) -> result<string, host-error>;
@@ -427,6 +440,9 @@ interface host {
 
     /// Answer an inlay hint request with offsets of the requested snapshot.
     provide-inlay-hints: func(request: u64, items: list<inlay-hint>) -> result<_, host-error>;
+
+    /// Answer a code action request; the edits are against the requested snapshot.
+    provide-code-actions: func(request: u64, items: list<code-action>) -> result<_, host-error>;
 
     log: func(level: u8, message: string);
 }

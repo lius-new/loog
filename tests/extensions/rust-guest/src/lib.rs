@@ -18,7 +18,7 @@ use loom::extension::types::{
 use loom::extension::types::{
     StorageScope,
     CompletionItem,
-    DocumentSymbol, HoverAnswer, InlayHint, Location, ParameterInfo, SignatureAnswer,
+    CodeAction, DocumentSymbol, HoverAnswer, InlayHint, Location, ParameterInfo, SignatureAnswer,
 };
 
 #[derive(Default)]
@@ -417,6 +417,16 @@ impl Guest for Extension {
                                 tooltip: None,
                             };
                             let _ = host::provide_inlay_hints(request.request, &[hint]);
+                        }
+                        ProviderKind::CodeActions => {
+                            let range = request.range.unwrap_or(ByteRange { start: 0, end: 0 });
+                            let action = CodeAction {
+                                title: "Mark the selection".into(),
+                                kind: Some("refactor".into()),
+                                preferred: false,
+                                edits: vec![TextEdit { range, text: "[marked]".into() }],
+                            };
+                            let _ = host::provide_code_actions(request.request, &[action]);
                         }
                     }
                     host::release_snapshot(request.snapshot);

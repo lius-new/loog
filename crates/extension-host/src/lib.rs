@@ -74,8 +74,8 @@ pub struct AcceptedEdit {
 pub use bindings::loom::extension::types::CompletionItem as WireCompletionItem;
 pub use bindings::loom::extension::types::Diagnostic as WireDiagnostic;
 pub use bindings::loom::extension::types::{
-    DocumentSymbol as WireSymbol, HoverAnswer as WireHover, InlayHint as WireInlayHint,
-    Location as WireLocation, SignatureAnswer as WireSignature,
+    CodeAction as WireCodeAction, DocumentSymbol as WireSymbol, HoverAnswer as WireHover,
+    InlayHint as WireInlayHint, Location as WireLocation, SignatureAnswer as WireSignature,
 };
 pub use bindings::loom::extension::types::{FileContent, HttpResponse, StorageScope};
 
@@ -115,6 +115,10 @@ pub enum Provided {
         request: u64,
         items: Vec<WireInlayHint>,
     },
+    CodeActions {
+        request: u64,
+        items: Vec<WireCodeAction>,
+    },
 }
 
 impl Provided {
@@ -128,7 +132,8 @@ impl Provided {
             | Self::Locations { request, .. }
             | Self::Symbols { request, .. }
             | Self::Signature { request, .. }
-            | Self::InlayHints { request, .. } => *request,
+            | Self::InlayHints { request, .. }
+            | Self::CodeActions { request, .. } => *request,
         }
     }
 }
@@ -495,6 +500,14 @@ impl host::Host for HostState {
         items: Vec<WireInlayHint>,
     ) -> Result<(), HostError> {
         self.push_provided(Provided::InlayHints { request, items })
+    }
+
+    fn provide_code_actions(
+        &mut self,
+        request: u64,
+        items: Vec<WireCodeAction>,
+    ) -> Result<(), HostError> {
+        self.push_provided(Provided::CodeActions { request, items })
     }
 
     fn provide_edits(&mut self, request: u64, edits: Vec<TextEdit>) -> Result<(), HostError> {

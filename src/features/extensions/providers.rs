@@ -510,9 +510,93 @@ pub mod language {
         (Value::Array(out), dropped)
     }
 
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct Action {
+        pub title: String,
+        pub kind: Option<String>,
+        pub preferred: bool,
+        /// `(start, end, new text)` against the requested text.
+        pub edits: Vec<(usize, usize, String)>,
+    }
+
+    /// Code actions whose change is part of the reply. An action whose edits
+    /// cannot be placed or overlap each other, or that has no title, is dropped
+    /// whole: half of a change is worse than none.
+    pub fn code_actions(text: &str, document_uri: &str, actions: &[Action]) -> (Value, usize) {
+        let index = LineIndex::new(text);
+        let mut out = Vec::new();
+        let mut dropped = 0;
+        for action in actions {
+            let mut sorted: Vec<&(usize, usize, String)> = action.edits.iter().collect();
+            sorted.sort_by_key(|(start, end, _)| (*start, *end));
+            let disjoint = sorted
+                .windows(2)
+                .all(|pair| pair[0].1 <= pair[1].0 && pair[0].0 <= pair[0].1);
+            let changes: Option<Vec<Value>> = sorted
+                .iter()
+                .map(|(start, end, new_text)| {
+                    span(text, &index, (*start, *end))
+                        .map(|range| json!({ "range": range, "newText": cut(new_text) }))
+                })
+                .collect();
+            let (Some(changes), true, false, true) = (
+                changes,
+                disjoint,
+                action.title.trim().is_empty() || action.edits.is_empty(),
+                out.len() < MAX_ENTRIES,
+            ) else {
+                dropped += 1;
+                continue;
+            };
+            let mut entry = json!({
+                "title": cut(&action.title),
+                "isPreferred": action.preferred,
+                "edit": { "changes": { document_uri: changes } },
+            });
+            if let Some(kind) = &action.kind {
+                entry["kind"] = Value::from(cut(kind));
+            }
+            out.push(entry);
+        }
+        (Value::Array(out), dropped)
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn an_action_is_kept_only_whole_with_edits_that_fit_the_text_and_each_other() {
+            let text = "let x = 1;";
+            let action = |title: &str, edits: Vec<(usize, usize, &str)>| Action {
+                title: title.into(),
+                kind: Some("quickfix".into()),
+                preferred: true,
+                edits: edits
+                    .into_iter()
+                    .map(|(s, e, t)| (s, e, t.to_owned()))
+                    .collect(),
+            };
+            let (shown, dropped) = code_actions(
+                text,
+                "file:///a.rs",
+                &[
+                    action("rename", vec![(4, 5, "y"), (0, 3, "const")]),
+                    action("outside", vec![(0, 99, "")]),
+                    action("overlap", vec![(0, 5, ""), (4, 6, "")]),
+                    action("nothing", vec![]),
+                    action(" ", vec![(0, 1, "")]),
+                ],
+            );
+            assert_eq!(dropped, 4);
+            assert_eq!(shown.as_array().unwrap().len(), 1);
+            assert_eq!(shown[0]["kind"], "quickfix");
+            let edits = shown[0]["edit"]["changes"]["file:///a.rs"]
+                .as_array()
+                .unwrap();
+            assert_eq!(edits[0]["newText"], "const");
+            assert_eq!(edits[1]["range"]["start"]["character"], 4);
+        }
 
         #[test]
         fn a_hover_carries_markdown_and_a_range_only_when_it_can_be_placed() {
