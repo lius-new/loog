@@ -14,6 +14,8 @@ struct Inner {
     service: Mutex<ExtensionService>,
     executor: OnceLock<Executor>,
     runner: OnceLock<tasks::Runner>,
+    /// The host's own handle, so background work can come back to it.
+    self_ref: OnceLock<std::sync::Weak<Inner>>,
     trust: Arc<TrustStore>,
     user_settings: Option<PathBuf>,
     context: AppContext,
@@ -89,6 +91,37 @@ impl Inner {
                 Effect::ResolvedCompletion { source, raw, item } => {
                     crate::app::language_ui::completion::offer_resolved(app, source, &raw, &item)
                 }
+                Effect::RunFileOps { key, ops } => {
+                    let inner = self.context.clone();
+                    let application = self.application.clone();
+                    let service = self.self_ref.get().cloned();
+                    std::thread::spawn(move || {
+                        let outcome = crate::infrastructure::extensions::fileops::run(&ops, |_| {});
+                        application.post(move || {
+                            inner.update(|app| {
+                                if let Some(this) = service.and_then(|weak| weak.upgrade()) {
+                                    let effects = this
+                                        .service
+                                        .lock()
+                                        .unwrap()
+                                        .file_ops_done(app, key, outcome);
+                                    this.apply(app, effects);
+                                }
+                            });
+                        });
+                    });
+                }
+                Effect::FilesChanged(changes) => {
+                    if let Some(services) = self
+                        .context
+                        .services()
+                        .and_then(|runtime| runtime.language_services())
+                    {
+                        for change in changes {
+                            services.files_changed(change);
+                        }
+                    }
+                }
                 Effect::SaveReady { chain, ok, message } => {
                     if let Some(message) = message {
                         app.show_error(format!(
@@ -136,12 +169,14 @@ impl ExtensionHost {
             service: Mutex::new(ExtensionService::new(cache)),
             executor: OnceLock::new(),
             runner: OnceLock::new(),
+            self_ref: OnceLock::new(),
             trust,
             user_settings,
             context: context.clone(),
             application: application.clone(),
             saves: Mutex::new(std::collections::HashMap::new()),
         });
+        let _ = inner.self_ref.set(Arc::downgrade(&inner));
         inner.service.lock().unwrap().set_trust(inner.trust.clone());
         // Output and exits of tasks reach their guest through the UI thread, where
         // the service knows which extension and generation a task belongs to.

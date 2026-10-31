@@ -159,6 +159,38 @@ fn run(command: &str, call: u64, snapshot: Option<u64>, selections: Vec<loom::ex
                     Ok(found) => format!("found {}", found.join(",")),
                     Err(e) => format!("find error: {}", e.message),
                 },
+                "fileops" => {
+                    use loom::extension::types::{CreateOp, DeleteOp, FileOp, FileOpsRequest, RenameOp};
+                    let text = |v: &serde_json::Value, k: &str| v[k].as_str().unwrap_or_default().to_owned();
+                    let ops: Vec<FileOp> = spec["ops"]
+                        .as_array()
+                        .map(|list| {
+                            list.iter()
+                                .filter_map(|o| match o["kind"].as_str()? {
+                                    "create" => Some(FileOp::Create(CreateOp {
+                                        path: text(o, "path"),
+                                        text: o["text"].as_str().map(str::to_owned),
+                                        overwrite: o["overwrite"].as_bool().unwrap_or(false),
+                                    })),
+                                    "rename" => Some(FileOp::Rename(RenameOp {
+                                        source: text(o, "source"),
+                                        target: text(o, "target"),
+                                        overwrite: o["overwrite"].as_bool().unwrap_or(false),
+                                    })),
+                                    "delete" => Some(FileOp::Delete(DeleteOp {
+                                        path: text(o, "path"),
+                                        recursive: o["recursive"].as_bool().unwrap_or(false),
+                                    })),
+                                    _ => None,
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    match host::apply_file_ops(&FileOpsRequest { call: 0, root, ops }) {
+                        Ok(op) => format!("file ops accepted {op}"),
+                        Err(e) => format!("file ops error: {}", e.message),
+                    }
+                }
                 "http" => match host::http_get(
                     spec["url"].as_str().unwrap_or_default(),
                     spec["max"].as_u64().unwrap_or(1000) as u32,

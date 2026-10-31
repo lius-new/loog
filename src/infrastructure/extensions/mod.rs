@@ -4,6 +4,7 @@
 //! never waits on guest code. The application sends [`Job`]s and receives
 //! [`Event`]s through a sink; nothing UI-shaped crosses this boundary, only
 //! typed values and opaque ids (design §5, last layering rule).
+pub mod fileops;
 pub mod http;
 pub mod ports;
 pub mod tasks;
@@ -13,7 +14,7 @@ use loom_extension_api::{ErrorKind, ExtensionError};
 use loom_extension_host::{
     AcceptedEdit, ByteRange, CommandContext, CommittedReceipt, Completion, HostError, Inbound,
     Instance, Limits, Provided, ProviderKind, ProviderRequest, PublishedDiagnostics, RootRef,
-    RoundStatus, Runtime, Selection, StartedTask, WitErrorKind,
+    RoundStatus, Runtime, Selection, StartedFileOps, StartedTask, WitErrorKind,
 };
 use std::collections::HashMap;
 use std::ops::Range;
@@ -168,6 +169,12 @@ pub enum Event {
         id: String,
         generation: u64,
         task: StartedTask,
+    },
+    /// The guest asked to create, rename or delete files.
+    FileOpsRequested {
+        id: String,
+        generation: u64,
+        started: StartedFileOps,
     },
     /// The guest asked to cancel tasks (their local numbers).
     TasksCancelled {
@@ -517,6 +524,7 @@ impl Worker {
             let logs = slot.instance.take_logs();
             let provided = slot.instance.take_provided();
             let started = slot.instance.take_started_tasks();
+            let file_ops = slot.instance.take_started_file_ops();
             let cancelled = slot.instance.take_cancelled_tasks();
             let published = slot.instance.take_published();
             for (level, text) in logs {
@@ -524,6 +532,13 @@ impl Worker {
                     id: id.to_owned(),
                     level,
                     text,
+                });
+            }
+            for started in file_ops {
+                (self.sink)(Event::FileOpsRequested {
+                    id: id.to_owned(),
+                    generation,
+                    started,
                 });
             }
             for task in started {

@@ -93,6 +93,7 @@ struct Fixture {
     cleared: Vec<u64>,
     offered: Vec<OfferedList>,
     ready: Vec<(u64, bool, Option<String>)>,
+    changed: Vec<String>,
     submitted: Vec<Job>,
     resolved: Vec<(u64, serde_json::Value)>,
 }
@@ -143,6 +144,7 @@ fn fixture_with(name: &str, text: &str, select: std::ops::Range<usize>, manifest
         cleared: Vec::new(),
         offered: Vec::new(),
         ready: Vec::new(),
+        changed: Vec::new(),
         submitted: Vec::new(),
         resolved: Vec::new(),
     }
@@ -190,6 +192,16 @@ impl Fixture {
                 }
                 Effect::ClearDiagnostics { source } => self.cleared.push(source),
                 Effect::SaveReady { chain, ok, message } => self.ready.push((chain, ok, message)),
+                Effect::RunFileOps { key, ops } => {
+                    // The host runs this on a background thread; here it runs inline.
+                    let outcome = crate::infrastructure::extensions::fileops::run(&ops, |_| {});
+                    let effects = self.service.file_ops_done(&mut self.app, key, outcome);
+                    messages.extend(self.apply(effects));
+                }
+                Effect::FilesChanged(changes) => {
+                    self.changed
+                        .extend(changes.iter().map(|c| format!("{c:?}")));
+                }
                 Effect::StartTask { task, spec } => self.runner.start(task, spec),
                 Effect::CancelTask { task } => self.runner.cancel(task),
                 Effect::OfferCompletion { source, items, .. } => self.offered.push((source, items)),
@@ -1717,4 +1729,185 @@ fn a_failing_participant_keeps_the_file_from_being_written() {
         "the person's changes are still there"
     );
     ui.runtime.clear_extensions();
+}
+
+impl Fixture {
+    fn file_ops(&mut self, ops: serde_json::Value) {
+        let accepted = self.op(serde_json::json!({ "op": "fileops", "ops": ops }));
+        assert!(accepted.starts_with("file ops accepted"), "{accepted}");
+    }
+
+    fn log_lines(&self) -> Vec<String> {
+        self.service
+            .package("example.tools")
+            .unwrap()
+            .logs
+            .iter()
+            .map(|l| l.1.clone())
+            .collect()
+    }
+}
+
+const WRITER: &str = r#"["documents.read", "workspace.edit", "workspace.files.write"]"#;
+
+#[test]
+fn files_are_created_renamed_and_deleted_in_order_and_the_guest_hears_the_outcome() {
+    let (mut f, dir) = Fixture::ops("fileops-ok", WRITER);
+    f.file_ops(serde_json::json!([
+        { "kind": "create", "path": "made.txt", "text": "hello" },
+        { "kind": "rename", "source": "notes.txt", "target": "docs/notes.txt" },
+        { "kind": "delete", "path": "blob.bin" },
+    ]));
+    f.pump_until(|f| f.log_lines().iter().any(|l| l.contains("committed as")));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("made.txt")).unwrap(),
+        "hello"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("docs/notes.txt")).unwrap(),
+        "0123456789"
+    );
+    assert!(!dir.join("notes.txt").exists() && !dir.join("blob.bin").exists());
+    assert_eq!(f.changed.len(), 3, "{:?}", f.changed);
+    assert!(
+        f.changed[0].starts_with("Created")
+            && f.changed[1].starts_with("Renamed")
+            && f.changed[2].starts_with("Deleted")
+    );
+}
+
+#[test]
+fn a_failing_step_undoes_the_earlier_ones_and_says_so() {
+    let (mut f, dir) = Fixture::ops("fileops-undo", WRITER);
+    f.file_ops(serde_json::json!([
+        { "kind": "create", "path": "made.txt", "text": "hello" },
+        { "kind": "rename", "source": "does-not-exist.txt", "target": "x.txt" },
+    ]));
+    f.pump_until(|f| f.log_lines().iter().any(|l| l.contains("failed")));
+    assert!(!dir.join("made.txt").exists(), "the first step was undone");
+    assert!(dir.join("notes.txt").exists());
+    let logs = f.log_lines();
+    assert!(
+        logs.iter()
+            .any(|l| l.contains("everything before it was undone")),
+        "{logs:?}"
+    );
+    assert!(f.changed.is_empty());
+}
+
+#[test]
+fn open_documents_follow_a_rename_and_close_with_a_delete() {
+    let (mut f, dir) = Fixture::ops("fileops-docs", WRITER);
+    let notes = dir.join("notes.txt");
+    let src = dir.join("src/lib.rs");
+    f.app
+        .workspace
+        .open_path(notes.clone(), "0123456789".into());
+    f.app
+        .workspace
+        .open_path(src.clone(), "fn main() {}\n".into());
+    f.file_ops(serde_json::json!([
+        { "kind": "rename", "source": "notes.txt", "target": "renamed.txt" },
+        { "kind": "delete", "path": "src/lib.rs" },
+    ]));
+    f.pump_until(|f| f.log_lines().iter().any(|l| l.contains("committed as")));
+    assert!(
+        f.app
+            .workspace
+            .file_id_for_path(&dir.join("renamed.txt"))
+            .is_some(),
+        "the open document moved"
+    );
+    assert!(f.app.workspace.file_id_for_path(&notes).is_none());
+    assert!(
+        f.app.workspace.file_id_for_path(&src).is_none(),
+        "the deleted file's document closed"
+    );
+}
+
+#[test]
+fn a_file_with_unsaved_changes_is_never_touched() {
+    let (mut f, dir) = Fixture::ops("fileops-dirty", WRITER);
+    let notes = dir.join("notes.txt");
+    let id = f
+        .app
+        .workspace
+        .open_path(notes.clone(), "0123456789".into());
+    f.app
+        .workspace
+        .document_editor_mut(id)
+        .unwrap()
+        .set_cursor(0);
+    loom_editor_core::normal::insert(
+        &mut f.app.workspace.document_editor_mut(id).unwrap(),
+        "typed ",
+    );
+    f.file_ops(serde_json::json!([{ "kind": "delete", "path": "notes.txt" }]));
+    f.pump_until(|f| f.log_lines().iter().any(|l| l.contains("failed")));
+    assert!(
+        f.log_lines()
+            .iter()
+            .any(|l| l.contains("has unsaved changes")),
+        "{:?}",
+        f.log_lines()
+    );
+    assert!(notes.exists());
+    assert!(f.app.workspace.file_id_for_path(&notes).is_some());
+}
+
+#[test]
+fn paths_outside_the_folder_protected_names_and_a_missing_grant_are_refused() {
+    let (mut f, dir) = Fixture::ops("fileops-refuse", WRITER);
+    for path in [
+        "../outside.txt",
+        "/abs.txt",
+        ".git/config",
+        "sub/.loom-edit-1/x",
+    ] {
+        let before = f.log_lines().len();
+        f.file_ops(serde_json::json!([{ "kind": "create", "path": path }]));
+        f.pump_until(|f| f.log_lines().len() > before + 1);
+        assert!(
+            f.log_lines()
+                .iter()
+                .any(|l| l.contains("inside the folder") || l.contains("cannot be changed")),
+            "{path}: {:?}",
+            f.log_lines()
+        );
+    }
+    assert!(!dir.join("..").join("outside.txt").exists());
+
+    let (mut g, _) = Fixture::ops(
+        "fileops-ungranted",
+        r#"["documents.read", "workspace.edit"]"#,
+    );
+    g.op(serde_json::json!({ "op": "fileops", "ops": [{ "kind": "create", "path": "a.txt" }] }));
+    g.pump_until(|g| g.log_lines().iter().any(|l| l.contains("failed")));
+    assert!(
+        g.log_lines()
+            .iter()
+            .any(|l| l.contains("not declared") || l.contains("not been granted")),
+        "{:?}",
+        g.log_lines()
+    );
+}
+
+#[test]
+fn a_note_left_by_an_interrupted_operation_is_reported_when_the_folder_opens() {
+    let (mut f, dir) = Fixture::ops("fileops-note", WRITER);
+    let note = dir.join(format!(
+        "{}1-1.txt",
+        crate::infrastructure::extensions::fileops::NOTE_PREFIX
+    ));
+    std::fs::write(&note, "rename a -> b").unwrap();
+    // The folder was added to the app before the service first looked at the roots.
+    let effects = f.service.observe(&f.app);
+    let messages = f.apply(effects);
+    assert!(
+        messages.iter().any(|m| m.contains("did not finish")),
+        "{messages:?}"
+    );
+    // Reported once, not at every update.
+    let again = f.service.observe(&f.app);
+    assert!(f.apply(again).iter().all(|m| !m.contains("did not finish")));
 }

@@ -224,6 +224,7 @@ pub const CAPABILITIES: &[&str] = &[
     "documents.read",
     "workspace.edit",
     "workspace.files.read",
+    "workspace.files.write",
     "events",
     "settings",
     "languages",

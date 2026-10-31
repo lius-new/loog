@@ -154,6 +154,15 @@ pub const MAX_READ: usize = 4 * 1024 * 1024;
 /// Most paths one `find-files` returns.
 pub const MAX_FOUND: usize = 1000;
 
+pub use bindings::loom::extension::types::{CreateOp, DeleteOp, FileOp, FileOpsRequest, RenameOp};
+
+/// File operations the guest asked for; the application decides and runs them.
+#[derive(Clone, Debug)]
+pub struct StartedFileOps {
+    pub operation: u64,
+    pub request: FileOpsRequest,
+}
+
 /// State behind the host imports.
 pub struct HostState {
     limits: StoreLimits,
@@ -166,6 +175,7 @@ pub struct HostState {
     roots: Vec<RootRef>,
     next_task: u64,
     started_tasks: Vec<StartedTask>,
+    started_file_ops: Vec<StartedFileOps>,
     cancelled_tasks: Vec<u64>,
     live_tasks: usize,
     task_limit: usize,
@@ -272,6 +282,7 @@ impl HostState {
             roots: Vec::new(),
             next_task: 1,
             started_tasks: Vec::new(),
+            started_file_ops: Vec::new(),
             cancelled_tasks: Vec::new(),
             live_tasks: 0,
             task_limit: limits.tasks,
@@ -508,6 +519,22 @@ impl host::Host for HostState {
         let (port, root) = self.file_access(root)?;
         port.find(&root, &pattern, (limit as usize).min(MAX_FOUND))
             .map_err(|error| host_error(error.kind, &error.message))
+    }
+
+    fn apply_file_ops(&mut self, request: FileOpsRequest) -> Result<u64, HostError> {
+        self.unrestricted("changing files")?;
+        if self.outstanding >= self.pending_limit {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "too many pending operations",
+            ));
+        }
+        let operation = self.next_operation;
+        self.next_operation += 1;
+        self.outstanding += 1;
+        self.started_file_ops
+            .push(StartedFileOps { operation, request });
+        Ok(operation)
     }
 
     fn list_roots(&mut self) -> Vec<RootRef> {
@@ -851,6 +878,10 @@ impl Instance {
     /// Give the guest bounded file access (a granted capability).
     pub fn set_files(&mut self, port: Box<dyn FilePort>) {
         self.store.data_mut().files = Some(port);
+    }
+
+    pub fn take_started_file_ops(&mut self) -> Vec<StartedFileOps> {
+        std::mem::take(&mut self.store.data_mut().started_file_ops)
     }
 
     pub fn take_started_tasks(&mut self) -> Vec<StartedTask> {

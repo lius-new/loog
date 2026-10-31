@@ -33,6 +33,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
+mod files;
 pub(crate) mod host;
 mod save;
 
@@ -149,6 +150,13 @@ pub enum Effect {
     ClearDiagnostics {
         source: u64,
     },
+    /// Run these file operations on a background thread, then call `file_ops_done`.
+    RunFileOps {
+        key: u64,
+        ops: Vec<crate::infrastructure::extensions::fileops::Op>,
+    },
+    /// Files were created, renamed or deleted: the language servers are told.
+    FilesChanged(Vec<crate::infrastructure::lsp::manager::FileChange>),
     /// A save chain ended. `ok` means the files may be written now.
     SaveReady {
         chain: u64,
@@ -306,6 +314,8 @@ pub struct ExtensionService {
     next_root: u64,
     tasks: HashMap<u64, TaskRecord>,
     next_task: u64,
+    file_jobs: HashMap<u64, files::FileJob>,
+    next_file_job: u64,
     saves: HashMap<u64, save::Chain>,
     /// Open save-participant requests and the chain each belongs to.
     save_calls: HashMap<u64, u64>,
@@ -415,6 +425,8 @@ impl ExtensionService {
             next_root: 0,
             tasks: HashMap::new(),
             next_task: 0,
+            file_jobs: HashMap::new(),
+            next_file_job: 0,
             saves: HashMap::new(),
             save_calls: HashMap::new(),
             next_save: 0,
@@ -869,6 +881,11 @@ impl ExtensionService {
                 effects.extend(self.observe(app));
                 effects
             }
+            Event::FileOpsRequested {
+                id,
+                generation,
+                started,
+            } => self.file_ops_requested(app, &id, generation, started),
             Event::TaskRequested {
                 id,
                 generation,
@@ -2028,6 +2045,18 @@ impl ExtensionService {
         for (task, record) in &self.tasks {
             if gone.contains(&record.root_id) {
                 effects.push(Effect::CancelTask { task: *task });
+            }
+        }
+        // Something an extension left half-done in a folder that was opened since is reported once.
+        for path in current
+            .iter()
+            .filter(|p| !self.roots.iter().any(|(_, known)| known == *p))
+        {
+            for note in crate::infrastructure::extensions::fileops::unfinished_notes(path) {
+                effects.push(Effect::Error(format!(
+                    "An extension's file operation did not finish; see {}",
+                    note.display()
+                )));
             }
         }
         let mut next = Vec::new();

@@ -181,6 +181,39 @@ interface types {
         truncated: bool,
     }
 
+    record create-op {
+        path: string,
+        /// Initial content; empty when absent.
+        text: option<string>,
+        overwrite: bool,
+    }
+
+    record rename-op {
+        source: string,
+        target: string,
+        overwrite: bool,
+    }
+
+    record delete-op {
+        path: string,
+        recursive: bool,
+    }
+
+    variant file-op {
+        create(create-op),
+        rename(rename-op),
+        delete(delete-op),
+    }
+
+    /// File changes done in order inside one folder. They are not one atomic
+    /// action on disk: if a step fails the earlier ones are undone, and if the
+    /// undo cannot finish the error says where the rest is.
+    record file-ops-request {
+        call: call-id,
+        root: u64,
+        ops: list<file-op>,
+    }
+
     record file-content {
         text: string,
         /// The file is longer than the bytes asked for; `text` is its start.
@@ -254,7 +287,7 @@ interface types {
 }
 
 interface host {
-    use types.{apply-edit-request, completion-item, diagnostic, file-content, host-error, http-response, root-ref, storage-scope, task-id, task-request, operation-id, snapshot-token, byte-range, text-edit};
+    use types.{apply-edit-request, completion-item, diagnostic, file-content, file-ops-request, host-error, http-response, root-ref, storage-scope, task-id, task-request, operation-id, snapshot-token, byte-range, text-edit};
 
     /// Read a bounded range of a captured snapshot. Fast, never blocks on the UI.
     read-range: func(snapshot: snapshot-token, range: byte-range) -> result<string, host-error>;
@@ -284,6 +317,11 @@ interface host {
     /// granted) are reachable, every redirect is checked again, and the body is
     /// cut at `max-bytes`.
     http-get: func(url: string, max-bytes: u32) -> result<http-response, host-error>;
+
+    /// Create, rename and delete files inside a folder. Accepted at once; the
+    /// outcome arrives as `operation-complete`. A failure with `committed` set
+    /// means the disk may be partly changed and the message names where to look.
+    apply-file-ops: func(request: file-ops-request) -> result<operation-id, host-error>;
 
     /// The workspace folders this extension may name.
     list-roots: func() -> list<root-ref>;

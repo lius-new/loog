@@ -154,7 +154,21 @@ impl Journal {
                     }
                 }
                 Undo::Move { from, to } => {
-                    let result = fs::rename(&from, &to);
+                    // Never replace something that appeared in the original place since: the
+                    // moved entry stays where it is and is named in the error.
+                    let result = if fs::symlink_metadata(&to).is_ok() {
+                        Err(io::Error::new(
+                            io::ErrorKind::AlreadyExists,
+                            format!(
+                                "cannot restore {}: {} exists now (the entry is still at {})",
+                                to.display(),
+                                to.display(),
+                                from.display()
+                            ),
+                        ))
+                    } else {
+                        fs::rename(&from, &to)
+                    };
                     if result.is_ok() {
                         self.moved_staging(&from, &to);
                     }

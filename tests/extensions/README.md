@@ -122,3 +122,15 @@ saves without them. While a participant works, its calls with side effects
 (edits, tasks, network, storing values, publishing) fail with
 `permission-denied`; reading stays possible. Closing the window waits for the
 participants as it waits for writes.
+
+## Changing files
+
+`apply-file-ops` creates, renames and deletes files inside a folder (capability
+`workspace.files.write`). The steps run in order on a background thread. If one
+fails, the earlier ones are undone and the error says so; if the undo cannot
+finish, the error is marked `committed` and names where the rest is (the
+`.loom-edit-*` folders next to the files, and a `.loom-fileops-*.txt` note in the
+folder that stays until you remove it and is reported when the folder is opened
+again). A file with unsaved changes is never touched, and `.git` and the
+recovery entries cannot be changed. Open documents follow renames and close
+with deletes.
