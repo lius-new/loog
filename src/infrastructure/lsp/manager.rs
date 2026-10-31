@@ -63,6 +63,10 @@ pub(crate) enum FileChange {
 /// Largest message accepted from a server.
 const MAX_MESSAGE: usize = 64 * 1024 * 1024;
 
+/// Set in the source id of findings that extensions published; server instance
+/// ids never have it.
+pub(crate) const EXTERNAL_SOURCE: u64 = 1 << 63;
+
 #[derive(Clone, Debug)]
 pub(crate) struct Options {
     pub timeouts: Timeouts,
@@ -331,6 +335,8 @@ enum Msg {
         text: Arc<String>,
     },
     Restart,
+    /// Results were changed from outside the coordinator (extension findings).
+    ResultsChanged,
     RestartInstance(u64),
     /// Install the pack of the named server.
     Install(String),
@@ -477,6 +483,44 @@ impl Manager {
     /// A document was written to disk.
     pub fn saved(&self, path: PathBuf, text: Arc<String>) {
         let _ = self.tx.send(Msg::Saved { path, text });
+    }
+
+    /// Show findings from a source that is not a language server, for exactly
+    /// the state of the document they describe (design §6.3). `source` must have
+    /// `EXTERNAL_SOURCE` set; each source keeps its own part, which replaces its
+    /// previous findings for the document and never touches a server's.
+    pub fn publish_external(
+        &self,
+        source: u64,
+        path: &Path,
+        stamp: Stamp,
+        text: Arc<String>,
+        diagnostics: Arc<[Diagnostic]>,
+    ) {
+        debug_assert!(source & EXTERNAL_SOURCE != 0);
+        let Some(uri) = uri::file_uri(path) else {
+            return;
+        };
+        self.results
+            .lock()
+            .unwrap()
+            .entry(uri::key(&uri))
+            .or_default()
+            .diagnostics
+            .insert(source, (stamp, diagnostics, text));
+        let _ = self.tx.send(Msg::ResultsChanged);
+    }
+
+    /// Remove everything `source` published (it stopped or was unloaded).
+    pub fn clear_external(&self, source: u64) {
+        {
+            let mut store = self.results.lock().unwrap();
+            for entry in store.values_mut() {
+                entry.diagnostics.remove(&source);
+            }
+            store.retain(|_, entry| !entry.is_empty());
+        }
+        let _ = self.tx.send(Msg::ResultsChanged);
     }
 
     /// Starts again every server that is down, and restarts the running ones.
@@ -798,6 +842,7 @@ impl Coordinator {
             }
             Msg::Saved { path, text } => self.saved(&path, &text),
             Msg::Restart => self.restart(),
+            Msg::ResultsChanged => self.results_changed = true,
             Msg::RestartInstance(id) => self.restart_where(|instance| instance.id == id),
             Msg::Install(server) => {
                 let pack = self.servers.get(&server).and_then(|d| d.pack.clone());
@@ -2267,11 +2312,13 @@ impl Coordinator {
             let mut store = self.results.lock().unwrap();
             let before: usize = store.values().map(Entry::parts).sum();
             store.retain(|key, entry| {
-                let Some(holders) = held.get(key) else {
-                    return false;
-                };
-                entry.diagnostics.retain(|id, _| holders.contains(id));
-                entry.semantic.retain(|id, _| holders.contains(id));
+                let holders = held.get(key);
+                let holds = |id: &u64| holders.is_some_and(|holders| holders.contains(id));
+                // Findings pushed by extensions are not tied to a server instance.
+                entry
+                    .diagnostics
+                    .retain(|id, _| id & EXTERNAL_SOURCE != 0 || holds(id));
+                entry.semantic.retain(|id, _| holds(id));
                 !entry.is_empty()
             });
             let after: usize = store.values().map(Entry::parts).sum();

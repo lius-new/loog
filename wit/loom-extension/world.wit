@@ -100,8 +100,39 @@ interface types {
         edits: u32,
     }
 
+    enum provider-kind {
+        diagnostics,
+        formatting,
+    }
+
+    /// A request to a registered provider for one state of a document. The text
+    /// is read through `snapshot`; the answer must refer to `request`.
+    record provider-request {
+        request: u64,
+        /// Provider id as declared in the manifest.
+        provider: string,
+        kind: provider-kind,
+        snapshot: snapshot-token,
+        document: u64,
+        version: u64,
+        /// Length in bytes of the snapshot text.
+        length: u64,
+        /// Restrict a formatting request to this range.
+        range: option<byte-range>,
+    }
+
+    record diagnostic {
+        range: byte-range,
+        /// 1 error, 2 warning, 3 information, 4 hint.
+        severity: u8,
+        message: string,
+        source: option<string>,
+        code: option<string>,
+    }
+
     /// Message pushed by the host into the guest.
     variant inbound {
+        provider-request(provider-request),
         run-command(command-context),
         document-opened(document-ref),
         document-changed(document-change),
@@ -127,7 +158,7 @@ interface types {
 }
 
 interface host {
-    use types.{apply-edit-request, host-error, operation-id, snapshot-token, byte-range};
+    use types.{apply-edit-request, diagnostic, host-error, operation-id, snapshot-token, byte-range, text-edit};
 
     /// Read a bounded range of a captured snapshot. Fast, never blocks on the UI.
     read-range: func(snapshot: snapshot-token, range: byte-range) -> result<string, host-error>;
@@ -141,6 +172,13 @@ interface host {
 
     /// The resolved value of one of this extension's declared settings, as JSON text.
     get-setting: func(key: string) -> option<string>;
+
+    /// Answer a diagnostics request. Only the latest answer for the document's
+    /// current state is shown; an answer for an older state is discarded.
+    provide-diagnostics: func(request: u64, items: list<diagnostic>) -> result<_, host-error>;
+
+    /// Answer a formatting request with edits against the requested snapshot.
+    provide-edits: func(request: u64, edits: list<text-edit>) -> result<_, host-error>;
 
     log: func(level: u8, message: string);
 }

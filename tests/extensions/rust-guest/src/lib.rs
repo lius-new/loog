@@ -12,7 +12,8 @@ wit_bindgen::generate!({
 use exports::loom::extension::guest::Guest;
 use loom::extension::host;
 use loom::extension::types::{
-    ApplyEditRequest, ByteRange, Completion, DocumentEdits, ErrorKind, HostError, Inbound, RoundStatus, TextEdit,
+    ApplyEditRequest, ByteRange, Completion, Diagnostic, DocumentEdits, ErrorKind, HostError, Inbound,
+    ProviderKind, RoundStatus, TextEdit,
 };
 
 #[derive(Default)]
@@ -97,6 +98,51 @@ impl Guest for Extension {
                 Inbound::DocumentChanged(c) => host::log(0, &format!("changed {} {}->{} x{}", c.document, c.from_version, c.to_version, c.edits)),
                 Inbound::DocumentResync(d) => host::log(0, &format!("resync {} v{}", d.document, d.version)),
                 Inbound::DocumentClosed(d) => host::log(0, &format!("closed {} life {}", d.document, d.lifecycle)),
+                Inbound::ProviderRequest(request) => {
+                    let text = host::read_range(
+                        request.snapshot,
+                        ByteRange { start: 0, end: request.length },
+                    )
+                    .unwrap_or_default();
+                    match request.kind {
+                        ProviderKind::Diagnostics => {
+                            let mut items = Vec::new();
+                            let mut at = 0;
+                            while let Some(found) = text[at..].find("TODO") {
+                                let start = at + found;
+                                items.push(Diagnostic {
+                                    range: ByteRange { start: start as u64, end: start as u64 + 4 },
+                                    severity: 2,
+                                    message: "TODO found".into(),
+                                    source: Some(request.provider.clone()),
+                                    code: None,
+                                });
+                                at = start + 4;
+                            }
+                            let _ = host::provide_diagnostics(request.request, &items);
+                        }
+                        ProviderKind::Formatting => {
+                            let mut edits = Vec::new();
+                            let mut offset = 0usize;
+                            for line in text.split_inclusive('\n') {
+                                let body = line.trim_end_matches(['\r', '\n']);
+                                let trimmed = body.trim_end_matches([' ', '\t']);
+                                if trimmed.len() != body.len() {
+                                    edits.push(TextEdit {
+                                        range: ByteRange {
+                                            start: (offset + trimmed.len()) as u64,
+                                            end: (offset + body.len()) as u64,
+                                        },
+                                        text: String::new(),
+                                    });
+                                }
+                                offset += line.len();
+                            }
+                            let _ = host::provide_edits(request.request, &edits);
+                        }
+                    }
+                    host::release_snapshot(request.snapshot);
+                }
                 Inbound::SettingsChanged(keys) => {
                     for key in keys {
                         let value = host::get_setting(&key).unwrap_or_default();

@@ -80,6 +80,11 @@ struct Fixture {
     events: Receiver<Event>,
     app: AppState,
     path: PathBuf,
+    published: Vec<(
+        u64,
+        Vec<crate::features::language_service::diagnostics::Diagnostic>,
+    )>,
+    cleared: Vec<u64>,
 }
 
 fn fixture(name: &str, text: &str, select: std::ops::Range<usize>) -> Fixture {
@@ -117,6 +122,8 @@ fn fixture_with(name: &str, text: &str, select: std::ops::Range<usize>, manifest
         events,
         app,
         path,
+        published: Vec::new(),
+        cleared: Vec::new(),
     }
 }
 
@@ -133,6 +140,10 @@ impl Fixture {
             match effect {
                 Effect::Submit(job) => assert!(self.executor.submit(job)),
                 Effect::Toast(m) | Effect::Error(m) => messages.push(m),
+                Effect::PublishDiagnostics { source, items, .. } => {
+                    self.published.push((source, items))
+                }
+                Effect::ClearDiagnostics { source } => self.cleared.push(source),
             }
         }
         messages
@@ -597,4 +608,182 @@ fn a_resource_only_package_loads_without_a_component_and_bad_resources_are_dropp
     );
     // A package without behaviour never activates, whatever happens to its resources.
     assert!(service.commands().is_empty());
+}
+
+fn provider_manifest(language: &str) -> String {
+    r#"{
+    "schema": 1,
+    "id": "example.tools",
+    "version": "0.1.0",
+    "api": "loom:extension@0.1.0",
+    "component": "extension.wasm",
+    "capabilities": ["documents.read", "workspace.edit", "languages"],
+    "contributes": { "providers": [
+        { "id": "example.tools.todo", "kind": "diagnostics", "selector": { "languages": ["LANG"] } },
+        { "id": "example.tools.trim", "kind": "formatting", "selector": { "languages": ["LANG"] } }
+    ] }
+}"#
+    .replace("LANG", language)
+}
+
+fn language_of(path: &Path) -> String {
+    let mut app = AppState::new();
+    app.workspace.open_path(path.to_path_buf(), String::new());
+    let id = app.workspace.file_id_for_path(path).unwrap();
+    app.workspace.documents[&id]
+        .meta
+        .lang
+        .definition()
+        .name
+        .to_string()
+}
+
+impl Fixture {
+    /// Handle executor events one at a time until \`done\` holds.
+    fn pump_until(&mut self, mut done: impl FnMut(&Fixture) -> bool) {
+        while !done(self) {
+            let event = self
+                .events
+                .recv_timeout(Duration::from_secs(60))
+                .expect("the executor produced an event");
+            let effects = self.service.handle_event(&mut self.app, event);
+            self.apply(effects);
+        }
+    }
+
+    fn provider_fixture(name: &str, text: &str) -> Fixture {
+        let probe =
+            std::env::temp_dir().join(format!("loom-ext-doc-{}-{name}.txt", std::process::id()));
+        let manifest = provider_manifest(&language_of(&probe));
+        fixture_with(name, text, 0..0, &manifest)
+    }
+}
+
+#[test]
+fn a_diagnostics_provider_is_woken_by_a_matching_document_and_its_findings_are_published_for_that_state()
+ {
+    let mut f = Fixture::provider_fixture("diag", "fine\nTODO: later\n");
+    assert_eq!(
+        f.service
+            .package("example.tools")
+            .unwrap()
+            .lifecycle
+            .state(),
+        State::Dormant
+    );
+    f.observe();
+    assert_eq!(
+        f.service
+            .package("example.tools")
+            .unwrap()
+            .lifecycle
+            .state(),
+        State::Activating,
+        "the document's language is the declared reason to wake it"
+    );
+    f.pump_until(|f| !f.published.is_empty());
+    let (source, items) = &f.published[0];
+    assert!(source & crate::infrastructure::lsp::manager::EXTERNAL_SOURCE != 0);
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].range, 5..9);
+    assert_eq!(items[0].source.as_deref(), Some("example.tools.todo"));
+}
+
+#[test]
+fn an_answer_for_an_older_state_is_never_shown_and_the_new_state_is_asked_again() {
+    let mut f = Fixture::provider_fixture("stale-diag", "TODO one\n");
+    f.observe();
+    // The person edits before the first answer is handled.
+    let id = f.app.workspace.file_id_for_path(&f.path).unwrap();
+    f.app
+        .workspace
+        .document_editor_mut(id)
+        .unwrap()
+        .set_cursor(0);
+    loom_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "x");
+    f.pump_until(|f| !f.published.is_empty());
+    // Whatever was published describes the edited text ("xTODO one"), never the old one.
+    assert!(
+        f.published
+            .iter()
+            .all(|(_, items)| items.iter().all(|d| d.range == (1..5))),
+        "{:?}",
+        f.published
+    );
+}
+
+#[test]
+fn only_the_latest_diagnostics_request_per_document_stays_in_flight() {
+    let mut f = Fixture::provider_fixture("latest", "TODO\n");
+    f.observe();
+    let first: Vec<_> = f.service.provider_calls.keys().copied().collect();
+    let id = f.app.workspace.file_id_for_path(&f.path).unwrap();
+    f.app
+        .workspace
+        .document_editor_mut(id)
+        .unwrap()
+        .set_cursor(0);
+    loom_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "x");
+    f.observe();
+    let calls: Vec<_> = f.service.provider_calls.keys().copied().collect();
+    assert_eq!(calls.len(), 1, "{first:?} -> {calls:?}");
+    assert_ne!(calls, first);
+}
+
+#[test]
+fn a_formatting_provider_edits_the_document_as_one_undo_step() {
+    let mut f = Fixture::provider_fixture("format", "a  \nb\r\nc \t\n");
+    let effects = f
+        .service
+        .request_format(&f.app, false)
+        .expect("a provider is registered");
+    f.apply(effects);
+    f.pump_until(|f| f.text() != "a  \nb\r\nc \t\n");
+    assert_eq!(f.text(), "a\nb\r\nc\n");
+    let id = f.app.workspace.file_id_for_path(&f.path).unwrap();
+    f.app.workspace.document_editor_mut(id).unwrap().undo();
+    assert_eq!(f.text(), "a  \nb\r\nc \t\n");
+}
+
+#[test]
+fn range_formatting_leaves_the_rest_of_the_document_alone() {
+    let mut f = Fixture::provider_fixture("range", "a  \nb  \nc  \n");
+    {
+        let mut editor = f.app.workspace.active_editor_mut().unwrap();
+        editor.set_selection(crate::model::text::Selection {
+            anchor: Some(4),
+            cursor: 8,
+            ..crate::model::text::Selection::caret(8)
+        });
+    }
+    let effects = f.service.request_format(&f.app, true).unwrap();
+    f.apply(effects);
+    f.pump_until(|f| f.text() != "a  \nb  \nc  \n");
+    assert_eq!(f.text(), "a  \nb\nc  \n");
+}
+
+#[test]
+fn a_language_without_a_provider_is_left_to_the_language_server() {
+    let mut f = fixture_with("other", "x  ", 0..0, &provider_manifest("no-such-language"));
+    assert!(f.service.request_format(&f.app, false).is_none());
+    f.observe();
+    assert_eq!(
+        f.service
+            .package("example.tools")
+            .unwrap()
+            .lifecycle
+            .state(),
+        State::Dormant
+    );
+}
+
+#[test]
+fn stopping_or_failing_an_extension_withdraws_what_it_published() {
+    let mut f = Fixture::provider_fixture("withdraw", "TODO\n");
+    f.observe();
+    f.pump_until(|f| !f.published.is_empty());
+    let source = f.published[0].0;
+    let effects = f.service.stop("example.tools");
+    f.apply(effects);
+    assert_eq!(f.cleared, [source]);
 }

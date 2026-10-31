@@ -4,8 +4,8 @@
 //! ComponentizeJS (`node tests/extensions/js-guest/build.mjs`, run on demand).
 use loom_extension_api::ErrorKind;
 use loom_extension_host::{
-    ByteRange, CommandContext, CommittedReceipt, Completion, Inbound, Limits, RoundStatus, Runtime,
-    Selection,
+    ByteRange, CommandContext, CommittedReceipt, Completion, Inbound, Limits, Provided,
+    ProviderKind, ProviderRequest, RoundStatus, Runtime, Selection,
 };
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -242,4 +242,59 @@ fn the_wasi_imports_the_toolchain_needs_are_denied_not_granted() {
             .any(|name| name == "loom:extension/host@0.1.0"),
         "{imports:?}"
     );
+}
+
+fn provider_request(kind: ProviderKind, text: &str) -> Inbound {
+    Inbound::ProviderRequest(ProviderRequest {
+        request: 41,
+        provider: "example.tools.provider".into(),
+        kind,
+        snapshot: 9,
+        document: 1,
+        version: 3,
+        length: text.len() as u64,
+        range: None,
+    })
+}
+
+#[test]
+fn a_diagnostics_provider_answers_the_request_it_was_given() {
+    let (runtime, component) = runtime();
+    let mut instance = runtime.instantiate(&component, limits()).unwrap();
+    let text = "fine\nTODO: later\nTODO again\n";
+    instance.put_snapshot(9, String::from(text));
+    instance
+        .dispatch(&[provider_request(ProviderKind::Diagnostics, text)])
+        .unwrap();
+    let provided = instance.take_provided();
+    let [Provided::Diagnostics { request, items }] = provided.as_slice() else {
+        panic!("{provided:?}");
+    };
+    assert_eq!(*request, 41, "the answer names its request");
+    let starts: Vec<u64> = items.iter().map(|d| d.range.start).collect();
+    assert_eq!(starts, [5, 17]);
+    assert!(
+        items
+            .iter()
+            .all(|d| d.severity == 2 && d.message == "TODO found")
+    );
+}
+
+#[test]
+fn a_formatting_provider_answers_with_edits_against_the_snapshot() {
+    let (runtime, component) = runtime();
+    let mut instance = runtime.instantiate(&component, limits()).unwrap();
+    let text = "a  \nb\r\nc \t\n";
+    instance.put_snapshot(9, String::from(text));
+    instance
+        .dispatch(&[provider_request(ProviderKind::Formatting, text)])
+        .unwrap();
+    let provided = instance.take_provided();
+    let [Provided::Edits { request, edits }] = provided.as_slice() else {
+        panic!("{provided:?}");
+    };
+    assert_eq!(*request, 41);
+    let ranges: Vec<(u64, u64)> = edits.iter().map(|e| (e.range.start, e.range.end)).collect();
+    assert_eq!(ranges, [(1, 3), (8, 10)]);
+    assert!(edits.iter().all(|e| e.text.is_empty()));
 }

@@ -23,8 +23,8 @@ mod bindings {
 
 pub use bindings::loom::extension::types::{
     ApplyEditRequest, ByteRange, CommandContext, CommittedReceipt, Completion, DocumentChange,
-    DocumentEdits, DocumentRef, ErrorKind as WitErrorKind, HostError, Inbound, RoundStatus,
-    Selection, TextEdit,
+    DocumentEdits, DocumentRef, ErrorKind as WitErrorKind, HostError, Inbound, ProviderKind,
+    ProviderRequest, RoundStatus, Selection, TextEdit,
 };
 use bindings::loom::extension::{host, types};
 
@@ -67,6 +67,21 @@ pub struct AcceptedEdit {
     pub documents: Vec<DocumentEdits>,
 }
 
+pub use bindings::loom::extension::types::Diagnostic as WireDiagnostic;
+
+/// An answer a provider gave, in the order it was given.
+#[derive(Clone, Debug)]
+pub enum Provided {
+    Diagnostics {
+        request: u64,
+        items: Vec<WireDiagnostic>,
+    },
+    Edits {
+        request: u64,
+        edits: Vec<TextEdit>,
+    },
+}
+
 /// State behind the host imports.
 pub struct HostState {
     limits: StoreLimits,
@@ -75,6 +90,7 @@ pub struct HostState {
     snapshots: BTreeMap<u64, Arc<String>>,
     outstanding: usize,
     settings: BTreeMap<String, String>,
+    provided: Vec<Provided>,
     pub accepted: Vec<AcceptedEdit>,
     pub cancelled: Vec<u64>,
     pub logs: Vec<(u8, String)>,
@@ -95,6 +111,7 @@ impl HostState {
             snapshots: BTreeMap::new(),
             outstanding: 0,
             settings: BTreeMap::new(),
+            provided: Vec::new(),
             accepted: Vec::new(),
             cancelled: Vec::new(),
             logs: Vec::new(),
@@ -175,6 +192,32 @@ impl host::Host for HostState {
             documents: request.documents,
         });
         Ok(operation)
+    }
+
+    fn provide_diagnostics(
+        &mut self,
+        request: u64,
+        items: Vec<WireDiagnostic>,
+    ) -> Result<(), HostError> {
+        if self.provided.len() >= self.pending_limit {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "too many unconsumed provider answers",
+            ));
+        }
+        self.provided.push(Provided::Diagnostics { request, items });
+        Ok(())
+    }
+
+    fn provide_edits(&mut self, request: u64, edits: Vec<TextEdit>) -> Result<(), HostError> {
+        if self.provided.len() >= self.pending_limit {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "too many unconsumed provider answers",
+            ));
+        }
+        self.provided.push(Provided::Edits { request, edits });
+        Ok(())
     }
 
     fn get_setting(&mut self, key: String) -> Option<String> {
@@ -422,6 +465,11 @@ impl Instance {
     /// Replace the resolved setting values the guest can read.
     pub fn put_settings(&mut self, values: BTreeMap<String, String>) {
         self.store.data_mut().settings = values;
+    }
+
+    /// Provider answers since the last call, in the order given.
+    pub fn take_provided(&mut self) -> Vec<Provided> {
+        std::mem::take(&mut self.store.data_mut().provided)
     }
 
     /// Edits accepted since the last call, in acceptance order.

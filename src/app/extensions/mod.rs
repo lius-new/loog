@@ -11,7 +11,11 @@ use crate::domain::identity::FileId;
 use crate::features::extensions::activation::{PendingCommand, PendingTriggers};
 use crate::features::extensions::lifecycle::{FailureStage, Lifecycle, State};
 use crate::features::extensions::manifest::Manifest;
+use crate::features::extensions::manifest::ProviderKind as DeclKind;
+use crate::features::extensions::providers::{self, Reported};
 use crate::features::extensions::trust::{Denial, Grants, PackageIdentity};
+use crate::features::language_service::sync::Stamp;
+use crate::infrastructure::extensions::ProviderJob;
 use crate::infrastructure::extensions::{Event, Job, Outcome, Run};
 use loom_extension_api::admission::EditLimits;
 use loom_extension_api::budget::{CallBudget, InteractionLimits};
@@ -21,11 +25,43 @@ use loom_extension_api::{ErrorKind, ExtensionError};
 use loom_extension_host::{
     AcceptedEdit, DocumentChange as WireChange, DocumentRef, Inbound, Limits,
 };
+use loom_extension_host::{Provided, ProviderKind as WireKind};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 pub(crate) mod host;
+
+const PROVIDER_DEADLINE_MS: u64 = 500;
+const FORMAT_DEADLINE_MS: u64 = 5_000;
+const EXTERNAL_SOURCE: u64 = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE;
+
+/// The state of a document a provider is asked about.
+struct Target {
+    file: FileId,
+    stamp: DocumentStamp,
+    path: PathBuf,
+    text: std::sync::Arc<String>,
+    doc_id: u64,
+    version: u64,
+    range: Option<Range<usize>>,
+}
+
+/// A provider request in flight, with the state it was asked about.
+struct ProviderCall {
+    extension: String,
+    generation: u64,
+    provider: String,
+    file: FileId,
+    stamp: DocumentStamp,
+    path: PathBuf,
+    text: std::sync::Arc<String>,
+    doc_id: u64,
+    deadline: u64,
+    range: Option<Range<usize>>,
+    job: ProviderJob,
+}
 
 /// Start the extension subsystem and load the packages installed for this user.
 pub(crate) fn start(
@@ -80,6 +116,16 @@ const PENDING_COMMANDS: usize = 16;
 #[derive(Debug)]
 pub enum Effect {
     Submit(Job),
+    PublishDiagnostics {
+        source: u64,
+        path: PathBuf,
+        stamp: Stamp,
+        text: std::sync::Arc<String>,
+        items: Vec<crate::features::language_service::diagnostics::Diagnostic>,
+    },
+    ClearDiagnostics {
+        source: u64,
+    },
     Toast(String),
     Error(String),
 }
@@ -196,6 +242,14 @@ pub struct ExtensionService {
     seen: HashMap<FileId, u64>,
     next_document: u64,
     settings: SettingSources,
+    provider_calls: HashMap<u64, ProviderCall>,
+    /// Last document version each (extension, provider, document) was asked about.
+    provider_seen: HashMap<(String, String, u64), u64>,
+    /// Requests waiting for a cold activation to finish.
+    queued: Vec<u64>,
+    next_request: u64,
+    sources: HashMap<(String, String), u64>,
+    next_source: u64,
 }
 
 /// The setting files as last read.
@@ -247,6 +301,12 @@ impl ExtensionService {
             seen: HashMap::new(),
             next_document: 0,
             settings: SettingSources::default(),
+            provider_calls: HashMap::new(),
+            provider_seen: HashMap::new(),
+            queued: Vec::new(),
+            next_request: 0,
+            sources: HashMap::new(),
+            next_source: 0,
         }
     }
 
@@ -665,7 +725,9 @@ impl ExtensionService {
             let _ = package.lifecycle.stopped();
         }
         self.calls.retain(|_, call| call.extension != id);
-        vec![Effect::Submit(Job::Stop { id: id.to_owned() })]
+        let mut effects = self.clear_sources(id);
+        effects.push(Effect::Submit(Job::Stop { id: id.to_owned() }));
+        effects
     }
 
     pub fn handle_event(&mut self, app: &mut AppState, event: Event) -> Vec<Effect> {
@@ -681,6 +743,11 @@ impl ExtensionService {
                 effects.extend(self.observe(app));
                 effects
             }
+            Event::Provided {
+                id,
+                generation,
+                provided,
+            } => self.provided(app, &id, generation, provided),
             Event::EditRequested {
                 id,
                 generation,
@@ -735,7 +802,29 @@ impl ExtensionService {
                         })
                     })
                 });
-                std::iter::once(initial).chain(runs).collect()
+                let mut effects: Vec<Effect> = std::iter::once(initial).chain(runs).collect();
+                // Provider requests that waited for the start keep the deadline they
+                // were given; one that already ran out is answered as too late.
+                let ready: Vec<u64> = self
+                    .queued
+                    .iter()
+                    .copied()
+                    .filter(|request| {
+                        self.provider_calls
+                            .get(request)
+                            .is_some_and(|call| call.extension == id)
+                    })
+                    .collect();
+                self.queued.retain(|request| !ready.contains(request));
+                for request in ready {
+                    let job = self.provider_calls[&request].job.clone();
+                    effects.push(Effect::Submit(Job::Provide {
+                        id: id.to_owned(),
+                        generation,
+                        job,
+                    }));
+                }
+                effects
             }
             Err(error) => {
                 package.lifecycle.fail(FailureStage::Activation);
@@ -764,7 +853,9 @@ impl ExtensionService {
         package.lifecycle.fail(stage);
         package.last_error = Some(error.to_string());
         self.calls.retain(|_, call| call.extension != id);
-        vec![Effect::Error(format!("{id}: stopped: {error}"))]
+        let mut effects = self.clear_sources(id);
+        effects.push(Effect::Error(format!("{id}: stopped: {error}")));
+        effects
     }
 
     fn edit_requested(
@@ -885,7 +976,11 @@ impl ExtensionService {
     /// rules live in `DocumentStream`: contiguous changes merge, gaps become
     /// a resync, and open/close are boundaries.
     pub fn observe(&mut self, app: &AppState) -> Vec<Effect> {
-        if !self.packages.values().any(|p| subscribed(&p.manifest)) {
+        let has_providers = self
+            .packages
+            .values()
+            .any(|p| p.manifest.has_behaviour() && !p.manifest.contributes.providers.is_empty());
+        if !has_providers && !self.packages.values().any(|p| subscribed(&p.manifest)) {
             return Vec::new();
         }
         let mut current = Vec::new();
@@ -1039,7 +1134,377 @@ impl ExtensionService {
                 _ => {}
             }
         }
+        if has_providers {
+            self.request_diagnostics(app, &current, &mut effects);
+        }
         effects
+    }
+
+    fn source_for(&mut self, extension: &str, provider: &str) -> u64 {
+        let key = (extension.to_owned(), provider.to_owned());
+        if let Some(source) = self.sources.get(&key) {
+            return *source;
+        }
+        self.next_source += 1;
+        let source = EXTERNAL_SOURCE | self.next_source;
+        self.sources.insert(key, source);
+        source
+    }
+
+    /// Withdraw what an extension published; its provider calls are void.
+    fn clear_sources(&mut self, extension: &str) -> Vec<Effect> {
+        self.provider_calls
+            .retain(|_, call| call.extension != extension);
+        self.provider_seen
+            .retain(|(owner, _, _), _| owner != extension);
+        self.queued
+            .retain(|request| self.provider_calls.contains_key(request));
+        self.sources
+            .iter()
+            .filter(|((owner, _), _)| owner == extension)
+            .map(|(_, source)| Effect::ClearDiagnostics { source: *source })
+            .collect()
+    }
+
+    /// Ask one provider about one state of a document. A newer request for the
+    /// same provider and document replaces an older one; waiting for a cold
+    /// activation never extends the deadline fixed here (design §6.3).
+    fn issue(
+        &mut self,
+        owner: &str,
+        provider: &str,
+        kind: WireKind,
+        target: Target,
+        effects: &mut Vec<Effect>,
+    ) {
+        self.next_request += 1;
+        self.next_token += 1;
+        let (request, token) = (self.next_request, self.next_token);
+        let wanted_diagnostics = matches!(kind, WireKind::Diagnostics);
+        self.provider_calls.retain(|_, call| {
+            !(call.extension == owner
+                && call.provider == provider
+                && call.file == target.file
+                && matches!(call.job.kind, WireKind::Diagnostics) == wanted_diagnostics)
+        });
+        self.queued
+            .retain(|queued| self.provider_calls.contains_key(queued));
+        let now = (self.clock)();
+        let limit = if wanted_diagnostics {
+            PROVIDER_DEADLINE_MS
+        } else {
+            FORMAT_DEADLINE_MS
+        };
+        let Some(package) = self.packages.get_mut(owner) else {
+            return;
+        };
+        let generation = package.lifecycle.generation();
+        let job = ProviderJob {
+            request,
+            provider: provider.to_owned(),
+            kind,
+            token,
+            text: target.text.clone(),
+            document: target.doc_id,
+            version: target.version,
+            range: target.range.clone(),
+        };
+        let mut load = None;
+        match package.lifecycle.state() {
+            State::Active => effects.push(Effect::Submit(Job::Provide {
+                id: owner.to_owned(),
+                generation,
+                job: job.clone(),
+            })),
+            State::Dormant => {
+                let _ = package.lifecycle.activating();
+                load = Some(Job::Load {
+                    id: owner.to_owned(),
+                    generation,
+                    component: package.component.clone(),
+                    cache: self.cache.clone(),
+                    limits: self.guest_limits,
+                });
+                self.queued.push(request);
+            }
+            State::Activating => self.queued.push(request),
+            _ => return,
+        }
+        effects.extend(load.map(Effect::Submit));
+        self.provider_calls.insert(
+            request,
+            ProviderCall {
+                extension: owner.to_owned(),
+                generation,
+                provider: provider.to_owned(),
+                file: target.file,
+                stamp: target.stamp,
+                path: target.path,
+                text: target.text,
+                doc_id: target.doc_id,
+                deadline: now + limit,
+                range: target.range,
+                job,
+            },
+        );
+    }
+
+    /// Request formatting from an extension provider for the active document,
+    /// if one is registered for its language. The extension provider wins over
+    /// the language server for that language (one provider, never several).
+    /// \`None\` means no extension provider applies.
+    pub fn request_format(&mut self, app: &AppState, selection_only: bool) -> Option<Vec<Effect>> {
+        let file = app.workspace.active_document()?;
+        let editor = app.workspace.active_editor()?;
+        let document = app.workspace.documents.get(&file)?;
+        let language = document.meta.lang.definition().name.to_string();
+        let mut owners: Vec<&String> = self.packages.keys().collect();
+        owners.sort();
+        let (owner, provider) = owners.into_iter().find_map(|owner| {
+            let package = &self.packages[owner];
+            let allowed = ["documents.read", "workspace.edit", "languages"]
+                .iter()
+                .all(|c| self.authorize(package, c).is_ok());
+            allowed
+                .then(|| {
+                    package
+                        .manifest
+                        .contributes
+                        .providers
+                        .iter()
+                        .find(|p| {
+                            p.kind == DeclKind::Formatting
+                                && p.selector.languages.contains(&language)
+                        })
+                        .map(|p| (owner.clone(), p.id.clone()))
+                })
+                .flatten()
+        })?;
+        let range = if selection_only {
+            editor.selection()
+        } else {
+            None
+        };
+        let doc_id = match self.seen.get(&file) {
+            Some(id) => *id,
+            None => {
+                self.next_document += 1;
+                self.seen.insert(file, self.next_document);
+                self.next_document
+            }
+        };
+        let target = Target {
+            file,
+            stamp: document.stamp(file),
+            path: document.meta.path.clone(),
+            text: document.buffer.text_snapshot(),
+            doc_id,
+            version: document.buffer.version(),
+            range,
+        };
+        let mut effects = Vec::new();
+        self.issue(
+            &owner,
+            &provider,
+            WireKind::Formatting,
+            target,
+            &mut effects,
+        );
+        Some(effects)
+    }
+
+    fn provided(
+        &mut self,
+        app: &mut AppState,
+        id: &str,
+        generation: u64,
+        answer: Provided,
+    ) -> Vec<Effect> {
+        let request = match &answer {
+            Provided::Diagnostics { request, .. } | Provided::Edits { request, .. } => *request,
+        };
+        let Some(call) = self.provider_calls.get(&request) else {
+            return Vec::new();
+        };
+        if call.extension != id || call.generation != generation {
+            return Vec::new();
+        }
+        let call = self.provider_calls.remove(&request).expect("checked above");
+        if !self
+            .packages
+            .get(id)
+            .is_some_and(|p| p.lifecycle.accepts(generation))
+        {
+            return Vec::new();
+        }
+        let formatting = matches!(call.job.kind, WireKind::Formatting);
+        // An answer that came too late, or describes a state that is gone, is
+        // never shown. For diagnostics the current state is asked about again, so
+        // a slow cold start still ends with findings for what is on screen.
+        let too_late = (self.clock)() > call.deadline;
+        let current = app
+            .workspace
+            .documents
+            .get(&call.file)
+            .map(|d| d.stamp(call.file));
+        if too_late || current != Some(call.stamp) {
+            self.provider_seen.remove(&(
+                call.extension.clone(),
+                call.provider.clone(),
+                call.doc_id,
+            ));
+            if formatting {
+                return vec![Effect::Error(if too_late {
+                    "Format: the provider answered too late".into()
+                } else {
+                    "Format: the document changed while the provider worked".into()
+                })];
+            }
+            let mut effects = Vec::new();
+            if let Some(document) = app.workspace.documents.get(&call.file) {
+                let version = document.buffer.version();
+                self.provider_seen.insert(
+                    (call.extension.clone(), call.provider.clone(), call.doc_id),
+                    version,
+                );
+                let target = Target {
+                    file: call.file,
+                    stamp: document.stamp(call.file),
+                    path: call.path.clone(),
+                    text: document.buffer.text_snapshot(),
+                    doc_id: call.doc_id,
+                    version,
+                    range: None,
+                };
+                self.issue(
+                    &call.extension,
+                    &call.provider,
+                    WireKind::Diagnostics,
+                    target,
+                    &mut effects,
+                );
+            }
+            return effects;
+        }
+        match answer {
+            Provided::Diagnostics { items, .. } if !formatting => {
+                let reported: Vec<Reported> = items
+                    .into_iter()
+                    .map(|d| Reported {
+                        start: d.range.start as usize,
+                        end: d.range.end as usize,
+                        severity: d.severity,
+                        message: d.message,
+                        source: d.source,
+                        code: d.code,
+                    })
+                    .collect();
+                let converted = providers::convert(&call.text, &reported, &call.provider);
+                let source = self.source_for(&call.extension, &call.provider);
+                let mut effects = vec![Effect::PublishDiagnostics {
+                    source,
+                    path: call.path.clone(),
+                    stamp: Stamp {
+                        incarnation: call.stamp.incarnation,
+                        version: call.stamp.version,
+                    },
+                    text: call.text.clone(),
+                    items: converted.diagnostics,
+                }];
+                if converted.dropped > 0 {
+                    if let Some(package) = self.packages.get_mut(id) {
+                        package.logs.push((
+                            1,
+                            format!(
+                                "{} diagnostic(s) could not be placed and were dropped",
+                                converted.dropped
+                            ),
+                        ));
+                    }
+                }
+                effects.shrink_to_fit();
+                effects
+            }
+            Provided::Edits { edits, .. } if formatting => {
+                let mut changes: Vec<(Range<usize>, String)> = edits
+                    .into_iter()
+                    .map(|e| (e.range.start as usize..e.range.end as usize, e.text))
+                    .collect();
+                if let Some(range) = &call.range {
+                    changes = providers::within(changes, range);
+                }
+                if changes.is_empty() {
+                    return vec![Effect::Toast("Format: nothing to change".into())];
+                }
+                let transaction = TextTransaction {
+                    title: "Format".into(),
+                    documents: vec![DocumentChange {
+                        file: call.file,
+                        stamp: call.stamp,
+                        edits: changes,
+                    }],
+                };
+                match workspace_edits::commit(app, &transaction, &self.limits) {
+                    Ok(_) => Vec::new(),
+                    Err(error) => vec![Effect::Error(format!("Format: {error}"))],
+                }
+            }
+            _ => vec![Effect::Error(format!(
+                "{id}: the answer does not match the request"
+            ))],
+        }
+    }
+
+    /// Ask diagnostics providers about documents whose state they have not seen.
+    fn request_diagnostics(
+        &mut self,
+        app: &AppState,
+        current: &[(FileId, String, String, u64)],
+        effects: &mut Vec<Effect>,
+    ) {
+        let owners: Vec<(String, String, Vec<String>)> = self
+            .packages
+            .iter()
+            .filter(|(_, p)| {
+                ["documents.read", "languages"]
+                    .iter()
+                    .all(|c| self.authorize(p, c).is_ok())
+            })
+            .flat_map(|(owner, p)| {
+                p.manifest
+                    .contributes
+                    .providers
+                    .iter()
+                    .filter(|d| d.kind == DeclKind::Diagnostics)
+                    .map(move |d| (owner.clone(), d.id.clone(), d.selector.languages.clone()))
+            })
+            .collect();
+        for (file, path, language, version) in current {
+            let Some(doc_id) = self.seen.get(file).copied() else {
+                continue;
+            };
+            for (owner, provider, languages) in &owners {
+                if !languages.contains(language) {
+                    continue;
+                }
+                let key = (owner.clone(), provider.clone(), doc_id);
+                if self.provider_seen.get(&key) == Some(version) {
+                    continue;
+                }
+                self.provider_seen.insert(key, *version);
+                let document = &app.workspace.documents[file];
+                let target = Target {
+                    file: *file,
+                    stamp: document.stamp(*file),
+                    path: PathBuf::from(path),
+                    text: document.buffer.text_snapshot(),
+                    doc_id,
+                    version: *version,
+                    range: None,
+                };
+                self.issue(owner, provider, WireKind::Diagnostics, target, effects);
+            }
+        }
     }
 
     /// End of a command call: its snapshot leases are released.

@@ -9,7 +9,8 @@ pub mod trust_store;
 use loom_extension_api::{ErrorKind, ExtensionError};
 use loom_extension_host::{
     AcceptedEdit, ByteRange, CommandContext, CommittedReceipt, Completion, HostError, Inbound,
-    Instance, Limits, RoundStatus, Runtime, Selection, WitErrorKind,
+    Instance, Limits, Provided, ProviderKind, ProviderRequest, RoundStatus, Runtime, Selection,
+    WitErrorKind,
 };
 use std::collections::HashMap;
 use std::ops::Range;
@@ -21,6 +22,19 @@ use std::thread::JoinHandle;
 /// Rounds in a row the executor gives one instance when it keeps reporting
 /// `runnable`, before other instances and controls get their turn.
 const MAX_CONSECUTIVE_ROUNDS: usize = 8;
+
+/// A request to a registered provider for one state of one document.
+#[derive(Clone, Debug)]
+pub struct ProviderJob {
+    pub request: u64,
+    pub provider: String,
+    pub kind: ProviderKind,
+    pub token: u64,
+    pub text: Arc<String>,
+    pub document: u64,
+    pub version: u64,
+    pub range: Option<Range<usize>>,
+}
 
 /// What the application tells an instance happened to an operation.
 #[derive(Clone, Debug)]
@@ -65,6 +79,12 @@ pub enum Job {
         generation: u64,
         call: u64,
     },
+    /// Ask a provider; the answer comes back as [`Event::Provided`].
+    Provide {
+        id: String,
+        generation: u64,
+        job: ProviderJob,
+    },
     /// New resolved setting values; `changed` lists the keys whose value differs.
     Settings {
         id: String,
@@ -96,6 +116,13 @@ pub enum Event {
         id: String,
         generation: u64,
         edit: AcceptedEdit,
+    },
+    /// A provider answered. The application decides whether the answer is
+    /// still current before using it.
+    Provided {
+        id: String,
+        generation: u64,
+        provided: Provided,
     },
     /// The instance trapped or ran past a limit; it has been dropped.
     Failed {
@@ -264,6 +291,29 @@ impl Worker {
                 } => {
                     self.deliver(&id, generation, vec![Inbound::Cancel(call)]);
                 }
+                Job::Provide {
+                    id,
+                    generation,
+                    job,
+                } => {
+                    let message = Inbound::ProviderRequest(ProviderRequest {
+                        request: job.request,
+                        provider: job.provider,
+                        kind: job.kind,
+                        snapshot: job.token,
+                        document: job.document,
+                        version: job.version,
+                        length: job.text.len() as u64,
+                        range: job.range.map(|range| ByteRange {
+                            start: range.start as u64,
+                            end: range.end as u64,
+                        }),
+                    });
+                    if let Some(slot) = self.slot(&id, generation) {
+                        slot.instance.put_snapshot(job.token, job.text);
+                    }
+                    self.deliver(&id, generation, vec![message]);
+                }
                 Job::Settings {
                     id,
                     generation,
@@ -348,11 +398,19 @@ impl Worker {
             let status = slot.instance.dispatch(&batch);
             let accepted = slot.instance.take_accepted();
             let logs = slot.instance.take_logs();
+            let provided = slot.instance.take_provided();
             for (level, text) in logs {
                 (self.sink)(Event::Log {
                     id: id.to_owned(),
                     level,
                     text,
+                });
+            }
+            for answer in provided {
+                (self.sink)(Event::Provided {
+                    id: id.to_owned(),
+                    generation,
+                    provided: answer,
                 });
             }
             for edit in accepted {

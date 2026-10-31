@@ -785,6 +785,62 @@ fn an_untrusted_root_never_starts_its_server_until_the_gate_opens() {
 }
 
 #[test]
+fn findings_from_an_extension_show_for_their_state_survive_server_housekeeping_and_can_be_withdrawn()
+ {
+    use crate::features::language_service::diagnostics::{Diagnostic, Severity};
+    let f = Fixture::new(&[]);
+    let document = f.doc("ext.fk", 3, "hello TODO");
+    f.show(vec![document.clone()]);
+    f.wait_status("ready", |s| *s == Status::Ready);
+
+    let source = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE | 7;
+    let finding = Diagnostic {
+        range: 6..10,
+        severity: Severity::Warning,
+        message: "TODO found".into(),
+        source: Some("example.tools.todo".into()),
+        code: None,
+        extra: serde_json::Value::Null,
+    };
+    f.mgr().publish_external(
+        source,
+        &document.path,
+        document.stamp,
+        document.text.clone(),
+        vec![finding.clone()].into(),
+    );
+    let shown = f.wait_for("the extension finding", || {
+        f.mgr().results(&document.path, document.stamp).diagnostics
+    });
+    assert_eq!(shown.as_ref(), std::slice::from_ref(&finding));
+
+    // For any other state of the document it is not shown as current.
+    let later = crate::features::language_service::sync::Stamp {
+        incarnation: document.stamp.incarnation,
+        version: document.stamp.version + 1,
+    };
+    assert!(f.mgr().results(&document.path, later).diagnostics.is_none());
+
+    // Server bookkeeping (documents changing hands) does not drop it.
+    f.show(vec![f.doc("ext.fk", 3, "hello TODO")]);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        f.mgr()
+            .results(&document.path, document.stamp)
+            .diagnostics
+            .is_some()
+    );
+
+    f.mgr().clear_external(source);
+    assert!(
+        f.mgr()
+            .results(&document.path, document.stamp)
+            .diagnostics
+            .is_none()
+    );
+}
+
+#[test]
 fn a_missing_program_is_unavailable_and_not_retried() {
     let missing = std::env::temp_dir().join("loom-no-such-server");
     let f = Fixture::with_servers(

@@ -263,6 +263,13 @@ pub fn execute(state: &AppContext, instance: u64, command: Command, rect: UiRect
 // ---- formatting ------------------------------------------------------------
 
 pub fn format(state: &AppContext, rect: UiRect, selection_only: bool) {
+    // An extension provider registered for the language formats instead of the
+    // language server: one provider, never several.
+    if let Some(host) = state.services().and_then(|runtime| runtime.extensions()) {
+        if host.format(state, selection_only) {
+            return;
+        }
+    }
     let app = state.get();
     let pane = app.workspace.active_pane();
     let Some(t) = target(&app, pane) else { return };

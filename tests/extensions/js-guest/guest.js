@@ -70,6 +70,31 @@ export const guest = {
         case 'document-changed': host.log(0, `changed ${message.val.document} ${message.val.fromVersion}->${message.val.toVersion} x${message.val.edits}`); break;
         case 'document-resync': host.log(0, `resync ${message.val.document} v${message.val.version}`); break;
         case 'document-closed': host.log(0, `closed ${message.val.document} life ${message.val.lifecycle}`); break;
+        case 'provider-request': {
+          const request = message.val;
+          const text = host.readRange(request.snapshot, { start: 0n, end: request.length });
+          if (request.kind === 'diagnostics') {
+            const items = [];
+            for (let at = text.indexOf('TODO'); at >= 0; at = text.indexOf('TODO', at + 4)) {
+              items.push({ range: { start: BigInt(at), end: BigInt(at + 4) }, severity: 2, message: 'TODO found', source: request.provider });
+            }
+            host.provideDiagnostics(request.request, items);
+          } else {
+            const edits = [];
+            let offset = 0;
+            for (const line of text.split(/(?<=\n)/)) {
+              const body = line.replace(/[\r\n]+$/, '');
+              const trimmed = body.replace(/[ \t]+$/, '');
+              if (trimmed.length !== body.length) {
+                edits.push({ range: { start: BigInt(offset + trimmed.length), end: BigInt(offset + body.length) }, text: '' });
+              }
+              offset += line.length;
+            }
+            host.provideEdits(request.request, edits);
+          }
+          host.releaseSnapshot(request.snapshot);
+          break;
+        }
         case 'settings-changed':
           for (const key of message.val) host.log(0, `setting ${key}=${host.getSetting(key) ?? ''}`);
           break;

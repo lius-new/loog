@@ -13,6 +13,7 @@ struct Inner {
     executor: OnceLock<Executor>,
     trust: Arc<TrustStore>,
     user_settings: Option<PathBuf>,
+    context: AppContext,
 }
 
 fn read_json(path: &Path) -> Option<serde_json::Value> {
@@ -26,6 +27,30 @@ impl Inner {
                 Effect::Submit(job) => {
                     if let Some(executor) = self.executor.get() {
                         executor.submit(job);
+                    }
+                }
+                Effect::PublishDiagnostics {
+                    source,
+                    path,
+                    stamp,
+                    text,
+                    items,
+                } => {
+                    if let Some(services) = self
+                        .context
+                        .services()
+                        .and_then(|runtime| runtime.language_services())
+                    {
+                        services.publish_external(source, &path, stamp, text, items.into());
+                    }
+                }
+                Effect::ClearDiagnostics { source } => {
+                    if let Some(services) = self
+                        .context
+                        .services()
+                        .and_then(|runtime| runtime.language_services())
+                    {
+                        services.clear_external(source);
                     }
                 }
                 Effect::Toast(message) => app.show_toast(message),
@@ -54,6 +79,7 @@ impl ExtensionHost {
             executor: OnceLock::new(),
             trust,
             user_settings,
+            context: context.clone(),
         });
         let sink_inner = inner.clone();
         let executor = Executor::spawn(Box::new(move |event: Event| {
@@ -128,6 +154,25 @@ impl ExtensionHost {
                 executor.submit(job);
             }
         }
+    }
+
+    /// Format the active document with an extension provider if one is
+    /// registered for its language. Returns whether a provider took the request.
+    pub(crate) fn format(&self, context: &AppContext, selection_only: bool) -> bool {
+        let mut handled = false;
+        context.update(|app| {
+            let request = self
+                .inner
+                .service
+                .lock()
+                .unwrap()
+                .request_format(app, selection_only);
+            if let Some(effects) = request {
+                handled = true;
+                self.inner.apply(app, effects);
+            }
+        });
+        handled
     }
 
     /// Reload every package from disk; failures are shown, nothing is replayed.

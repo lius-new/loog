@@ -88,6 +88,22 @@ impl LanguageServices {
         self.manager.cancel_install(server, generation);
     }
 
+    pub fn publish_external(
+        &self,
+        source: u64,
+        path: &std::path::Path,
+        stamp: crate::features::language_service::sync::Stamp,
+        text: Arc<String>,
+        diagnostics: Arc<[crate::features::language_service::diagnostics::Diagnostic]>,
+    ) {
+        self.manager
+            .publish_external(source, path, stamp, text, diagnostics);
+    }
+
+    pub fn clear_external(&self, source: u64) {
+        self.manager.clear_external(source);
+    }
+
     pub fn restart(&self) {
         self.manager.restart();
     }

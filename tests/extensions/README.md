@@ -66,3 +66,14 @@ at start and on reload.
 No source maps or debugger integration yet; the guests keep line tables only.
 Settings files are not watched. Only the first workspace folder supplies project
 settings. Linux and macOS are not yet verified.
+
+## Providers
+
+Declare providers under `contributes.providers` (`diagnostics` and `formatting`
+are served; `completion` and `code-actions` are accepted by the manifest but not
+routed yet). A document in a selected language wakes the extension and the
+host sends a `provider-request` for that exact document state; answer it with
+`provide-diagnostics` or `provide-edits`. An answer that arrives late or for an
+older state is discarded and the current state is asked again. When a formatting
+provider matches the language, `editor::Format` uses it instead of the language
+server.
