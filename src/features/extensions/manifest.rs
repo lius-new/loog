@@ -30,7 +30,64 @@ pub struct Manifest {
     /// Hosts the extension asks to reach; needs the `network` capability.
     #[serde(default)]
     pub network: Option<NetworkDecl>,
+    // What people see before and after installing: the extensions page and the
+    // import both read these. A folder used for development may omit them; a
+    // package that is built for distribution may not ([`Manifest::publishing_problems`]).
+    /// The name shown to people; the id is only the identity.
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub publisher: Option<String>,
+    /// One sentence: what it is for.
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    /// An SPDX license expression such as `MIT` or `Apache-2.0 OR MIT`.
+    #[serde(default)]
+    pub license: Option<String>,
+    #[serde(default)]
+    pub repository: Option<String>,
+    #[serde(default)]
+    pub homepage: Option<String>,
+    /// Package-relative paths of the icon (PNG or SVG), the long description
+    /// and the version history (Markdown).
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub readme: Option<String>,
+    #[serde(default)]
+    pub changelog: Option<String>,
+    #[serde(default)]
+    pub engines: Option<Engines>,
 }
+
+/// What the extension needs from the application.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Engines {
+    /// The oldest Loom version that can run it, `major.minor.patch`.
+    pub loom: String,
+}
+
+/// The categories an extension may list (at most three).
+pub const CATEGORIES: &[&str] = &[
+    "Themes",
+    "Languages",
+    "Snippets",
+    "Linters",
+    "Formatters",
+    "Editing",
+    "Source control",
+    "Productivity",
+    "Other",
+];
+
+/// Largest icon, and largest README or changelog, a package may carry.
+pub const MAX_ICON_BYTES: u64 = 256 * 1024;
+pub const MAX_DOCUMENT_BYTES: u64 = 512 * 1024;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -185,6 +242,8 @@ pub enum ManifestError {
     },
     /// A server is a program the machine runs, so the package must ask for that.
     ServerNeedsExecution(String),
+    /// A display field (name, categories, license, ...) is not usable.
+    BadMetadata(String),
 }
 
 impl std::fmt::Display for ManifestError {
@@ -221,6 +280,7 @@ impl std::fmt::Display for ManifestError {
                 f,
                 "language server `{id}` runs a program, so the package must declare `process.execute-local`"
             ),
+            Self::BadMetadata(problem) => write!(f, "{problem}"),
             Self::BadSettingDefault(key) => {
                 write!(f, "the default of setting `{key}` has the wrong type")
             }
@@ -303,8 +363,181 @@ impl Manifest {
                 }
             }
         }
+        self.validate_display()?;
         self.validate_contributions()?;
         self.validate_activation()
+    }
+
+    /// The display fields that are present must be usable as they are.
+    fn validate_display(&self) -> Result<(), ManifestError> {
+        let bad = |problem: String| Err(ManifestError::BadMetadata(problem));
+        let text = |field: &str, value: &Option<String>, max: usize| match value {
+            Some(value) if value.trim().is_empty() || value.chars().count() > max => Err(
+                ManifestError::BadMetadata(format!("`{field}` must be 1 to {max} characters")),
+            ),
+            Some(value) if value.contains(['\n', '\r', '\0']) => Err(ManifestError::BadMetadata(
+                format!("`{field}` must be a single line"),
+            )),
+            _ => Ok(()),
+        };
+        text("name", &self.name, 60)?;
+        text("publisher", &self.publisher, 60)?;
+        text("description", &self.description, 200)?;
+        text("license", &self.license, 100)?;
+        if self.categories.len() > 3 {
+            return bad("`categories` lists more than three".to_owned());
+        }
+        if let Some(category) = self
+            .categories
+            .iter()
+            .find(|category| !CATEGORIES.contains(&category.as_str()))
+        {
+            return bad(format!(
+                "`{category}` is not a category; use one of {}",
+                CATEGORIES.join(", ")
+            ));
+        }
+        if self.keywords.len() > 10
+            || self
+                .keywords
+                .iter()
+                .any(|keyword| keyword.trim().is_empty() || keyword.chars().count() > 30)
+        {
+            return bad("`keywords` allows at most ten words of up to 30 characters".to_owned());
+        }
+        for (field, value) in [
+            ("repository", &self.repository),
+            ("homepage", &self.homepage),
+        ] {
+            if let Some(url) = value
+                && (!url.starts_with("https://")
+                    || url.len() > 300
+                    || url.contains(char::is_whitespace))
+            {
+                return bad(format!("`{field}` must be an https:// address"));
+            }
+        }
+        for (field, path) in [
+            ("icon", &self.icon),
+            ("readme", &self.readme),
+            ("changelog", &self.changelog),
+        ] {
+            if let Some(path) = path {
+                check_package_path(path)?;
+                let lower = path.to_ascii_lowercase();
+                let fits = match field {
+                    "icon" => lower.ends_with(".png") || lower.ends_with(".svg"),
+                    _ => lower.ends_with(".md"),
+                };
+                if !fits {
+                    return bad(format!(
+                        "`{field}` must be a {} file",
+                        if field == "icon" {
+                            "PNG or SVG"
+                        } else {
+                            "Markdown"
+                        }
+                    ));
+                }
+            }
+        }
+        if let Some(engines) = &self.engines
+            && !valid_version(&engines.loom)
+        {
+            return bad("`engines.loom` must look like 0.1.8".to_owned());
+        }
+        Ok(())
+    }
+
+    /// What is missing for this manifest to be built into a distributable
+    /// package, so that the extensions page and the import can show everything
+    /// about it. `size_of` gives the size of a package file, or `None` when the
+    /// file is not there. Every problem is listed, not only the first.
+    pub fn publishing_problems(&self, size_of: impl Fn(&str) -> Option<u64>) -> Vec<String> {
+        let mut problems = Vec::new();
+        let mut need = |present: bool, field: &str, hint: &str| {
+            if !present {
+                problems.push(format!("`{field}` is missing: {hint}"));
+            }
+        };
+        need(self.name.is_some(), "name", "the name people see");
+        need(self.publisher.is_some(), "publisher", "who publishes it");
+        need(
+            self.description.is_some(),
+            "description",
+            "one sentence about what it does",
+        );
+        need(
+            !self.categories.is_empty(),
+            "categories",
+            "one to three of the allowed categories",
+        );
+        need(
+            self.license.is_some(),
+            "license",
+            "an SPDX license such as MIT",
+        );
+        need(
+            self.repository.is_some(),
+            "repository",
+            "an https:// address",
+        );
+        need(
+            self.icon.is_some(),
+            "icon",
+            "a PNG or SVG file in the package",
+        );
+        need(
+            self.readme.is_some(),
+            "readme",
+            "a Markdown file in the package",
+        );
+        need(
+            self.changelog.is_some(),
+            "changelog",
+            "a Markdown file in the package",
+        );
+        need(
+            self.engines.is_some(),
+            "engines.loom",
+            "the oldest Loom version it runs on",
+        );
+        for (field, path, limit) in [
+            ("icon", &self.icon, MAX_ICON_BYTES),
+            ("readme", &self.readme, MAX_DOCUMENT_BYTES),
+            ("changelog", &self.changelog, MAX_DOCUMENT_BYTES),
+        ] {
+            let Some(path) = path else { continue };
+            match size_of(path) {
+                None => problems.push(format!("`{field}`: {path} is not in the package")),
+                Some(0) => problems.push(format!("`{field}`: {path} is empty")),
+                Some(size) if size > limit => problems.push(format!(
+                    "`{field}`: {path} is larger than {} KiB",
+                    limit / 1024
+                )),
+                Some(_) => {}
+            }
+        }
+        problems
+    }
+
+    /// Whether a Loom of version `current` meets `engines.loom`.
+    pub fn runs_on(&self, current: &str) -> bool {
+        let Some(engines) = &self.engines else {
+            return true;
+        };
+        let parse = |version: &str| -> Option<Vec<u64>> {
+            version
+                .split(['-', '+'])
+                .next()?
+                .split('.')
+                .map(|part| part.parse().ok())
+                .collect()
+        };
+        match (parse(current), parse(&engines.loom)) {
+            (Some(current), Some(required)) => current >= required,
+            _ => false,
+        }
     }
 
     fn namespaced(&self, item: &str) -> Result<(), ManifestError> {
@@ -626,6 +859,94 @@ mod tests {
             Manifest::parse(&without),
             Err(ManifestError::ServerNeedsExecution(_))
         ));
+    }
+
+    const COMPLETE: &str = r##"{
+        "schema": 1, "id": "acme.night", "version": "1.2.0",
+        "name": "Acme Night", "publisher": "Acme", "description": "A quieter palette.",
+        "categories": ["Themes"], "keywords": ["dark"], "license": "MIT",
+        "repository": "https://example.com/acme/night", "icon": "icon.svg",
+        "readme": "README.md", "changelog": "CHANGELOG.md", "engines": { "loom": "0.1.8" },
+        "contributes": { "themes": [{ "id": "acme.night.dark", "path": "themes/dark.json" }] }
+    }"##;
+
+    fn sizes(path: &str) -> Option<u64> {
+        ["icon.svg", "README.md", "CHANGELOG.md"]
+            .contains(&path)
+            .then_some(100)
+    }
+
+    #[test]
+    fn a_complete_manifest_has_nothing_missing_and_knows_which_loom_runs_it() {
+        let manifest = Manifest::parse(COMPLETE).unwrap();
+        assert!(manifest.publishing_problems(sizes).is_empty());
+        assert!(
+            manifest.runs_on("0.1.8") && manifest.runs_on("0.2.0") && manifest.runs_on("1.0.0")
+        );
+        assert!(!manifest.runs_on("0.1.7"));
+        // A development manifest without the fields still loads, and says what it lacks.
+        let bare = Manifest::parse(r#"{ "schema": 1, "id": "a.b", "version": "0.1.0" }"#).unwrap();
+        assert!(bare.runs_on("0.0.1"));
+        let missing = bare.publishing_problems(|_| None);
+        for field in [
+            "name",
+            "publisher",
+            "description",
+            "categories",
+            "license",
+            "repository",
+            "icon",
+            "readme",
+            "changelog",
+            "engines.loom",
+        ] {
+            assert!(
+                missing.iter().any(|p| p.starts_with(&format!("`{field}`"))),
+                "{field}: {missing:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn display_fields_that_are_present_must_be_usable() {
+        for (from, to, expected) in [
+            ("\"Themes\"", "\"Nonsense\"", "is not a category"),
+            (
+                "[\"Themes\"]",
+                "[\"Themes\",\"Editing\",\"Linters\",\"Other\"]",
+                "more than three",
+            ),
+            ("\"MIT\"", "\"\"", "`license`"),
+            ("\"Acme Night\"", "\"Line\\nbreak\"", "single line"),
+            (
+                "https://example.com/acme/night",
+                "http://example.com",
+                "https://",
+            ),
+            ("icon.svg", "icon.gif", "PNG or SVG"),
+            ("README.md", "README.txt", "Markdown"),
+            ("README.md", "../README.md", "stay inside"),
+            ("0.1.8", "latest", "engines.loom"),
+        ] {
+            let error = Manifest::parse(&COMPLETE.replace(from, to))
+                .err()
+                .unwrap_or_else(|| panic!("{to} was accepted"));
+            assert!(error.to_string().contains(expected), "{to}: {error}");
+        }
+    }
+
+    #[test]
+    fn a_missing_empty_or_oversized_document_is_reported() {
+        let manifest = Manifest::parse(COMPLETE).unwrap();
+        let problems = manifest.publishing_problems(|path| match path {
+            "icon.svg" => None,
+            "README.md" => Some(0),
+            _ => Some(MAX_DOCUMENT_BYTES + 1),
+        });
+        assert_eq!(problems.len(), 3, "{problems:?}");
+        assert!(problems[0].contains("icon.svg is not in the package"));
+        assert!(problems[1].contains("README.md is empty"));
+        assert!(problems[2].contains("CHANGELOG.md is larger than 512 KiB"));
     }
 
     #[test]

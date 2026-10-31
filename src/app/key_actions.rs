@@ -432,6 +432,25 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             }
             true
         }
+        Action::ImportExtension => {
+            match env
+                .state
+                .services()
+                .and_then(|runtime| runtime.extensions())
+            {
+                Some(host) => {
+                    if let Some(package) =
+                        crate::infrastructure::file_dialogs::pick_extension_package()
+                    {
+                        host.import(&env.state, &package);
+                    }
+                }
+                None => env
+                    .state
+                    .update(|app| app.show_error("Extensions are not available")),
+            }
+            true
+        }
         Action::RetryExtensions | Action::StopExtensions => {
             match env
                 .state

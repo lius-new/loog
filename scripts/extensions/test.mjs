@@ -32,6 +32,7 @@ if (!quick) {
   run('TypeScript SDK: unit tests', process.execPath, ['--test', 'sdk/typescript/test/sdk.test.ts']);
   run('host: TypeScript guest', 'cargo', ['test', '--locked', '--release', '-p', 'loom-extension-host', '--test', 'ts_guest']);
 }
+run('packaging script', process.execPath, ['--test', 'scripts/extensions/package/pack.test.mjs']);
 run('application integration', 'cargo', [
   'test', '--locked', '--bin', 'Loom', '--',
   'app::extensions', 'app::workspace_edits', 'features::extensions', 'infrastructure::extensions',

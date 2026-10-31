@@ -6,6 +6,7 @@
 //! typed values and opaque ids (design §5, last layering rule).
 pub mod fileops;
 pub mod http;
+pub mod package;
 pub mod ports;
 pub mod tasks;
 pub mod trust_store;

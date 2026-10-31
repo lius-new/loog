@@ -146,3 +146,82 @@ fn the_sample_language_extension_is_found_at_startup_and_highlights_with_its_mod
         0x86efac
     );
 }
+
+/// What a person sees of an extension before and after installing it: all of it
+/// comes from the manifest and the files it names.
+#[test]
+fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let work = std::env::temp_dir().join(format!("loom-pack-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&work);
+    let installed = work.join("extensions");
+    let mut packed = Vec::new();
+    for folder in ["loom-midnight", "loom-properties"] {
+        let output = std::process::Command::new("node")
+            .arg(root.join("scripts/extensions/package/pack.mjs"))
+            .arg(samples().join(folder))
+            .arg("--out")
+            .arg(work.join("out"))
+            .output()
+            .expect("node is available");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        packed.push(
+            std::fs::read_dir(work.join("out"))
+                .unwrap()
+                .flatten()
+                .map(|e| e.path())
+                .find(|p| {
+                    p.extension().is_some_and(|x| x == "loomext")
+                        && p.file_name().is_some_and(|n| {
+                            n.to_string_lossy()
+                                .contains(&folder.replace("loom-", "loom."))
+                        })
+                })
+                .expect("the package was written"),
+        );
+    }
+
+    let mut service = service("packed");
+    for archive in &packed {
+        let imported = crate::infrastructure::extensions::package::import(
+            archive,
+            &installed,
+            env!("CARGO_PKG_VERSION"),
+        )
+        .unwrap();
+        // The sidecar the script wrote is the digest the importer computed.
+        let sidecar = std::fs::read_to_string(format!("{}.sha256", archive.display())).unwrap();
+        assert!(sidecar.starts_with(&imported.sha256), "{sidecar}");
+        let id = service.load_package(&imported.directory).unwrap();
+        let package = service.package(&id).unwrap();
+        assert!(
+            package.resources.rejected.is_empty(),
+            "{:?}",
+            package.resources.rejected
+        );
+        let m = &package.manifest;
+        // Everything the extensions page shows is there, and the files it points at too.
+        for field in [
+            &m.name,
+            &m.publisher,
+            &m.description,
+            &m.license,
+            &m.repository,
+        ] {
+            assert!(field.as_deref().is_some_and(|text| !text.is_empty()));
+        }
+        assert!(!m.categories.is_empty());
+        for path in [&m.icon, &m.readme, &m.changelog] {
+            let file = imported.directory.join(path.as_ref().unwrap());
+            assert!(std::fs::metadata(file).unwrap().len() > 0);
+        }
+        assert!(m.runs_on(env!("CARGO_PKG_VERSION")));
+    }
+    // The language pack inside the installed extension is found at startup.
+    assert_eq!(extension_packs(&installed).len(), 1);
+    let _ = std::fs::remove_dir_all(&work);
+}

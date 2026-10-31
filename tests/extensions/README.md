@@ -12,6 +12,14 @@ them the way the application does and highlights real text with the grammar, so
 a break in loading, themes or syntax highlighting for extensions shows up as a
 failing test.
 
+## Pack and import an extension
+
+`node scripts/extensions/package/pack.mjs <folder>` builds a `.loomext` package;
+`workspace::ImportExtension` installs one. The manifest must carry the name,
+publisher, description, categories, license, repository, icon, readme, changelog
+and the oldest Loom version, because the extensions page and the import show
+them. See `scripts/extensions/package/README.md`.
+
 ## Write an extension in TypeScript
 
 `sdk/typescript` is the TypeScript SDK: types generated from the contract, a

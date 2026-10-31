@@ -630,6 +630,60 @@ impl ExtensionHost {
         });
     }
 
+    /// Install the extension package `archive` and start using it. The result is
+    /// shown as a message: what was installed, or why it was not.
+    pub(crate) fn import(&self, context: &AppContext, archive: &Path) {
+        let Some(directory) =
+            crate::infrastructure::language_packs::user_resource_directory("extensions")
+        else {
+            context
+                .update(|app| app.show_error("There is no folder for extensions on this system"));
+            return;
+        };
+        let imported = crate::infrastructure::extensions::package::import(
+            archive,
+            &directory,
+            env!("CARGO_PKG_VERSION"),
+        );
+        context.update(|app| match imported {
+            Err(error) => {
+                app.show_error(format!("Could not import {}: {error}", archive.display()))
+            }
+            Ok(done) => {
+                let mut service = self.inner.service.lock().unwrap();
+                let loaded = if service.package(&done.id).is_some() {
+                    service.reload(&done.id).map(|effects| {
+                        self.inner.apply(app, effects);
+                    })
+                } else {
+                    service
+                        .load_package(&done.directory)
+                        .map(|id| service.grant_declared(&id))
+                };
+                drop(service);
+                self.refresh_settings(app);
+                app.show_toast(match loaded {
+                    Err(error) => format!("Imported {} but could not load it: {error}", done.name),
+                    Ok(()) => format!(
+                        "{} {} {}{}",
+                        if done.replaced.is_some() {
+                            "Updated"
+                        } else {
+                            "Imported"
+                        },
+                        done.name,
+                        done.version,
+                        if done.needs_restart {
+                            " (restart Loom to use its language)"
+                        } else {
+                            ""
+                        }
+                    ),
+                });
+            }
+        });
+    }
+
     /// Give every failed extension a new generation; it starts again when it is next needed.
     pub(crate) fn retry_failed(&self, context: &AppContext) {
         context.update(|app| {
