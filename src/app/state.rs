@@ -50,6 +50,7 @@ pub enum MainSurface {
     Diff,
     Settings,
     Keymap,
+    Extensions,
 }
 
 pub use chrome::{DrawerChrome, SidebarChrome};
@@ -78,6 +79,8 @@ pub struct AppState {
     pub keymap: crate::features::keymap::model::Model,
     /// Filter typed into the Keymap page.
     pub keymap_ui: crate::ui::keymap_binding::KeymapUiState,
+    /// Search, source, selection and tab of the Extensions page.
+    pub extensions_ui: crate::ui::extensions_binding::ExtensionsUiState,
     /// Release checks and the title bar update button.
     pub update: crate::features::update::Model,
 }
@@ -125,6 +128,7 @@ impl AppState {
 
             keymap: Default::default(),
             keymap_ui: Default::default(),
+            extensions_ui: Default::default(),
             update: Default::default(),
         }
     }
@@ -557,6 +561,9 @@ impl AppState {
             Action::OpenKeymap => {
                 self.workspace.open_keymap();
             }
+            Action::OpenExtensions => {
+                self.workspace.open_extensions();
+            }
             Action::IncreaseFontSize | Action::DecreaseFontSize | Action::ResetFontSize => {
                 let terminal = self.terminal.ui.terminal_focused;
                 let (mut font, default_size) = if terminal {
@@ -674,6 +681,7 @@ impl AppState {
             match page {
                 AppPage::Settings => MainSurface::Settings,
                 AppPage::Keymap => MainSurface::Keymap,
+                AppPage::Extensions => MainSurface::Extensions,
             }
         } else if self.workspace.diff(pane).is_some() {
             MainSurface::Diff

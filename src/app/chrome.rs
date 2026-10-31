@@ -11,6 +11,7 @@ pub fn title_binding(state: &AppContext, terminal: Option<TerminalToggle>) -> Ti
     use crate::ui::chrome::PanelToggle;
     let reader = state.clone();
     let writer = state.clone();
+    let extensions = state.clone();
     let updater = state.clone();
     let toggler = state.clone();
     TitleBinding::new(
@@ -18,6 +19,9 @@ pub fn title_binding(state: &AppContext, terminal: Option<TerminalToggle>) -> Ti
             let app = reader.get();
             TitleFrame {
                 settings_open: app.workspace.active_is_settings(),
+                extensions_open: app.workspace.active_page()
+                    == Some(crate::app::workspace::AppPage::Extensions),
+                extensions_attention: crate::app::extensions_view::needs_attention(),
                 maximized: crate::app::window::is_maximized(),
                 update: app.update.indicator(),
                 drawer_open: app.drawer.visible,
@@ -26,6 +30,7 @@ pub fn title_binding(state: &AppContext, terminal: Option<TerminalToggle>) -> Ti
             }
         },
         move || writer.update(|app| app.apply(Action::OpenSettings)),
+        move || extensions.update(|app| app.apply(Action::OpenExtensions)),
         move || crate::app::update::activate(&updater),
         move |panel| match panel {
             PanelToggle::Drawer => toggler.update(|app| app.apply(Action::ToggleDrawer)),

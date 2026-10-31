@@ -15,6 +15,8 @@ pub(crate) mod editor;
 pub(crate) mod editor_binding;
 pub(crate) mod encoding_picker;
 pub mod explorer;
+pub(crate) mod extensions_binding;
+pub mod extensions_page;
 pub(crate) mod file_error;
 pub mod git;
 pub(crate) mod image_preview;

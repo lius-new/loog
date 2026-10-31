@@ -101,6 +101,7 @@ pub fn handle_key_down(env: &KeyEnv, event: &KeyboardEvent) -> bool {
             || !app.git.ui.branch_picker_input.preedit.is_empty()
             || !app.git.ui.tag_input.preedit.is_empty()
             || !app.keymap_ui.search.preedit.is_empty()
+            || !app.extensions_ui.search.preedit.is_empty()
             || app.search.composing();
         pending = app.keymap.pending().to_vec();
         stack = context_stack::context_stack(app);

@@ -233,7 +233,13 @@ pub fn render(rect: UiRect, state: TitleBinding, git_controls: Element) -> Eleme
             frame.terminal_open,
         ),
     ];
-    let toggles_left = settings_r.left - TOGGLE_W * toggles.len() as f32;
+    let extensions_r = UiRect::new(
+        settings_r.left - TOGGLE_W,
+        rect.top,
+        settings_r.left,
+        rect.bottom,
+    );
+    let toggles_left = extensions_r.left - TOGGLE_W * toggles.len() as f32;
     for (index, (panel, key, name, open)) in toggles.into_iter().enumerate() {
         let left = toggles_left + TOGGLE_W * index as f32;
         let toggle_state = state.clone();
@@ -266,6 +272,40 @@ pub fn render(rect: UiRect, state: TitleBinding, git_controls: Element) -> Eleme
             indicator,
             state.clone(),
         ));
+    }
+    let extensions_state = state.clone();
+    let extensions = caption_button(
+        "titlebar.extensions.button",
+        extensions_r,
+        CaptionIcon {
+            id: "titlebar.extensions",
+            key: "extensions",
+            color: if frame.extensions_open {
+                theme::c().accent
+            } else {
+                theme::c().text_muted
+            },
+            glyph: Glyph::Ui,
+        },
+        false,
+        move |_: &mut UiEventContext| extensions_state.open_extensions(),
+    )
+    .semantics(Semantics::new(SemanticRole::Button).name("Extensions"))
+    .cursor(CursorIcon::Pointer);
+    bar = bar.child(extensions);
+    if frame.extensions_attention {
+        // A failed extension: a dot at the icon's top-right corner.
+        let (cx, cy) = (
+            (extensions_r.left + extensions_r.right) / 2.0 + 6.0,
+            (extensions_r.top + extensions_r.bottom) / 2.0 - 6.0,
+        );
+        bar = bar.child(
+            panel(
+                UiRect::new(cx - 3.0, cy - 3.0, cx + 3.0, cy + 3.0),
+                VisualStyle::filled(theme::c().warning).radius(3.0),
+            )
+            .event_policy(EventPolicy::NONE),
+        );
     }
     bar = bar.child(
         caption_button(

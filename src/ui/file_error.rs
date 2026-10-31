@@ -68,7 +68,7 @@ pub(crate) fn render(rect: UiRect, error: &str, surface_id: UiId) -> Element {
     page.child(content)
 }
 
-fn wrapped_lines(value: &str, width: f32, style: TextStyle) -> Vec<String> {
+pub(crate) fn wrapped_lines(value: &str, width: f32, style: TextStyle) -> Vec<String> {
     let request = TextLayoutRequest::for_style(
         value,
         UiRect::new(0.0, 0.0, width, 10000.0),

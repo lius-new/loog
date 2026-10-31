@@ -4,12 +4,14 @@ use loom_editor_core::text::Selection;
 
 pub const SETTINGS_TITLE: &str = "Settings";
 pub const KEYMAP_TITLE: &str = "Keymap";
+pub const EXTENSIONS_TITLE: &str = "Extensions";
 
 /// Built-in pages that open in a tab instead of a file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppPage {
     Settings,
     Keymap,
+    Extensions,
 }
 
 impl AppPage {
@@ -17,6 +19,7 @@ impl AppPage {
         match self {
             AppPage::Settings => SETTINGS_TITLE,
             AppPage::Keymap => KEYMAP_TITLE,
+            AppPage::Extensions => EXTENSIONS_TITLE,
         }
     }
 }

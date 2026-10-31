@@ -251,6 +251,7 @@ fn tab_badge(app: &Frame<'_>, id: ViewId, meta: &FileMeta) -> TabBadge {
         let icon = match page {
             AppPage::Settings => "settings",
             AppPage::Keymap => "command",
+            AppPage::Extensions => "extensions",
         };
         TabBadge::Icon(icon, theme::c().text_muted)
     } else if let Some(diff) = app.workspace.diff_of(id) {

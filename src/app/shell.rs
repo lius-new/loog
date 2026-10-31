@@ -183,6 +183,8 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let close_dialog_focus = cx.focus_handle(close_dialog_id.clone());
     let keymap_search_id = cx.use_stable_id();
     let keymap_search_focus = cx.focus_handle(keymap_search_id.clone());
+    let extensions_search_id = cx.use_stable_id();
+    let extensions_search_focus = cx.focus_handle(extensions_search_id.clone());
     let search_query_id = cx.use_stable_id();
     let search_query_focus = cx.focus_handle(search_query_id.clone());
     let search_include_id = cx.use_stable_id();
@@ -1322,6 +1324,12 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                 state.clone(),
                 keymap_search_id.clone(),
                 keymap_search_focus.clone(),
+            ),
+            MainSurface::Extensions => super::extensions_view::render(
+                body,
+                state.clone(),
+                extensions_search_id.clone(),
+                extensions_search_focus.clone(),
             ),
             MainSurface::Diff => crate::app::diff_view::render(
                 pane,

@@ -10,6 +10,7 @@ fn surface_name(surface: MainSurface) -> &'static str {
         MainSurface::Diff => "diff",
         MainSurface::Settings => "settings",
         MainSurface::Keymap => "keymap",
+        MainSurface::Extensions => "extensions",
         MainSurface::WorkspaceHome => "home",
         MainSurface::Welcome => "welcome",
         MainSurface::Empty => "empty",
@@ -40,7 +41,8 @@ pub fn facts(app: &AppState) -> ContextFacts {
         search_results: app.search.ui.results_focused,
         other_input: app.git.ui.file_filter.focused
             || app.explorer.ui.create_input.focused
-            || (app.keymap_ui.search.focused && app.main_surface() == MainSurface::Keymap),
+            || (app.keymap_ui.search.focused && app.main_surface() == MainSurface::Keymap)
+            || (app.extensions_ui.search.focused && app.main_surface() == MainSurface::Extensions),
         terminal: app.terminal.ui.terminal_focused,
         editor: app.editor.focused
             && matches!(

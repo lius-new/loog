@@ -96,6 +96,7 @@ actions! {
     OpenSettings => "workspace::OpenSettings", "Open the Settings page";
     OpenKeymap => "workspace::OpenKeymap", "Open the Keymap page";
     OpenKeymapFile => "workspace::OpenKeymapFile", "Open the user keymap.json";
+    OpenExtensions => "workspace::OpenExtensions", "Open the Extensions page";
     ShowExtensions => "workspace::ShowExtensions", "Show the state of the installed extensions";
     ReloadExtensions => "workspace::ReloadExtensions", "Reload the installed extensions from disk";
     RetryExtensions => "workspace::RetryExtensions", "Start the extensions that failed again";

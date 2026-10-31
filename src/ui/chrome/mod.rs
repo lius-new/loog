@@ -40,6 +40,9 @@ impl HomeBinding {
 #[derive(Clone)]
 pub struct TitleFrame {
     pub settings_open: bool,
+    pub extensions_open: bool,
+    /// An extension failed to start: the title bar button carries a dot.
+    pub extensions_attention: bool,
     pub maximized: bool,
     pub update: Option<crate::features::update::Indicator>,
     pub drawer_open: bool,
@@ -57,6 +60,7 @@ pub enum PanelToggle {
 pub struct TitleBinding {
     read: Arc<dyn Fn() -> TitleFrame + Send + Sync>,
     open: Arc<dyn Fn() + Send + Sync>,
+    open_extensions: Arc<dyn Fn() + Send + Sync>,
     update: Arc<dyn Fn() -> bool + Send + Sync>,
     toggle: Arc<dyn Fn(PanelToggle) + Send + Sync>,
 }
@@ -64,12 +68,14 @@ impl TitleBinding {
     pub fn new(
         read: impl Fn() -> TitleFrame + Send + Sync + 'static,
         open: impl Fn() + Send + Sync + 'static,
+        open_extensions: impl Fn() + Send + Sync + 'static,
         update: impl Fn() -> bool + Send + Sync + 'static,
         toggle: impl Fn(PanelToggle) + Send + Sync + 'static,
     ) -> Self {
         Self {
             read: Arc::new(read),
             open: Arc::new(open),
+            open_extensions: Arc::new(open_extensions),
             update: Arc::new(update),
             toggle: Arc::new(toggle),
         }
@@ -82,6 +88,9 @@ impl TitleBinding {
     }
     pub fn open_settings(&self) {
         (self.open)();
+    }
+    pub fn open_extensions(&self) {
+        (self.open_extensions)();
     }
     /// Run the update button's action; true asks to close the window so the
     /// installer can run.

@@ -90,6 +90,8 @@ pub(crate) mod keymap_context;
 
 pub(crate) mod keymap_view;
 
+pub(crate) mod extensions_view;
+
 pub(crate) mod file_loading;
 
 pub(crate) mod file_watcher;

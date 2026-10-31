@@ -721,9 +721,13 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
                 static KEYMAP: std::sync::LazyLock<FileMeta> = std::sync::LazyLock::new(|| {
                     FileMeta::from_path(PathBuf::from(AppPage::Keymap.title()))
                 });
+                static EXTENSIONS: std::sync::LazyLock<FileMeta> = std::sync::LazyLock::new(|| {
+                    FileMeta::from_path(PathBuf::from(AppPage::Extensions.title()))
+                });
                 Some(match page {
                     AppPage::Settings => &SETTINGS,
                     AppPage::Keymap => &KEYMAP,
+                    AppPage::Extensions => &EXTENSIONS,
                 })
             }
         }
@@ -1869,6 +1873,11 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
     /// Open the keymap page, or focus it if it is already open.
     pub fn open_keymap(&mut self) -> ViewId {
         self.open_page(AppPage::Keymap)
+    }
+
+    /// Open the extensions page, or focus it if it is already open.
+    pub fn open_extensions(&mut self) -> ViewId {
+        self.open_page(AppPage::Extensions)
     }
 
     /// Open a built-in page; each page has at most one tab in the workspace.
