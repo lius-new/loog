@@ -20,6 +20,7 @@ fn entry(id: &str, enabled: bool, update: bool) -> Entry {
         changelog: Vec::new(),
         installed: Some(Installed {
             enabled,
+            bundled: false,
             location: String::new(),
             update: update.then(|| Update {
                 version: "2.0.0".to_owned(),

@@ -195,12 +195,12 @@ mod tests {
     #[test]
     fn a_small_file_changes_only_what_it_names() {
         let theme = parse(
-            r##"{ "name": "Night", "base": "aura-light",
+            r##"{ "name": "Night", "base": "aura-dark",
                   "colors": { "bg": "#101418", "git.added": "#00ff00" },
                   "syntax": { "keyword": "#ff0000", "comment": { "fg": "#888888", "italic": true } } }"##,
         )
         .unwrap();
-        let base = THEMES.iter().find(|t| t.id == "aura-light").unwrap();
+        let base = THEMES.iter().find(|t| t.id == "aura-dark").unwrap();
         assert_eq!(theme.name, "Night");
         assert_eq!(theme.palette.bg.0, 0x101418);
         assert_eq!(theme.palette.git.added.0, 0x00ff00);

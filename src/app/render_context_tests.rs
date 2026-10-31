@@ -27,8 +27,12 @@ fn parallel_render_contexts_keep_their_own_device_scale() {
 fn parallel_render_contexts_keep_their_own_theme() {
     use crate::ui::theme::{ThemeId, current, set};
     use std::sync::{Arc, Barrier};
-    let light = ThemeId::parse("aura-light").unwrap();
-    let contrast = ThemeId::parse("high-contrast").unwrap();
+    let _turn = crate::features::settings::theme_id::REGISTRY_TURN
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    ThemeId::set_contributed(&["test.render.light", "test.render.contrast"]);
+    let light = ThemeId::parse("test.render.light").unwrap();
+    let contrast = ThemeId::parse("test.render.contrast").unwrap();
     set(light);
     let barrier = Arc::new(Barrier::new(2));
     let other = barrier.clone();
@@ -43,6 +47,8 @@ fn parallel_render_contexts_keep_their_own_theme() {
     let remote = worker.join().unwrap();
     assert_eq!(local, light);
     assert_eq!(remote, (ThemeId::default(), contrast));
+    set(ThemeId::default());
+    ThemeId::set_contributed(&[]);
 }
 
 #[test]

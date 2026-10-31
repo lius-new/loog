@@ -479,12 +479,15 @@ pub fn template() -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::features::settings::theme_id::REGISTRY_TURN;
     use super::*;
 
     #[test]
     fn settings_round_trip_as_json() {
+        let _turn = REGISTRY_TURN.lock().unwrap_or_else(|e| e.into_inner());
+        ThemeId::set_contributed(&["test.settings.ember"]);
         let settings = Settings {
-            theme: ThemeId::parse("ember").unwrap(),
+            theme: ThemeId::parse("test.settings.ember").unwrap(),
             editor: Default::default(),
             editor_languages: Default::default(),
             encoding: Default::default(),
@@ -537,6 +540,7 @@ mod tests {
         let decoded: Settings = serde_json::from_str(&json).unwrap();
 
         assert_eq!(decoded, settings);
+        ThemeId::set_contributed(&[]);
     }
 
     #[test]
@@ -733,6 +737,7 @@ mod tests {
 
 #[cfg(test)]
 mod file_tests {
+    use crate::features::settings::theme_id::REGISTRY_TURN;
     use super::*;
 
     #[test]
@@ -760,10 +765,12 @@ mod file_tests {
 
     #[test]
     fn a_partial_file_overrides_only_its_values() {
+        let _turn = REGISTRY_TURN.lock().unwrap_or_else(|e| e.into_inner());
+        ThemeId::set_contributed(&["test.settings.ember"]);
         let outcome = parse(
             r#"// mine
             {
-                "theme": "ember",
+                "theme": "test.settings.ember",
                 "terminal_font": { "size": 14 },
                 "vim": { "enabled": true, },
             }"#,
@@ -771,7 +778,11 @@ mod file_tests {
         .unwrap();
         assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
         let settings = outcome.settings;
-        assert_eq!(settings.theme, ThemeId::parse("ember").unwrap());
+        assert_eq!(
+            settings.theme,
+            ThemeId::parse("test.settings.ember").unwrap()
+        );
+        ThemeId::set_contributed(&[]);
         assert_eq!(settings.terminal_font.size, 14);
         // Unlisted nested fields keep their own defaults, not the editor's.
         assert_eq!(

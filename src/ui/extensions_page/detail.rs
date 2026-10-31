@@ -70,12 +70,14 @@ fn actions(entry: &Entry) -> Vec<HeadButton> {
             command: act(Action::Reload),
         });
     }
-    buttons.push(HeadButton {
-        label: "Uninstall",
-        icon: None,
-        kind: Kind::Plain,
-        command: act(Action::Uninstall),
-    });
+    if !installed.bundled {
+        buttons.push(HeadButton {
+            label: "Uninstall",
+            icon: None,
+            kind: Kind::Plain,
+            command: act(Action::Uninstall),
+        });
+    }
     buttons
 }
 

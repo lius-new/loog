@@ -159,6 +159,7 @@ fn entry(package: &Package) -> Entry {
         ),
         installed: Some(Installed {
             enabled: !matches!(state, State::Stopped | State::Stopping),
+            bundled: package.is_bundled(),
             location: package.dir.display().to_string(),
             update: None,
             error: (state == State::Failed).then(|| Notice {

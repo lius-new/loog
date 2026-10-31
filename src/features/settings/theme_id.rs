@@ -7,7 +7,7 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::{Mutex, RwLock};
 
-const IDS: &[&str] = &["aura-dark", "aura-light", "ember", "high-contrast"];
+const IDS: &[&str] = &["aura-dark"];
 
 struct Contributed {
     id: &'static str,

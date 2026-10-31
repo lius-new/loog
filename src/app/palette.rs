@@ -393,7 +393,7 @@ mod tests {
     fn the_theme_list_offers_every_theme_and_marks_the_current_one() {
         let current = ThemeId::default();
         let entries = theme_entries(current);
-        assert!(entries.len() >= 4);
+        assert!(!entries.is_empty());
         assert!(entries
             .iter()
             .all(|entry| matches!(entry.target, Target::Theme(_)) && entry.category == "Theme"));

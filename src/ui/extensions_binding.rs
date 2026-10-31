@@ -110,6 +110,8 @@ pub struct Notice {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Installed {
     pub enabled: bool,
+    /// It ships with Loom: it can be disabled but not uninstalled.
+    pub bundled: bool,
     pub location: String,
     pub update: Option<Update>,
     /// It could not start: the detail leads with this.

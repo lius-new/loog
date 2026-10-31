@@ -33,6 +33,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
+pub(crate) mod bundled;
 mod files;
 pub(crate) mod host;
 mod save;
@@ -113,6 +114,13 @@ pub(crate) fn start(
         }
     };
     let mut problems = Vec::new();
+    let (shipped, errors) = bundled::unpack(&root);
+    problems.extend(errors);
+    for dir in shipped {
+        if let Err(error) = host.load_package(&dir) {
+            problems.push(format!("{}: {error}", dir.display()));
+        }
+    }
     if let Ok(entries) = std::fs::read_dir(&root) {
         let mut dirs: Vec<_> = entries
             .flatten()
@@ -389,6 +397,13 @@ pub struct Package {
     pub logs: Vec<(u8, String)>,
     pub last_error: Option<String>,
     component: Vec<u8>,
+}
+
+impl Package {
+    /// Whether it ships with Loom rather than being installed by the user.
+    pub fn is_bundled(&self) -> bool {
+        bundled::is_bundled(&self.dir)
+    }
 }
 
 pub struct ExtensionService {
@@ -1031,8 +1046,9 @@ impl ExtensionService {
 
     /// Stop an extension and forget it; returns the folder it was loaded from.
     pub fn uninstall(&mut self, id: &str) -> Result<(PathBuf, Vec<Effect>), String> {
-        if !self.packages.contains_key(id) {
-            return Err("unknown extension".to_owned());
+        let package = self.packages.get(id).ok_or("unknown extension")?;
+        if package.is_bundled() {
+            return Err("it ships with Loom; disable it instead".to_owned());
         }
         let effects = self.stop(id);
         let package = self.packages.remove(id).ok_or("unknown extension")?;
