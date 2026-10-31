@@ -185,8 +185,49 @@ pub enum Effect {
         raw: serde_json::Value,
         item: serde_json::Value,
     },
+    /// A provider answered a language request (`None`: it had nothing, or could
+    /// not answer in time). `token` names the request the application waits on.
+    LanguageAnswer {
+        token: u64,
+        answer: Option<LanguageAnswer>,
+    },
     Toast(String),
     Error(String),
+}
+
+/// What a provider said, as the reply a language server would give.
+#[derive(Debug)]
+pub struct LanguageAnswer {
+    /// The provider's source id (`EXTERNAL_SOURCE` set) and its declared id.
+    pub source: u64,
+    pub provider: String,
+    pub value: serde_json::Value,
+}
+
+/// A hover, definition, outline, signature or inlay request of the language UI.
+#[derive(Clone, Debug)]
+pub struct LanguageAsk {
+    pub feature: crate::features::language_service::request::Feature,
+    pub path: PathBuf,
+    pub stamp: Stamp,
+    /// Byte offsets of the state `stamp` names.
+    pub start: usize,
+    pub end: usize,
+}
+
+/// The kinds of provider that answer a language feature.
+fn language_kinds(
+    feature: crate::features::language_service::request::Feature,
+) -> Option<(WireKind, DeclKind)> {
+    use crate::features::language_service::request::Feature;
+    Some(match feature {
+        Feature::Hover => (WireKind::Hover, DeclKind::Hover),
+        Feature::Definition => (WireKind::Definition, DeclKind::Definition),
+        Feature::DocumentSymbol => (WireKind::DocumentSymbols, DeclKind::DocumentSymbols),
+        Feature::SignatureHelp => (WireKind::SignatureHelp, DeclKind::SignatureHelp),
+        Feature::InlayHint => (WireKind::InlayHints, DeclKind::InlayHints),
+        _ => return None,
+    })
 }
 
 /// The target a command call captured when it was triggered.
@@ -322,6 +363,8 @@ pub struct ExtensionService {
     next_save: u64,
     storage_dir: PathBuf,
     trust: Option<std::sync::Arc<crate::infrastructure::extensions::trust_store::TrustStore>>,
+    /// Provider request -> the language request it answers.
+    language_calls: HashMap<u64, u64>,
 }
 
 /// The setting files as last read.
@@ -444,6 +487,7 @@ impl ExtensionService {
             next_save: 0,
             storage_dir,
             trust: None,
+            language_calls: HashMap::new(),
         }
     }
 
@@ -1339,17 +1383,247 @@ impl ExtensionService {
 
     /// Withdraw what an extension published; its provider calls are void.
     fn clear_sources(&mut self, extension: &str) -> Vec<Effect> {
+        // Language requests waiting on this extension are told there is no answer.
+        let mut gone: Vec<Effect> = Vec::new();
+        for (request, call) in &self.provider_calls {
+            if call.extension == extension
+                && let Some(token) = self.language_calls.get(request)
+            {
+                gone.push(Effect::LanguageAnswer {
+                    token: *token,
+                    answer: None,
+                });
+            }
+        }
+        self.language_calls.retain(|request, _| {
+            self.provider_calls
+                .get(request)
+                .is_none_or(|c| c.extension != extension)
+        });
         self.provider_calls
             .retain(|_, call| call.extension != extension);
         self.provider_seen
             .retain(|(owner, _, _), _| owner != extension);
         self.queued
             .retain(|request| self.provider_calls.contains_key(request));
-        self.sources
+        gone.extend(
+            self.sources
+                .iter()
+                .filter(|((owner, _), _)| owner == extension)
+                .map(|(_, source)| Effect::ClearDiagnostics { source: *source }),
+        );
+        gone
+    }
+
+    /// The providers that answer `feature` for documents in `language`, as
+    /// (extension, provider id). Only packages that may read documents and
+    /// declared the language capability count.
+    pub fn language_providers(
+        &self,
+        feature: crate::features::language_service::request::Feature,
+        language: &str,
+    ) -> Vec<(String, String)> {
+        let Some((_, declared)) = language_kinds(feature) else {
+            return Vec::new();
+        };
+        let mut found = Vec::new();
+        for (owner, package) in &self.packages {
+            let allowed = ["documents.read", "languages"]
+                .iter()
+                .all(|c| self.authorize(package, c).is_ok());
+            if !allowed || !package.manifest.has_behaviour() {
+                continue;
+            }
+            for provider in &package.manifest.contributes.providers {
+                if provider.kind == declared
+                    && provider.selector.languages.iter().any(|l| l == language)
+                {
+                    found.push((owner.clone(), provider.id.clone()));
+                }
+            }
+        }
+        found.sort();
+        found
+    }
+
+    /// Ask the providers for a language feature of one state of a document.
+    /// Returns how many were asked; each of those ends in an
+    /// [`Effect::LanguageAnswer`] with `token`, also when it fails or is cut off.
+    pub fn request_language(
+        &mut self,
+        app: &AppState,
+        ask: &LanguageAsk,
+        token: u64,
+        effects: &mut Vec<Effect>,
+    ) -> usize {
+        let Some((kind, _)) = language_kinds(ask.feature) else {
+            return 0;
+        };
+        let found = app
+            .workspace
+            .documents
             .iter()
-            .filter(|((owner, _), _)| owner == extension)
-            .map(|(_, source)| Effect::ClearDiagnostics { source: *source })
-            .collect()
+            .find(|(_, d)| d.meta.path == ask.path);
+        let Some((file, document)) = found.map(|(file, d)| (*file, d)) else {
+            return 0;
+        };
+        // Only the state the request was made for; a document that moved on is not asked.
+        let now = document.stamp(file);
+        if (now.incarnation, now.version) != (ask.stamp.incarnation, ask.stamp.version) {
+            return 0;
+        }
+        let language = document.meta.lang.definition().name.to_string();
+        let doc_id = match self.seen.get(&file) {
+            Some(id) => *id,
+            None => {
+                self.next_document += 1;
+                self.seen.insert(file, self.next_document);
+                self.next_document
+            }
+        };
+        let text = document.buffer.text_snapshot();
+        let range = match ask.feature {
+            crate::features::language_service::request::Feature::InlayHint => {
+                Some(ask.start.min(text.len())..ask.end.min(text.len()))
+            }
+            _ => None,
+        };
+        let mut asked = 0;
+        for (owner, provider) in self.language_providers(ask.feature, &language) {
+            let target = Target {
+                file,
+                stamp: document.stamp(file),
+                path: document.meta.path.clone(),
+                text: text.clone(),
+                doc_id,
+                version: document.buffer.version(),
+                range: range.clone(),
+                word_start: 0,
+                cursor: Some(ask.start),
+                trigger: None,
+                item: None,
+                item_raw: None,
+            };
+            let request = self.next_request + 1;
+            self.issue(&owner, &provider, kind, target, effects);
+            if self.provider_calls.contains_key(&request) {
+                self.language_calls.insert(request, token);
+                asked += 1;
+            }
+        }
+        asked
+    }
+
+    /// Turn a provider's answer to a language request into the reply a server
+    /// would give. `None` when it is late, for another state, or empty.
+    fn language_reply(
+        &mut self,
+        app: &AppState,
+        id: &str,
+        call: &ProviderCall,
+        answer: Provided,
+    ) -> Option<LanguageAnswer> {
+        use providers::language as lang;
+        let current = app
+            .workspace
+            .documents
+            .get(&call.file)
+            .map(|d| d.stamp(call.file));
+        if (self.clock)() > call.deadline || current != Some(call.stamp) {
+            return None;
+        }
+        let text = call.text.as_str();
+        let (value, dropped) = match answer {
+            Provided::Hover { answer, .. } => (
+                lang::hover(
+                    text,
+                    &lang::Hover {
+                        contents: answer.as_ref()?.contents.clone(),
+                        range: answer
+                            .as_ref()?
+                            .range
+                            .map(|r| (r.start as usize, r.end as usize)),
+                    },
+                )?,
+                0,
+            ),
+            Provided::Locations { items, .. } => {
+                let places: Vec<lang::Place> = items
+                    .into_iter()
+                    .map(|l| lang::Place {
+                        path: l.path,
+                        line: l.line,
+                        column: l.column,
+                    })
+                    .collect();
+                let base = call.path.parent().map(PathBuf::from).unwrap_or_default();
+                lang::locations(&base, &places)
+            }
+            Provided::Symbols { items, .. } => {
+                let symbols: Vec<lang::Symbol> = items
+                    .into_iter()
+                    .map(|s| lang::Symbol {
+                        name: s.name,
+                        detail: s.detail,
+                        kind: s.kind,
+                        range: (s.range.start as usize, s.range.end as usize),
+                        selection: (s.selection.start as usize, s.selection.end as usize),
+                        parent: s.parent.map(|p| p as usize),
+                    })
+                    .collect();
+                lang::symbols(text, &symbols)
+            }
+            Provided::Signature { answer, .. } => {
+                let answer = answer?;
+                (
+                    lang::signature(&lang::Signature {
+                        label: answer.label,
+                        documentation: answer.documentation,
+                        parameters: answer
+                            .parameters
+                            .into_iter()
+                            .map(|p| (p.label, p.documentation))
+                            .collect(),
+                        active: answer.active_parameter,
+                    })?,
+                    0,
+                )
+            }
+            Provided::InlayHints { items, .. } => {
+                let hints: Vec<lang::Hint> = items
+                    .into_iter()
+                    .filter(|h| {
+                        call.range.as_ref().is_none_or(|range| {
+                            range.contains(&(h.offset as usize)) || range.end == h.offset as usize
+                        })
+                    })
+                    .map(|h| lang::Hint {
+                        offset: h.offset as usize,
+                        label: h.label,
+                        kind: h.kind,
+                        padding_left: h.padding_left,
+                        padding_right: h.padding_right,
+                        tooltip: h.tooltip,
+                    })
+                    .collect();
+                lang::hints(text, &hints)
+            }
+            _ => return None,
+        };
+        if dropped > 0
+            && let Some(package) = self.packages.get_mut(id)
+        {
+            package.logs.push((
+                1,
+                format!("{dropped} entr(ies) of an answer could not be placed and were dropped"),
+            ));
+        }
+        let source = self.source_for(&call.extension, &call.provider);
+        Some(LanguageAnswer {
+            source,
+            provider: call.provider.clone(),
+            value,
+        })
     }
 
     /// Ask one provider about one state of a document. A newer request for the
@@ -1664,11 +1938,7 @@ impl ExtensionService {
         generation: u64,
         answer: Provided,
     ) -> Vec<Effect> {
-        let request = match &answer {
-            Provided::Diagnostics { request, .. }
-            | Provided::Edits { request, .. }
-            | Provided::Completions { request, .. } => *request,
-        };
+        let request = answer.request();
         let Some(call) = self.provider_calls.get(&request) else {
             return Vec::new();
         };
@@ -1676,12 +1946,36 @@ impl ExtensionService {
             return Vec::new();
         }
         let call = self.provider_calls.remove(&request).expect("checked above");
+        let language = self.language_calls.remove(&request);
         if !self
             .packages
             .get(id)
             .is_some_and(|p| p.lifecycle.accepts(generation))
         {
-            return Vec::new();
+            return language
+                .map(|token| Effect::LanguageAnswer {
+                    token,
+                    answer: None,
+                })
+                .into_iter()
+                .collect();
+        }
+        if let Some(token) = language {
+            // An answer of the wrong shape for its request is no answer.
+            let fits = matches!(
+                (&call.job.kind, &answer),
+                (WireKind::Hover, Provided::Hover { .. })
+                    | (WireKind::Definition, Provided::Locations { .. })
+                    | (WireKind::DocumentSymbols, Provided::Symbols { .. })
+                    | (WireKind::SignatureHelp, Provided::Signature { .. })
+                    | (WireKind::InlayHints, Provided::InlayHints { .. })
+            );
+            let answer = if fits {
+                self.language_reply(app, id, &call, answer)
+            } else {
+                None
+            };
+            return vec![Effect::LanguageAnswer { token, answer }];
         }
         if matches!(call.job.kind, WireKind::Save) {
             return match answer {

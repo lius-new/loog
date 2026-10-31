@@ -18,6 +18,7 @@ use loom::extension::types::{
 use loom::extension::types::{
     StorageScope,
     CompletionItem,
+    DocumentSymbol, HoverAnswer, InlayHint, Location, ParameterInfo, SignatureAnswer,
 };
 
 #[derive(Default)]
@@ -358,6 +359,64 @@ impl Guest for Extension {
                                 offset += line.len();
                             }
                             let _ = host::provide_edits(request.request, &edits);
+                        }
+                        ProviderKind::Hover => {
+                            let at = request.cursor.unwrap_or(0);
+                            let answer = HoverAnswer {
+                                contents: format!("hover at {at} of {} bytes", request.length),
+                                range: Some(ByteRange { start: at, end: at + 1 }),
+                            };
+                            let _ = host::provide_hover(request.request, Some(&answer));
+                        }
+                        ProviderKind::Definition => {
+                            let place = Location { path: "elsewhere.txt".into(), line: 2, column: 3 };
+                            let _ = host::provide_locations(request.request, &[place]);
+                        }
+                        ProviderKind::DocumentSymbols => {
+                            let whole = ByteRange { start: 0, end: request.length };
+                            let first = ByteRange { start: 0, end: request.length.min(2) };
+                            let items = [
+                                DocumentSymbol {
+                                    name: "outer".into(),
+                                    detail: None,
+                                    kind: 2,
+                                    range: whole,
+                                    selection: first,
+                                    parent: None,
+                                },
+                                DocumentSymbol {
+                                    name: "inner".into(),
+                                    detail: Some("nested".into()),
+                                    kind: 12,
+                                    range: first,
+                                    selection: first,
+                                    parent: Some(0),
+                                },
+                            ];
+                            let _ = host::provide_symbols(request.request, &items);
+                        }
+                        ProviderKind::SignatureHelp => {
+                            let answer = SignatureAnswer {
+                                label: "add(a, b)".into(),
+                                documentation: None,
+                                parameters: vec![
+                                    ParameterInfo { label: "a".into(), documentation: None },
+                                    ParameterInfo { label: "b".into(), documentation: None },
+                                ],
+                                active_parameter: Some(1),
+                            };
+                            let _ = host::provide_signature(request.request, Some(&answer));
+                        }
+                        ProviderKind::InlayHints => {
+                            let hint = InlayHint {
+                                offset: 0,
+                                label: "hint:".into(),
+                                kind: Some(2),
+                                padding_left: false,
+                                padding_right: true,
+                                tooltip: None,
+                            };
+                            let _ = host::provide_inlay_hints(request.request, &[hint]);
                         }
                     }
                     host::release_snapshot(request.snapshot);

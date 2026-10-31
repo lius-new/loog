@@ -96,6 +96,8 @@ struct Fixture {
     changed: Vec<String>,
     submitted: Vec<Job>,
     resolved: Vec<(u64, serde_json::Value)>,
+    /// Answers to language requests, by the token they were asked under.
+    language: Vec<(u64, Option<super::LanguageAnswer>)>,
 }
 
 fn fixture(name: &str, text: &str, select: std::ops::Range<usize>) -> Fixture {
@@ -147,6 +149,7 @@ fn fixture_with(name: &str, text: &str, select: std::ops::Range<usize>, manifest
         changed: Vec::new(),
         submitted: Vec::new(),
         resolved: Vec::new(),
+        language: Vec::new(),
     }
 }
 
@@ -208,6 +211,7 @@ impl Fixture {
                 Effect::ResolvedCompletion { source, item, .. } => {
                     self.resolved.push((source, item))
                 }
+                Effect::LanguageAnswer { token, answer } => self.language.push((token, answer)),
             }
         }
         messages
@@ -871,6 +875,106 @@ fn a_completion_provider_answers_with_items_that_carry_their_origin_and_resolve_
     f.apply(effects);
     f.pump_until(|f| !f.resolved.is_empty());
     assert_eq!(f.resolved[0].1["documentation"], "docs for world");
+}
+
+#[test]
+fn language_providers_answer_with_the_replies_a_server_would_give_and_only_for_the_asked_state() {
+    use crate::features::language_service::request::Feature;
+    let probe =
+        std::env::temp_dir().join(format!("loom-ext-doc-{}-language.txt", std::process::id()));
+    let language = language_of(&probe);
+    let kinds = [
+        ("hover", "hover"),
+        ("definition", "definition"),
+        ("document-symbols", "outline"),
+        ("signature-help", "signature"),
+        ("inlay-hints", "hints"),
+    ];
+    let entries: String = kinds
+        .iter()
+        .map(|(kind, name)| {
+            format!(
+                "{{ \"id\": \"example.tools.{name}\", \"kind\": \"{kind}\", \"selector\": {{ \"languages\": [\"{language}\"] }} }},"
+            )
+        })
+        .collect();
+    let manifest = provider_manifest(&language)
+        .replace("\"providers\": [", &format!("\"providers\": [{entries}"));
+    let mut f = fixture_with("language", "hello world", 0..0, &manifest);
+    f.service.set_clock(|| 0); // cold-start time is not what this test measures
+    let file = f.app.workspace.file_id_for_path(&f.path).unwrap();
+    let now = f.app.workspace.documents[&file].stamp(file);
+    let stamp = crate::features::language_service::sync::Stamp {
+        incarnation: now.incarnation,
+        version: now.version,
+    };
+    let answer_to = |f: &mut Fixture, token: u64, feature, start, end| {
+        let mut effects = Vec::new();
+        let asked = f.service.request_language(
+            &f.app,
+            &LanguageAsk {
+                stamp,
+                path: f.path.clone(),
+                feature,
+                start,
+                end,
+            },
+            token,
+            &mut effects,
+        );
+        assert_eq!(asked, 1, "{feature:?}");
+        f.apply(effects);
+        f.pump_until(|f| f.language.iter().any(|(t, _)| *t == token));
+        let (_, answer) = f.language.iter().find(|(t, _)| *t == token).unwrap();
+        let answer = answer.as_ref().expect("an answer in time");
+        assert!(answer.source & crate::infrastructure::lsp::manager::EXTERNAL_SOURCE != 0);
+        answer.value.clone()
+    };
+
+    let hover = answer_to(&mut f, 1, Feature::Hover, 6, 6);
+    assert_eq!(hover["contents"]["value"], "hover at 6 of 11 bytes");
+    assert_eq!(hover["range"]["start"]["character"], 6);
+
+    let places = answer_to(&mut f, 2, Feature::Definition, 0, 0);
+    assert_eq!(places[0]["range"]["start"]["line"], 2);
+    assert_eq!(places[0]["range"]["start"]["character"], 3);
+
+    let outline = answer_to(&mut f, 3, Feature::DocumentSymbol, 0, 0);
+    assert_eq!(outline[0]["name"], "outer");
+    assert_eq!(outline[0]["children"][0]["name"], "inner");
+
+    let signature = answer_to(&mut f, 4, Feature::SignatureHelp, 3, 3);
+    assert_eq!(signature["activeParameter"], 1);
+    assert_eq!(
+        signature["signatures"][0]["parameters"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    let hints = answer_to(&mut f, 5, Feature::InlayHint, 0, 11);
+    assert_eq!(hints[0]["label"], "hint:");
+    assert_eq!(hints[0]["kind"], 2);
+
+    // A request for a state the document has left is not asked at all.
+    let mut stale = LanguageAsk {
+        feature: Feature::Hover,
+        path: f.path.clone(),
+        stamp,
+        start: 0,
+        end: 0,
+    };
+    stale.stamp.version += 1;
+    let mut effects = Vec::new();
+    assert_eq!(
+        f.service.request_language(&f.app, &stale, 9, &mut effects),
+        0
+    );
+    assert!(effects.is_empty());
+    // And a feature no provider declares has nobody to ask.
+    let providers = f.service.language_providers(Feature::References, &language);
+    assert!(providers.is_empty());
 }
 
 #[test]

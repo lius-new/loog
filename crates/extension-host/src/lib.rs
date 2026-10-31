@@ -73,6 +73,10 @@ pub struct AcceptedEdit {
 
 pub use bindings::loom::extension::types::CompletionItem as WireCompletionItem;
 pub use bindings::loom::extension::types::Diagnostic as WireDiagnostic;
+pub use bindings::loom::extension::types::{
+    DocumentSymbol as WireSymbol, HoverAnswer as WireHover, InlayHint as WireInlayHint,
+    Location as WireLocation, SignatureAnswer as WireSignature,
+};
 pub use bindings::loom::extension::types::{FileContent, HttpResponse, StorageScope};
 
 /// An answer a provider gave, in the order it was given.
@@ -91,6 +95,42 @@ pub enum Provided {
         items: Vec<WireCompletionItem>,
         incomplete: bool,
     },
+    Hover {
+        request: u64,
+        answer: Option<WireHover>,
+    },
+    Locations {
+        request: u64,
+        items: Vec<WireLocation>,
+    },
+    Symbols {
+        request: u64,
+        items: Vec<WireSymbol>,
+    },
+    Signature {
+        request: u64,
+        answer: Option<WireSignature>,
+    },
+    InlayHints {
+        request: u64,
+        items: Vec<WireInlayHint>,
+    },
+}
+
+impl Provided {
+    /// The request this answers.
+    pub fn request(&self) -> u64 {
+        match self {
+            Self::Diagnostics { request, .. }
+            | Self::Edits { request, .. }
+            | Self::Completions { request, .. }
+            | Self::Hover { request, .. }
+            | Self::Locations { request, .. }
+            | Self::Symbols { request, .. }
+            | Self::Signature { request, .. }
+            | Self::InlayHints { request, .. } => *request,
+        }
+    }
 }
 
 /// Findings a guest pushed for one state of a file.
@@ -196,6 +236,18 @@ pub struct HostState {
 }
 
 impl HostState {
+    /// Queue an answer for the application, within the unconsumed-answer limit.
+    fn push_provided(&mut self, answer: Provided) -> Result<(), HostError> {
+        if self.provided.len() >= self.pending_limit {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "too many unconsumed provider answers",
+            ));
+        }
+        self.provided.push(answer);
+        Ok(())
+    }
+
     /// Refuse an import that causes a side effect while a save participant runs.
     fn unrestricted(&self, what: &str) -> Result<(), HostError> {
         if self.save_requests.is_empty() {
@@ -411,6 +463,38 @@ impl host::Host for HostState {
             incomplete,
         });
         Ok(())
+    }
+
+    fn provide_hover(&mut self, request: u64, answer: Option<WireHover>) -> Result<(), HostError> {
+        self.push_provided(Provided::Hover { request, answer })
+    }
+
+    fn provide_locations(
+        &mut self,
+        request: u64,
+        items: Vec<WireLocation>,
+    ) -> Result<(), HostError> {
+        self.push_provided(Provided::Locations { request, items })
+    }
+
+    fn provide_symbols(&mut self, request: u64, items: Vec<WireSymbol>) -> Result<(), HostError> {
+        self.push_provided(Provided::Symbols { request, items })
+    }
+
+    fn provide_signature(
+        &mut self,
+        request: u64,
+        answer: Option<WireSignature>,
+    ) -> Result<(), HostError> {
+        self.push_provided(Provided::Signature { request, answer })
+    }
+
+    fn provide_inlay_hints(
+        &mut self,
+        request: u64,
+        items: Vec<WireInlayHint>,
+    ) -> Result<(), HostError> {
+        self.push_provided(Provided::InlayHints { request, items })
     }
 
     fn provide_edits(&mut self, request: u64, edits: Vec<TextEdit>) -> Result<(), HostError> {

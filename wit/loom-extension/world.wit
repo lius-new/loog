@@ -110,6 +110,68 @@ interface types {
         /// earlier participants already changed; answer with `provide-edits`. While
         /// the request is open, calls with side effects fail with permission-denied.
         save,
+        /// Describe the symbol at `cursor`; answer with `provide-hover`.
+        hover,
+        /// Where the symbol at `cursor` is defined; answer with `provide-locations`.
+        definition,
+        /// The outline of the document; answer with `provide-symbols`.
+        document-symbols,
+        /// The signature being called at `cursor`; answer with `provide-signature`.
+        signature-help,
+        /// Inline hints inside `range` (the whole text when absent); answer with
+        /// `provide-inlay-hints`.
+        inlay-hints,
+    }
+
+    /// Text shown for a symbol, as Markdown, with the part of the text it is about.
+    record hover-answer {
+        contents: string,
+        range: option<byte-range>,
+    }
+
+    /// A place in a file: zero-based line and a column counted in UTF-8 bytes.
+    record location {
+        /// Absolute path, or relative to the folder of the requested document.
+        path: string,
+        line: u32,
+        column: u32,
+    }
+
+    /// One entry of an outline. `parent` is the index of the enclosing entry in
+    /// the same list, which must come before this one.
+    record document-symbol {
+        name: string,
+        detail: option<string>,
+        /// LSP symbol kind number.
+        kind: u32,
+        /// The whole declaration, and the part to select when it is chosen.
+        range: byte-range,
+        selection: byte-range,
+        parent: option<u32>,
+    }
+
+    record parameter-info {
+        label: string,
+        documentation: option<string>,
+    }
+
+    /// The signature of the call being typed and which parameter is current.
+    record signature-answer {
+        label: string,
+        documentation: option<string>,
+        parameters: list<parameter-info>,
+        active-parameter: option<u32>,
+    }
+
+    /// A hint shown in the text at `offset` without being part of it.
+    record inlay-hint {
+        offset: u64,
+        label: string,
+        /// 1 type, 2 parameter name; absent for others.
+        kind: option<u8>,
+        padding-left: bool,
+        padding-right: bool,
+        tooltip: option<string>,
     }
 
     /// One completion candidate. `data` is opaque to the host and comes back
@@ -287,7 +349,7 @@ interface types {
 }
 
 interface host {
-    use types.{apply-edit-request, completion-item, diagnostic, file-content, file-ops-request, host-error, http-response, root-ref, storage-scope, task-id, task-request, operation-id, snapshot-token, byte-range, text-edit};
+    use types.{apply-edit-request, completion-item, diagnostic, document-symbol, file-content, file-ops-request, hover-answer, host-error, http-response, inlay-hint, location, root-ref, signature-answer, storage-scope, task-id, task-request, operation-id, snapshot-token, byte-range, text-edit};
 
     /// Read a bounded range of a captured snapshot. Fast, never blocks on the UI.
     read-range: func(snapshot: snapshot-token, range: byte-range) -> result<string, host-error>;
@@ -350,6 +412,21 @@ interface host {
 
     /// Answer a formatting request with edits against the requested snapshot.
     provide-edits: func(request: u64, edits: list<text-edit>) -> result<_, host-error>;
+
+    /// Answer a hover request; `none` means there is nothing to show.
+    provide-hover: func(request: u64, answer: option<hover-answer>) -> result<_, host-error>;
+
+    /// Answer a definition request with the places the symbol is defined.
+    provide-locations: func(request: u64, items: list<location>) -> result<_, host-error>;
+
+    /// Answer an outline request.
+    provide-symbols: func(request: u64, items: list<document-symbol>) -> result<_, host-error>;
+
+    /// Answer a signature help request; `none` means there is nothing to show.
+    provide-signature: func(request: u64, answer: option<signature-answer>) -> result<_, host-error>;
+
+    /// Answer an inlay hint request with offsets of the requested snapshot.
+    provide-inlay-hints: func(request: u64, items: list<inlay-hint>) -> result<_, host-error>;
 
     log: func(level: u8, message: string);
 }

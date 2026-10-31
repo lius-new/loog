@@ -12,17 +12,29 @@ use crate::domain::language::Registry;
 use crate::features::language_service::server_set::ServerSet;
 use crate::features::language_service::sync::Stamp;
 use crate::infrastructure::lsp::manager::{
-    InstanceInfo, Manager, Options, Snapshot, SnapshotDocument,
+    InstanceInfo, Manager, Options, PartSink, RequestSpec, Snapshot, SnapshotDocument,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+/// A source of answers besides the language servers: extension providers.
+pub(crate) trait ExternalAnswers: Send + Sync {
+    /// How many answers the source will deliver for `spec`; zero when it has none.
+    fn expected(&self, spec: &RequestSpec) -> usize;
+    /// Starts answering. Exactly `expected` answers go to `sink`, each possibly empty.
+    fn ask(&self, spec: RequestSpec, expected: usize, sink: PartSink);
+}
+
 pub(crate) struct LanguageServices {
     manager: Manager,
     sent: Mutex<Option<u64>>,
+    external: Mutex<Option<Arc<dyn ExternalAnswers>>>,
 }
+
+/// How long a request waits for the extensions before it goes on without them.
+const EXTERNAL_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
 
 impl LanguageServices {
     #[cfg(test)]
@@ -30,7 +42,13 @@ impl LanguageServices {
         Self {
             manager,
             sent: Mutex::new(None),
+            external: Mutex::new(None),
         }
+    }
+
+    /// Lets requests for hover, definition and the like reach extension providers.
+    pub fn set_external(&self, source: Arc<dyn ExternalAnswers>) {
+        *self.external.lock().unwrap() = Some(source);
     }
     pub fn new(servers: Arc<ServerSet>, on_change: impl Fn() + Send + 'static) -> Self {
         Self::with_start_gate(servers, None, on_change)
@@ -54,6 +72,7 @@ impl LanguageServices {
                 on_change,
             ),
             sent: Mutex::new(None),
+            external: Mutex::new(None),
         }
     }
 
@@ -141,7 +160,22 @@ impl LanguageServices {
         &self,
         spec: crate::infrastructure::lsp::manager::RequestSpec,
     ) -> crate::infrastructure::lsp::manager::RequestHandle {
-        self.manager.request(spec)
+        let handle = self.manager.request(spec.clone());
+        // Requests about an earlier answer, or to one named server, are the
+        // servers' own business; the rest also go to extension providers.
+        let source = self.external.lock().unwrap().clone();
+        if let Some(source) = source
+            && spec.target.is_none()
+            && spec.server.is_none()
+        {
+            let expected = source.expected(&spec);
+            if expected > 0 {
+                let wait = spec.timeout.unwrap_or(EXTERNAL_WAIT);
+                let sink = handle.expect_external(expected, wait);
+                source.ask(spec, expected, sink);
+            }
+        }
+        handle
     }
 
     /// What servers asked of the application since the last call.

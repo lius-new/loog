@@ -1,13 +1,18 @@
 //! Connects the extension service to the executor thread and the UI thread.
-use super::{Effect, ExtensionService};
+use super::{Effect, ExtensionService, LanguageAsk};
 use crate::app::context::AppContext;
+use crate::app::language_services::ExternalAnswers;
 use crate::app::state::AppState;
 use crate::domain::identity::FileId;
+use crate::domain::language::Registry;
+use crate::features::language_service::capabilities::PositionEncoding;
 use crate::infrastructure::extensions::tasks;
 use crate::infrastructure::extensions::trust_store::TrustStore;
 use crate::infrastructure::extensions::{Event, Executor};
+use crate::infrastructure::lsp::manager::{EXTERNAL_RANK, Part, PartSink, RequestSpec};
 use lgui::ApplicationHandle;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock};
 
 struct Inner {
@@ -24,6 +29,10 @@ struct Inner {
     saves: Mutex<std::collections::HashMap<u64, SaveContinuation>>,
     /// The language servers last handed to the language service.
     published_servers: Mutex<Vec<crate::infrastructure::lsp::manager::Contributed>>,
+    /// Where the answers of a language request go, with how many are still owed.
+    language_sinks: Mutex<std::collections::HashMap<u64, (PartSink, usize)>>,
+    next_language: std::sync::atomic::AtomicU64,
+    hooked: std::sync::atomic::AtomicBool,
 }
 
 /// Runs on the UI thread when the participants are done; `true` means write the files.
@@ -146,10 +155,94 @@ impl Inner {
                         runner.cancel(task);
                     }
                 }
+                Effect::LanguageAnswer { token, answer } => {
+                    // One request may wait on several providers; the sink goes
+                    // when the last of them has answered.
+                    let mut sinks = self.language_sinks.lock().unwrap();
+                    if let Some((sink, remaining)) = sinks.get_mut(&token) {
+                        sink.deliver(answer.map(|answer| Part {
+                            instance: answer.source,
+                            server: answer.provider.into(),
+                            rank: EXTERNAL_RANK,
+                            encoding: PositionEncoding::Utf8,
+                            value: answer.value,
+                        }));
+                        *remaining -= 1;
+                        if *remaining == 0 {
+                            sinks.remove(&token);
+                        }
+                    }
+                }
                 Effect::Toast(message) => app.show_toast(message),
                 Effect::Error(message) => app.show_error(message),
             }
         }
+    }
+}
+
+/// Lets hover, definition, outline, signature and inlay requests of the
+/// language UI reach extension providers (see `LanguageServices::request`).
+struct LanguageHook {
+    inner: std::sync::Weak<Inner>,
+}
+
+impl ExternalAnswers for LanguageHook {
+    fn expected(&self, spec: &RequestSpec) -> usize {
+        let Some(inner) = self.inner.upgrade() else {
+            return 0;
+        };
+        let registry = Registry::builtin();
+        let language = registry
+            .definition_of(registry.resolve_path(&spec.path))
+            .name
+            .to_string();
+        inner
+            .service
+            .lock()
+            .unwrap()
+            .language_providers(spec.feature, &language)
+            .len()
+    }
+
+    fn ask(&self, spec: RequestSpec, expected: usize, sink: PartSink) {
+        let Some(inner) = self.inner.upgrade() else {
+            return;
+        };
+        // The request is made on the UI thread, possibly inside an update; the
+        // providers are asked from the next turn of the application.
+        let application = inner.application.clone();
+        application.post(move || {
+            let context = inner.context.clone();
+            context.update(|app| {
+                let token = inner.next_language.fetch_add(1, Ordering::Relaxed);
+                let ask = LanguageAsk {
+                    feature: spec.feature,
+                    path: spec.path.clone(),
+                    stamp: spec.stamp,
+                    start: spec.start,
+                    end: spec.end,
+                };
+                let mut effects = Vec::new();
+                let asked =
+                    inner
+                        .service
+                        .lock()
+                        .unwrap()
+                        .request_language(app, &ask, token, &mut effects);
+                // The tokens of providers that were not asked still owe an answer.
+                for _ in asked..expected {
+                    sink.deliver(None);
+                }
+                if asked > 0 {
+                    inner
+                        .language_sinks
+                        .lock()
+                        .unwrap()
+                        .insert(token, (sink, asked));
+                }
+                inner.apply(app, effects);
+            });
+        });
     }
 }
 
@@ -178,6 +271,9 @@ impl ExtensionHost {
             application: application.clone(),
             saves: Mutex::new(std::collections::HashMap::new()),
             published_servers: Mutex::new(Vec::new()),
+            language_sinks: Mutex::new(std::collections::HashMap::new()),
+            next_language: std::sync::atomic::AtomicU64::new(1),
+            hooked: std::sync::atomic::AtomicBool::new(false),
         });
         let _ = inner.self_ref.set(Arc::downgrade(&inner));
         inner.service.lock().unwrap().set_trust(inner.trust.clone());
@@ -208,7 +304,28 @@ impl ExtensionHost {
             });
         }))?;
         let _ = inner.executor.set(executor);
-        Ok(Self { inner })
+        let host = Self { inner };
+        host.attach_language_hook();
+        Ok(host)
+    }
+
+    /// Let the language service ask extension providers too. Retried on every
+    /// update until the language service exists.
+    fn attach_language_hook(&self) {
+        if self.inner.hooked.load(Ordering::Relaxed) {
+            return;
+        }
+        if let Some(services) = self
+            .inner
+            .context
+            .services()
+            .and_then(|runtime| runtime.language_services())
+        {
+            services.set_external(Arc::new(LanguageHook {
+                inner: Arc::downgrade(&self.inner),
+            }));
+            self.inner.hooked.store(true, Ordering::Relaxed);
+        }
     }
 
     pub(crate) fn load_package(&self, dir: &Path) -> Result<String, String> {
@@ -312,6 +429,7 @@ impl ExtensionHost {
 
     /// Tell subscribed extensions about document changes this update made.
     pub(crate) fn observe(&self, app: &AppState) {
+        self.attach_language_hook();
         let (effects, servers) = {
             let mut service = self.inner.service.lock().unwrap();
             let effects = service.observe(app);

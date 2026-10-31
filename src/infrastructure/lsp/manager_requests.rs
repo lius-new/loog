@@ -182,19 +182,78 @@ impl Progress {
     }
 }
 
+/// The place of answers from extensions in the listing of parts: after every server.
+pub(crate) const EXTERNAL_RANK: usize = 1000;
+
+/// Answers that do not come from a language server (extension providers). They
+/// are kept apart from the servers' parts, which the coordinator replaces as a
+/// whole, and joined with them when the application polls.
+#[derive(Default)]
+struct External {
+    parts: Vec<Arc<Part>>,
+    /// Answers promised and not yet delivered.
+    pending: usize,
+    /// After this, a promised answer that never came is given up on.
+    give_up_at: Option<Instant>,
+}
+
+/// Where an extension's answer goes. Each promised answer is delivered once,
+/// with `None` when there is nothing to show; a late or lost one is covered by
+/// the handle's own deadline.
+#[derive(Clone)]
+pub(crate) struct PartSink {
+    external: Arc<Mutex<External>>,
+}
+
+impl PartSink {
+    pub fn deliver(&self, part: Option<Part>) {
+        let mut external = self.external.lock().unwrap();
+        external.pending = external.pending.saturating_sub(1);
+        if let Some(part) = part {
+            external.parts.push(Arc::new(part));
+            external.parts.sort_by_key(|part| part.rank);
+        }
+    }
+}
+
 pub(crate) struct RequestHandle {
     id: u64,
     shared: Arc<Mutex<Progress>>,
+    external: Arc<Mutex<External>>,
     tx: Sender<Msg>,
 }
 
 impl RequestHandle {
     pub fn poll(&self) -> Progress {
-        self.shared.lock().unwrap().clone()
+        let mut progress = self.shared.lock().unwrap().clone();
+        let external = self.external.lock().unwrap();
+        progress.parts.extend(external.parts.iter().cloned());
+        progress.parts.sort_by_key(|part| part.rank);
+        if external.pending > 0 && external.give_up_at.is_some_and(|at| Instant::now() < at) {
+            progress.finished = false;
+        }
+        if !progress.parts.is_empty() {
+            progress.failure = None;
+        }
+        progress
     }
 
     pub fn is_finished(&self) -> bool {
-        self.shared.lock().unwrap().finished
+        let external = self.external.lock().unwrap();
+        let waiting =
+            external.pending > 0 && external.give_up_at.is_some_and(|at| Instant::now() < at);
+        !waiting && self.shared.lock().unwrap().finished
+    }
+
+    /// Promises `count` answers from outside the servers, to be delivered through
+    /// the returned sink within `timeout`.
+    pub fn expect_external(&self, count: usize, timeout: Duration) -> PartSink {
+        let mut external = self.external.lock().unwrap();
+        external.pending += count;
+        external.give_up_at = Some(Instant::now() + timeout);
+        PartSink {
+            external: self.external.clone(),
+        }
     }
 
     pub fn cancel(&self) {
@@ -229,6 +288,7 @@ impl super::Manager {
         RequestHandle {
             id,
             shared,
+            external: Arc::default(),
             tx: self.tx.clone(),
         }
     }

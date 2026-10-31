@@ -115,6 +115,11 @@ pub enum ProviderKind {
     Formatting,
     CodeActions,
     SaveParticipant,
+    Hover,
+    Definition,
+    DocumentSymbols,
+    SignatureHelp,
+    InlayHints,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

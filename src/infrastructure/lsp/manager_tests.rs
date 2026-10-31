@@ -865,6 +865,46 @@ fn a_server_an_extension_declares_runs_only_where_it_is_allowed_and_stops_when_w
 }
 
 #[test]
+fn answers_from_outside_the_servers_join_a_request_hold_it_open_and_are_given_up_on() {
+    use crate::features::language_service::capabilities::PositionEncoding;
+    use crate::features::language_service::request::Feature;
+    use crate::infrastructure::lsp::manager::{EXTERNAL_RANK, Part, RequestSpec};
+    let f = Fixture::new(&[]);
+    let document = f.doc("a.fk", 0, "hello");
+    f.show(vec![document.clone()]);
+    f.wait_status("ready", |s| *s == Status::Ready);
+    let ask = || RequestSpec::new(Feature::Hover, document.path.clone(), document.stamp, 1);
+    let external = |name: &str| Part {
+        instance: crate::infrastructure::lsp::manager::EXTERNAL_SOURCE | 1,
+        server: name.into(),
+        rank: EXTERNAL_RANK,
+        encoding: PositionEncoding::Utf8,
+        value: json!({ "contents": "from outside" }),
+    };
+
+    // The request is not finished while an answer is owed, however fast the servers are.
+    let handle = f.mgr().request(ask());
+    let sink = handle.expect_external(1, Duration::from_secs(30));
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!handle.is_finished());
+    assert!(!handle.poll().finished);
+
+    sink.deliver(Some(external("example.tools.hover")));
+    f.wait_for("the request to finish", || {
+        handle.is_finished().then_some(())
+    });
+    let progress = handle.poll();
+    let last = progress.parts.last().expect("the outside answer is a part");
+    assert_eq!(&*last.server, "example.tools.hover");
+    assert!(progress.failure.is_none(), "an answer is not a failure");
+
+    // An answer that never comes is given up on at the deadline.
+    let handle = f.mgr().request(ask());
+    let _unused = handle.expect_external(1, Duration::from_millis(100));
+    f.wait_for("the deadline", || handle.is_finished().then_some(()));
+}
+
+#[test]
 fn an_extension_server_cannot_take_the_name_of_another_server() {
     use crate::infrastructure::lsp::manager::Contributed;
     let f = Fixture::new(&[]);

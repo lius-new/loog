@@ -17,7 +17,8 @@ mod registration;
 #[path = "manager_requests.rs"]
 mod requests;
 pub(crate) use requests::{
-    Failure, Part, Progress, Reply, RequestHandle, RequestSpec, ServerAction,
+    EXTERNAL_RANK, Failure, Part, PartSink, Progress, Reply, RequestHandle, RequestSpec,
+    ServerAction,
 };
 
 use super::client::{Client, Launch, Timeouts};
