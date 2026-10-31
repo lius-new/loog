@@ -4,6 +4,8 @@
 //! never waits on guest code. The application sends [`Job`]s and receives
 //! [`Event`]s through a sink; nothing UI-shaped crosses this boundary, only
 //! typed values and opaque ids (design §5, last layering rule).
+pub mod http;
+pub mod ports;
 pub mod tasks;
 pub mod trust_store;
 
@@ -71,6 +73,12 @@ pub enum Job {
         component: Vec<u8>,
         cache: PathBuf,
         limits: Limits,
+        /// Where this extension's stored values live; `None` when storage is not granted.
+        storage: Option<PathBuf>,
+        /// Whether bounded file access is granted.
+        files: bool,
+        /// Hosts the extension may reach; empty when network access is not granted.
+        domains: Vec<String>,
     },
     Run {
         id: String,
@@ -98,7 +106,10 @@ pub enum Job {
     Roots {
         id: String,
         generation: u64,
-        roots: Vec<RootRef>,
+        /// Handle, path and stable storage key of every folder.
+        roots: Vec<(RootRef, PathBuf, String)>,
+        /// Identifies the current set of folders for workspace-scoped storage.
+        workspace_key: String,
     },
     /// Something happened to a task of the extension. `ended` frees its slot.
     Task {
@@ -273,7 +284,12 @@ impl Worker {
                     component,
                     cache,
                     limits,
-                } => self.load(id, generation, &component, &cache, limits),
+                    storage,
+                    files,
+                    domains,
+                } => self.load(
+                    id, generation, &component, &cache, limits, storage, files, domains,
+                ),
                 Job::Run {
                     id,
                     generation,
@@ -366,9 +382,10 @@ impl Worker {
                     id,
                     generation,
                     roots,
+                    workspace_key,
                 } => {
                     if let Some(slot) = self.slot(&id, generation) {
-                        slot.instance.put_roots(roots);
+                        slot.instance.put_root_details(roots, workspace_key);
                     }
                 }
                 Job::Task {
@@ -420,6 +437,9 @@ impl Worker {
         component: &[u8],
         cache: &std::path::Path,
         limits: Limits,
+        storage: Option<PathBuf>,
+        files: bool,
+        domains: Vec<String>,
     ) {
         // A reload replaces the old instance first, so its callbacks cannot act on the new one.
         self.instances.remove(&id);
@@ -432,7 +452,18 @@ impl Worker {
                     .map(|instance| (instance, hit))
             });
         match result {
-            Ok((instance, cache_hit)) => {
+            Ok((mut instance, cache_hit)) => {
+                // Capabilities are granted by giving the instance the port; without one
+                // every call fails with permission-denied.
+                if let Some(dir) = storage {
+                    instance.set_storage(Box::new(ports::FsStorage::new(dir)));
+                }
+                if files {
+                    instance.set_files(Box::new(ports::FsFiles));
+                }
+                if !domains.is_empty() {
+                    instance.set_http(Box::new(http::BoundedHttp::new(domains)));
+                }
                 self.instances.insert(
                     id.clone(),
                     Slot {

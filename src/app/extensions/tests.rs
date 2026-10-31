@@ -1127,3 +1127,281 @@ fn a_checker_publishes_findings_for_the_state_it_checked_and_not_for_a_changed_o
     f.wait_for_log("task exited 2 code Some(0)");
     assert!(f.published.is_empty(), "{:?}", f.published);
 }
+
+fn op_manifest(capabilities: &str) -> String {
+    op_manifest_with(capabilities, "")
+}
+
+fn op_manifest_with(capabilities: &str, extra: &str) -> String {
+    r#"{
+    EXTRA
+    "schema": 1,
+    "id": "example.tools",
+    "version": "0.1.0",
+    "api": "loom:extension@0.1.0",
+    "component": "extension.wasm",
+    "activation": [{ "kind": "command", "id": "example.tools.op" }],
+    "capabilities": CAPS,
+    "contributes": {
+        "commands": [{ "id": "example.tools.op", "title": "Op" }],
+        "settings": [{ "key": "example.tools.spec", "kind": "string", "default": "" }]
+    }
+}"#
+    .replace("CAPS", capabilities)
+    .replace("EXTRA", extra)
+}
+
+impl Fixture {
+    /// A fixture with a workspace folder, its own storage directory and the given capabilities.
+    fn ops(name: &str, capabilities: &str) -> (Fixture, PathBuf) {
+        let mut f = fixture_with(name, "text", 0..0, &op_manifest(capabilities));
+        let base = std::env::temp_dir().join(format!("loom-ops-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let folder = base.join("project");
+        std::fs::create_dir_all(folder.join("src")).unwrap();
+        std::fs::write(folder.join("src/lib.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(folder.join("notes.txt"), "0123456789").unwrap();
+        std::fs::write(folder.join("blob.bin"), [0u8, 1, 2]).unwrap();
+        f.app.explorer.model.add_root(
+            &crate::infrastructure::explorer_filesystem::ExplorerFilesystem,
+            folder.clone(),
+        );
+        f.service.set_storage_dir(base.join("storage"));
+        (f, folder)
+    }
+
+    /// Run one operation in the guest and return what it reported.
+    fn op(&mut self, spec: serde_json::Value) -> String {
+        let before = self.op_results().len();
+        let effects = self.service.set_setting_sources(
+            serde_json::json!({ "example.tools.spec": spec.to_string() }),
+            None,
+            false,
+        );
+        self.apply(effects);
+        // Settings reach the guest before the command, and a running guest answers in order.
+        let observed = self.service.observe(&self.app);
+        self.apply(observed);
+        self.run("example.tools.op");
+        self.pump_until(|f| f.op_results().len() > before);
+        self.op_results().pop().unwrap()
+    }
+
+    fn op_results(&self) -> Vec<String> {
+        self.service
+            .package("example.tools")
+            .unwrap()
+            .logs
+            .iter()
+            .filter_map(|(_, l)| l.strip_prefix("op result: ").map(str::to_owned))
+            .collect()
+    }
+}
+
+#[test]
+fn stored_values_live_in_their_scope_survive_a_restart_and_follow_the_set_of_folders() {
+    let (mut f, _) = Fixture::ops(
+        "store",
+        r#"["documents.read", "workspace.edit", "storage"]"#,
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"set","scope":"user","key":"a","value":"1"})),
+        "stored"
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"set","scope":"root","key":"a","value":"2"})),
+        "stored"
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"set","scope":"workspace","key":"a","value":"3"})),
+        "stored"
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"get","scope":"user","key":"a"})),
+        "got Some(\"1\")"
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"get","scope":"root","key":"a"})),
+        "got Some(\"2\")"
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"get","scope":"workspace","key":"a"})),
+        "got Some(\"3\")"
+    );
+
+    // A second folder changes the workspace's identity; the old value is not visible.
+    let other = f.service.storage_dir.parent().unwrap().join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    f.app.explorer.model.add_root(
+        &crate::infrastructure::explorer_filesystem::ExplorerFilesystem,
+        other,
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"get","scope":"workspace","key":"a"})),
+        "got None"
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"get","scope":"user","key":"a"})),
+        "got Some(\"1\")"
+    );
+
+    assert_eq!(
+        f.op(serde_json::json!({"op":"delete","scope":"user","key":"a"})),
+        "deleted"
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"get","scope":"user","key":"a"})),
+        "got None"
+    );
+
+    // A fresh extension instance (a restart) of the same folder reads what was stored on disk.
+    let saved = f
+        .service
+        .storage_dir
+        .parent()
+        .unwrap()
+        .with_file_name(format!("saved-storage-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&saved);
+    copy_dir(&f.service.storage_dir, &saved);
+    drop(f);
+    let (mut g, _) = Fixture::ops(
+        "store",
+        r#"["documents.read", "workspace.edit", "storage"]"#,
+    );
+    g.service.set_storage_dir(saved);
+    assert_eq!(
+        g.op(serde_json::json!({"op":"get","scope":"root","key":"a"})),
+        "got Some(\"2\")"
+    );
+}
+
+#[test]
+fn storage_is_bounded_and_needs_its_capability() {
+    let (mut f, _) = Fixture::ops(
+        "quota",
+        r#"["documents.read", "workspace.edit", "storage"]"#,
+    );
+    let big = "x".repeat(65 * 1024);
+    let result = f.op(serde_json::json!({"op":"set","scope":"user","key":"big","value":big}));
+    assert!(result.contains("too large"), "{result}");
+    let result =
+        f.op(serde_json::json!({"op":"set","scope":"user","key":"k".repeat(300),"value":"v"}));
+    assert!(result.contains("too long"), "{result}");
+
+    let (mut g, _) = Fixture::ops("nostorage", r#"["documents.read", "workspace.edit"]"#);
+    let result = g.op(serde_json::json!({"op":"set","scope":"user","key":"a","value":"1"}));
+    assert!(result.contains("not granted"), "{result}");
+}
+
+#[test]
+fn files_are_read_and_found_inside_the_folder_only() {
+    let (mut f, _) = Fixture::ops(
+        "files",
+        r#"["documents.read", "workspace.edit", "workspace.files.read"]"#,
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"read","path":"notes.txt","max":4})),
+        "read \"0123\" truncated true"
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"read","path":"src/lib.rs"})),
+        "read \"fn main() {}\\n\" truncated false"
+    );
+    for path in ["../project/notes.txt", "/etc/hosts", "..\\x"] {
+        let result = f.op(serde_json::json!({"op":"read","path":path}));
+        assert!(result.contains("inside the folder"), "{path}: {result}");
+    }
+    assert!(
+        f.op(serde_json::json!({"op":"read","path":"blob.bin"}))
+            .contains("not a text file")
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"find","pattern":"**/*.rs"})),
+        "found src/lib.rs"
+    );
+
+    let (mut g, _) = Fixture::ops("nofiles", r#"["documents.read", "workspace.edit"]"#);
+    let result = g.op(serde_json::json!({"op":"read","path":"notes.txt"}));
+    assert!(result.contains("not granted"), "{result}");
+}
+
+/// Copy a directory tree (test helper).
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap().flatten() {
+        let target = to.join(entry.file_name());
+        if entry.path().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
+fn serve_hello() -> u16 {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let mut buffer = [0u8; 2048];
+            let _ = stream.read(&mut buffer);
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\nconnection: close\r\n\r\nhello",
+            );
+        }
+    });
+    port
+}
+
+#[test]
+fn network_reaches_only_the_declared_and_granted_hosts() {
+    let port = serve_hello();
+    let manifest = op_manifest_with(
+        r#"["documents.read", "workspace.edit", "network"]"#,
+        r#""network": { "domains": ["127.0.0.1"] },"#,
+    );
+    let mut f = fixture_with("net", "text", 0..0, &manifest);
+    let result =
+        f.op(serde_json::json!({"op":"http","url":format!("http://127.0.0.1:{port}/x"),"max":3}));
+    assert_eq!(result, "http 200 \"hel\" truncated true");
+    let result = f.op(serde_json::json!({"op":"http","url":format!("http://localhost:{port}/x")}));
+    assert!(result.contains("not one of the hosts"), "{result}");
+
+    // Without the capability the declared hosts are not reachable either.
+    let manifest = op_manifest_with(r#"["documents.read", "workspace.edit"]"#, "");
+    let mut g = fixture_with("nonet", "text", 0..0, &manifest);
+    let result = g.op(serde_json::json!({"op":"http","url":format!("http://127.0.0.1:{port}/x")}));
+    assert!(result.contains("not granted"), "{result}");
+}
+
+#[test]
+fn a_network_declaration_needs_the_capability_and_plain_host_names() {
+    let with = |caps: &str, domains: &str| {
+        Manifest::parse(&op_manifest_with(
+            caps,
+            &format!(r#""network": {{ "domains": {domains} }},"#),
+        ))
+    };
+    assert!(
+        with(
+            r#"["network"]"#,
+            r#"["api.example.com", "*.cdn.example.com"]"#
+        )
+        .is_ok()
+    );
+    for bad in [
+        r#"[]"#,
+        r#"["https://api.example.com"]"#,
+        r#"["api.example.com:8080"]"#,
+        r#"["*"]"#,
+        r#"["Api.Example.com"]"#,
+        r#"["a/b"]"#,
+    ] {
+        assert!(with(r#"["network"]"#, bad).is_err(), "{bad}");
+    }
+    assert!(
+        with(r#"["documents.read"]"#, r#"["api.example.com"]"#).is_err(),
+        "declared without the capability"
+    );
+}

@@ -16,6 +16,7 @@ use loom::extension::types::{
     ProviderKind, RoundStatus, TextEdit,
 };
 use loom::extension::types::{
+    StorageScope,
     CompletionItem,
 };
 
@@ -115,6 +116,59 @@ fn run(command: &str, call: u64, snapshot: Option<u64>, selections: Vec<loom::ex
                 }
                 Err(error) => host::log(2, &format!("task refused: {}", error.message)),
             }
+        }
+        "example.tools.op" => {
+            // One storage or file operation described by the "example.tools.op" setting.
+            let setting = host::get_setting("example.tools.spec").unwrap_or_default();
+            let mut spec: serde_json::Value = serde_json::from_str(&setting).unwrap_or_default();
+            if let Some(text) = spec.as_str() {
+                spec = serde_json::from_str(text).unwrap_or_default();
+            }
+            let roots = host::list_roots();
+            let root = roots.first().map(|r| r.id).unwrap_or(0);
+            let scope = match spec["scope"].as_str() {
+                Some("workspace") => StorageScope::Workspace,
+                Some("root") => StorageScope::Root(root),
+                _ => StorageScope::User,
+            };
+            let key = spec["key"].as_str().unwrap_or("k").to_owned();
+            let value = spec["value"].as_str().unwrap_or_default().to_owned();
+            let message = match spec["op"].as_str().unwrap_or_default() {
+                "set" => match host::storage_set(scope, &key, &value) {
+                    Ok(()) => "stored".to_owned(),
+                    Err(e) => format!("store error: {}", e.message),
+                },
+                "get" => format!("got {:?}", host::storage_get(scope, &key)),
+                "delete" => match host::storage_delete(scope, &key) {
+                    Ok(()) => "deleted".to_owned(),
+                    Err(e) => format!("delete error: {}", e.message),
+                },
+                "read" => match host::read_file(
+                    root,
+                    spec["path"].as_str().unwrap_or_default(),
+                    spec["max"].as_u64().unwrap_or(1000) as u32,
+                ) {
+                    Ok(c) => format!("read {:?} truncated {}", c.text, c.truncated),
+                    Err(e) => format!("read error: {}", e.message),
+                },
+                "find" => match host::find_files(
+                    root,
+                    spec["pattern"].as_str().unwrap_or("*"),
+                    spec["limit"].as_u64().unwrap_or(100) as u32,
+                ) {
+                    Ok(found) => format!("found {}", found.join(",")),
+                    Err(e) => format!("find error: {}", e.message),
+                },
+                "http" => match host::http_get(
+                    spec["url"].as_str().unwrap_or_default(),
+                    spec["max"].as_u64().unwrap_or(1000) as u32,
+                ) {
+                    Ok(r) => format!("http {} {:?} truncated {}", r.status, r.body, r.truncated),
+                    Err(e) => format!("http error: {}", e.message),
+                },
+                other => format!("unknown op {other}"),
+            };
+            host::log(0, &format!("op result: {message}"));
         }
         "example.tools.cancel" => {
             if let Some(task) = STATE.with(|state| state.borrow().current_task) {

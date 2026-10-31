@@ -27,6 +27,16 @@ pub struct Manifest {
     pub capabilities: Vec<String>,
     #[serde(default)]
     pub contributes: Contributes,
+    /// Hosts the extension asks to reach; needs the `network` capability.
+    #[serde(default)]
+    pub network: Option<NetworkDecl>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkDecl {
+    /// Exact host names, or `*.example.com` for every subdomain.
+    pub domains: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -160,6 +170,8 @@ pub enum ManifestError {
     EmptySelector(String),
     /// A setting's default does not have the declared type.
     BadSettingDefault(String),
+    /// A network domain is not a plain host name pattern, or is declared without the capability.
+    BadDomain(String),
     /// The server declaration is not one the language service accepts.
     BadLanguageServer {
         id: String,
@@ -191,6 +203,9 @@ impl std::fmt::Display for ManifestError {
             Self::NotNamespaced { item, owner } => write!(f, "`{item}` must start with `{owner}.`"),
             Self::Duplicate(item) => write!(f, "`{item}` is declared twice"),
             Self::EmptySelector(id) => write!(f, "provider `{id}` selects no language"),
+            Self::BadDomain(domain) => {
+                write!(f, "`{domain}` is not a valid network domain declaration")
+            }
             Self::BadLanguageServer { id, reason } => {
                 write!(f, "language server `{id}`: {reason}")
             }
@@ -262,6 +277,17 @@ impl Manifest {
         for capability in &self.capabilities {
             if !CAPABILITIES.contains(&capability.as_str()) {
                 return Err(ManifestError::UnknownCapability(capability.clone()));
+            }
+        }
+        if let Some(network) = &self.network {
+            let declared = self.capabilities.iter().any(|c| c == "network");
+            if !declared || network.domains.is_empty() {
+                return Err(ManifestError::BadDomain("network".to_owned()));
+            }
+            for domain in &network.domains {
+                if !valid_domain(domain) {
+                    return Err(ManifestError::BadDomain(domain.clone()));
+                }
             }
         }
         self.validate_contributions()?;
@@ -368,6 +394,20 @@ impl Manifest {
         }
         Ok(())
     }
+}
+
+/// A host name or `*.host` pattern: lowercase letters, digits, dots, hyphens;
+/// no scheme, port, path or user information, and no bare `*`.
+pub fn valid_domain(domain: &str) -> bool {
+    let host = domain.strip_prefix("*.").unwrap_or(domain);
+    !host.is_empty()
+        && host.len() <= 253
+        && !host.starts_with(['.', '-'])
+        && !host.ends_with(['.', '-'])
+        && !host.contains("..")
+        && host
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
 }
 
 /// `vendor.name` style: two or more dot-separated lowercase segments.

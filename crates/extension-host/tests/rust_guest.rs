@@ -361,6 +361,21 @@ fn a_completion_provider_offers_items_and_resolves_one_back_to_its_origin() {
 }
 
 #[test]
+fn a_guest_without_the_ports_is_denied_storage_and_files() {
+    let (runtime, component) = runtime();
+    let mut instance = runtime.instantiate(&component, Limits::default()).unwrap();
+    instance.put_settings(std::collections::BTreeMap::from([(
+        "example.tools.spec".to_owned(),
+        r#"{"op":"set","scope":"user","key":"a","value":"b"}"#.to_owned(),
+    )]));
+    instance
+        .dispatch(&[command("example.tools.op", None, vec![])])
+        .unwrap();
+    let logs: Vec<_> = instance.state().logs.iter().map(|l| l.1.clone()).collect();
+    assert!(logs.iter().any(|l| l.contains("not granted")), "{logs:?}");
+}
+
+#[test]
 fn a_guest_can_start_and_cancel_a_task_and_see_only_the_folders_it_was_given() {
     use loom_extension_host::RootRef;
     use std::collections::BTreeMap;

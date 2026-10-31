@@ -97,3 +97,14 @@ things at once: the extension's own grant, a trusted folder
 permission, not a sandbox: the program can do whatever you can. Revoking any of
 them, or removing the folder, stops what runs there. A checker can show its
 findings with `publish-diagnostics` for the document version it read.
+
+## Storage, files and network
+
+`storage` keeps small values per extension in three scopes (user, workspace,
+folder); limits are 256-byte keys, 64 KiB values, 256 keys and 512 KiB per scope.
+`workspace.files.read` lets an extension `read-file` and `find-files` inside a
+folder; paths may not leave it, not even through a link. `network` plus
+`"network": { "domains": [...] }` in the manifest lets it `http-get` those hosts
+only (`*.example.com` covers subdomains); redirects are checked again and a
+downgrade to http is refused. All three are plain package grants: without the
+grant the call fails with `permission-denied`.

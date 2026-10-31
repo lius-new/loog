@@ -73,6 +73,7 @@ pub struct AcceptedEdit {
 
 pub use bindings::loom::extension::types::CompletionItem as WireCompletionItem;
 pub use bindings::loom::extension::types::Diagnostic as WireDiagnostic;
+pub use bindings::loom::extension::types::{FileContent, HttpResponse, StorageScope};
 
 /// An answer a provider gave, in the order it was given.
 #[derive(Clone, Debug)]
@@ -108,6 +109,51 @@ pub struct StartedTask {
     pub request: TaskRequest,
 }
 
+/// Where an extension's stored values live. The host enforces the limits;
+/// a port only reads and writes whole scopes.
+pub trait StoragePort: Send {
+    fn load(&mut self, scope: &str) -> BTreeMap<String, String>;
+    fn save(&mut self, scope: &str, values: &BTreeMap<String, String>) -> Result<(), String>;
+}
+
+/// Bounded access to files inside a folder. Implementations must keep every
+/// path inside `root` after resolving links.
+pub trait FilePort: Send {
+    fn read(
+        &self,
+        root: &std::path::Path,
+        relative: &str,
+        max: usize,
+    ) -> Result<(String, bool), ExtensionError>;
+    fn find(
+        &self,
+        root: &std::path::Path,
+        pattern: &str,
+        limit: usize,
+    ) -> Result<Vec<String>, ExtensionError>;
+}
+
+/// A bounded HTTP client. The port decides which hosts are reachable.
+pub trait HttpPort: Send {
+    fn get(&self, url: &str, max: usize) -> Result<HttpResponse, ExtensionError>;
+}
+
+/// Limits of one storage scope of one extension.
+pub mod storage_limits {
+    pub const KEY: usize = 256;
+    pub const VALUE: usize = 64 * 1024;
+    pub const KEYS: usize = 256;
+    pub const TOTAL: usize = 512 * 1024;
+}
+
+/// Most bytes one `http-get` returns, whatever was asked.
+pub const MAX_HTTP_BODY: usize = 2 * 1024 * 1024;
+
+/// Most bytes one `read-file` returns, whatever was asked.
+pub const MAX_READ: usize = 4 * 1024 * 1024;
+/// Most paths one `find-files` returns.
+pub const MAX_FOUND: usize = 1000;
+
 /// State behind the host imports.
 pub struct HostState {
     limits: StoreLimits,
@@ -124,12 +170,75 @@ pub struct HostState {
     live_tasks: usize,
     task_limit: usize,
     published: Vec<PublishedDiagnostics>,
+    storage: Option<Box<dyn StoragePort>>,
+    files: Option<Box<dyn FilePort>>,
+    http: Option<Box<dyn HttpPort>>,
+    scopes: BTreeMap<String, BTreeMap<String, String>>,
+    root_paths: BTreeMap<u64, std::path::PathBuf>,
+    root_keys: BTreeMap<u64, String>,
+    workspace_key: String,
     pub accepted: Vec<AcceptedEdit>,
     pub cancelled: Vec<u64>,
     pub logs: Vec<(u8, String)>,
 }
 
 impl HostState {
+    fn scope_key(&self, scope: &StorageScope) -> Result<String, HostError> {
+        match scope {
+            StorageScope::User => Ok("user".to_owned()),
+            StorageScope::Workspace => Ok(format!("workspace-{}", self.workspace_key)),
+            StorageScope::Root(id) => self
+                .root_keys
+                .get(id)
+                .map(|key| format!("root-{key}"))
+                .ok_or_else(|| {
+                    host_error(ErrorKind::ExpiredHandle, "the folder is no longer open")
+                }),
+        }
+    }
+
+    /// The values of a scope, read from the port once. `None` when this
+    /// extension has no storage port (not granted).
+    fn scope_values(&mut self, scope: &str) -> Option<&BTreeMap<String, String>> {
+        let port = self.storage.as_mut()?;
+        if !self.scopes.contains_key(scope) {
+            let loaded = port.load(scope);
+            self.scopes.insert(scope.to_owned(), loaded);
+        }
+        self.scopes.get(scope)
+    }
+
+    fn write_scope(
+        &mut self,
+        scope: &str,
+        next: BTreeMap<String, String>,
+    ) -> Result<(), HostError> {
+        let port = self.storage.as_mut().ok_or_else(|| {
+            host_error(
+                ErrorKind::PermissionDenied,
+                "storage is not granted to this extension",
+            )
+        })?;
+        port.save(scope, &next)
+            .map_err(|message| host_error(ErrorKind::ExtensionFailed, &message))?;
+        self.scopes.insert(scope.to_owned(), next);
+        Ok(())
+    }
+
+    fn file_access(&self, root: u64) -> Result<(&dyn FilePort, std::path::PathBuf), HostError> {
+        let port = self.files.as_deref().ok_or_else(|| {
+            host_error(
+                ErrorKind::PermissionDenied,
+                "file access is not granted to this extension",
+            )
+        })?;
+        let path = self
+            .root_paths
+            .get(&root)
+            .ok_or_else(|| host_error(ErrorKind::ExpiredHandle, "the folder is no longer open"))?;
+        Ok((port, path.clone()))
+    }
+
     fn new(limits: &Limits) -> Self {
         Self {
             limits: StoreLimitsBuilder::new()
@@ -152,6 +261,13 @@ impl HostState {
             live_tasks: 0,
             task_limit: limits.tasks,
             published: Vec::new(),
+            storage: None,
+            files: None,
+            http: None,
+            scopes: BTreeMap::new(),
+            root_paths: BTreeMap::new(),
+            root_keys: BTreeMap::new(),
+            workspace_key: String::new(),
             accepted: Vec::new(),
             cancelled: Vec::new(),
             logs: Vec::new(),
@@ -278,6 +394,98 @@ impl host::Host for HostState {
         }
         self.provided.push(Provided::Edits { request, edits });
         Ok(())
+    }
+
+    fn storage_get(&mut self, scope: StorageScope, key: String) -> Option<String> {
+        let scope = self.scope_key(&scope).ok()?;
+        self.scope_values(&scope)?.get(&key).cloned()
+    }
+
+    fn storage_set(
+        &mut self,
+        scope: StorageScope,
+        key: String,
+        value: String,
+    ) -> Result<(), HostError> {
+        let scope = self.scope_key(&scope)?;
+        if key.is_empty() || key.len() > storage_limits::KEY {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "the key is empty or too long",
+            ));
+        }
+        if value.len() > storage_limits::VALUE {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "the value is too large",
+            ));
+        }
+        let Some(values) = self.scope_values(&scope) else {
+            return Err(host_error(
+                ErrorKind::PermissionDenied,
+                "storage is not granted to this extension",
+            ));
+        };
+        let mut next = values.clone();
+        next.insert(key, value);
+        let total: usize = next.iter().map(|(k, v)| k.len() + v.len()).sum();
+        if next.len() > storage_limits::KEYS || total > storage_limits::TOTAL {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "this storage scope is full",
+            ));
+        }
+        self.write_scope(&scope, next)
+    }
+
+    fn storage_delete(&mut self, scope: StorageScope, key: String) -> Result<(), HostError> {
+        let scope = self.scope_key(&scope)?;
+        let Some(values) = self.scope_values(&scope) else {
+            return Err(host_error(
+                ErrorKind::PermissionDenied,
+                "storage is not granted to this extension",
+            ));
+        };
+        let mut next = values.clone();
+        if next.remove(&key).is_none() {
+            return Ok(());
+        }
+        self.write_scope(&scope, next)
+    }
+
+    fn http_get(&mut self, url: String, max_bytes: u32) -> Result<HttpResponse, HostError> {
+        let port = self.http.as_deref().ok_or_else(|| {
+            host_error(
+                ErrorKind::PermissionDenied,
+                "network access is not granted to this extension",
+            )
+        })?;
+        port.get(&url, (max_bytes as usize).min(MAX_HTTP_BODY))
+            .map_err(|error| host_error(error.kind, &error.message))
+    }
+
+    fn read_file(
+        &mut self,
+        root: u64,
+        path: String,
+        max_bytes: u32,
+    ) -> Result<FileContent, HostError> {
+        let (port, root) = self.file_access(root)?;
+        let max = (max_bytes as usize).min(MAX_READ);
+        port.read(&root, &path, max)
+            .map(|(text, truncated)| FileContent { text, truncated })
+            .map_err(|error| host_error(error.kind, &error.message))
+    }
+
+    fn find_files(
+        &mut self,
+        root: u64,
+        pattern: String,
+        limit: u32,
+    ) -> Result<Vec<String>, HostError> {
+        let (port, root) = self.file_access(root)?;
+        port.find(&root, &pattern, (limit as usize).min(MAX_FOUND))
+            .map_err(|error| host_error(error.kind, &error.message))
     }
 
     fn list_roots(&mut self) -> Vec<RootRef> {
@@ -574,6 +782,41 @@ impl Instance {
     /// The folders the guest can name.
     pub fn put_roots(&mut self, roots: Vec<RootRef>) {
         self.store.data_mut().roots = roots;
+    }
+
+    /// The folders with their paths and stable storage keys, and the key of
+    /// the whole set of folders. Cached storage of folders that went away is dropped.
+    pub fn put_root_details(
+        &mut self,
+        roots: Vec<(RootRef, std::path::PathBuf, String)>,
+        workspace_key: String,
+    ) {
+        let state = self.store.data_mut();
+        state.root_paths = roots
+            .iter()
+            .map(|(r, path, _)| (r.id, path.clone()))
+            .collect();
+        state.root_keys = roots
+            .iter()
+            .map(|(r, _, key)| (r.id, key.clone()))
+            .collect();
+        state.roots = roots.into_iter().map(|(r, ..)| r).collect();
+        state.workspace_key = workspace_key;
+    }
+
+    /// Give the guest persistent storage (a granted capability).
+    pub fn set_storage(&mut self, port: Box<dyn StoragePort>) {
+        self.store.data_mut().storage = Some(port);
+    }
+
+    /// Give the guest bounded network access (a granted capability).
+    pub fn set_http(&mut self, port: Box<dyn HttpPort>) {
+        self.store.data_mut().http = Some(port);
+    }
+
+    /// Give the guest bounded file access (a granted capability).
+    pub fn set_files(&mut self, port: Box<dyn FilePort>) {
+        self.store.data_mut().files = Some(port);
     }
 
     pub fn take_started_tasks(&mut self) -> Vec<StartedTask> {

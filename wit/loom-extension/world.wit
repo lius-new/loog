@@ -161,6 +161,28 @@ interface types {
 
     type task-id = u64;
 
+    /// Where a stored value lives. `user` is shared by every workspace;
+    /// `workspace` belongs to the current set of folders; `root` to one folder.
+    variant storage-scope {
+        user,
+        workspace,
+        root(u64),
+    }
+
+    record http-response {
+        status: u16,
+        content-type: option<string>,
+        /// The body as text (invalid bytes replaced), at most the bytes asked for.
+        body: string,
+        truncated: bool,
+    }
+
+    record file-content {
+        text: string,
+        /// The file is longer than the bytes asked for; `text` is its start.
+        truncated: bool,
+    }
+
     /// Run a program on the machine, without a shell: `program` and `args` are
     /// the whole command line. `cwd` is relative to the root and may not leave it.
     record task-request {
@@ -228,7 +250,7 @@ interface types {
 }
 
 interface host {
-    use types.{apply-edit-request, completion-item, diagnostic, host-error, root-ref, task-id, task-request, operation-id, snapshot-token, byte-range, text-edit};
+    use types.{apply-edit-request, completion-item, diagnostic, file-content, host-error, http-response, root-ref, storage-scope, task-id, task-request, operation-id, snapshot-token, byte-range, text-edit};
 
     /// Read a bounded range of a captured snapshot. Fast, never blocks on the UI.
     read-range: func(snapshot: snapshot-token, range: byte-range) -> result<string, host-error>;
@@ -239,6 +261,25 @@ interface host {
     apply-edit: func(request: apply-edit-request) -> result<operation-id, host-error>;
 
     cancel: func(operation: operation-id);
+
+    /// Persistent values of this extension, in its own namespace. Writes are
+    /// limited in key length, value size, number of keys and total size per scope.
+    storage-get: func(scope: storage-scope, key: string) -> option<string>;
+    storage-set: func(scope: storage-scope, key: string, value: string) -> result<_, host-error>;
+    storage-delete: func(scope: storage-scope, key: string) -> result<_, host-error>;
+
+    /// Read a text file inside a folder, at most `max-bytes` of it. The path is
+    /// relative to the folder and may not leave it, directly or through a link.
+    read-file: func(root: u64, path: string, max-bytes: u32) -> result<file-content, host-error>;
+
+    /// Relative paths of files in a folder matching a glob (for example
+    /// `**/*.rs`), honoring ignore files, at most `limit` of them.
+    find-files: func(root: u64, pattern: string, limit: u32) -> result<list<string>, host-error>;
+
+    /// A bounded GET request. Only hosts the manifest declares (and the user
+    /// granted) are reachable, every redirect is checked again, and the body is
+    /// cut at `max-bytes`.
+    http-get: func(url: string, max-bytes: u32) -> result<http-response, host-error>;
 
     /// The workspace folders this extension may name.
     list-roots: func() -> list<root-ref>;

@@ -299,6 +299,7 @@ pub struct ExtensionService {
     next_root: u64,
     tasks: HashMap<u64, TaskRecord>,
     next_task: u64,
+    storage_dir: PathBuf,
     trust: Option<std::sync::Arc<crate::infrastructure::extensions::trust_store::TrustStore>>,
 }
 
@@ -308,6 +309,47 @@ struct SettingSources {
     user: serde_json::Value,
     project: Option<serde_json::Value>,
     trusted: bool,
+}
+
+/// Whether a package may keep stored values / read files in folders. Both are
+/// plain package grants: declared in the manifest and approved by the user.
+fn storage_of(grants: &Grants, package: &Package) -> bool {
+    package.manifest.capabilities.iter().any(|c| c == "storage")
+        && grants.authorize(&package.identity, "storage", None).is_ok()
+}
+
+fn files_of(grants: &Grants, package: &Package) -> bool {
+    package
+        .manifest
+        .capabilities
+        .iter()
+        .any(|c| c == "workspace.files.read")
+        && grants
+            .authorize(&package.identity, "workspace.files.read", None)
+            .is_ok()
+}
+
+/// Hosts a package may reach: its declared list, once the user granted `network`.
+fn domains_of(grants: &Grants, package: &Package) -> Vec<String> {
+    let granted = package.manifest.capabilities.iter().any(|c| c == "network")
+        && grants.authorize(&package.identity, "network", None).is_ok();
+    match (&package.manifest.network, granted) {
+        (Some(network), true) => network.domains.clone(),
+        _ => Vec::new(),
+    }
+}
+
+/// A short stable name for a path: the first bytes of its SHA-256.
+fn stable_key(text: &str) -> String {
+    use std::fmt::Write;
+    let hash = ring::digest::digest(&ring::digest::SHA256, text.as_bytes());
+    hash.as_ref()
+        .iter()
+        .take(10)
+        .fold(String::new(), |mut out, byte| {
+            let _ = write!(out, "{byte:02x}");
+            out
+        })
 }
 
 fn fingerprint(edit: &AcceptedEdit) -> u64 {
@@ -337,6 +379,7 @@ fn digest(bytes: &[u8]) -> String {
 impl ExtensionService {
     pub fn new(cache: PathBuf) -> Self {
         let start = std::time::Instant::now();
+        let storage_dir = cache.with_file_name("storage");
         Self {
             packages: HashMap::new(),
             calls: HashMap::new(),
@@ -361,6 +404,7 @@ impl ExtensionService {
             next_root: 0,
             tasks: HashMap::new(),
             next_task: 0,
+            storage_dir,
             trust: None,
         }
     }
@@ -378,6 +422,10 @@ impl ExtensionService {
     pub fn with_guest_limits(mut self, limits: Limits) -> Self {
         self.guest_limits = limits;
         self
+    }
+
+    pub fn set_storage_dir(&mut self, dir: PathBuf) {
+        self.storage_dir = dir;
     }
 
     pub fn set_guest_limits(&mut self, limits: Limits) {
@@ -736,6 +784,10 @@ impl ExtensionService {
                     component: package.component.clone(),
                     cache: self.cache.clone(),
                     limits: self.guest_limits,
+                    storage: storage_of(&self.grants, package)
+                        .then(|| self.storage_dir.join(&package.manifest.id)),
+                    files: files_of(&self.grants, package),
+                    domains: domains_of(&self.grants, package),
                 })]
             }
             State::Activating => {
@@ -881,11 +933,7 @@ impl ExtensionService {
                     })
                     .collect();
                 let mut effects: Vec<Effect> = std::iter::once(initial).collect();
-                effects.push(Effect::Submit(Job::Roots {
-                    id: id.to_owned(),
-                    generation,
-                    roots: self.root_refs(),
-                }));
+                effects.push(self.roots_job(id, generation));
                 effects.extend(runs);
                 // Provider requests that waited for the start keep the deadline they
                 // were given; one that already ran out is answered as too late.
@@ -1219,6 +1267,10 @@ impl ExtensionService {
                             component: package.component.clone(),
                             cache: self.cache.clone(),
                             limits: self.guest_limits,
+                            storage: storage_of(&self.grants, package)
+                                .then(|| self.storage_dir.join(&package.manifest.id)),
+                            files: files_of(&self.grants, package),
+                            domains: domains_of(&self.grants, package),
                         }));
                     }
                 }
@@ -1317,6 +1369,10 @@ impl ExtensionService {
                     component: package.component.clone(),
                     cache: self.cache.clone(),
                     limits: self.guest_limits,
+                    storage: storage_of(&self.grants, package)
+                        .then(|| self.storage_dir.join(&package.manifest.id)),
+                    files: files_of(&self.grants, package),
+                    domains: domains_of(&self.grants, package),
                 });
                 self.queued.push(request);
             }
@@ -1899,11 +1955,29 @@ impl ExtensionService {
             .collect()
     }
 
+    /// Folders with their paths and stable storage keys, and the key of the
+    /// whole set (workspace-scoped storage follows the set of folders).
+    fn root_details(&self) -> (Vec<(loom_extension_host::RootRef, PathBuf, String)>, String) {
+        let refs = self.root_refs();
+        let details: Vec<_> = refs
+            .into_iter()
+            .zip(&self.roots)
+            .map(|(reference, (_, path))| {
+                (reference, path.clone(), stable_key(&Self::root_key(path)))
+            })
+            .collect();
+        let mut paths: Vec<String> = self.roots.iter().map(|(_, p)| Self::root_key(p)).collect();
+        paths.sort();
+        (details, stable_key(&paths.join("\n")))
+    }
+
     fn roots_job(&self, id: &str, generation: u64) -> Effect {
+        let (roots, workspace_key) = self.root_details();
         Effect::Submit(Job::Roots {
             id: id.to_owned(),
             generation,
-            roots: self.root_refs(),
+            roots,
+            workspace_key,
         })
     }
 

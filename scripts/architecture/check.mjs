@@ -117,7 +117,7 @@ export function allowed(file, dependency) {
   if(file.startsWith('src/features/terminal/'))return ['features','domain','serde','vt100'].includes(root);
   if(file.startsWith('src/features/explorer/'))return ['features','domain'].includes(root);
   if(file.startsWith('src/features/git/'))return ['features','domain'].includes(root);
-  if(file.startsWith('src/infrastructure/extensions/'))return ['infrastructure','features','domain','loom_extension_api','loom_extension_host','std::fs','std::thread','std::process','std::os'].includes(root)||(file==='src/infrastructure/extensions/trust_store.rs'&&root==='std::process');
+  if(file.startsWith('src/infrastructure/extensions/'))return ['infrastructure','features','domain','loom_extension_api','loom_extension_host','std::fs','std::thread','std::process','std::os','ignore','globset','ureq','serde_json'].filter(x=>x!=='serde_json'||file.endsWith('ports.rs')).includes(root)||(file==='src/infrastructure/extensions/trust_store.rs'&&root==='std::process')||(file==='src/infrastructure/extensions/http.rs'&&root==='std::net');
   if(file.startsWith('src/features/extensions/'))return ['features','domain','serde','serde_json'].includes(root);
   if(file.startsWith('src/features/update/'))return ['features','domain','serde','serde_json'].includes(root);
   if(file==='src/infrastructure/update.rs')return ['infrastructure','features','domain','base64','ureq','ring','serde','serde_json','windows_sys','std::fs','std::process','std::thread'].includes(root);
