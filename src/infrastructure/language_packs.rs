@@ -675,6 +675,7 @@ pub(crate) fn extension_packs(extensions: &Path) -> Vec<PathBuf> {
     let Ok(entries) = fs::read_dir(extensions) else {
         return Vec::new();
     };
+    let disabled = super::extensions::disabled::read(extensions);
     let mut found = Vec::new();
     for entry in entries.flatten() {
         let package = entry.path();
@@ -689,6 +690,9 @@ pub(crate) fn extension_packs(extensions: &Path) -> Vec<PathBuf> {
         else {
             continue;
         };
+        if disabled.contains(&manifest.id) {
+            continue;
+        }
         for resource in &manifest.contributes.languages {
             if let Some(directory) = pack_directory(&package, &resource.path) {
                 found.push(directory);

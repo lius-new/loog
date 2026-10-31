@@ -5,8 +5,7 @@ use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel, scroll_view}
 
 use super::widgets::{self, Ids, Kind, Tone, blend, line, paragraph};
 use crate::ui::extensions_binding::{
-    Action, Binding, Block, Command, Contribution, DetailTab, Entry, LogLevel, Notice, Table,
-    ThemeCard,
+    Binding, Block, Command, Contribution, DetailTab, Entry, Notice, Table, ThemeCard,
 };
 use crate::ui::tabs::{ellipsize, ellipsize_sans, icon, measure, measure_sans};
 use crate::ui::theme;
@@ -29,8 +28,6 @@ const COLUMNS: [(f32, f32); 3] = [(0.0, 0.34), (0.34, 0.40), (0.74, 0.26)];
 
 pub(super) struct Body<'a> {
     pub entry: &'a Entry,
-    /// Shown from the marketplace rather than from the installed list.
-    pub market: bool,
     pub tab: DetailTab,
     pub state: &'a Binding,
 }
@@ -340,37 +337,6 @@ impl Flow {
         self.items.extend(body);
         self.y += height + 16.0;
     }
-
-    fn log(&mut self, lines: &[(LogLevel, String)]) {
-        let c = theme::c();
-        let size = theme::SMALL + 1.0;
-        let per_line = ((self.width - 32.0) / mono_width(size)).floor().max(8.0) as usize;
-        let rows: Vec<(LogLevel, String)> = lines
-            .iter()
-            .flat_map(|(level, text)| {
-                chunks(text, per_line)
-                    .into_iter()
-                    .map(move |part| (*level, part))
-            })
-            .collect();
-        let height = rows.len().max(1) as f32 * 19.0 + 28.0;
-        let rect = UiRect::new(self.x, self.y, self.x + self.width, self.y + height);
-        self.push(theme::bordered(rect, c.sidebar, c.border, 6.0, 1.0));
-        for (index, (level, text)) in rows.into_iter().enumerate() {
-            let top = self.y + 14.0 + index as f32 * 19.0;
-            let ink = match level {
-                LogLevel::Info => c.text_muted,
-                LogLevel::Warning => c.warning,
-                LogLevel::Error => c.error,
-            };
-            self.push(line(
-                UiRect::new(self.x + 16.0, top, self.x + self.width - 8.0, top + 19.0),
-                text,
-                theme::mono(ink, size),
-            ));
-        }
-        self.y += height + 12.0;
-    }
 }
 
 /// The advance of one character of the small monospace face.
@@ -570,7 +536,7 @@ pub(super) fn render(region: UiRect, ids: &mut Ids, body: Body<'_>) -> Element {
         if side {
             let x = left + main_w + SIDE_GAP;
             let mut aside = Flow::new(x, region.top + PAD_TOP, SIDE_W);
-            facts(&mut aside, entry, body.market);
+            facts(&mut aside, entry);
             root = root.child(
                 scroll_view(
                     UiRect::new(x, region.top, region.right, region.bottom),
@@ -611,29 +577,18 @@ pub(super) fn render(region: UiRect, ids: &mut Ids, body: Body<'_>) -> Element {
                 main.release(&release.version, &release.date, &release.notes);
             }
         }
-        DetailTab::Runtime => {
-            if let Some(installed) = &entry.installed {
-                main.heading("Runtime");
-                main.paragraph(&installed.runtime.summary, muted);
-                main.log(&installed.runtime.log);
-                main.paragraph(
-                    "Recent messages from the extension. Document text is never recorded.",
-                    theme::sans(c.text_dim, theme::UI_SIZE),
-                );
-            }
-        }
     }
 
     let mut height = main.y;
     let mut items = std::mem::take(&mut main.items);
     if side {
         let mut aside = Flow::new(left + main_w + SIDE_GAP, region.top + PAD_TOP, SIDE_W);
-        facts(&mut aside, entry, body.market);
+        facts(&mut aside, entry);
         height = height.max(aside.y);
         items.append(&mut aside.items);
     }
     let content_h = height - region.top + 40.0;
-    let key = format!("ext.body.{}.{:?}.{}", entry.id, body.tab, body.market);
+    let key = format!("ext.body.{}.{:?}", entry.id, body.tab);
     Element::from(
         scroll_view(region, (region.width(), content_h))
             .vertical()
@@ -648,21 +603,17 @@ fn notices(main: &mut Flow, ids: &mut Ids, body: &Body<'_>) {
         return;
     };
     let id = body.entry.id.as_str();
-    if body.market {
-        return;
-    }
     if let Some(update) = &installed.update {
         let notice = Notice {
             title: format!("Version {} is available", update.version),
             body: update.notes.clone(),
         };
-        let label = format!("Update to {}", update.version);
         main.notice(
             ids,
             Tone::Quiet,
             "update-available",
             &notice,
-            Some((&label, Command::Act(Action::Update, id.to_owned()), true)),
+            None,
             &format!("update.{id}"),
             body.state,
         );
@@ -673,11 +624,7 @@ fn notices(main: &mut Flow, ids: &mut Ids, body: &Body<'_>) {
             Tone::Bad,
             "warning",
             error,
-            Some((
-                "See what happened →",
-                Command::SetTab(DetailTab::Runtime),
-                false,
-            )),
+            None,
             &format!("error.{id}"),
             body.state,
         );
@@ -711,7 +658,7 @@ fn notices(main: &mut Flow, ids: &mut Ids, body: &Body<'_>) {
 }
 
 /// The facts column: identity, location and categories.
-fn facts(aside: &mut Flow, entry: &Entry, market: bool) {
+fn facts(aside: &mut Flow, entry: &Entry) {
     let c = theme::c();
     let heading = theme::mono(c.text_dim, theme::SMALL).tracking(0.8);
     let rect = aside.rect(aside.x, 18.0);
@@ -724,13 +671,7 @@ fn facts(aside: &mut Flow, entry: &Entry, market: bool) {
         ("Publisher", entry.publisher.clone(), false),
         ("Updated", entry.updated.clone(), false),
     ];
-    if market {
-        if let Some(info) = &entry.market {
-            rows.push(("Downloads", info.downloads.clone(), false));
-            rows.push(("Rating", format!("★ {}", info.rating), false));
-            rows.push(("License", info.license.clone(), false));
-        }
-    } else if let Some(installed) = &entry.installed {
+    if let Some(installed) = &entry.installed {
         rows.push(("Location", installed.location.clone(), true));
     }
     let label_w = 76.0;

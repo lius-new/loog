@@ -6,16 +6,7 @@
 use crate::ui::components::{input::InputState, state_access::StateAccess};
 use std::sync::Arc;
 
-/// Which list the left column shows.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Source {
-    #[default]
-    Installed,
-    Marketplace,
-    Updates,
-}
-
-/// The state chips above the installed list.
+/// The state chips above the list.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum StateFilter {
     #[default]
@@ -30,28 +21,21 @@ pub enum DetailTab {
     Details,
     Contributions,
     Changelog,
-    Runtime,
 }
-
-/// Category chips above the marketplace list; `None` is "All".
-pub const CATEGORIES: [&str; 4] = ["Languages", "Themes", "Editing", "Linters"];
 
 #[derive(Clone, Default)]
 pub struct ExtensionsUiState {
     pub search: InputState,
-    pub source: Source,
     pub filter: StateFilter,
-    pub category: Option<&'static str>,
     pub selected: Option<String>,
     pub tab: DetailTab,
 }
 
 impl ExtensionsUiState {
+    /// Clear the search and the filter so `id` is in the list, and select it.
     pub fn show_installed(&mut self, id: String) {
-        self.source = Source::Installed;
         self.search.clear();
         self.filter = StateFilter::All;
-        self.category = None;
         self.selected = Some(id);
         self.tab = DetailTab::Details;
     }
@@ -122,21 +106,6 @@ pub struct Notice {
     pub body: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LogLevel {
-    Info,
-    Warning,
-    Error,
-}
-
-/// What the runtime tab shows for an installed extension.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Runtime {
-    /// What it does, in a sentence.
-    pub summary: String,
-    pub log: Vec<(LogLevel, String)>,
-}
-
 /// An extension on this machine.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Installed {
@@ -147,15 +116,6 @@ pub struct Installed {
     pub error: Option<Notice>,
     /// Part of it does not work.
     pub warning: Option<Notice>,
-    pub runtime: Runtime,
-}
-
-/// Marketplace figures for an extension.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Market {
-    pub downloads: String,
-    pub rating: String,
-    pub license: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -190,7 +150,6 @@ pub struct Entry {
     pub changelog: Vec<Release>,
     pub changelog_document: Option<Documentation>,
     pub installed: Option<Installed>,
-    pub market: Option<Market>,
 }
 
 impl Entry {
@@ -239,43 +198,26 @@ impl Entry {
 #[derive(Clone, Default)]
 pub struct Frame {
     pub installed: Vec<Entry>,
-    pub marketplace: Vec<Entry>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
-    SetSource(Source),
     SetFilter(StateFilter),
-    SetCategory(Option<&'static str>),
     Select(String),
     SetTab(DetailTab),
     ClearSearch,
-    /// Search the marketplace for the text typed in the installed list.
-    SearchMarketplace,
     /// A button that acts on an extension. The app decides what each does.
     Act(Action, String),
-    /// A footer link of the list.
-    Footer(FooterAction),
+    /// Pick an extension package and install it.
+    Import,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
-    Install,
-    Update,
     Enable,
     Disable,
     Reload,
-    ShowInFolder,
     Uninstall,
-    /// From the marketplace detail to the same extension in the installed list.
-    Manage,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FooterAction {
-    Import,
-    RefreshMarketplace,
-    UpdateAll,
 }
 
 #[derive(Clone)]

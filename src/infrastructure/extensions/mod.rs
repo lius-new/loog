@@ -4,6 +4,7 @@
 //! never waits on guest code. The application sends [`Job`]s and receives
 //! [`Event`]s through a sink; nothing UI-shaped crosses this boundary, only
 //! typed values and opaque ids (design §5, last layering rule).
+pub mod disabled;
 pub mod documentation;
 pub mod fileops;
 pub mod http;

@@ -4,9 +4,7 @@
 //! installer as the command palette.
 use crate::app::context::AppContext;
 use crate::ui::components::state_access::StateAccess;
-use crate::ui::extensions_binding::{
-    Action, Binding, Command, DetailTab, FooterAction, Source, StateFilter,
-};
+use crate::ui::extensions_binding::{Action, Binding, Command, DetailTab};
 use lgui::core::{UiFocusHandle, UiId};
 use lgui::prelude::{Element, UiRect};
 
@@ -79,40 +77,36 @@ fn binding_in(state: &AppContext, pane: Option<crate::domain::identity::PaneId>)
 }
 
 pub fn run(state: &AppContext, command: Command) {
-    if command == Command::Footer(FooterAction::Import) {
+    if command == Command::Import {
         import_package(state);
+        return;
+    }
+    if let Command::Act(action @ (Action::Enable | Action::Disable | Action::Uninstall), id) =
+        &command
+    {
+        let Some(host) = state.services().and_then(|runtime| runtime.extensions()) else {
+            state.update(|app| app.show_error("Extensions are not available"));
+            return;
+        };
+        match action {
+            Action::Enable => host.set_enabled(state, id, true),
+            Action::Disable => host.set_enabled(state, id, false),
+            _ => host.uninstall(state, id),
+        }
         return;
     }
     state.update(|app| {
         let ui = &mut app.extensions_ui;
         match command {
-            Command::SetSource(source) => {
-                ui.source = source;
-                ui.search.clear();
-                ui.filter = StateFilter::All;
-                ui.category = None;
-                ui.tab = DetailTab::Details;
-            }
             Command::SetFilter(filter) => ui.filter = filter,
-            Command::SetCategory(category) => ui.category = category,
             Command::Select(id) => {
                 ui.selected = Some(id);
                 ui.tab = DetailTab::Details;
             }
             Command::SetTab(tab) => ui.tab = tab,
             Command::ClearSearch => ui.search.clear(),
-            Command::SearchMarketplace => {
-                ui.source = Source::Marketplace;
-                ui.filter = StateFilter::All;
-                ui.category = None;
-                ui.tab = DetailTab::Details;
-            }
-            // Going from the marketplace to the same extension in the installed list.
-            Command::Act(Action::Manage, id) => {
-                ui.show_installed(id);
-            }
-            // Acting on extensions arrives with the extension manager.
-            Command::Act(..) | Command::Footer(_) => {}
+            // Reloading arrives with the extension manager; the rest was handled above.
+            Command::Act(..) | Command::Import => {}
         }
     });
 }
@@ -155,62 +149,48 @@ mod tests {
             .collect()
     }
 
-    /// Every list, every tab and every sample extension draws at several sizes.
+    /// Every tab and every sample extension draws at several sizes.
     #[test]
-    fn every_source_tab_and_extension_renders() {
+    fn every_tab_and_extension_renders() {
         let context = ApplicationContext::empty(Default::default());
         let _fonts = lgui::backend::install_text_environment(
             &context,
             lgui::render_skia::skia_text_system_handle(),
         );
         let frame = FRAME.clone();
-        let sources = [
-            (Source::Installed, &frame.installed),
-            (Source::Marketplace, &frame.marketplace),
-            (Source::Updates, &frame.installed),
-        ];
         let tabs = [
             DetailTab::Details,
             DetailTab::Contributions,
             DetailTab::Changelog,
-            DetailTab::Runtime,
         ];
         for (width, height) in [(1280.0, 800.0), (900.0, 600.0), (640.0, 420.0)] {
             let rect = UiRect::new(0.0, 0.0, width, height);
-            for (source, entries) in sources {
-                for entry in entries {
-                    let has_update = entry.installed.as_ref().is_some_and(|i| i.update.is_some());
-                    if source == Source::Updates && !has_update {
-                        continue;
-                    }
-                    for tab in tabs {
-                        let id = entry.id.clone();
-                        let view: AppView = Arc::new(move |cx| {
-                            let ui = cx.state_with({
-                                let id = id.clone();
-                                move || ExtensionsUiState {
-                                    source,
-                                    tab,
-                                    selected: Some(id.clone()),
-                                    ..Default::default()
-                                }
-                            });
-                            let search = cx.use_stable_id();
-                            let focus = cx.focus_handle(search.clone());
-                            let binding =
-                                Binding::new(StateAccess::from(ui), || FRAME.clone(), |_| {});
-                            crate::ui::extensions_page::render(rect, binding, search, focus)
+            for entry in &frame.installed {
+                for tab in tabs {
+                    let id = entry.id.clone();
+                    let view: AppView = Arc::new(move |cx| {
+                        let ui = cx.state_with({
+                            let id = id.clone();
+                            move || ExtensionsUiState {
+                                tab,
+                                selected: Some(id.clone()),
+                                ..Default::default()
+                            }
                         });
-                        let mut session = UiSession::new();
-                        session.render_view(&view, rect, UiScale::ONE);
-                        // A narrow pane may shorten the title with an ellipsis.
-                        let shown = texts(&session);
-                        assert!(
-                            width < 900.0 || shown.iter().any(|text| text.contains(&entry.name)),
-                            "{} missing at {width}x{height} in {source:?}/{tab:?}",
-                            entry.name
-                        );
-                    }
+                        let search = cx.use_stable_id();
+                        let focus = cx.focus_handle(search.clone());
+                        let binding = Binding::new(StateAccess::from(ui), || FRAME.clone(), |_| {});
+                        crate::ui::extensions_page::render(rect, binding, search, focus)
+                    });
+                    let mut session = UiSession::new();
+                    session.render_view(&view, rect, UiScale::ONE);
+                    // A narrow pane may shorten the title with an ellipsis.
+                    let shown = texts(&session);
+                    assert!(
+                        width < 900.0 || shown.iter().any(|text| text.contains(&entry.name)),
+                        "{} missing at {width}x{height} in {tab:?}",
+                        entry.name
+                    );
                 }
             }
         }
@@ -253,58 +233,15 @@ mod tests {
             .unwrap();
         let packages = installed_frame(&packages);
         let shots = [
-            (
-                "installed-details",
-                Source::Installed,
-                "acme.weave",
-                DetailTab::Details,
-            ),
-            (
-                "installed-contrib",
-                Source::Installed,
-                "acme.weave",
-                DetailTab::Contributions,
-            ),
-            ("failed", Source::Installed, "acme.lint", DetailTab::Details),
-            (
-                "themes",
-                Source::Installed,
-                "acme.night",
-                DetailTab::Contributions,
-            ),
-            (
-                "runtime",
-                Source::Installed,
-                "example.tools",
-                DetailTab::Runtime,
-            ),
-            (
-                "market",
-                Source::Marketplace,
-                "ridge.bracket",
-                DetailTab::Details,
-            ),
-            ("updates", Source::Updates, "acme.weave", DetailTab::Details),
-            (
-                "package-theme",
-                Source::Installed,
-                "loom.midnight",
-                DetailTab::Details,
-            ),
-            (
-                "package-language",
-                Source::Installed,
-                "loom.properties",
-                DetailTab::Details,
-            ),
-            (
-                "package-changelog",
-                Source::Installed,
-                "loom.midnight",
-                DetailTab::Changelog,
-            ),
+            ("installed-details", "acme.weave", DetailTab::Details),
+            ("installed-contrib", "acme.weave", DetailTab::Contributions),
+            ("failed", "acme.lint", DetailTab::Details),
+            ("themes", "acme.night", DetailTab::Contributions),
+            ("package-theme", "loom.midnight", DetailTab::Details),
+            ("package-language", "loom.properties", DetailTab::Details),
+            ("package-changelog", "loom.midnight", DetailTab::Changelog),
         ];
-        for (name, source, id, tab) in shots {
+        for (name, id, tab) in shots {
             let entries = if id.starts_with("loom.") {
                 packages.clone()
             } else {
@@ -312,7 +249,6 @@ mod tests {
             };
             let mut app = crate::app::state::AppState::new();
             app.workspace.open_extensions();
-            app.extensions_ui.source = source;
             app.extensions_ui.selected = Some(id.to_owned());
             app.extensions_ui.tab = tab;
             let preview = crate::app::test_support::SavingUi::new(app);
@@ -463,7 +399,29 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_install_invites_browsing() {
+    fn an_extension_with_an_update_says_so_on_its_row() {
+        let context = ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let rect = UiRect::new(0.0, 0.0, 1280.0, 800.0);
+        let view: AppView = Arc::new(move |cx| {
+            let ui = cx.state_with(ExtensionsUiState::default);
+            let search = cx.use_stable_id();
+            let focus = cx.focus_handle(search.clone());
+            let binding = Binding::new(StateAccess::from(ui), || FRAME.clone(), |_| {});
+            crate::ui::extensions_page::render(rect, binding, search, focus)
+        });
+        let mut session = UiSession::new();
+        session.render_view(&view, rect, UiScale::ONE);
+        let shown = texts(&session);
+        assert!(shown.iter().any(|text| text.contains("Update to 0.5.0")));
+        assert!(!shown.iter().any(|text| text == "Marketplace"));
+    }
+
+    #[test]
+    fn an_empty_install_invites_importing() {
         let context = ApplicationContext::empty(Default::default());
         let _fonts = lgui::backend::install_text_environment(
             &context,
@@ -561,10 +519,7 @@ mod tests {
                 );
                 session.render_view(&view, rect, UiScale::ONE);
             }
-            assert_eq!(
-                *commands.lock().unwrap(),
-                [Command::Footer(FooterAction::Import)]
-            );
+            assert_eq!(*commands.lock().unwrap(), [Command::Import]);
         }
     }
 }

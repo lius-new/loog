@@ -1,8 +1,7 @@
 use super::*;
-use crate::ui::extensions_binding::Source;
 
 fn entry(id: &str, enabled: bool, update: bool) -> Entry {
-    use crate::ui::extensions_binding::{Installed, Runtime, Update};
+    use crate::ui::extensions_binding::{Installed, Update};
     Entry {
         id: id.to_owned(),
         name: id.to_owned(),
@@ -28,12 +27,7 @@ fn entry(id: &str, enabled: bool, update: bool) -> Entry {
             }),
             error: None,
             warning: None,
-            runtime: Runtime {
-                summary: String::new(),
-                log: Vec::new(),
-            },
         }),
-        market: None,
     }
 }
 
@@ -44,7 +38,6 @@ fn frame() -> Frame {
             entry("b.off", false, false),
             entry("c.update", true, true),
         ],
-        marketplace: vec![entry("m.theme", true, false)],
     }
 }
 
@@ -64,28 +57,6 @@ fn the_installed_list_follows_the_state_filter_and_the_search() {
     assert_eq!(ids(&visible(&frame, &ui, "")), ["b.off"]);
     ui.filter = StateFilter::All;
     assert_eq!(ids(&visible(&frame, &ui, "UPDATE")), ["c.update"]);
-}
-
-#[test]
-fn updates_list_only_what_has_one() {
-    let frame = frame();
-    let ui = ExtensionsUiState {
-        source: Source::Updates,
-        ..Default::default()
-    };
-    assert_eq!(ids(&visible(&frame, &ui, "")), ["c.update"]);
-}
-
-#[test]
-fn the_marketplace_filters_by_category() {
-    let frame = frame();
-    let mut ui = ExtensionsUiState {
-        source: Source::Marketplace,
-        ..Default::default()
-    };
-    assert_eq!(ids(&visible(&frame, &ui, "")), ["m.theme"]);
-    ui.category = Some("Linters");
-    assert!(visible(&frame, &ui, "").is_empty());
 }
 
 #[test]

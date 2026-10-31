@@ -1,6 +1,5 @@
-//! Extensions page shown in its own editor tab: what is installed, what the
-//! marketplace offers and what has an update on the left, and the selected
-//! extension, what it is and what it adds, on the right.
+//! Extensions page shown in its own editor tab: the installed extensions on the
+//! left, and the selected extension, what it is and what it adds, on the right.
 //!
 //! The page only presents. Every button sends a semantic command and leaves
 //! the decision to the app layer.
@@ -16,53 +15,34 @@ use std::sync::Arc;
 use self::widgets::{Ids, Kind, Look, line};
 use crate::ui::components::input::{self, AccessInputOptions, InputBinding, InputStyle};
 use crate::ui::extensions_binding::{
-    Action, Binding, CATEGORIES, Command, Entry, ExtensionsUiState, FooterAction, Frame, Source,
-    StateFilter,
+    Binding, Command, Entry, ExtensionsUiState, Frame, StateFilter,
 };
-use crate::ui::tabs::{ellipsize, ellipsize_sans, icon, measure, measure_sans};
+use crate::ui::tabs::{ellipsize_sans, icon, measure, measure_sans};
 use crate::ui::theme;
 
 const LIST_MIN_W: f32 = 240.0;
 const LIST_MAX_W: f32 = 340.0;
-const SOURCE_H: f32 = 36.0;
+const SEARCH_TOP: f32 = 12.0;
 const SEARCH_H: f32 = 28.0;
 const CHIP_H: f32 = 22.0;
 const FOOTER_H: f32 = 32.0;
 const ROW_H: f32 = 62.0;
-const GROUP_H: f32 = 26.0;
 const TILE: f32 = 36.0;
 const MARGIN: f32 = 12.0;
 
 /// The entries the list shows for `ui`, in order.
 fn visible<'a>(frame: &'a Frame, ui: &ExtensionsUiState, query: &str) -> Vec<&'a Entry> {
-    match ui.source {
-        Source::Installed => frame
-            .installed
-            .iter()
-            .filter(|entry| entry.matches(query))
-            .filter(|entry| match (ui.filter, &entry.installed) {
-                (StateFilter::All, _) => true,
-                (StateFilter::Enabled, Some(installed)) => installed.enabled,
-                (StateFilter::Disabled, Some(installed)) => !installed.enabled,
-                _ => false,
-            })
-            .collect(),
-        Source::Marketplace => frame
-            .marketplace
-            .iter()
-            .filter(|entry| entry.matches(query))
-            .filter(|entry| {
-                ui.category
-                    .is_none_or(|category| entry.categories.iter().any(|have| have == category))
-            })
-            .collect(),
-        Source::Updates => frame
-            .installed
-            .iter()
-            .filter(|entry| entry.installed.as_ref().is_some_and(|i| i.update.is_some()))
-            .filter(|entry| entry.matches(query))
-            .collect(),
-    }
+    frame
+        .installed
+        .iter()
+        .filter(|entry| entry.matches(query))
+        .filter(|entry| match (ui.filter, &entry.installed) {
+            (StateFilter::All, _) => true,
+            (StateFilter::Enabled, Some(installed)) => installed.enabled,
+            (StateFilter::Disabled, Some(installed)) => !installed.enabled,
+            _ => false,
+        })
+        .collect()
 }
 
 /// The entry the detail shows: the selected one when the list still has it,
@@ -85,7 +65,7 @@ pub fn render(
     let c = theme::c();
     let mut page = panel(rect, VisualStyle::filled(c.bg));
 
-    if frame.installed.is_empty() && ui.source == Source::Installed && query.is_empty() {
+    if frame.installed.is_empty() && query.is_empty() {
         return clip(rect, 0.0, 0.0).child(page.child(empty(rect, &state)));
     }
 
@@ -98,7 +78,6 @@ pub fn render(
 
     page = page.child(list_column(
         list,
-        &frame,
         &ui,
         &query,
         &entries,
@@ -109,19 +88,7 @@ pub fn render(
     ));
     let detail_area = UiRect::new(list.right, rect.top, rect.right, rect.bottom);
     page = match selected {
-        Some(entry) => page.child(detail::render(
-            detail_area,
-            entry,
-            ui.source == Source::Marketplace,
-            if ui.source == Source::Marketplace
-                && ui.tab == crate::ui::extensions_binding::DetailTab::Runtime
-            {
-                crate::ui::extensions_binding::DetailTab::Details
-            } else {
-                ui.tab
-            },
-            &state,
-        )),
+        Some(entry) => page.child(detail::render(detail_area, entry, ui.tab, &state)),
         None => page.child(nothing_selected(detail_area)),
     };
     clip(rect, 0.0, 0.0).child(page)
@@ -151,7 +118,7 @@ fn empty(rect: UiRect, state: &Binding) -> Element {
         middle - 215.0,
         top + 130.0,
         430.0,
-        "Import a .loomext package to install an extension, or find extensions in the Marketplace.",
+        "Import a .loomext package to install an extension.",
         widgets::aligned(theme::sans(c.text_muted, theme::UI_SIZE), TextAlign::Center),
         19.0,
     );
@@ -159,37 +126,23 @@ fn empty(rect: UiRect, state: &Binding) -> Element {
         root = root.child(element);
     }
     let y = top + 130.0 + height + 16.0;
-    let browse = "Browse the Marketplace";
     let import = "Import Extension";
-    let browse_w = widgets::button_width(browse, false, theme::UI_SIZE);
     let import_w = widgets::button_width(import, false, theme::UI_SIZE);
-    let left = middle - (browse_w + 8.0 + import_w) / 2.0;
-    let go = state.clone();
     let open = state.clone();
-    root = root
-        .child(widgets::button(
-            &mut ids,
-            "ext.empty.browse".to_owned(),
-            UiRect::new(left, y, left + browse_w, y + 28.0),
-            browse,
-            None,
-            Kind::Primary,
-            move || go.run(Command::SetSource(Source::Marketplace)),
-        ))
-        .child(widgets::button(
-            &mut ids,
-            "ext.empty.import".to_owned(),
-            UiRect::new(
-                left + browse_w + 8.0,
-                y,
-                left + browse_w + 8.0 + import_w,
-                y + 28.0,
-            ),
-            import,
-            None,
-            Kind::Plain,
-            move || open.run(Command::Footer(FooterAction::Import)),
-        ));
+    root = root.child(widgets::button(
+        &mut ids,
+        "ext.empty.import".to_owned(),
+        UiRect::new(
+            middle - import_w / 2.0,
+            y,
+            middle + import_w / 2.0,
+            y + 28.0,
+        ),
+        import,
+        None,
+        Kind::Primary,
+        move || open.run(Command::Import),
+    ));
     root.into()
 }
 
@@ -205,7 +158,6 @@ fn nothing_selected(area: UiRect) -> Element {
 #[allow(clippy::too_many_arguments)]
 fn list_column(
     area: UiRect,
-    frame: &Frame,
     ui: &ExtensionsUiState,
     query: &str,
     entries: &[&Entry],
@@ -218,100 +170,12 @@ fn list_column(
     let mut ids = Ids::new("ext.list");
     let mut column = panel(area, VisualStyle::filled(c.sidebar));
 
-    // Where the list comes from.
-    let updates = frame
-        .installed
-        .iter()
-        .filter(|entry| entry.installed.as_ref().is_some_and(|i| i.update.is_some()))
-        .count();
-    let sources = [
-        (
-            Source::Installed,
-            "Installed",
-            Some(frame.installed.len()),
-            false,
-        ),
-        (Source::Marketplace, "Marketplace", None, false),
-        (Source::Updates, "Updates", Some(updates), updates > 0),
-    ];
-    let tab_w = (area.width() - 2.0 * MARGIN) / sources.len() as f32;
-    for (index, (source, label, count, hot)) in sources.into_iter().enumerate() {
-        let rect = UiRect::new(
-            area.left + MARGIN + tab_w * index as f32,
-            area.top,
-            area.left + MARGIN + tab_w * (index + 1) as f32,
-            area.top + SOURCE_H,
-        );
-        let selected = ui.source == source;
-        let label_w = measure_sans(label, theme::UI_SIZE, 400);
-        let count_text = count.map(|count| count.to_string()).unwrap_or_default();
-        let count_w = if count.is_some() {
-            measure(&count_text, theme::SMALL, 400) + 5.0
-        } else {
-            0.0
-        };
-        let start = rect.left + (rect.width() - label_w - count_w) / 2.0;
-        let run = state.clone();
-        column = column.child(
-            widgets::pad(
-                format!("ext.source.{label}"),
-                rect,
-                Look {
-                    fill: None,
-                    hover: c.active_line,
-                    border: None,
-                    radius: 4.0,
-                },
-            )
-            .child(line(
-                UiRect::new(start, rect.top, start + label_w + 8.0, rect.bottom - 2.0),
-                label,
-                theme::sans(
-                    if selected {
-                        c.text_bright
-                    } else {
-                        c.text_muted
-                    },
-                    theme::UI_SIZE,
-                ),
-            ))
-            .child(line(
-                UiRect::new(
-                    start + label_w + 5.0,
-                    rect.top,
-                    rect.right,
-                    rect.bottom - 2.0,
-                ),
-                count_text,
-                theme::mono(if hot { c.accent } else { c.text_dim }, theme::SMALL),
-            ))
-            .on_click(move || run.run(Command::SetSource(source))),
-        );
-        if selected {
-            column = column.child(panel(
-                UiRect::new(
-                    rect.left + 6.0,
-                    rect.bottom - 2.0,
-                    rect.right - 6.0,
-                    rect.bottom,
-                ),
-                VisualStyle::filled(c.accent),
-            ));
-        }
-    }
-    column = column.child(widgets::rule(UiRect::new(
-        area.left,
-        area.top + SOURCE_H,
-        area.right,
-        area.top + SOURCE_H + 1.0,
-    )));
-
     // Search.
     let search = UiRect::new(
         area.left + MARGIN,
-        area.top + SOURCE_H + 10.0,
+        area.top + SEARCH_TOP,
         area.right - MARGIN,
-        area.top + SOURCE_H + 10.0 + SEARCH_H,
+        area.top + SEARCH_TOP + SEARCH_H,
     );
     column = column
         .child(theme::bordered(search, c.bg, c.border, 5.0, 1.0))
@@ -336,47 +200,26 @@ fn list_column(
             state.clone(),
             search_focus,
             search_id,
-            match ui.source {
-                Source::Installed => "Search installed extensions",
-                Source::Marketplace => "Search the Marketplace",
-                Source::Updates => "Filter updates",
-            },
+            "Search installed extensions",
         ));
     let mut y = search.bottom + 8.0;
 
     // Filter chips.
-    let chips: Vec<(String, bool, Command)> = match ui.source {
-        Source::Installed => [
-            ("All", StateFilter::All),
-            ("Enabled", StateFilter::Enabled),
-            ("Disabled", StateFilter::Disabled),
-        ]
-        .into_iter()
-        .map(|(label, filter)| {
-            (
-                label.to_owned(),
-                ui.filter == filter,
-                Command::SetFilter(filter),
-            )
-        })
-        .collect(),
-        Source::Marketplace => std::iter::once(("All", None))
-            .chain(
-                CATEGORIES
-                    .iter()
-                    .map(|category| (*category, Some(*category))),
-            )
-            .map(|(label, category)| {
-                (
-                    label.to_owned(),
-                    ui.category == category,
-                    Command::SetCategory(category),
-                )
-            })
-            .collect(),
-        Source::Updates => Vec::new(),
-    };
-    if !chips.is_empty() {
+    let chips: Vec<(String, bool, Command)> = [
+        ("All", StateFilter::All),
+        ("Enabled", StateFilter::Enabled),
+        ("Disabled", StateFilter::Disabled),
+    ]
+    .into_iter()
+    .map(|(label, filter)| {
+        (
+            label.to_owned(),
+            ui.filter == filter,
+            Command::SetFilter(filter),
+        )
+    })
+    .collect();
+    {
         let mut left = area.left + MARGIN;
         for (label, on, command) in chips {
             let width = measure_sans(&label, theme::SMALL + 1.0, 400) + 20.0;
@@ -429,27 +272,7 @@ fn list_column(
         footer.right,
         footer.top + 1.0,
     )));
-    let (label, action) = match ui.source {
-        Source::Installed => ("Import Extension", FooterAction::Import),
-        Source::Marketplace => ("Refresh", FooterAction::RefreshMarketplace),
-        Source::Updates => ("Update all", FooterAction::UpdateAll),
-    };
-    let label_style = theme::sans(c.text_dim, theme::SMALL + 1.0);
-    let text = match ui.source {
-        Source::Installed => String::new(),
-        Source::Marketplace => "Marketplace".to_owned(),
-        Source::Updates => format!("{updates} update(s)"),
-    };
-    column = column.child(line(
-        UiRect::new(
-            footer.left + MARGIN,
-            footer.top,
-            footer.right,
-            footer.bottom,
-        ),
-        text,
-        label_style,
-    ));
+    let label = "Import Extension";
     {
         let run = state.clone();
         let width = measure_sans(label, theme::SMALL + 1.0, 400) + 12.0;
@@ -463,7 +286,7 @@ fn list_column(
             ),
             label,
             TextAlign::Right,
-            move || run.run(Command::Footer(action)),
+            move || run.run(Command::Import),
         ));
     }
     column.child(widgets::rule(UiRect::new(
@@ -519,25 +342,6 @@ fn rows(
     }
     let mut items: Vec<Element> = Vec::new();
     let mut y = viewport.top;
-    if ui.source == Source::Marketplace {
-        let title = if query.is_empty() {
-            "POPULAR"
-        } else {
-            "RESULTS"
-        };
-        let style = theme::mono(c.text_dim, theme::SMALL).tracking(0.8);
-        items.push(line(
-            UiRect::new(viewport.left + 16.0, y, viewport.right - 16.0, y + GROUP_H),
-            title,
-            style,
-        ));
-        items.push(line(
-            UiRect::new(viewport.left + 16.0, y, viewport.right - 16.0, y + GROUP_H),
-            entries.len().to_string(),
-            widgets::aligned(style, TextAlign::Right),
-        ));
-        y += GROUP_H;
-    }
     for entry in entries {
         let rect = UiRect::new(
             viewport.left + 6.0,
@@ -549,7 +353,6 @@ fn rows(
             ids,
             rect,
             entry,
-            ui.source,
             selected == Some(entry.id.as_str()),
             state,
         ));
@@ -562,7 +365,7 @@ fn rows(
             .thumb_color(c.scrollbar)
             .children(items),
     )
-    .key(format!("ext.rows.{:?}", ui.source))
+    .key("ext.rows")
 }
 
 /// What stands in for an empty list.
@@ -574,46 +377,26 @@ fn message(
     state: &Binding,
 ) -> Element {
     let c = theme::c();
-    let (title, body, action): (String, &str, Option<(String, Command)>) =
-        match (ui.source, query.is_empty()) {
-            (Source::Installed, false) => (
-                format!("No installed extension matches “{query}”"),
-                "It may not be installed yet.",
-                Some((
-                    format!("Search the Marketplace for “{query}”"),
-                    Command::SearchMarketplace,
-                )),
+    let (title, body, action): (String, &str, Option<(String, Command)>) = if query.is_empty() {
+        (
+            format!(
+                "Nothing {}",
+                if ui.filter == StateFilter::Enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
             ),
-            (Source::Installed, true) => (
-                format!(
-                    "Nothing {}",
-                    if ui.filter == StateFilter::Enabled {
-                        "enabled"
-                    } else {
-                        "disabled"
-                    }
-                ),
-                "Change the filter to see the others.",
-                None,
-            ),
-            (Source::Marketplace, _) => (
-                format!(
-                    "No extensions found{}",
-                    if query.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" for “{query}”")
-                    }
-                ),
-                "Try another word or a category.",
-                Some(("Clear search".to_owned(), Command::ClearSearch)),
-            ),
-            (Source::Updates, _) => (
-                "Everything is up to date".to_owned(),
-                "Updates for installed extensions appear here.",
-                None,
-            ),
-        };
+            "Change the filter to see the others.",
+            None,
+        )
+    } else {
+        (
+            format!("No installed extension matches “{query}”"),
+            "Try another word.",
+            Some(("Clear search".to_owned(), Command::ClearSearch)),
+        )
+    };
     let width = viewport.width() - 44.0;
     let center = widgets::aligned(
         theme::sans_semibold(c.text_bright, theme::UI_SIZE + 1.0),
@@ -659,27 +442,20 @@ fn message(
 }
 
 /// One entry of the list.
-fn row(
-    ids: &mut Ids,
-    rect: UiRect,
-    entry: &Entry,
-    source: Source,
-    selected: bool,
-    state: &Binding,
-) -> Element {
+fn row(ids: &mut Ids, rect: UiRect, entry: &Entry, selected: bool, state: &Binding) -> Element {
     let c = theme::c();
     let enabled = entry
         .installed
         .as_ref()
         .is_none_or(|installed| installed.enabled);
-    let quiet = !enabled && source != Source::Marketplace;
+    let quiet = !enabled;
     let select = {
         let run = state.clone();
         let id = entry.id.clone();
         move || run.run(Command::Select(id.clone()))
     };
     let mut row = widgets::pad(
-        format!("ext.row.{:?}.{}", source, entry.id),
+        format!("ext.row.{}", entry.id),
         rect,
         Look {
             fill: selected.then(|| widgets::blend(c.sidebar, c.accent, 0.09)),
@@ -708,81 +484,24 @@ fn row(
     // The right edge, from the outside in.
     let mut edge = rect.right - 10.0;
     let middle = rect.top + rect.height() / 2.0;
-    match source {
-        Source::Installed => {
-            if let Some(installed) = &entry.installed {
-                if installed.enabled && installed.error.is_some() {
-                    row = row.child(icon(
-                        ids.next(),
-                        "warning",
-                        UiRect::new(edge - 15.0, middle - 7.5, edge, middle + 7.5),
-                        c.error,
-                    ));
-                    edge -= 21.0;
-                }
-                if installed.update.is_some() {
-                    row = row.child(icon(
-                        ids.next(),
-                        "update-available",
-                        UiRect::new(edge - 15.0, middle - 7.5, edge, middle + 7.5),
-                        c.accent,
-                    ));
-                    edge -= 21.0;
-                }
-            }
-        }
-        Source::Marketplace => {
-            if entry.installed.is_some() {
-                let label = "Installed";
-                let width = measure_sans(label, theme::SMALL + 1.0, 400);
-                row = row
-                    .child(icon(
-                        ids.next(),
-                        "check",
-                        UiRect::new(
-                            edge - width - 18.0,
-                            middle - 6.0,
-                            edge - width - 6.0,
-                            middle + 6.0,
-                        ),
-                        c.diff.add_mark,
-                    ))
-                    .child(line(
-                        UiRect::new(edge - width - 2.0, middle - 9.0, edge + 4.0, middle + 9.0),
-                        label,
-                        theme::sans(c.diff.add_mark, theme::SMALL + 1.0),
-                    ));
-                edge -= width + 24.0;
-            } else {
-                let run = state.clone();
-                let id = entry.id.clone();
-                let width = widgets::button_width("Install", false, theme::SMALL + 1.0);
-                row = row.child(widgets::button(
-                    ids,
-                    format!("ext.row.install.{}", entry.id),
-                    UiRect::new(edge - width, middle - 11.0, edge, middle + 11.0),
-                    "Install",
-                    None,
-                    Kind::Plain,
-                    move || run.run(Command::Act(Action::Install, id.clone())),
-                ));
-                edge -= width + 8.0;
-            }
-        }
-        Source::Updates => {
-            let run = state.clone();
-            let id = entry.id.clone();
-            let width = widgets::button_width("Update", false, theme::SMALL + 1.0);
-            row = row.child(widgets::button(
-                ids,
-                format!("ext.row.update.{}", entry.id),
-                UiRect::new(edge - width, middle - 11.0, edge, middle + 11.0),
-                "Update",
-                None,
-                Kind::Primary,
-                move || run.run(Command::Act(Action::Update, id.clone())),
+    if let Some(installed) = &entry.installed {
+        if installed.enabled && installed.error.is_some() {
+            row = row.child(icon(
+                ids.next(),
+                "warning",
+                UiRect::new(edge - 15.0, middle - 7.5, edge, middle + 7.5),
+                c.error,
             ));
-            edge -= width + 8.0;
+            edge -= 21.0;
+        }
+        if installed.update.is_some() {
+            row = row.child(icon(
+                ids.next(),
+                "update-available",
+                UiRect::new(edge - 15.0, middle - 7.5, edge, middle + 7.5),
+                c.accent,
+            ));
+            edge -= 21.0;
         }
     }
 
@@ -803,18 +522,7 @@ fn row(
     );
     let name_w = measure_sans(&name, theme::UI_SIZE, 600);
     let top = rect.top + 9.0;
-    let (second, third) = match source {
-        Source::Updates => {
-            let update = entry.installed.as_ref().and_then(|i| i.update.as_ref());
-            (
-                update.map_or_else(String::new, |u| {
-                    format!("{} → {}", entry.version, u.version)
-                }),
-                update.map_or_else(String::new, |u| u.notes.clone()),
-            )
-        }
-        _ => (entry.tagline.clone(), String::new()),
-    };
+    let update = entry.installed.as_ref().and_then(|i| i.update.as_ref());
     row = row
         .child(line(
             UiRect::new(left, top, left + name_w + 8.0, top + 16.0),
@@ -823,49 +531,29 @@ fn row(
         ))
         .child(line(
             UiRect::new(left + name_w + 6.0, top, left + width, top + 16.0),
-            if source == Source::Updates {
-                String::new()
-            } else {
-                entry.version.clone()
-            },
+            entry.version.clone(),
             theme::mono(c.text_dim, theme::SMALL),
         ))
         .child(line(
             UiRect::new(left, top + 17.0, left + width + 6.0, top + 32.0),
-            ellipsize_sans(&second, width, theme::SMALL + 1.0, 400),
+            ellipsize_sans(&entry.tagline, width, theme::SMALL + 1.0, 400),
             theme::sans(c.text_muted, theme::SMALL + 1.0),
         ));
+    // The status of the extension, after who made it.
     let meta_rect = UiRect::new(left, top + 32.0, left + width + 6.0, top + 46.0);
-    row = match source {
-        Source::Installed => row.child(line(
-            meta_rect,
-            if quiet {
-                format!("{} · Disabled", entry.publisher)
-            } else {
-                entry.publisher.clone()
-            },
-            theme::sans(c.text_dim, theme::SMALL + 1.0),
-        )),
-        Source::Marketplace => {
-            let market = entry.market.as_ref();
-            row.child(line(
-                meta_rect,
-                format!(
-                    "{}   ↓ {}   ★ {}",
-                    entry.publisher,
-                    market.map_or("—", |m| m.downloads.as_str()),
-                    market.map_or("—", |m| m.rating.as_str())
-                ),
-                theme::sans(c.text_dim, theme::SMALL + 1.0),
-            ))
-        }
-        Source::Updates => row.child(line(
-            meta_rect,
-            ellipsize(&third, width, theme::SMALL + 1.0, 400),
-            theme::sans(c.text_dim, theme::SMALL + 1.0),
-        )),
+    let (meta, ink) = match update {
+        Some(update) => (
+            format!("{} · Update to {}", entry.publisher, update.version),
+            c.accent,
+        ),
+        None if quiet => (format!("{} · Disabled", entry.publisher), c.text_dim),
+        None => (entry.publisher.clone(), c.text_dim),
     };
-    row
+    row.child(line(
+        meta_rect,
+        ellipsize_sans(&meta, width, theme::SMALL + 1.0, 400),
+        theme::sans(ink, theme::SMALL + 1.0),
+    ))
 }
 
 #[cfg(test)]

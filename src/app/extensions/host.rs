@@ -727,6 +727,106 @@ impl ExtensionHost {
         });
     }
 
+    /// The folder installed packages live in, when this host has one.
+    fn directory(&self) -> Option<&Path> {
+        self.inner.user_settings.as_deref()?.parent()
+    }
+
+    /// Stop the extensions the user turned off in an earlier run, right after loading.
+    pub(crate) fn restore_disabled(&self, app: &mut AppState) {
+        let Some(directory) = self.directory() else {
+            return;
+        };
+        let disabled = crate::infrastructure::extensions::disabled::read(directory);
+        for id in disabled {
+            let result = self.inner.service.lock().unwrap().disable(&id);
+            if let Ok(effects) = result {
+                self.inner.apply(app, effects);
+            }
+        }
+    }
+
+    /// Turn an extension off or on. The choice is kept for the next run; what a
+    /// language contributes follows it after a restart. Nothing is announced.
+    pub(crate) fn set_enabled(&self, context: &AppContext, id: &str, enabled: bool) {
+        context.update(|app| {
+            let (result, name) = {
+                let mut service = self.inner.service.lock().unwrap();
+                let name = service
+                    .package(id)
+                    .and_then(|package| package.manifest.name.clone())
+                    .unwrap_or_else(|| id.to_owned());
+                let result = if enabled {
+                    service.enable(id).map(|()| Vec::new())
+                } else {
+                    service.disable(id)
+                };
+                (result, name)
+            };
+            let effects = match result {
+                Ok(effects) => effects,
+                Err(error) => return app.show_error(format!("{id}: {error}")),
+            };
+            self.inner.apply(app, effects);
+            if let Some(directory) = self.directory() {
+                use crate::infrastructure::extensions::disabled;
+                let mut ids = disabled::read(directory);
+                if enabled {
+                    ids.remove(id);
+                } else {
+                    ids.insert(id.to_owned());
+                }
+                if let Err(error) = disabled::write(directory, &ids) {
+                    app.show_error(format!("Could not keep the choice for {name}: {error}"));
+                }
+            }
+        });
+    }
+
+    /// Stop an installed extension and delete its folder. A package loaded from
+    /// anywhere else is left alone: only what Loom installed is Loom's to delete.
+    pub(crate) fn uninstall(&self, context: &AppContext, id: &str) {
+        context.update(|app| {
+            let Some(directory) = self.directory().map(Path::to_path_buf) else {
+                return app.show_error("There is no folder for extensions on this system");
+            };
+            let mut service = self.inner.service.lock().unwrap();
+            let Some(package) = service.package(id) else {
+                return app.show_error(format!("{id}: unknown extension"));
+            };
+            let name = package
+                .manifest
+                .name
+                .clone()
+                .unwrap_or_else(|| id.to_owned());
+            if package.dir.parent() != Some(directory.as_path()) {
+                let place = package.dir.display().to_string();
+                return app.show_error(format!(
+                    "{name} was not installed by Loom; delete {place} yourself"
+                ));
+            }
+            let (folder, effects) = match service.uninstall(id) {
+                Ok(removed) => removed,
+                Err(error) => return app.show_error(format!("{id}: {error}")),
+            };
+            drop(service);
+            self.inner.apply(app, effects);
+            let mut ids = crate::infrastructure::extensions::disabled::read(&directory);
+            if ids.remove(id) {
+                let _ = crate::infrastructure::extensions::disabled::write(&directory, &ids);
+            }
+            if app.extensions_ui.selected.as_deref() == Some(id) {
+                app.extensions_ui.selected = None;
+            }
+            if let Err(error) = std::fs::remove_dir_all(&folder) {
+                return app.show_error(format!(
+                    "Uninstalled {name} but could not delete {}: {error}",
+                    folder.display()
+                ));
+            }
+        });
+    }
+
     /// Give every failed extension a new generation; it starts again when it is next needed.
     pub(crate) fn retry_failed(&self, context: &AppContext) {
         context.update(|app| {

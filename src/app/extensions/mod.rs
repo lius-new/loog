@@ -126,7 +126,10 @@ pub(crate) fn start(
             }
         }
     }
-    state.update(|app| host.refresh_settings(app));
+    state.update(|app| {
+        host.restore_disabled(app);
+        host.refresh_settings(app);
+    });
     runtime.install_extensions(host);
     if !problems.is_empty() {
         state.update(|app| app.show_error(format!("Extensions: {}", problems.join("; "))));
@@ -1004,6 +1007,36 @@ impl ExtensionService {
         package.lifecycle.retry().map_err(|e| e.to_string())?;
         package.last_error = None;
         Ok(())
+    }
+
+    /// Turn an extension off: it runs nothing and contributes nothing until
+    /// it is enabled again. A failed one is made dormant first so it can stop.
+    pub fn disable(&mut self, id: &str) -> Result<Vec<Effect>, String> {
+        let package = self.packages.get(id).ok_or("unknown extension")?;
+        if package.lifecycle.state() == State::Failed {
+            self.retry(id)?;
+        }
+        Ok(self.stop(id))
+    }
+
+    /// Turn a disabled extension back on; it starts when it is next needed.
+    pub fn enable(&mut self, id: &str) -> Result<(), String> {
+        let package = self.packages.get(id).ok_or("unknown extension")?;
+        if package.lifecycle.state() == State::Stopped {
+            self.retry(id)?;
+            self.themes_revision += 1;
+        }
+        Ok(())
+    }
+
+    /// Stop an extension and forget it; returns the folder it was loaded from.
+    pub fn uninstall(&mut self, id: &str) -> Result<(PathBuf, Vec<Effect>), String> {
+        if !self.packages.contains_key(id) {
+            return Err("unknown extension".to_owned());
+        }
+        let effects = self.stop(id);
+        let package = self.packages.remove(id).ok_or("unknown extension")?;
+        Ok((package.dir, effects))
     }
 
     /// Stop an extension: the generation advances, so late work is refused.

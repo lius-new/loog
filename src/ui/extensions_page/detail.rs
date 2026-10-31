@@ -14,27 +14,22 @@ const TILE: f32 = 72.0;
 const BUTTON_H: f32 = 28.0;
 const TABS_H: f32 = 38.0;
 
-/// The tabs of a detail: the marketplace view has no runtime.
-pub(super) fn tabs(market: bool) -> Vec<(DetailTab, &'static str)> {
-    let mut tabs = vec![
+/// The tabs of a detail.
+pub(super) fn tabs() -> Vec<(DetailTab, &'static str)> {
+    vec![
         (DetailTab::Details, "Details"),
         (DetailTab::Contributions, "Contributions"),
         (DetailTab::Changelog, "Changelog"),
-    ];
-    if !market {
-        tabs.push((DetailTab::Runtime, "Runtime"));
-    }
-    tabs
+    ]
 }
 
 /// The state shown at the top right of the head, with its colour.
-fn state_label(entry: &Entry, market: bool) -> (&'static str, Tone) {
-    match (&entry.installed, market) {
-        (Some(_), true) => ("Installed", Tone::Ok),
-        (None, _) => ("Not installed", Tone::Quiet),
-        (Some(installed), false) if !installed.enabled => ("Disabled", Tone::Quiet),
-        (Some(_), false) if entry.failed() => ("Could not start", Tone::Bad),
-        (Some(_), false) => ("Enabled", Tone::Ok),
+fn state_label(entry: &Entry) -> (&'static str, Tone) {
+    match &entry.installed {
+        None => ("Not installed", Tone::Quiet),
+        Some(installed) if !installed.enabled => ("Disabled", Tone::Quiet),
+        Some(_) if entry.failed() => ("Could not start", Tone::Bad),
+        Some(_) => ("Enabled", Tone::Ok),
     }
 }
 
@@ -45,34 +40,9 @@ struct HeadButton {
     command: Option<Command>,
 }
 
-fn actions(entry: &Entry, market: bool) -> Vec<HeadButton> {
+fn actions(entry: &Entry) -> Vec<HeadButton> {
     let id = entry.id.clone();
     let act = |action| Some(Command::Act(action, id.clone()));
-    if market {
-        return if entry.installed.is_some() {
-            vec![
-                HeadButton {
-                    label: "Installed",
-                    icon: Some("check"),
-                    kind: Kind::Static,
-                    command: None,
-                },
-                HeadButton {
-                    label: "Manage",
-                    icon: None,
-                    kind: Kind::Plain,
-                    command: act(Action::Manage),
-                },
-            ]
-        } else {
-            vec![HeadButton {
-                label: "Install",
-                icon: None,
-                kind: Kind::Primary,
-                command: act(Action::Install),
-            }]
-        };
-    }
     let Some(installed) = &entry.installed else {
         return Vec::new();
     };
@@ -101,12 +71,6 @@ fn actions(entry: &Entry, market: bool) -> Vec<HeadButton> {
         });
     }
     buttons.push(HeadButton {
-        label: "Show in folder",
-        icon: Some("folder-opened"),
-        kind: Kind::Plain,
-        command: act(Action::ShowInFolder),
-    });
-    buttons.push(HeadButton {
         label: "Uninstall",
         icon: None,
         kind: Kind::Plain,
@@ -115,13 +79,7 @@ fn actions(entry: &Entry, market: bool) -> Vec<HeadButton> {
     buttons
 }
 
-pub(super) fn render(
-    area: UiRect,
-    entry: &Entry,
-    market: bool,
-    tab: DetailTab,
-    state: &Binding,
-) -> Element {
+pub(super) fn render(area: UiRect, entry: &Entry, tab: DetailTab, state: &Binding) -> Element {
     let c = theme::c();
     let mut ids = Ids::new("ext.detail");
     let mut root = panel(area, VisualStyle::filled(c.bg));
@@ -132,7 +90,7 @@ pub(super) fn render(
     let right = (area.right - PAD_X).max(left + 80.0);
 
     // The state, at the top right.
-    let (state_text, state_tone) = state_label(entry, market);
+    let (state_text, state_tone) = state_label(entry);
     let state_w = measure_sans(state_text, theme::SMALL + 1.0, 400) + 4.0;
     let ink = widgets::tone(state_tone);
     root = root
@@ -187,18 +145,6 @@ pub(super) fn render(
         ));
     y += 24.0;
 
-    if let (true, Some(info)) = (market, &entry.market) {
-        let stats = format!(
-            "↓ {} installs      ★ {}      {}",
-            info.downloads, info.rating, info.license
-        );
-        root = root.child(line(
-            UiRect::new(left, y, right, y + 18.0),
-            stats,
-            theme::sans(c.text_muted, theme::UI_SIZE),
-        ));
-        y += 22.0;
-    }
     root = root.child(line(
         UiRect::new(left, y, right, y + 22.0),
         ellipsize_sans(&entry.tagline, right - left, theme::UI_SIZE + 2.0, 400),
@@ -208,7 +154,7 @@ pub(super) fn render(
 
     // Actions.
     let mut button_left = left;
-    for (index, action) in actions(entry, market).into_iter().enumerate() {
+    for (index, action) in actions(entry).into_iter().enumerate() {
         let width = widgets::button_width(action.label, action.icon.is_some(), theme::UI_SIZE);
         let rect = UiRect::new(button_left, y, button_left + width, y + BUTTON_H);
         let run = state.clone();
@@ -240,7 +186,7 @@ pub(super) fn render(
         tabs_bottom,
     )));
     let mut tab_left = area.left + PAD_X;
-    for (kind, label) in tabs(market) {
+    for (kind, label) in tabs() {
         let count = (kind == DetailTab::Contributions).then(|| entry.contribution_count());
         let label_w = measure_sans(label, theme::UI_SIZE, 400);
         let count_text = count.map(|count| count.to_string()).unwrap_or_default();
@@ -309,11 +255,6 @@ pub(super) fn render(
     root.child(content::render(
         region,
         &mut ids,
-        Body {
-            entry,
-            market,
-            tab,
-            state,
-        },
+        Body { entry, tab, state },
     ))
 }

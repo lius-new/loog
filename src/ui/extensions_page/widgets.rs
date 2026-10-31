@@ -197,8 +197,6 @@ pub(super) fn pad(key: String, rect: UiRect, look: Look) -> Element {
 pub(super) enum Kind {
     Primary,
     Plain,
-    /// Looks like a plain button and does nothing.
-    Static,
 }
 
 /// Width of a button with `label` and an optional icon.
@@ -220,7 +218,6 @@ pub(super) fn button(
     let (fill, hover, border, ink) = match kind {
         Kind::Primary => (c.accent, c.accent_hover, c.accent, c.on_accent),
         Kind::Plain => (c.surface, c.active_line, c.border, c.text),
-        Kind::Static => (c.surface, c.surface, c.border, c.text_dim),
     };
     let size = if rect.height() < 26.0 {
         theme::SMALL + 1.0
@@ -265,9 +262,6 @@ pub(super) fn button(
         label.to_owned(),
         style,
     ));
-    if kind == Kind::Static {
-        return button.cursor(CursorIcon::Default);
-    }
     button.on_click(move |cx: &mut UiEventContext| {
         on_click();
         cx.stop_propagation();

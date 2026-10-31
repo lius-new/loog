@@ -235,21 +235,17 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
 
         // Importing from any list clears filters and opens the actual package's detail.
         ui.state.update(|app| {
-            use crate::ui::extensions_binding::{DetailTab, Source, StateFilter};
-            app.extensions_ui.source = Source::Marketplace;
+            use crate::ui::extensions_binding::{DetailTab, StateFilter};
             app.extensions_ui.search = crate::ui::components::input::InputState::new("unrelated");
             app.extensions_ui.filter = StateFilter::Disabled;
-            app.extensions_ui.category = Some("Linters");
-            app.extensions_ui.tab = DetailTab::Runtime;
+            app.extensions_ui.tab = DetailTab::Changelog;
         });
         host.import_into(&ui.state, archive, &work.join("ui-extensions"));
         let app = ui.state.get();
-        use crate::ui::extensions_binding::{DetailTab, Source, StateFilter};
-        assert_eq!(app.extensions_ui.source, Source::Installed);
+        use crate::ui::extensions_binding::{DetailTab, StateFilter};
         assert_eq!(app.extensions_ui.selected.as_deref(), Some(id.as_str()));
         assert!(app.extensions_ui.search.text().is_empty());
         assert_eq!(app.extensions_ui.filter, StateFilter::All);
-        assert_eq!(app.extensions_ui.category, None);
         assert_eq!(app.extensions_ui.tab, DetailTab::Details);
         assert_eq!(
             app.workspace.active_page(),

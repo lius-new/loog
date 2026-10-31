@@ -2,8 +2,7 @@
 use crate::app::extensions::{ExtensionService, Package};
 use crate::features::extensions::lifecycle::State;
 use crate::ui::extensions_binding::{
-    Contribution, Documentation, Entry, Frame, IconImage, Installed, LogLevel, Notice, Runtime,
-    Table,
+    Contribution, Documentation, Entry, Frame, IconImage, Installed, Notice, Table,
 };
 
 pub(crate) fn frame(service: &ExtensionService) -> Frame {
@@ -14,10 +13,7 @@ pub(crate) fn frame(service: &ExtensionService) -> Frame {
             .cmp(&b.name.to_lowercase())
             .then(a.id.cmp(&b.id))
     });
-    Frame {
-        installed,
-        marketplace: Vec::new(),
-    }
+    Frame { installed }
 }
 
 fn entry(package: &Package) -> Entry {
@@ -173,35 +169,45 @@ fn entry(package: &Package) -> Entry {
                     .unwrap_or_else(|| format!("Failed at {:?}", package.lifecycle.failure())),
             }),
             warning,
-            runtime: Runtime {
-                summary: if m.has_behaviour() {
-                    format!("{state:?}")
-                } else {
-                    "Data-only extension; no background process.".to_owned()
-                },
-                log: package
-                    .logs
-                    .iter()
-                    .map(|(level, text)| {
-                        (
-                            match level {
-                                0 => LogLevel::Info,
-                                1 => LogLevel::Warning,
-                                _ => LogLevel::Error,
-                            },
-                            text.clone(),
-                        )
-                    })
-                    .collect(),
-            },
         }),
-        market: None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disabling_hides_the_themes_and_enabling_brings_them_back() {
+        let mut service = ExtensionService::new(std::env::temp_dir().join("loom-disable-cache"));
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/extensions/packages");
+        service.load_package(&root.join("loom-midnight")).unwrap();
+        let themes = service.themes().len();
+        assert!(themes > 0);
+        service.disable("loom.midnight").unwrap();
+        assert!(service.themes().is_empty());
+        assert!(
+            !super::frame(&service).installed[0]
+                .installed
+                .as_ref()
+                .unwrap()
+                .enabled
+        );
+        service.enable("loom.midnight").unwrap();
+        assert_eq!(service.themes().len(), themes);
+        assert!(
+            super::frame(&service).installed[0]
+                .installed
+                .as_ref()
+                .unwrap()
+                .enabled
+        );
+        let (dir, _) = service.uninstall("loom.midnight").unwrap();
+        assert!(dir.ends_with("loom-midnight"));
+        assert!(service.package("loom.midnight").is_none());
+        assert!(service.themes().is_empty());
+    }
 
     #[test]
     fn installed_details_come_from_the_packages_and_their_documents() {
@@ -212,7 +218,6 @@ mod tests {
         service.load_package(&root.join("loom-properties")).unwrap();
         let frame = frame(&service);
         assert_eq!(frame.installed.len(), 2);
-        assert!(frame.marketplace.is_empty());
         let entry = frame
             .installed
             .iter()

@@ -469,10 +469,9 @@ pub(super) fn current_host(app: &super::state::AppState, owner: u64, card: &Card
         return false;
     };
     if let Some((id, _)) = &card.extension {
-        use crate::ui::extensions_binding::{DetailTab, Source};
+        use crate::ui::extensions_binding::DetailTab;
         return view.target
             == crate::domain::view::ViewTarget::Builtin(crate::domain::view::AppPage::Extensions)
-            && app.extensions_ui.source != Source::Marketplace
             && app
                 .extensions_ui
                 .selected
