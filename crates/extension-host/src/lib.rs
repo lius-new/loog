@@ -23,8 +23,9 @@ mod bindings {
 
 pub use bindings::loom::extension::types::{
     ApplyEditRequest, ByteRange, CommandContext, CommittedReceipt, Completion, DocumentChange,
-    DocumentEdits, DocumentRef, ErrorKind as WitErrorKind, HostError, Inbound, ProviderKind,
-    ProviderRequest, RoundStatus, Selection, TextEdit,
+    DocumentEdits, DocumentRef, ErrorKind as WitErrorKind, HostError, Inbound, OutputChannel,
+    ProviderKind, ProviderRequest, RootRef, RoundStatus, Selection, TaskExit, TaskOutput,
+    TaskRequest, TextEdit,
 };
 use bindings::loom::extension::{host, types};
 
@@ -40,6 +41,8 @@ pub struct Limits {
     pub tables: usize,
     /// Operations accepted but not yet completed.
     pub pending_operations: usize,
+    /// Tasks one instance may have running at once.
+    pub tasks: usize,
 }
 
 impl Default for Limits {
@@ -51,6 +54,7 @@ impl Default for Limits {
             memories: 4,
             tables: 8,
             pending_operations: 64,
+            tasks: 4,
         }
     }
 }
@@ -88,6 +92,22 @@ pub enum Provided {
     },
 }
 
+/// Findings a guest pushed for one state of a file.
+#[derive(Clone, Debug)]
+pub struct PublishedDiagnostics {
+    pub provider: String,
+    pub path: String,
+    pub version: u64,
+    pub items: Vec<WireDiagnostic>,
+}
+
+/// A task the guest asked to start; the host numbers it, the application decides.
+#[derive(Clone, Debug)]
+pub struct StartedTask {
+    pub task: u64,
+    pub request: TaskRequest,
+}
+
 /// State behind the host imports.
 pub struct HostState {
     limits: StoreLimits,
@@ -97,6 +117,13 @@ pub struct HostState {
     outstanding: usize,
     settings: BTreeMap<String, String>,
     provided: Vec<Provided>,
+    roots: Vec<RootRef>,
+    next_task: u64,
+    started_tasks: Vec<StartedTask>,
+    cancelled_tasks: Vec<u64>,
+    live_tasks: usize,
+    task_limit: usize,
+    published: Vec<PublishedDiagnostics>,
     pub accepted: Vec<AcceptedEdit>,
     pub cancelled: Vec<u64>,
     pub logs: Vec<(u8, String)>,
@@ -118,6 +145,13 @@ impl HostState {
             outstanding: 0,
             settings: BTreeMap::new(),
             provided: Vec::new(),
+            roots: Vec::new(),
+            next_task: 1,
+            started_tasks: Vec::new(),
+            cancelled_tasks: Vec::new(),
+            live_tasks: 0,
+            task_limit: limits.tasks,
+            published: Vec::new(),
             accepted: Vec::new(),
             cancelled: Vec::new(),
             logs: Vec::new(),
@@ -243,6 +277,50 @@ impl host::Host for HostState {
             ));
         }
         self.provided.push(Provided::Edits { request, edits });
+        Ok(())
+    }
+
+    fn list_roots(&mut self) -> Vec<RootRef> {
+        self.roots.clone()
+    }
+
+    fn task_start(&mut self, request: TaskRequest) -> Result<u64, HostError> {
+        if self.live_tasks >= self.task_limit {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "too many running tasks",
+            ));
+        }
+        let task = self.next_task;
+        self.next_task += 1;
+        self.live_tasks += 1;
+        self.started_tasks.push(StartedTask { task, request });
+        Ok(task)
+    }
+
+    fn task_cancel(&mut self, task: u64) {
+        self.cancelled_tasks.push(task);
+    }
+
+    fn publish_diagnostics(
+        &mut self,
+        provider: String,
+        path: String,
+        version: u64,
+        items: Vec<WireDiagnostic>,
+    ) -> Result<(), HostError> {
+        if self.published.len() >= self.pending_limit {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "too many unconsumed diagnostics",
+            ));
+        }
+        self.published.push(PublishedDiagnostics {
+            provider,
+            path,
+            version,
+            items,
+        });
         Ok(())
     }
 
@@ -491,6 +569,29 @@ impl Instance {
     /// Replace the resolved setting values the guest can read.
     pub fn put_settings(&mut self, values: BTreeMap<String, String>) {
         self.store.data_mut().settings = values;
+    }
+
+    /// The folders the guest can name.
+    pub fn put_roots(&mut self, roots: Vec<RootRef>) {
+        self.store.data_mut().roots = roots;
+    }
+
+    pub fn take_started_tasks(&mut self) -> Vec<StartedTask> {
+        std::mem::take(&mut self.store.data_mut().started_tasks)
+    }
+
+    pub fn take_cancelled_tasks(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.store.data_mut().cancelled_tasks)
+    }
+
+    pub fn take_published(&mut self) -> Vec<PublishedDiagnostics> {
+        std::mem::take(&mut self.store.data_mut().published)
+    }
+
+    /// A task ended: its slot is free again.
+    pub fn task_ended(&mut self) {
+        let state = self.store.data_mut();
+        state.live_tasks = state.live_tasks.saturating_sub(1);
     }
 
     /// Provider answers since the last call, in the order given.

@@ -2,6 +2,7 @@
 //! workspace edit service. Events are pumped by hand on the test thread, which
 //! plays the role of the UI thread.
 use super::*;
+use crate::infrastructure::extensions::tasks;
 use crate::infrastructure::extensions::{Event, Executor};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Mutex, OnceLock};
@@ -78,6 +79,8 @@ pub(crate) fn package_dir_with(name: &str, manifest: &str) -> PathBuf {
 type OfferedList = (u64, Option<(Vec<serde_json::Value>, bool)>);
 
 struct Fixture {
+    runner: tasks::Runner,
+    task_events: Receiver<tasks::TaskEvent>,
     service: ExtensionService,
     executor: Executor,
     events: Receiver<Event>,
@@ -121,7 +124,14 @@ fn fixture_with(name: &str, text: &str, select: std::ops::Range<usize>, manifest
             ..crate::model::text::Selection::caret(select.end)
         });
     }
+    let (task_sender, task_events) = channel();
+    let task_sender = Mutex::new(task_sender);
+    let runner = tasks::Runner::new(move |event| {
+        let _ = task_sender.lock().unwrap().send(event);
+    });
     Fixture {
+        runner,
+        task_events,
         service,
         executor,
         events,
@@ -135,6 +145,25 @@ fn fixture_with(name: &str, text: &str, select: std::ops::Range<usize>, manifest
 }
 
 impl Fixture {
+    /// The next executor event; task output and exits are handled on the way,
+    /// as the UI thread would.
+    fn recv(&mut self) -> Event {
+        let limit = std::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            while let Ok(event) = self.task_events.try_recv() {
+                let effects = self.service.handle_task_event(event);
+                self.apply(effects);
+            }
+            if let Ok(event) = self.events.recv_timeout(Duration::from_millis(10)) {
+                return event;
+            }
+            assert!(
+                std::time::Instant::now() < limit,
+                "the executor produced no event"
+            );
+        }
+    }
+
     fn text(&self) -> String {
         let id = self.app.workspace.file_id_for_path(&self.path).unwrap();
         self.app.workspace.documents[&id].buffer.text().to_owned()
@@ -151,6 +180,8 @@ impl Fixture {
                     self.published.push((source, items))
                 }
                 Effect::ClearDiagnostics { source } => self.cleared.push(source),
+                Effect::StartTask { task, spec } => self.runner.start(task, spec),
+                Effect::CancelTask { task } => self.runner.cancel(task),
                 Effect::OfferCompletion { source, items, .. } => self.offered.push((source, items)),
                 Effect::ResolvedCompletion { source, item, .. } => {
                     self.resolved.push((source, item))
@@ -169,10 +200,7 @@ impl Fixture {
     fn pump(&mut self, mut done: impl FnMut(&Fixture, &Event) -> bool) -> Vec<String> {
         let mut messages = Vec::new();
         loop {
-            let event = self
-                .events
-                .recv_timeout(Duration::from_secs(60))
-                .expect("the executor produced an event");
+            let event = self.recv();
             let stop = done(self, &event);
             let effects = self.service.handle_event(&mut self.app, event);
             messages.extend(self.apply(effects));
@@ -654,10 +682,7 @@ impl Fixture {
     /// Handle executor events one at a time until \`done\` holds.
     fn pump_until(&mut self, mut done: impl FnMut(&Fixture) -> bool) {
         while !done(self) {
-            let event = self
-                .events
-                .recv_timeout(Duration::from_secs(60))
-                .expect("the executor produced an event");
+            let event = self.recv();
             let effects = self.service.handle_event(&mut self.app, event);
             self.apply(effects);
         }
@@ -873,4 +898,232 @@ fn languages_without_a_completion_provider_ask_nobody() {
     let (asked, effects) = f.service.request_completion(&f.app, 0, 2, None);
     assert_eq!(asked, 0);
     assert!(effects.is_empty());
+}
+
+const TASK_MANIFEST: &str = r#"{
+    "schema": 1,
+    "id": "example.tools",
+    "version": "0.1.0",
+    "api": "loom:extension@0.1.0",
+    "component": "extension.wasm",
+    "activation": [
+        { "kind": "command", "id": "example.tools.run" },
+        { "kind": "command", "id": "example.tools.check" },
+        { "kind": "command", "id": "example.tools.cancel" },
+        { "kind": "event", "name": "document.open" }
+    ],
+    "capabilities": ["documents.read", "workspace.edit", "process.execute-local", "events"],
+    "contributes": {
+        "commands": [
+            { "id": "example.tools.run", "title": "Run" },
+            { "id": "example.tools.check", "title": "Check" },
+            { "id": "example.tools.cancel", "title": "Cancel" }
+        ],
+        "settings": [{ "key": "example.tools.task", "kind": "string", "default": "" }]
+    }
+}"#;
+
+fn task_json(script_windows: &str, script_unix: &str) -> String {
+    let (program, flag, script) = if cfg!(windows) {
+        ("cmd", "/c", script_windows)
+    } else {
+        ("sh", "-c", script_unix)
+    };
+    serde_json::json!({ "program": program, "args": [flag, script] }).to_string()
+}
+
+impl Fixture {
+    /// A fixture with a workspace folder, the task setting and (optionally) trust.
+    fn tasks(name: &str, task: String, trusted: bool, allowed: bool) -> (Fixture, PathBuf) {
+        let mut f = fixture_with(name, "TODO text", 0..0, TASK_MANIFEST);
+        let folder =
+            std::env::temp_dir().join(format!("loom-task-root-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(folder.join("sub")).unwrap();
+        f.app.explorer.model.add_root(
+            &crate::infrastructure::explorer_filesystem::ExplorerFilesystem,
+            folder.clone(),
+        );
+        let store = std::sync::Arc::new(
+            crate::infrastructure::extensions::trust_store::TrustStore::default(),
+        );
+        if trusted {
+            store.trust(&folder).unwrap();
+        }
+        f.service.set_trust(store);
+        if allowed {
+            assert_eq!(f.service.allow_tools(&folder), 1);
+        }
+        let effects = f.service.set_setting_sources(
+            serde_json::json!({ "example.tools.task": task }),
+            None,
+            false,
+        );
+        f.apply(effects);
+        (f, folder)
+    }
+
+    /// Activate the extension and let it learn the folders.
+    fn start_with_roots(&mut self) {
+        let effects = self.service.observe(&self.app);
+        self.apply(effects);
+        self.pump_until(|f| {
+            f.service
+                .package("example.tools")
+                .unwrap()
+                .lifecycle
+                .state()
+                == State::Active
+        });
+    }
+}
+
+#[test]
+fn without_trust_or_a_tool_grant_a_task_is_refused_before_anything_starts() {
+    for (trusted, allowed, expected) in [
+        (false, false, "not trusted"),
+        (true, false, "workspace::AllowExtensionTools"),
+    ] {
+        let (mut f, _) = Fixture::tasks(
+            &format!("denied-{trusted}"),
+            task_json("echo hi", "echo hi"),
+            trusted,
+            allowed,
+        );
+        f.start_with_roots();
+        f.run("example.tools.run");
+        f.wait_for_log("task exited 1");
+        let logs: Vec<_> = f
+            .service
+            .package("example.tools")
+            .unwrap()
+            .logs
+            .iter()
+            .map(|l| l.1.clone())
+            .collect();
+        assert!(
+            logs.iter().any(|l| l.contains(expected)),
+            "{expected}: {logs:?}"
+        );
+        assert_eq!(f.runner.running(), 0);
+    }
+}
+
+#[test]
+fn an_allowed_task_streams_output_and_reports_its_exit_once() {
+    let (mut f, _) = Fixture::tasks("allowed", task_json("echo hello", "echo hello"), true, true);
+    f.start_with_roots();
+    f.run("example.tools.run");
+    f.wait_for_log("task exited 1 code Some(0)");
+    let logs: Vec<_> = f
+        .service
+        .package("example.tools")
+        .unwrap()
+        .logs
+        .iter()
+        .map(|l| l.1.clone())
+        .collect();
+    assert!(
+        logs.iter().any(|l| l.contains("task started 1")),
+        "{logs:?}"
+    );
+    assert!(
+        logs.iter().any(|l| l.starts_with("task output 1: hello")),
+        "{logs:?}"
+    );
+    assert_eq!(
+        logs.iter().filter(|l| l.starts_with("task exited")).count(),
+        1
+    );
+}
+
+#[test]
+fn a_working_directory_cannot_leave_the_folder() {
+    let task = serde_json::json!({
+        "program": if cfg!(windows) { "cmd" } else { "sh" },
+        "args": [if cfg!(windows) { "/c" } else { "-c" }, "echo hi"],
+        "cwd": "../..",
+    })
+    .to_string();
+    let (mut f, _) = Fixture::tasks("escape", task, true, true);
+    f.start_with_roots();
+    f.run("example.tools.run");
+    f.wait_for_log("task exited 1");
+    let logs: Vec<_> = f
+        .service
+        .package("example.tools")
+        .unwrap()
+        .logs
+        .iter()
+        .map(|l| l.1.clone())
+        .collect();
+    assert!(
+        logs.iter().any(|l| l.contains("inside the folder")),
+        "{logs:?}"
+    );
+}
+
+#[test]
+fn the_guest_can_cancel_its_task_and_still_hears_one_exit() {
+    let task = task_json("ping -n 30 127.0.0.1 >nul", "sleep 30");
+    let (mut f, _) = Fixture::tasks("cancel", task, true, true);
+    f.start_with_roots();
+    f.run("example.tools.run");
+    f.pump_until(|f| !f.service.tasks.is_empty());
+    f.run("example.tools.cancel");
+    f.wait_for_log("cancelled true");
+}
+
+#[test]
+fn removing_a_tool_grant_or_a_folder_stops_what_runs_there() {
+    let task = task_json("ping -n 30 127.0.0.1 >nul", "sleep 30");
+    let (mut f, folder) = Fixture::tasks("revoke", task.clone(), true, true);
+    f.start_with_roots();
+    f.run("example.tools.run");
+    f.pump_until(|f| !f.service.tasks.is_empty());
+    let effects = f.service.revoke_tools(&folder);
+    assert_eq!(effects.len(), 1);
+    f.apply(effects);
+    f.wait_for_log("cancelled true");
+
+    let (mut g, folder) = Fixture::tasks("removed", task, true, true);
+    g.start_with_roots();
+    g.run("example.tools.run");
+    g.pump_until(|g| !g.service.tasks.is_empty());
+    g.app.explorer.model.remove_root(&folder);
+    g.observe();
+    g.wait_for_log("cancelled true");
+}
+
+#[test]
+fn a_checker_publishes_findings_for_the_state_it_checked_and_not_for_a_changed_one() {
+    let (mut f, _) = Fixture::tasks("check", task_json("echo ok", "echo ok"), true, true);
+    f.start_with_roots();
+    f.wait_for_log("opened 1");
+    f.run("example.tools.check");
+    f.pump_until(|f| !f.published.is_empty());
+    let (source, items) = &f.published[0];
+    assert!(source & crate::infrastructure::lsp::manager::EXTERNAL_SOURCE != 0);
+    assert_eq!(items[0].range, 0..4);
+    assert_eq!(items[0].source.as_deref(), Some("example.tools.checker"));
+
+    // The same check, but the text changes before the tool finishes.
+    f.published.clear();
+    let slow = task_json("ping -n 2 127.0.0.1 >nul", "sleep 1");
+    let effects = f.service.set_setting_sources(
+        serde_json::json!({ "example.tools.task": slow }),
+        None,
+        false,
+    );
+    f.apply(effects);
+    f.run("example.tools.check");
+    f.wait_for_log("task started 2");
+    let id = f.app.workspace.file_id_for_path(&f.path).unwrap();
+    f.app
+        .workspace
+        .document_editor_mut(id)
+        .unwrap()
+        .set_cursor(0);
+    loom_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "x");
+    f.wait_for_log("task exited 2 code Some(0)");
+    assert!(f.published.is_empty(), "{:?}", f.published);
 }

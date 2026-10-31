@@ -4,13 +4,14 @@
 //! never waits on guest code. The application sends [`Job`]s and receives
 //! [`Event`]s through a sink; nothing UI-shaped crosses this boundary, only
 //! typed values and opaque ids (design §5, last layering rule).
+pub mod tasks;
 pub mod trust_store;
 
 use loom_extension_api::{ErrorKind, ExtensionError};
 use loom_extension_host::{
     AcceptedEdit, ByteRange, CommandContext, CommittedReceipt, Completion, HostError, Inbound,
-    Instance, Limits, Provided, ProviderKind, ProviderRequest, RoundStatus, Runtime, Selection,
-    WitErrorKind,
+    Instance, Limits, Provided, ProviderKind, ProviderRequest, PublishedDiagnostics, RootRef,
+    RoundStatus, Runtime, Selection, StartedTask, WitErrorKind,
 };
 use std::collections::HashMap;
 use std::ops::Range;
@@ -59,6 +60,9 @@ pub struct Run {
     pub selection_precondition: Option<u64>,
 }
 
+// Jobs are moved through a channel once each; the size gap between loading a
+// component and the small messages is not worth boxing every field.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Job {
     Load {
@@ -89,6 +93,19 @@ pub enum Job {
         id: String,
         generation: u64,
         job: Box<ProviderJob>,
+    },
+    /// The workspace folders the extension may name.
+    Roots {
+        id: String,
+        generation: u64,
+        roots: Vec<RootRef>,
+    },
+    /// Something happened to a task of the extension. `ended` frees its slot.
+    Task {
+        id: String,
+        generation: u64,
+        message: Inbound,
+        ended: bool,
     },
     /// New resolved setting values; `changed` lists the keys whose value differs.
     Settings {
@@ -128,6 +145,24 @@ pub enum Event {
         id: String,
         generation: u64,
         provided: Provided,
+    },
+    /// The guest asked to start a task. The application decides whether it may run.
+    TaskRequested {
+        id: String,
+        generation: u64,
+        task: StartedTask,
+    },
+    /// The guest asked to cancel tasks (their local numbers).
+    TasksCancelled {
+        id: String,
+        generation: u64,
+        tasks: Vec<u64>,
+    },
+    /// The guest pushed findings for one state of a file.
+    DiagnosticsPublished {
+        id: String,
+        generation: u64,
+        published: PublishedDiagnostics,
     },
     /// The instance trapped or ran past a limit; it has been dropped.
     Failed {
@@ -202,6 +237,10 @@ struct Worker {
     sink: Sink,
     instances: HashMap<String, Slot>,
     inbox: Receiver<Job>,
+}
+
+pub fn wire_error(error: &ExtensionError) -> HostError {
+    wit_error(error)
 }
 
 fn wit_error(error: &ExtensionError) -> HostError {
@@ -323,6 +362,26 @@ impl Worker {
                     }
                     self.deliver(&id, generation, vec![message]);
                 }
+                Job::Roots {
+                    id,
+                    generation,
+                    roots,
+                } => {
+                    if let Some(slot) = self.slot(&id, generation) {
+                        slot.instance.put_roots(roots);
+                    }
+                }
+                Job::Task {
+                    id,
+                    generation,
+                    message,
+                    ended,
+                } => {
+                    if ended && let Some(slot) = self.slot(&id, generation) {
+                        slot.instance.task_ended();
+                    }
+                    self.deliver(&id, generation, vec![message]);
+                }
                 Job::Settings {
                     id,
                     generation,
@@ -408,11 +467,35 @@ impl Worker {
             let accepted = slot.instance.take_accepted();
             let logs = slot.instance.take_logs();
             let provided = slot.instance.take_provided();
+            let started = slot.instance.take_started_tasks();
+            let cancelled = slot.instance.take_cancelled_tasks();
+            let published = slot.instance.take_published();
             for (level, text) in logs {
                 (self.sink)(Event::Log {
                     id: id.to_owned(),
                     level,
                     text,
+                });
+            }
+            for task in started {
+                (self.sink)(Event::TaskRequested {
+                    id: id.to_owned(),
+                    generation,
+                    task,
+                });
+            }
+            if !cancelled.is_empty() {
+                (self.sink)(Event::TasksCancelled {
+                    id: id.to_owned(),
+                    generation,
+                    tasks: cancelled,
+                });
+            }
+            for published in published {
+                (self.sink)(Event::DiagnosticsPublished {
+                    id: id.to_owned(),
+                    generation,
+                    published,
                 });
             }
             for answer in provided {

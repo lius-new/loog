@@ -3,7 +3,7 @@
 pub(crate) mod client;
 #[cfg(test)]
 mod client_tests;
-mod job;
+pub(crate) mod job;
 pub(crate) mod manager;
 #[cfg(test)]
 mod manager_tests;

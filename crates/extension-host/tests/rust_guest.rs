@@ -359,3 +359,85 @@ fn a_completion_provider_offers_items_and_resolves_one_back_to_its_origin() {
     assert_eq!(resolved[0].documentation.as_deref(), Some("docs for world"));
     let _: Option<&WireCompletionItem> = resolved.first();
 }
+
+#[test]
+fn a_guest_can_start_and_cancel_a_task_and_see_only_the_folders_it_was_given() {
+    use loom_extension_host::RootRef;
+    use std::collections::BTreeMap;
+    let (runtime, component) = runtime();
+    let mut instance = runtime.instantiate(&component, Limits::default()).unwrap();
+    instance.put_roots(vec![RootRef {
+        id: 7,
+        name: "project".into(),
+    }]);
+    instance.put_settings(BTreeMap::from([(
+        "example.tools.task".to_owned(),
+        r#"{"program":"tool","args":["--check"],"cwd":"sub"}"#.to_owned(),
+    )]));
+    instance
+        .dispatch(&[command("example.tools.run", None, vec![])])
+        .unwrap();
+    let started = instance.take_started_tasks();
+    assert_eq!(started.len(), 1, "logs: {:?}", instance.state().logs);
+    let request = &started[0].request;
+    assert_eq!(
+        (
+            request.root,
+            request.program.as_str(),
+            request.args.as_slice()
+        ),
+        (7, "tool", ["--check".to_owned()].as_slice())
+    );
+    assert_eq!(request.cwd.as_deref(), Some("sub"));
+
+    instance
+        .dispatch(&[command("example.tools.cancel", None, vec![])])
+        .unwrap();
+    assert_eq!(instance.take_cancelled_tasks(), [started[0].task]);
+}
+
+#[test]
+fn an_instance_cannot_have_more_tasks_running_than_its_limit() {
+    use loom_extension_host::RootRef;
+    use std::collections::BTreeMap;
+    let (runtime, component) = runtime();
+    let mut instance = runtime
+        .instantiate(
+            &component,
+            Limits {
+                tasks: 1,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+    instance.put_roots(vec![RootRef {
+        id: 1,
+        name: "p".into(),
+    }]);
+    instance.put_settings(BTreeMap::from([(
+        "example.tools.task".to_owned(),
+        r#"{"program":"t"}"#.to_owned(),
+    )]));
+    instance
+        .dispatch(&[command("example.tools.run", None, vec![])])
+        .unwrap();
+    instance
+        .dispatch(&[command("example.tools.run", None, vec![])])
+        .unwrap();
+    assert_eq!(instance.take_started_tasks().len(), 1);
+    assert!(
+        instance
+            .state()
+            .logs
+            .iter()
+            .any(|(_, t)| t.contains("too many running tasks")),
+        "{:?}",
+        instance.state().logs
+    );
+    // Freeing the slot lets the next one in.
+    instance.task_ended();
+    instance
+        .dispatch(&[command("example.tools.run", None, vec![])])
+        .unwrap();
+    assert_eq!(instance.take_started_tasks().len(), 1);
+}

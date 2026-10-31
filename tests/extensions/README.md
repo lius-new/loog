@@ -83,3 +83,17 @@ item asks the same provider to complete it (`completion-resolve`), and the
 request carries the item with its `data` unchanged; an item is never sent to
 any other extension. Items from extensions are listed after the language
 servers' and merged with them as the list is filtered while typing.
+
+## Tasks (running tools)
+
+An extension that declares `process.execute-local` can run a program in a
+folder: `task-start` takes a program and an argument list (never a shell
+line), a folder handle from `list-roots`, an optional working directory inside
+the folder and a short allow list of environment variables. Output arrives as
+`task-output`, and the end as exactly one `task-exited`. A task needs three
+things at once: the extension's own grant, a trusted folder
+(`workspace::TrustWorkspace`) and the folder's tool permission
+(`workspace::AllowExtensionTools`). The permission is a local-execution
+permission, not a sandbox: the program can do whatever you can. Revoking any of
+them, or removing the folder, stops what runs there. A checker can show its
+findings with `publish-diagnostics` for the document version it read.

@@ -2,6 +2,7 @@
 use super::{Effect, ExtensionService};
 use crate::app::context::AppContext;
 use crate::app::state::AppState;
+use crate::infrastructure::extensions::tasks;
 use crate::infrastructure::extensions::trust_store::TrustStore;
 use crate::infrastructure::extensions::{Event, Executor};
 use lgui::ApplicationHandle;
@@ -11,6 +12,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 struct Inner {
     service: Mutex<ExtensionService>,
     executor: OnceLock<Executor>,
+    runner: OnceLock<tasks::Runner>,
     trust: Arc<TrustStore>,
     user_settings: Option<PathBuf>,
     context: AppContext,
@@ -18,6 +20,14 @@ struct Inner {
 
 fn read_json(path: &Path) -> Option<serde_json::Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        if let Some(runner) = self.runner.get() {
+            runner.cancel_all();
+        }
+    }
 }
 
 impl Inner {
@@ -72,6 +82,16 @@ impl Inner {
                 Effect::ResolvedCompletion { source, raw, item } => {
                     crate::app::language_ui::completion::offer_resolved(app, source, &raw, &item)
                 }
+                Effect::StartTask { task, spec } => {
+                    if let Some(runner) = self.runner.get() {
+                        runner.start(task, spec);
+                    }
+                }
+                Effect::CancelTask { task } => {
+                    if let Some(runner) = self.runner.get() {
+                        runner.cancel(task);
+                    }
+                }
                 Effect::Toast(message) => app.show_toast(message),
                 Effect::Error(message) => app.show_error(message),
             }
@@ -96,10 +116,27 @@ impl ExtensionHost {
         let inner = Arc::new(Inner {
             service: Mutex::new(ExtensionService::new(cache)),
             executor: OnceLock::new(),
+            runner: OnceLock::new(),
             trust,
             user_settings,
             context: context.clone(),
         });
+        inner.service.lock().unwrap().set_trust(inner.trust.clone());
+        // Output and exits of tasks reach their guest through the UI thread, where
+        // the service knows which extension and generation a task belongs to.
+        let task_inner = inner.clone();
+        let task_context = context.clone();
+        let task_application = application.clone();
+        let _ = inner.runner.set(tasks::Runner::new(move |event| {
+            let inner = task_inner.clone();
+            let context = task_context.clone();
+            task_application.post(move || {
+                context.update(|app| {
+                    let effects = inner.service.lock().unwrap().handle_task_event(event);
+                    inner.apply(app, effects);
+                });
+            });
+        }));
         let sink_inner = inner.clone();
         let executor = Executor::spawn(Box::new(move |event: Event| {
             let inner = sink_inner.clone();
@@ -220,6 +257,21 @@ impl ExtensionHost {
         for effect in effects {
             if let (Effect::Submit(job), Some(executor)) = (effect, self.inner.executor.get()) {
                 executor.submit(job);
+            }
+        }
+    }
+
+    /// Allow extensions to run programs for `root`; returns how many were allowed.
+    pub(crate) fn allow_tools(&self, root: &Path) -> usize {
+        self.inner.service.lock().unwrap().allow_tools(root)
+    }
+
+    /// A folder lost its trust or its tool permission: what runs there stops.
+    pub(crate) fn revoke_tools(&self, root: &Path) {
+        let effects = self.inner.service.lock().unwrap().revoke_tools(root);
+        for effect in effects {
+            if let (Effect::CancelTask { task }, Some(runner)) = (effect, self.inner.runner.get()) {
+                runner.cancel(task);
             }
         }
     }

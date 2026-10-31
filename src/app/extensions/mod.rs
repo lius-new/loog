@@ -13,9 +13,11 @@ use crate::features::extensions::lifecycle::{FailureStage, Lifecycle, State};
 use crate::features::extensions::manifest::Manifest;
 use crate::features::extensions::manifest::ProviderKind as DeclKind;
 use crate::features::extensions::providers::{self, Reported};
+use crate::features::extensions::trust::RootTrust;
 use crate::features::extensions::trust::{Denial, Grants, PackageIdentity};
 use crate::features::language_service::sync::Stamp;
 use crate::infrastructure::extensions::ProviderJob;
+use crate::infrastructure::extensions::tasks;
 use crate::infrastructure::extensions::{Event, Job, Outcome, Run};
 use loom_extension_api::admission::EditLimits;
 use loom_extension_api::budget::{CallBudget, InteractionLimits};
@@ -55,6 +57,15 @@ struct Target {
     trigger: Option<String>,
     item: Option<loom_extension_host::WireCompletionItem>,
     item_raw: Option<serde_json::Value>,
+}
+
+/// A running task and who it belongs to.
+struct TaskRecord {
+    extension: String,
+    generation: u64,
+    /// The number the guest knows it by.
+    local: u64,
+    root_id: u64,
 }
 
 /// A provider request in flight, with the state it was asked about.
@@ -136,6 +147,13 @@ pub enum Effect {
     },
     ClearDiagnostics {
         source: u64,
+    },
+    StartTask {
+        task: u64,
+        spec: tasks::Spec,
+    },
+    CancelTask {
+        task: u64,
     },
     /// A completion provider answered (or could not in time: `items` is `None`).
     OfferCompletion {
@@ -276,6 +294,12 @@ pub struct ExtensionService {
     next_request: u64,
     sources: HashMap<(String, String), u64>,
     next_source: u64,
+    /// Folders extensions may name, by handle.
+    roots: Vec<(u64, PathBuf)>,
+    next_root: u64,
+    tasks: HashMap<u64, TaskRecord>,
+    next_task: u64,
+    trust: Option<std::sync::Arc<crate::infrastructure::extensions::trust_store::TrustStore>>,
 }
 
 /// The setting files as last read.
@@ -333,6 +357,11 @@ impl ExtensionService {
             next_request: 0,
             sources: HashMap::new(),
             next_source: 0,
+            roots: Vec::new(),
+            next_root: 0,
+            tasks: HashMap::new(),
+            next_task: 0,
+            trust: None,
         }
     }
 
@@ -756,6 +785,7 @@ impl ExtensionService {
         }
         self.calls.retain(|_, call| call.extension != id);
         let mut effects = self.clear_sources(id);
+        effects.extend(self.cancel_tasks_of(id));
         effects.push(Effect::Submit(Job::Stop { id: id.to_owned() }));
         effects
     }
@@ -773,6 +803,21 @@ impl ExtensionService {
                 effects.extend(self.observe(app));
                 effects
             }
+            Event::TaskRequested {
+                id,
+                generation,
+                task,
+            } => self.task_requested(&id, generation, task),
+            Event::TasksCancelled {
+                id,
+                generation,
+                tasks,
+            } => self.tasks_cancelled(&id, generation, &tasks),
+            Event::DiagnosticsPublished {
+                id,
+                generation,
+                published,
+            } => self.diagnostics_published(app, &id, generation, published),
             Event::Provided {
                 id,
                 generation,
@@ -823,16 +868,25 @@ impl ExtensionService {
                     values: package.resolved.values.clone(),
                     changed: Vec::new(),
                 });
-                let runs = commands.into_iter().filter_map(|pending| {
-                    self.waiting_runs.remove(&pending.call).map(|run| {
-                        Effect::Submit(Job::Run {
-                            id: id.to_owned(),
-                            generation,
-                            run,
+                let runs: Vec<Effect> = commands
+                    .into_iter()
+                    .filter_map(|pending| {
+                        self.waiting_runs.remove(&pending.call).map(|run| {
+                            Effect::Submit(Job::Run {
+                                id: id.to_owned(),
+                                generation,
+                                run,
+                            })
                         })
                     })
-                });
-                let mut effects: Vec<Effect> = std::iter::once(initial).chain(runs).collect();
+                    .collect();
+                let mut effects: Vec<Effect> = std::iter::once(initial).collect();
+                effects.push(Effect::Submit(Job::Roots {
+                    id: id.to_owned(),
+                    generation,
+                    roots: self.root_refs(),
+                }));
+                effects.extend(runs);
                 // Provider requests that waited for the start keep the deadline they
                 // were given; one that already ran out is answered as too late.
                 let ready: Vec<u64> = self
@@ -884,6 +938,7 @@ impl ExtensionService {
         package.last_error = Some(error.to_string());
         self.calls.retain(|_, call| call.extension != id);
         let mut effects = self.clear_sources(id);
+        effects.extend(self.cancel_tasks_of(id));
         effects.push(Effect::Error(format!("{id}: stopped: {error}")));
         effects
     }
@@ -1006,6 +1061,12 @@ impl ExtensionService {
     /// rules live in `DocumentStream`: contiguous changes merge, gaps become
     /// a resync, and open/close are boundaries.
     pub fn observe(&mut self, app: &AppState) -> Vec<Effect> {
+        let mut effects = self.sync_roots(app);
+        effects.extend(self.observe_documents(app));
+        effects
+    }
+
+    fn observe_documents(&mut self, app: &AppState) -> Vec<Effect> {
         let has_providers = self
             .packages
             .values()
@@ -1764,6 +1825,409 @@ impl ExtensionService {
                 self.issue(owner, provider, WireKind::Diagnostics, target, effects);
             }
         }
+    }
+
+    pub fn set_trust(
+        &mut self,
+        trust: std::sync::Arc<crate::infrastructure::extensions::trust_store::TrustStore>,
+    ) {
+        self.trust = Some(trust);
+    }
+
+    fn root_key(path: &Path) -> String {
+        path.to_string_lossy().into_owned()
+    }
+
+    /// Let the packages that declare local execution run programs for this
+    /// root. The package grant, the folder's trust and this per-root grant are
+    /// all required (design §9.1). Returns how many packages were granted.
+    pub fn allow_tools(&mut self, root: &Path) -> usize {
+        let key = Self::root_key(root);
+        let mut granted = 0;
+        for package in self.packages.values() {
+            if package
+                .manifest
+                .capabilities
+                .iter()
+                .any(|c| c == "process.execute-local")
+            {
+                self.grants
+                    .grant_package(&package.identity, "process.execute-local");
+                self.grants
+                    .grant_root(&package.identity, "process.execute-local", &key);
+                granted += 1;
+            }
+        }
+        granted
+    }
+
+    /// Take the root grant back and stop what already runs there.
+    pub fn revoke_tools(&mut self, root: &Path) -> Vec<Effect> {
+        self.grants.revoke_root(&Self::root_key(root));
+        // Tasks are found by the folder handle they were started for.
+        let handles: Vec<u64> = self
+            .roots
+            .iter()
+            .filter(|(_, path)| path.starts_with(root))
+            .map(|(id, _)| *id)
+            .collect();
+        self.tasks
+            .iter()
+            .filter(|(_, record)| handles.contains(&record.root_id))
+            .map(|(task, _)| Effect::CancelTask { task: *task })
+            .collect()
+    }
+
+    fn cancel_tasks_of(&self, extension: &str) -> Vec<Effect> {
+        self.tasks
+            .iter()
+            .filter(|(_, record)| record.extension == extension)
+            .map(|(task, _)| Effect::CancelTask { task: *task })
+            .collect()
+    }
+
+    fn root_refs(&self) -> Vec<loom_extension_host::RootRef> {
+        self.roots
+            .iter()
+            .map(|(id, path)| loom_extension_host::RootRef {
+                id: *id,
+                name: path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string()),
+            })
+            .collect()
+    }
+
+    fn roots_job(&self, id: &str, generation: u64) -> Effect {
+        Effect::Submit(Job::Roots {
+            id: id.to_owned(),
+            generation,
+            roots: self.root_refs(),
+        })
+    }
+
+    /// Follow the workspace folders. A folder that is gone ends its tasks; a
+    /// folder that is added again gets a new handle (design §5.1).
+    fn sync_roots(&mut self, app: &AppState) -> Vec<Effect> {
+        let current: Vec<PathBuf> = app.explorer.model.roots().to_vec();
+        if self.roots.iter().map(|(_, path)| path).eq(current.iter()) {
+            return Vec::new();
+        }
+        let mut effects = Vec::new();
+        let gone: Vec<u64> = self
+            .roots
+            .iter()
+            .filter(|(_, path)| !current.contains(path))
+            .map(|(id, _)| *id)
+            .collect();
+        for (task, record) in &self.tasks {
+            if gone.contains(&record.root_id) {
+                effects.push(Effect::CancelTask { task: *task });
+            }
+        }
+        let mut next = Vec::new();
+        for path in current {
+            let id = match self.roots.iter().find(|(_, known)| *known == path) {
+                Some((id, _)) => *id,
+                None => {
+                    self.next_root += 1;
+                    self.next_root
+                }
+            };
+            next.push((id, path));
+        }
+        self.roots = next;
+        for (id, package) in &self.packages {
+            if package.lifecycle.state() == State::Active {
+                effects.push(self.roots_job(id, package.lifecycle.generation()));
+            }
+        }
+        effects
+    }
+
+    /// Check a task request against everything that has to allow it and turn
+    /// it into a run. Nothing here starts a process.
+    fn plan_task(
+        &self,
+        extension: &str,
+        request: &loom_extension_host::TaskRequest,
+    ) -> Result<(u64, tasks::Spec), ExtensionError> {
+        let deny = |kind, message: &str| Err(ExtensionError::new(kind, message));
+        let package = self
+            .packages
+            .get(extension)
+            .ok_or_else(|| ExtensionError::new(ErrorKind::ExpiredHandle, "unknown extension"))?;
+        if !package
+            .manifest
+            .capabilities
+            .iter()
+            .any(|c| c == "process.execute-local")
+        {
+            return deny(
+                ErrorKind::PermissionDenied,
+                "process.execute-local is not declared by this extension",
+            );
+        }
+        let Some((root_id, root)) = self.roots.iter().find(|(id, _)| *id == request.root) else {
+            return deny(ErrorKind::ExpiredHandle, "the folder is no longer open");
+        };
+        let trust = match &self.trust {
+            Some(trust) => trust.is_trusted(root),
+            None => false,
+        };
+        self.grants
+            .authorize(
+                &package.identity,
+                "process.execute-local",
+                Some((
+                    &Self::root_key(root),
+                    if trust { RootTrust::Trusted } else { RootTrust::Untrusted },
+                )),
+            )
+            .map_err(|denial| {
+                ExtensionError::new(
+                    ErrorKind::PermissionDenied,
+                    match denial {
+                        Denial::PackageNotGranted => "this extension has not been granted local execution",
+                        Denial::RootNotTrusted => "the folder is not trusted; run workspace::TrustWorkspace first",
+                        Denial::RootNotGranted => "running programs in this folder has not been allowed; run workspace::AllowExtensionTools",
+                        Denial::NoTargetRoot => "a task needs a folder",
+                    },
+                )
+            })?;
+
+        let program = request.program.trim();
+        let bad_text = |text: &str| text.contains('\0');
+        if program.is_empty() || program.len() > 1024 || bad_text(program) {
+            return deny(ErrorKind::InvalidEdit, "the program name is not valid");
+        }
+        if request.args.len() > 128 || request.args.iter().any(|a| a.len() > 8192 || bad_text(a)) {
+            return deny(ErrorKind::LimitExceeded, "too many or too long arguments");
+        }
+        for (name, value) in &request.env {
+            if !tasks::SETTABLE.contains(&name.as_str()) || value.len() > 1024 || bad_text(value) {
+                return deny(
+                    ErrorKind::PermissionDenied,
+                    "that environment variable is not allowed",
+                );
+            }
+        }
+        let base = root.canonicalize().map_err(|_| {
+            ExtensionError::new(ErrorKind::ExpiredHandle, "the folder cannot be read")
+        })?;
+        let cwd = match request.cwd.as_deref().filter(|c| !c.is_empty()) {
+            None => base.clone(),
+            Some(relative) => {
+                if crate::features::extensions::manifest::check_package_path(relative).is_err() {
+                    return deny(
+                        ErrorKind::PermissionDenied,
+                        "the working directory must stay inside the folder",
+                    );
+                }
+                let joined = base.join(relative).canonicalize().map_err(|_| {
+                    ExtensionError::new(
+                        ErrorKind::InvalidEdit,
+                        "the working directory does not exist",
+                    )
+                })?;
+                if !joined.starts_with(&base) {
+                    return deny(
+                        ErrorKind::PermissionDenied,
+                        "the working directory must stay inside the folder",
+                    );
+                }
+                joined
+            }
+        };
+        // A relative path with a separator means "from the working directory";
+        // a bare name is looked up on PATH by the operating system.
+        let program = if program.contains(['/', '\\']) && Path::new(program).is_relative() {
+            cwd.join(program).to_string_lossy().into_owned()
+        } else {
+            program.to_owned()
+        };
+        let timeout = request.timeout_ms.unwrap_or(120_000).clamp(100, 600_000);
+        Ok((
+            *root_id,
+            tasks::Spec {
+                program,
+                args: request.args.clone(),
+                cwd,
+                env: request.env.clone(),
+                timeout: std::time::Duration::from_millis(u64::from(timeout)),
+            },
+        ))
+    }
+
+    fn task_requested(
+        &mut self,
+        id: &str,
+        generation: u64,
+        started: loom_extension_host::StartedTask,
+    ) -> Vec<Effect> {
+        if !self
+            .packages
+            .get(id)
+            .is_some_and(|p| p.lifecycle.accepts(generation))
+        {
+            return Vec::new();
+        }
+        let local = started.task;
+        let refuse = |error: ExtensionError| {
+            vec![Effect::Submit(Job::Task {
+                id: id.to_owned(),
+                generation,
+                message: Inbound::TaskExited(loom_extension_host::TaskExit {
+                    task: local,
+                    code: None,
+                    cancelled: false,
+                    timed_out: false,
+                    output_truncated: false,
+                    error: Some(crate::infrastructure::extensions::wire_error(&error)),
+                }),
+                ended: true,
+            })]
+        };
+        match self.plan_task(id, &started.request) {
+            Err(error) => refuse(error),
+            Ok((root_id, spec)) => {
+                self.next_task += 1;
+                let global = self.next_task;
+                self.tasks.insert(
+                    global,
+                    TaskRecord {
+                        extension: id.to_owned(),
+                        generation,
+                        local,
+                        root_id,
+                    },
+                );
+                vec![Effect::StartTask { task: global, spec }]
+            }
+        }
+    }
+
+    /// The guest asked to cancel tasks by their own numbers.
+    fn tasks_cancelled(&self, id: &str, generation: u64, locals: &[u64]) -> Vec<Effect> {
+        self.tasks
+            .iter()
+            .filter(|(_, r)| {
+                r.extension == id && r.generation == generation && locals.contains(&r.local)
+            })
+            .map(|(task, _)| Effect::CancelTask { task: *task })
+            .collect()
+    }
+
+    /// Output and exits of running tasks, on their way to the owning guest.
+    pub fn handle_task_event(&mut self, event: tasks::TaskEvent) -> Vec<Effect> {
+        use loom_extension_host::{OutputChannel, TaskExit, TaskOutput};
+        let (task, ended) = match &event {
+            tasks::TaskEvent::Output { task, .. } => (*task, false),
+            tasks::TaskEvent::Exited { task, .. } => (*task, true),
+        };
+        let Some(record) = self.tasks.get(&task) else {
+            return Vec::new();
+        };
+        let (extension, generation, local) =
+            (record.extension.clone(), record.generation, record.local);
+        if ended {
+            self.tasks.remove(&task);
+        }
+        let message = match event {
+            tasks::TaskEvent::Output {
+                channel,
+                text,
+                truncated,
+                ..
+            } => Inbound::TaskOutput(TaskOutput {
+                task: local,
+                channel: match channel {
+                    tasks::Channel::Stdout => OutputChannel::Stdout,
+                    tasks::Channel::Stderr => OutputChannel::Stderr,
+                },
+                text,
+                truncated,
+            }),
+            tasks::TaskEvent::Exited {
+                code,
+                cancelled,
+                timed_out,
+                output_truncated,
+                error,
+                ..
+            } => Inbound::TaskExited(TaskExit {
+                task: local,
+                code,
+                cancelled,
+                timed_out,
+                output_truncated,
+                error: error.map(|message| {
+                    crate::infrastructure::extensions::wire_error(&ExtensionError::new(
+                        ErrorKind::ExtensionFailed,
+                        message,
+                    ))
+                }),
+            }),
+        };
+        vec![Effect::Submit(Job::Task {
+            id: extension,
+            generation,
+            message,
+            ended,
+        })]
+    }
+
+    /// Findings an extension pushed for one state of an open file.
+    fn diagnostics_published(
+        &mut self,
+        app: &AppState,
+        id: &str,
+        generation: u64,
+        published: loom_extension_host::PublishedDiagnostics,
+    ) -> Vec<Effect> {
+        let allowed = self.packages.get(id).is_some_and(|package| {
+            package.lifecycle.accepts(generation)
+                && self.authorize(package, "documents.read").is_ok()
+        });
+        // A source name must be the extension's own, so it cannot speak as another.
+        if !allowed || !published.provider.starts_with(&format!("{id}.")) {
+            return Vec::new();
+        }
+        let Some(file) = app.workspace.file_id_for_path(Path::new(&published.path)) else {
+            return Vec::new();
+        };
+        let document = &app.workspace.documents[&file];
+        if document.buffer.version() != published.version {
+            // Describes a state that is gone: never shown.
+            return Vec::new();
+        }
+        let text = document.buffer.text_snapshot();
+        let reported: Vec<Reported> = published
+            .items
+            .into_iter()
+            .map(|d| Reported {
+                start: d.range.start as usize,
+                end: d.range.end as usize,
+                severity: d.severity,
+                message: d.message,
+                source: d.source,
+                code: d.code,
+            })
+            .collect();
+        let converted = providers::convert(&text, &reported, &published.provider);
+        let stamp = document.stamp(file);
+        let source = self.source_for(id, &published.provider);
+        vec![Effect::PublishDiagnostics {
+            source,
+            path: document.meta.path.clone(),
+            stamp: Stamp {
+                incarnation: stamp.incarnation,
+                version: stamp.version,
+            },
+            text,
+            items: converted.diagnostics,
+        }]
     }
 
     /// End of a command call: its snapshot leases are released.

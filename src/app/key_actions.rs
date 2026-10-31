@@ -402,6 +402,14 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             open_keymap_file(env);
             true
         }
+        Action::AllowExtensionTools => {
+            change_tools(env, true);
+            true
+        }
+        Action::RevokeExtensionTools => {
+            change_tools(env, false);
+            true
+        }
         Action::TrustWorkspace => {
             change_trust(env, true);
             true
@@ -743,6 +751,9 @@ fn change_trust(env: &KeyEnv, trust: bool) {
             if let Some(services) = runtime.language_services() {
                 services.restart();
             }
+            if !trust && let Some(host) = runtime.extensions() {
+                host.revoke_tools(&root);
+            }
             let verb = if trust {
                 "Trusted"
             } else {
@@ -755,4 +766,45 @@ fn change_trust(env: &KeyEnv, trust: bool) {
             .state
             .update(|app| app.show_error(format!("Could not save the trust decision: {error}"))),
     }
+}
+
+/// Allow or stop extensions running programs from the folder of the active
+/// file. The message says what the permission means: no sandbox.
+fn change_tools(env: &KeyEnv, allow: bool) {
+    let app = env.state.get();
+    let Some(path) = app.workspace.active_path().map(|p| p.to_path_buf()) else {
+        env.state
+            .update(|app| app.show_error("Open a file in the folder first"));
+        return;
+    };
+    let Some(root) = app
+        .workspace_folder_of(&path)
+        .map(|folder| folder.to_path_buf())
+        .or_else(|| path.parent().map(|parent| parent.to_path_buf()))
+    else {
+        return;
+    };
+    let Some(host) = env
+        .state
+        .services()
+        .and_then(|runtime| runtime.extensions())
+    else {
+        env.state
+            .update(|app| app.show_error("Extensions are not available"));
+        return;
+    };
+    let message = if allow {
+        let count = host.allow_tools(&root);
+        format!(
+            "{count} extension(s) may now run programs from {} with your user rights; this is not a sandbox. The folder must also be trusted.",
+            root.display()
+        )
+    } else {
+        host.revoke_tools(&root);
+        format!(
+            "Extensions can no longer run programs from {}",
+            root.display()
+        )
+    };
+    env.state.update(|app| app.show_toast(message));
 }

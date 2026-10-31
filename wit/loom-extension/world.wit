@@ -152,8 +152,56 @@ interface types {
         code: option<string>,
     }
 
+    /// A workspace folder as the extension may name it. Handles change when a
+    /// folder is removed and added again.
+    record root-ref {
+        id: u64,
+        name: string,
+    }
+
+    type task-id = u64;
+
+    /// Run a program on the machine, without a shell: `program` and `args` are
+    /// the whole command line. `cwd` is relative to the root and may not leave it.
+    record task-request {
+        call: call-id,
+        root: u64,
+        program: string,
+        args: list<string>,
+        cwd: option<string>,
+        /// Only a small allow list of names is accepted.
+        env: list<tuple<string, string>>,
+        timeout-ms: option<u32>,
+    }
+
+    enum output-channel {
+        stdout,
+        stderr,
+    }
+
+    record task-output {
+        task: task-id,
+        channel: output-channel,
+        text: string,
+        /// Output was cut here because the task produced more than its budget.
+        truncated: bool,
+    }
+
+    /// Delivered exactly once per started task.
+    record task-exit {
+        task: task-id,
+        code: option<s32>,
+        cancelled: bool,
+        timed-out: bool,
+        output-truncated: bool,
+        /// Set instead of running when the request was refused or could not start.
+        error: option<host-error>,
+    }
+
     /// Message pushed by the host into the guest.
     variant inbound {
+        task-output(task-output),
+        task-exited(task-exit),
         provider-request(provider-request),
         run-command(command-context),
         document-opened(document-ref),
@@ -180,7 +228,7 @@ interface types {
 }
 
 interface host {
-    use types.{apply-edit-request, completion-item, diagnostic, host-error, operation-id, snapshot-token, byte-range, text-edit};
+    use types.{apply-edit-request, completion-item, diagnostic, host-error, root-ref, task-id, task-request, operation-id, snapshot-token, byte-range, text-edit};
 
     /// Read a bounded range of a captured snapshot. Fast, never blocks on the UI.
     read-range: func(snapshot: snapshot-token, range: byte-range) -> result<string, host-error>;
@@ -191,6 +239,20 @@ interface host {
     apply-edit: func(request: apply-edit-request) -> result<operation-id, host-error>;
 
     cancel: func(operation: operation-id);
+
+    /// The workspace folders this extension may name.
+    list-roots: func() -> list<root-ref>;
+
+    /// Accept a task for scheduling. Refusals (permission, trust, limits) and
+    /// the end of the task arrive as `task-exited`; output arrives as `task-output`.
+    task-start: func(request: task-request) -> result<task-id, host-error>;
+
+    /// Stop a task and everything it started. The exit is still delivered once.
+    task-cancel: func(task: task-id);
+
+    /// Show findings for one state of an open file (for example from a checker).
+    /// Findings for a state that is no longer current are discarded.
+    publish-diagnostics: func(provider: string, path: string, version: u64, items: list<diagnostic>) -> result<_, host-error>;
 
     /// The resolved value of one of this extension's declared settings, as JSON text.
     get-setting: func(key: string) -> option<string>;

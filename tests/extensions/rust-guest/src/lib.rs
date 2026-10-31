@@ -21,6 +21,11 @@ use loom::extension::types::{
 
 #[derive(Default)]
 struct State {
+    /// The last document the host told us about: path and version.
+    last_doc: Option<(String, u64)>,
+    current_task: Option<u64>,
+    /// Version of the document a checker task was started for.
+    checking: Option<(u64, String, u64)>,
     sequence: u64,
     pending: Vec<u64>,
     hoard: Vec<Vec<u8>>,
@@ -73,6 +78,49 @@ fn run(command: &str, call: u64, snapshot: Option<u64>, selections: Vec<loom::ex
             STATE.with(|state| state.borrow_mut().hoard.push(block));
         },
         "example.tools.trap" => panic!("deliberate trap"),
+        "example.tools.run" | "example.tools.check" => {
+            let setting = host::get_setting("example.tools.task").unwrap_or_default();
+            let mut spec: serde_json::Value = serde_json::from_str(&setting).unwrap_or_default();
+            // A string setting holds the task as JSON text.
+            if let Some(text) = spec.as_str() {
+                spec = serde_json::from_str(text).unwrap_or_default();
+            }
+            let roots = host::list_roots();
+            let Some(first) = roots.first() else {
+                host::log(2, "no folder is open");
+                return;
+            };
+            let request = loom::extension::types::TaskRequest {
+                call,
+                root: first.id,
+                program: spec["program"].as_str().unwrap_or_default().to_owned(),
+                args: spec["args"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+                    .unwrap_or_default(),
+                cwd: spec["cwd"].as_str().map(str::to_owned),
+                env: Vec::new(),
+                timeout_ms: Some(20_000),
+            };
+            match host::task_start(&request) {
+                Ok(task) => {
+                    host::log(0, &format!("task started {task}"));
+                    STATE.with(|state| {
+                        let mut state = state.borrow_mut();
+                        state.current_task = Some(task);
+                        if command == "example.tools.check" {
+                            state.checking = state.last_doc.clone().map(|(path, version)| (task, path, version));
+                        }
+                    });
+                }
+                Err(error) => host::log(2, &format!("task refused: {}", error.message)),
+            }
+        }
+        "example.tools.cancel" => {
+            if let Some(task) = STATE.with(|state| state.borrow().current_task) {
+                host::task_cancel(task);
+            }
+        }
         other => host::log(1, &format!("unknown command {other}")),
     }
 }
@@ -97,7 +145,47 @@ impl Guest for Extension {
                         Completion::Failed(error) => host::log(2, &format!("operation {operation} failed: {}", error.message)),
                     }
                 }
-                Inbound::DocumentOpened(d) => host::log(0, &format!("opened {} v{} life {} {}", d.document, d.version, d.lifecycle, d.language)),
+                Inbound::TaskOutput(output) => host::log(
+                    0,
+                    &format!("task output {}: {}", output.task, output.text.trim()),
+                ),
+                Inbound::TaskExited(exit) => {
+                    host::log(
+                        0,
+                        &format!(
+                            "task exited {} code {:?} cancelled {} timed_out {} error {}",
+                            exit.task,
+                            exit.code,
+                            exit.cancelled,
+                            exit.timed_out,
+                            exit.error.as_ref().map(|e| e.message.as_str()).unwrap_or("none")
+                        ),
+                    );
+                    let checking = STATE.with(|state| {
+                        let mut state = state.borrow_mut();
+                        match state.checking.take() {
+                            Some((task, path, version)) if task == exit.task => Some((path, version)),
+                            other => {
+                                state.checking = other;
+                                None
+                            }
+                        }
+                    });
+                    if let (Some((path, version)), Some(0)) = (checking, exit.code) {
+                        let finding = Diagnostic {
+                            range: ByteRange { start: 0, end: 4 },
+                            severity: 2,
+                            message: "checker says hi".into(),
+                            source: None,
+                            code: None,
+                        };
+                        let _ = host::publish_diagnostics("example.tools.checker", &path, version, &[finding]);
+                    }
+                }
+                Inbound::DocumentOpened(d) => {
+                    STATE.with(|state| state.borrow_mut().last_doc = Some((d.path.clone(), d.version)));
+                    host::log(0, &format!("opened {} v{} life {} {}", d.document, d.version, d.lifecycle, d.language));
+                }
                 Inbound::DocumentChanged(c) => host::log(0, &format!("changed {} {}->{} x{}", c.document, c.from_version, c.to_version, c.edits)),
                 Inbound::DocumentResync(d) => host::log(0, &format!("resync {} v{}", d.document, d.version)),
                 Inbound::DocumentClosed(d) => host::log(0, &format!("closed {} life {}", d.document, d.lifecycle)),
