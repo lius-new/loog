@@ -29,6 +29,10 @@ impl AppContext {
     }
     /// Tells the language servers about document changes this update made.
     fn sync_document_services(&self, app: &AppState) {
+        // Trust is judged against the folders that are open, before anything asks it.
+        if let Some(runtime) = self.services() {
+            runtime.trust().set_workspace(app.explorer.model.roots());
+        }
         if let Some(services) = self.services().and_then(|r| r.language_services()) {
             services.sync(app);
         }

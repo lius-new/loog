@@ -58,6 +58,30 @@ impl TrustedRoots {
         self.roots.iter().any(|root| path.starts_with(root))
     }
 
+    /// Whether `path` is trusted when the open workspace folders are `workspace`.
+    ///
+    /// The innermost open folder that holds `path` decides. Trusting a folder
+    /// that is itself open covers that folder only: a deeper open folder does not
+    /// inherit it (design §9.1), so adding one never widens what runs. Trusting a
+    /// folder that is not open (a parent) covers every open folder below it. A
+    /// path outside every open folder falls back to [`Self::is_trusted`].
+    pub fn is_trusted_within(
+        &self,
+        path: &std::path::Path,
+        workspace: &[std::path::PathBuf],
+    ) -> bool {
+        let innermost = workspace
+            .iter()
+            .filter(|root| path.starts_with(root))
+            .max_by_key(|root| root.components().count());
+        let Some(root) = innermost else {
+            return self.is_trusted(path);
+        };
+        self.roots.iter().any(|trusted| {
+            root.starts_with(trusted) && (trusted == root || !workspace.contains(trusted))
+        })
+    }
+
     pub fn trust_of(&self, path: &std::path::Path) -> RootTrust {
         if self.is_trusted(path) {
             RootTrust::Trusted
@@ -201,6 +225,39 @@ mod tests {
             grants.authorize(&p, EXEC, Some(("A", RootTrust::Trusted))),
             Ok(())
         );
+    }
+
+    #[test]
+    fn the_innermost_open_folder_decides_and_a_deeper_folder_inherits_nothing() {
+        use std::path::PathBuf;
+        let outer = PathBuf::from(if cfg!(windows) { "C:/w" } else { "/w" });
+        let inner = outer.join("app");
+        let open = vec![outer.clone(), inner.clone()];
+        let mut trusted = TrustedRoots::default();
+        trusted.trust(&outer);
+        // Trusting the outer open folder covers it and its plain subfolders only.
+        assert!(trusted.is_trusted_within(&outer.join("src"), &open));
+        assert!(!trusted.is_trusted_within(&inner, &open));
+        assert!(!trusted.is_trusted_within(&inner.join("src"), &open));
+        // The deeper folder needs its own decision, which does not widen the outer one.
+        trusted.trust(&inner);
+        assert!(trusted.is_trusted_within(&inner.join("src"), &open));
+        trusted.revoke(&outer);
+        assert!(!trusted.is_trusted_within(&outer, &open));
+        assert!(trusted.is_trusted_within(&inner, &open));
+
+        // A trusted folder that is not open covers every open folder below it.
+        let mut parent = TrustedRoots::default();
+        parent.trust(&outer);
+        let below = vec![inner.clone(), outer.join("lib")];
+        assert!(parent.is_trusted_within(&inner, &below));
+        assert!(parent.is_trusted_within(&outer.join("lib").join("x"), &below));
+        // Outside every open folder the plain rule applies.
+        assert!(parent.is_trusted_within(&outer.join("other"), &below));
+        assert!(!parent.is_trusted_within(
+            &PathBuf::from(if cfg!(windows) { "C:/z" } else { "/z" }),
+            &below
+        ));
     }
 
     #[test]

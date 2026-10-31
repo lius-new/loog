@@ -39,6 +39,8 @@ mod save;
 
 const PROVIDER_DEADLINE_MS: u64 = 500;
 const FORMAT_DEADLINE_MS: u64 = 5_000;
+/// Requests one extension may have open at once, over all its providers and documents.
+const MAX_PROVIDER_CALLS: usize = 32;
 /// Extension candidates list after every language server's.
 const COMPLETION_RANK: usize = 1000;
 const EXTERNAL_SOURCE: u64 = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE;
@@ -1648,6 +1650,22 @@ impl ExtensionService {
         });
         self.queued
             .retain(|queued| self.provider_calls.contains_key(queued));
+        // One extension never has more than this many requests open at once; the
+        // newest is refused, as if it had no answer, rather than queued without end.
+        let open = self
+            .provider_calls
+            .values()
+            .filter(|call| call.extension == owner)
+            .count();
+        if open >= MAX_PROVIDER_CALLS {
+            if let Some(package) = self.packages.get_mut(owner) {
+                package.logs.push((
+                    1,
+                    format!("too many open requests; {provider} was not asked"),
+                ));
+            }
+            return;
+        }
         let now = (self.clock)();
         let limit = if matches!(kind, WireKind::Formatting) {
             FORMAT_DEADLINE_MS

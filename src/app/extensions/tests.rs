@@ -978,6 +978,47 @@ fn language_providers_answer_with_the_replies_a_server_would_give_and_only_for_t
 }
 
 #[test]
+fn one_extension_cannot_hold_more_requests_open_than_the_cap_allows() {
+    use crate::features::language_service::request::Feature;
+    let probe = std::env::temp_dir().join(format!("loom-ext-doc-{}-cap.txt", std::process::id()));
+    let language = language_of(&probe);
+    let manifest = provider_manifest(&language).replace(
+        "\"providers\": [",
+        &format!(
+            "\"providers\": [{{ \"id\": \"example.tools.hover\", \"kind\": \"hover\", \"selector\": {{ \"languages\": [\"{language}\"] }} }},"
+        ),
+    );
+    let mut f = fixture_with("cap", "x", 0..0, &manifest);
+    f.service.set_clock(|| 0);
+    let mut paths = Vec::new();
+    for n in 0..40 {
+        let path =
+            std::env::temp_dir().join(format!("loom-ext-doc-{}-cap-{n}.txt", std::process::id()));
+        f.app.workspace.open_path(path.clone(), "x".into());
+        paths.push(path);
+    }
+    let mut asked = 0;
+    for path in &paths {
+        let file = f.app.workspace.file_id_for_path(path).unwrap();
+        let now = f.app.workspace.documents[&file].stamp(file);
+        let ask = LanguageAsk {
+            feature: Feature::Hover,
+            path: path.clone(),
+            stamp: crate::features::language_service::sync::Stamp {
+                incarnation: now.incarnation,
+                version: now.version,
+            },
+            start: 0,
+            end: 0,
+        };
+        let mut effects = Vec::new();
+        asked += f.service.request_language(&f.app, &ask, 1, &mut effects);
+        // Nothing is submitted: the answers are not what this test is about.
+    }
+    assert_eq!(asked, 32, "the rest were refused, not queued");
+}
+
+#[test]
 fn an_item_filed_under_another_source_is_never_sent_for_resolving() {
     let mut f = Fixture::provider_fixture("forged", "lo");
     f.service.set_clock(|| 0); // cold-start time is not what this test measures

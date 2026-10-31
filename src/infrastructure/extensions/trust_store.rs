@@ -16,6 +16,9 @@ pub struct TrustStore {
 struct Inner {
     file: Option<PathBuf>,
     roots: TrustedRoots,
+    /// The open workspace folders; the innermost one that holds a path decides
+    /// whether it is trusted.
+    workspace: Vec<PathBuf>,
 }
 
 impl TrustStore {
@@ -31,7 +34,16 @@ impl TrustStore {
     }
 
     pub fn is_trusted(&self, path: &Path) -> bool {
-        self.inner.lock().unwrap().roots.is_trusted(path)
+        let inner = self.inner.lock().unwrap();
+        inner.roots.is_trusted_within(path, &inner.workspace)
+    }
+
+    /// The folders that are open now. Trust is judged against them.
+    pub fn set_workspace(&self, folders: &[PathBuf]) {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.workspace != folders {
+            inner.workspace = folders.to_vec();
+        }
     }
 
     pub fn trust(&self, root: &Path) -> std::io::Result<()> {
@@ -120,6 +132,27 @@ mod tests {
         let again = TrustStore::default();
         again.attach(path);
         assert!(!again.is_trusted(&root));
+    }
+
+    #[test]
+    fn a_folder_opened_inside_a_trusted_folder_is_not_trusted_until_it_is_decided_on_its_own() {
+        let outer = std::env::temp_dir().join("trust-nested-outer");
+        let inner = outer.join("app");
+        let store = Arc::new(TrustStore::default());
+        store.trust(&outer).unwrap();
+        let gate = store.start_gate();
+        // Before the folders are known the plain rule holds.
+        assert!((gate.0)(&inner).is_ok());
+
+        store.set_workspace(&[outer.clone(), inner.clone()]);
+        assert!((gate.0)(&outer.join("src")).is_ok());
+        assert!(
+            (gate.0)(&inner.join("src"))
+                .unwrap_err()
+                .contains("not trusted")
+        );
+        store.trust(&inner).unwrap();
+        assert!((gate.0)(&inner.join("src")).is_ok());
     }
 
     #[test]
