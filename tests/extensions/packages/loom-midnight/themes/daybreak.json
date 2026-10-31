@@ -1,0 +1,33 @@
+{
+  "name": "Loom Daybreak",
+  "base": "aura-light",
+  "colors": {
+    "bg": "#fdfbf7",
+    "sidebar": "#f4efe6",
+    "surface": "#ffffff",
+    "border": "#e6dfd0",
+    "active_line": "#f3eee3",
+    "selection": "#d9e7ff",
+    "accent": "#0d9488",
+    "accent_hover": "#0f766e",
+    "on_accent": "#ffffff",
+    "text_bright": "#1c1917",
+    "text": "#292524",
+    "text_soft": "#44403c",
+    "text_muted": "#57534e",
+    "text_dim": "#78716c"
+  },
+  "syntax": {
+    "keyword": "#7c3aed",
+    "function": "#0369a1",
+    "type": "#b45309",
+    "string": "#15803d",
+    "string.escape": { "fg": "#0d9488", "bold": true },
+    "comment": { "fg": "#a8a29e", "italic": true },
+    "number": "#c2410c",
+    "property": "#4f46e5",
+    "constant": "#be185d",
+    "operator": "#57534e",
+    "punctuation": "#78716c"
+  }
+}

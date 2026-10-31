@@ -36,3 +36,5 @@ pub(crate) struct TokenSpan {
 }
 
 pub(crate) use self::treesitter::SnippetHighlighter;
+#[cfg(test)]
+pub(crate) use self::treesitter::highlight_with;

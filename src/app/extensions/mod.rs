@@ -2897,4 +2897,6 @@ impl ExtensionService {
 }
 
 #[cfg(test)]
+mod package_tests;
+#[cfg(test)]
 pub(crate) mod tests;

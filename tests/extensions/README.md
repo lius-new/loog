@@ -2,6 +2,16 @@
 
 Status: M0/M1 prototype. The contract (`wit/loom-extension/world.wit`) is not frozen.
 
+## Sample extensions: a theme and a language
+
+`tests/extensions/packages` holds two extensions that need no component: a theme
+extension (`loom-midnight`, two themes) and a language extension
+(`loom-properties`, a real WebAssembly grammar plus snippets). They are what a
+new extension author copies, and `src/app/extensions/package_tests.rs` loads
+them the way the application does and highlights real text with the grammar, so
+a break in loading, themes or syntax highlighting for extensions shows up as a
+failing test.
+
 ## Write an extension in TypeScript
 
 `sdk/typescript` is the TypeScript SDK: types generated from the contract, a

@@ -1,0 +1,8 @@
+{
+  "language": "properties",
+  "snippets": [
+    { "prefix": "key", "body": "${1:name}=${2:value}$0", "description": "A property" },
+    { "prefix": "section", "body": ["# ${1:Section}", "${2:name}=${3:value}", "$0"], "description": "A commented group" },
+    { "prefix": "env", "body": "${1:name}=\\${${2:ENV_VAR}}$0", "description": "A property taken from an environment variable" }
+  ]
+}

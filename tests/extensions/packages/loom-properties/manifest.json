@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "loom.properties",
+  "version": "0.1.0",
+  "contributes": {
+    "languages": [
+      { "id": "loom.properties.grammar", "path": "grammar/tree-sitter.json" }
+    ],
+    "snippets": [
+      { "id": "loom.properties.snippets", "path": "snippets/properties.json" }
+    ]
+  }
+}

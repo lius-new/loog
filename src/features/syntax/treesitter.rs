@@ -659,6 +659,24 @@ pub(crate) fn tile(window: Range<usize>, mut captures: Vec<Capture>) -> Vec<Toke
     spans
 }
 
+/// The spans of `text` for the grammar `grammar` of `resources`, tiling the whole
+/// text, or why the grammar cannot be used (not installed, module or query
+/// rejected). It is the same work the editor does for a document, without the
+/// document: it names the grammar directly, so it also checks a language pack
+/// before any file is associated with it.
+#[cfg(test)]
+pub(crate) fn highlight_with(
+    resources: &dyn super::Resources,
+    grammar: &str,
+    text: &str,
+) -> Result<Vec<TokenSpan>, String> {
+    let cancel = AtomicBool::new(false);
+    let mut parser = resources.parser(grammar)?;
+    let query = queries::compile(resources, grammar)?;
+    let tree = parse(&mut parser, text, None, &cancel).ok_or("the text could not be parsed")?;
+    highlight(&tree, text, &query, 0..text.len(), &cancel).ok_or_else(|| "cancelled".to_owned())
+}
+
 /// Bounded snippets reuse the grammar/query resources without inventing file or
 /// workspace identities. Only visible fenced blocks enter this adapter.
 pub(crate) struct SnippetHighlighter {

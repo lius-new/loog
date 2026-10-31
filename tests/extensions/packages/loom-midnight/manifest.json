@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "id": "loom.midnight",
+  "version": "0.1.0",
+  "contributes": {
+    "themes": [
+      { "id": "loom.midnight.dark", "path": "themes/midnight.json" },
+      { "id": "loom.midnight.light", "path": "themes/daybreak.json" }
+    ]
+  }
+}
