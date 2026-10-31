@@ -11,6 +11,7 @@ pub struct ContextFacts {
     pub stash: bool,
     pub confirm: bool,
     pub branch: bool,
+    pub palette: bool,
     pub commit: bool,
     pub search: bool,
     pub search_results: bool,
@@ -37,6 +38,7 @@ pub const DIALOG: &str = "Dialog";
 pub const CLOSE_CONFIRMATION: &str = "CloseConfirmation";
 pub const CLONE_REPOSITORY: &str = "CloneRepository";
 pub const BRANCH_PICKER: &str = "BranchPicker";
+pub const COMMAND_PALETTE: &str = "CommandPalette";
 pub const STASH_SWITCH: &str = "StashSwitch";
 pub const GIT_CONFIRM: &str = "GitConfirm";
 pub const COMMIT_MESSAGE: &str = "CommitMessage";
@@ -103,6 +105,12 @@ pub fn context_stack(app: &ContextFacts) -> Vec<KeyContext> {
     if app.confirm {
         let mut dialog = KeyContext::new(DIALOG);
         dialog.add(GIT_CONFIRM);
+        return vec![dialog];
+    }
+    // The palette's filter takes typing, so workspace shortcuts stay out.
+    if app.palette {
+        let mut dialog = KeyContext::new(DIALOG);
+        dialog.add(COMMAND_PALETTE);
         return vec![dialog];
     }
     // The picker's filter takes typing, so workspace shortcuts stay out.

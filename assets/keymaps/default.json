@@ -10,7 +10,8 @@
 //     Menu                 an editor, Explorer, tab or Source Control menu
 //                          is open (deepest)
 //   Dialog CloseConfirmation | Dialog CloneRepository | Dialog StashSwitch
-//     | Dialog GitConfirm | Dialog BranchPicker   (modal, separate roots)
+//     | Dialog GitConfirm | Dialog BranchPicker | Dialog CommandPalette
+//     (modal, separate roots)
 //
 // Users override these in keymap.json: open the Keymap page
 // (workspace::OpenKeymap) and choose "Edit keymap.json".
@@ -24,6 +25,7 @@
       "secondary-shift-h": "workspace::ToggleGitPanel",
       "secondary-`": "workspace::ToggleTerminal",
       "secondary-,": "workspace::OpenSettings",
+      "secondary-shift-p": "workspace::OpenCommandPalette",
       "secondary-k secondary-s": "workspace::OpenKeymap",
       "secondary-=": "workspace::IncreaseFontSize",
       "secondary-+": "workspace::IncreaseFontSize",
@@ -344,6 +346,22 @@
       "up": "menu::SelectPrevious",
       "down": "menu::SelectNext",
       "enter": "menu::Confirm",
+      "escape": "menu::Cancel"
+    }
+  },
+  {
+    // Other keys edit the command filter.
+    "context": "CommandPalette",
+    "bindings": {
+      "up": "menu::SelectPrevious",
+      "down": "menu::SelectNext",
+      "ctrl-p": "menu::SelectPrevious",
+      "ctrl-n": "menu::SelectNext",
+      "pageup": "menu::PageUp",
+      "pagedown": "menu::PageDown",
+      "enter": "menu::Confirm",
+      "tab": "menu::ConfirmWithTab",
+      "secondary-shift-p": "menu::Cancel",
       "escape": "menu::Cancel"
     }
   }

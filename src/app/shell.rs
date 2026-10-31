@@ -174,6 +174,8 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let commit_input_focus = cx.focus_handle(commit_input_id.clone());
     let branch_picker_input_id = cx.use_stable_id();
     let branch_picker_input_focus = cx.focus_handle(branch_picker_input_id.clone());
+    let palette_input_id = cx.use_stable_id();
+    let palette_input_focus = cx.focus_handle(palette_input_id.clone());
     let stash_switch_id = cx.use_stable_id();
     let stash_switch_focus = cx.focus_handle(stash_switch_id.clone());
     let git_confirm_id = cx.use_stable_id();
@@ -846,6 +848,13 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     );
     crate::ui::hold_focus(
         cx,
+        s.palette.visible.then_some(s.palette.restore_terminal),
+        palette_input_focus.clone(),
+        terminal_focus.clone(),
+        editor_focus.clone(),
+    );
+    crate::ui::hold_focus(
+        cx,
         s.git
             .ui
             .stash_switch
@@ -1177,6 +1186,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                     || app.terminal.ui.terminal_tab_context_menu.is_some()
                     || app.terminal.ui.terminal_workspace_picker.is_some()
                     || app.git.ui.branch_picker.is_some()
+                    || app.palette.visible
                     || app.git.ui.stash_switch.is_some()
                     || app.git.ui.menu.is_some()
                     || app.git.ui.confirm.is_some()
@@ -1516,6 +1526,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         && s.terminal.ui.terminal_tab_context_menu.is_none()
         && s.terminal.ui.terminal_workspace_picker.is_none()
         && s.git.ui.branch_picker.is_none()
+        && !s.palette.visible
         && s.git.ui.stash_switch.is_none()
         && s.git.ui.menu.is_none()
         && s.git.ui.confirm.is_none()
@@ -1818,6 +1829,14 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             close_dialog_id,
             editor_focus.clone(),
             application_context.windows(),
+        ));
+    }
+    if s.palette.visible {
+        root = root.child(crate::ui::palette::render(
+            vp,
+            super::palette::binding(&state, key_env.clone()),
+            palette_input_focus.clone(),
+            palette_input_id.clone(),
         ));
     }
     root = root.child(toast::render(

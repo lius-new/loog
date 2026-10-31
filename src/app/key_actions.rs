@@ -99,6 +99,7 @@ pub fn handle_key_down(env: &KeyEnv, event: &KeyboardEvent) -> bool {
             || !app.explorer.ui.create_input.preedit.is_empty()
             || !app.git.ui.commit_input.preedit.is_empty()
             || !app.git.ui.branch_picker_input.preedit.is_empty()
+            || !app.palette.input.preedit.is_empty()
             || !app.git.ui.tag_input.preedit.is_empty()
             || !app.keymap_ui.search.preedit.is_empty()
             || !app.extensions_ui.search.preedit.is_empty()
@@ -532,6 +533,16 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             } else {
                 false
             }
+        }
+        Action::OpenCommandPalette => {
+            crate::app::palette::open(&env.state);
+            true
+        }
+        Action::MenuConfirm if crate::app::palette::is_open(env) => {
+            crate::app::palette::confirm(env)
+        }
+        Action::MenuConfirmTab if crate::app::palette::is_open(env) => {
+            crate::app::palette::complete(&env.state)
         }
         Action::MenuConfirm => crate::app::git_view::confirm_branch(&env.state, &env.git_store),
         Action::GoToConflict | Action::GoToPreviousConflict => crate::app::git_conflict::go_to(

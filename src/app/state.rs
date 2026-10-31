@@ -79,6 +79,8 @@ pub struct AppState {
     pub keymap: crate::features::keymap::model::Model,
     /// Filter typed into the Keymap page.
     pub keymap_ui: crate::ui::keymap_binding::KeymapUiState,
+    /// The command palette opened by `workspace::OpenCommandPalette`.
+    pub palette: crate::app::palette::PaletteState,
     /// Search, source, selection and tab of the Extensions page.
     pub extensions_ui: crate::ui::extensions_binding::ExtensionsUiState,
     /// Release checks and the title bar update button.
@@ -128,6 +130,7 @@ impl AppState {
 
             keymap: Default::default(),
             keymap_ui: Default::default(),
+            palette: Default::default(),
             extensions_ui: Default::default(),
             update: Default::default(),
         }
@@ -496,6 +499,14 @@ impl AppState {
                     self.git.ui.select_panel_tab(crate::ui::git::panel::HISTORY);
                 }
             }
+            Action::MenuSelectNext if self.palette.visible => self.palette.move_selection(1),
+            Action::MenuSelectPrevious if self.palette.visible => self.palette.move_selection(-1),
+            Action::MenuPageDown if self.palette.visible => {
+                self.palette.move_selection(crate::app::palette::VISIBLE_ROWS as isize)
+            }
+            Action::MenuPageUp if self.palette.visible => {
+                self.palette.move_selection(-(crate::app::palette::VISIBLE_ROWS as isize))
+            }
             Action::MenuSelectNext => {
                 crate::ui::git::branch_picker::move_selection(&mut self.git, 1)
             }
@@ -641,7 +652,15 @@ impl AppState {
         }
     }
 
+    /// Dismiss every menu and picker so the palette is the only overlay.
+    pub(crate) fn close_overlays_for_palette(&mut self) {
+        self.close_menus();
+        self.git.ui.stash_switch = None;
+        self.git.ui.confirm = None;
+    }
+
     fn close_menus(&mut self) {
+        self.palette.close();
         self.terminal.ui.terminal_workspace_picker = None;
         self.editor.menu = None;
         self.explorer.ui.menu = None;

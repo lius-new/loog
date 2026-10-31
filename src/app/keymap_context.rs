@@ -31,6 +31,7 @@ pub fn facts(app: &AppState) -> ContextFacts {
         stash: app.git.ui.stash_switch.is_some(),
         confirm: app.git.ui.confirm.is_some(),
         branch: app.git.ui.branch_picker.is_some(),
+        palette: app.palette.visible,
         commit: app.git.ui.commit_input.focused,
         search: app.drawer.visible
             && app.drawer.mode == crate::ui::drawer::DrawerMode::Search
@@ -188,6 +189,31 @@ mod tests {
         }
         assert_eq!(action(&app, character("a", none)), None);
         assert_eq!(action(&app, character("w", secondary())), None);
+    }
+
+    #[test]
+    fn command_palette_opens_from_the_workspace_and_owns_navigation() {
+        let mut app = editor_app();
+        let none = KeyModifiers::empty();
+        assert_eq!(
+            action(
+                &app,
+                character("P", secondary() | KeyModifiers::SHIFT)
+            ),
+            Some(Action::OpenCommandPalette)
+        );
+        app.palette.visible = true;
+        assert_eq!(describe(&context_stack(&app)), "Dialog CommandPalette");
+        for (key, expected) in [
+            (NamedKey::ArrowUp, Action::MenuSelectPrevious),
+            (NamedKey::ArrowDown, Action::MenuSelectNext),
+            (NamedKey::Enter, Action::MenuConfirm),
+            (NamedKey::Tab, Action::MenuConfirmTab),
+            (NamedKey::Escape, Action::MenuCancel),
+        ] {
+            assert_eq!(action(&app, named(key, none)), Some(expected), "{key:?}");
+        }
+        assert_eq!(action(&app, character("a", none)), None);
     }
 
     #[test]
