@@ -3,6 +3,7 @@
 use serde_json::Value;
 
 use crate::features::keymap::action::{ACTIONS, Action};
+use crate::features::settings::theme_id::ThemeId;
 
 /// What choosing an entry does.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -10,6 +11,8 @@ pub enum Target {
     Action(Action),
     /// An extension command, by its `vendor.name.command` id.
     Extension(String),
+    /// A color theme, listed while the palette is choosing one.
+    Theme(ThemeId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

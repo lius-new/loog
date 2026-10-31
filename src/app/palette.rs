@@ -10,6 +10,7 @@ use crate::app::key_actions::{self, KeyEnv};
 use crate::app::state::AppState;
 use crate::features::keymap::bindings;
 use crate::features::palette::{self, Entry, Hit, Target};
+use crate::features::settings::theme_id::ThemeId;
 use crate::ui::components::input::InputState;
 use crate::ui::components::state_access::StateAccess;
 use crate::ui::palette::{Binding, Command, Frame, Item, Row};
@@ -33,6 +34,8 @@ pub struct PaletteState {
     /// Ids of the commands run most recently, newest first.
     pub recent: Vec<String>,
     pub entries: Arc<Vec<Entry>>,
+    /// What the empty field asks for.
+    pub placeholder: &'static str,
 }
 
 /// What the list draws, top to bottom.
@@ -157,8 +160,48 @@ pub fn open(state: &AppContext) {
         let palette = &mut app.palette;
         palette.close();
         palette.entries = Arc::new(palette::catalog(&extension_commands));
+        palette.placeholder = "Search commands";
         palette.restore_terminal = restore_terminal;
         palette.visible = true;
+    });
+}
+
+/// The built-in and extension themes that can be chosen now.
+fn theme_entries(current: ThemeId) -> Vec<Entry> {
+    ThemeId::all()
+        .map(|id| {
+            let theme = id.theme();
+            Entry {
+                id: format!("theme:{}", theme.id),
+                title: theme.name.to_owned(),
+                category: "Theme".to_owned(),
+                description: if id == current {
+                    "Current theme".to_owned()
+                } else {
+                    theme.id.to_owned()
+                },
+                target: Target::Theme(id),
+            }
+        })
+        .collect()
+}
+
+/// Show the palette listing the themes instead of the commands, with the
+/// current theme selected.
+pub fn open_themes(state: &AppContext) {
+    state.update(|app| {
+        app.close_overlays_for_palette();
+        let restore_terminal = app.terminal.ui.terminal_focused;
+        let current = app.preferences.values().theme;
+        let selected = ThemeId::all().position(|id| id == current).unwrap_or(0);
+        let palette = &mut app.palette;
+        palette.close();
+        palette.entries = Arc::new(theme_entries(current));
+        palette.placeholder = "Search themes";
+        palette.restore_terminal = restore_terminal;
+        palette.visible = true;
+        palette.selected = selected;
+        palette.move_selection(0);
     });
 }
 
@@ -189,10 +232,13 @@ pub fn run(env: &KeyEnv, position: usize) -> bool {
         if let Some(hit) = hits.get(position) {
             let entry = &app.palette.entries[hit.index];
             chosen = Some((entry.id.clone(), entry.target.clone()));
-            let recent = &mut app.palette.recent;
-            recent.retain(|id| *id != entry.id);
-            recent.insert(0, entry.id.clone());
-            recent.truncate(RECENT_LIMIT);
+            // Themes are a list of their own, not commands to come back to.
+            if !matches!(entry.target, Target::Theme(_)) {
+                let recent = &mut app.palette.recent;
+                recent.retain(|id| *id != entry.id);
+                recent.insert(0, entry.id.clone());
+                recent.truncate(RECENT_LIMIT);
+            }
             app.palette.close();
         }
     });
@@ -203,6 +249,9 @@ pub fn run(env: &KeyEnv, position: usize) -> bool {
         Target::Action(action) => {
             key_actions::perform(env, action);
         }
+        Target::Theme(id) => env
+            .state
+            .update(move |app| app.preferences.values_mut().theme = id),
         Target::Extension(id) => match env
             .state
             .services()
@@ -244,6 +293,7 @@ fn frame(app: &AppState) -> Frame {
             rows: Vec::new(),
             position: "0".to_owned(),
             empty: Some(palette.input.text().trim().to_owned()),
+            placeholder: palette.placeholder,
         };
     }
     let lines = palette.lines(&hits);
@@ -264,7 +314,7 @@ fn frame(app: &AppState) -> Frame {
                         .next_back()
                         .map(|binding| key_chips(&binding.label()))
                         .unwrap_or_default(),
-                    Target::Extension(_) => Vec::new(),
+                    Target::Extension(_) | Target::Theme(_) => Vec::new(),
                 };
                 Row::Item(Item {
                     index: *position,
@@ -283,6 +333,7 @@ fn frame(app: &AppState) -> Frame {
         rows,
         position: format!("{} / {}", selected + 1, hits.len()),
         empty: None,
+        placeholder: palette.placeholder,
     }
 }
 
@@ -336,6 +387,32 @@ mod tests {
             entries: Arc::new(entries),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_theme_list_offers_every_theme_and_marks_the_current_one() {
+        let current = ThemeId::default();
+        let entries = theme_entries(current);
+        assert!(entries.len() >= 4);
+        assert!(entries
+            .iter()
+            .all(|entry| matches!(entry.target, Target::Theme(_)) && entry.category == "Theme"));
+        let marked: Vec<_> = entries
+            .iter()
+            .filter(|entry| entry.description == "Current theme")
+            .collect();
+        assert_eq!(marked.len(), 1);
+        assert_eq!(marked[0].target, Target::Theme(current));
+    }
+
+    #[test]
+    fn the_command_list_offers_the_theme_picker() {
+        let entries = palette::catalog(&[]);
+        let select = entries
+            .iter()
+            .find(|entry| entry.id == "workspace::SelectTheme")
+            .expect("Select Theme is listed");
+        assert_eq!(select.title, "Select Theme");
     }
 
     #[test]

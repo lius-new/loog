@@ -95,6 +95,7 @@ actions! {
     ToggleTerminal => "workspace::ToggleTerminal", "Show or hide the terminal panel";
     OpenSettings => "workspace::OpenSettings", "Open the Settings page";
     OpenCommandPalette => "workspace::OpenCommandPalette", "Search and run any command";
+    SelectTheme => "workspace::SelectTheme", "Choose a color theme from a list";
     OpenKeymap => "workspace::OpenKeymap", "Open the Keymap page";
     OpenKeymapFile => "workspace::OpenKeymapFile", "Open the user keymap.json";
     OpenExtensions => "workspace::OpenExtensions", "Open the Extensions page";

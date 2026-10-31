@@ -538,6 +538,10 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             crate::app::palette::open(&env.state);
             true
         }
+        Action::SelectTheme => {
+            crate::app::palette::open_themes(&env.state);
+            true
+        }
         Action::MenuConfirm if crate::app::palette::is_open(env) => {
             crate::app::palette::confirm(env)
         }

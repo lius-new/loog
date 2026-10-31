@@ -60,6 +60,8 @@ pub struct Frame {
     pub position: String,
     /// The query that matched nothing.
     pub empty: Option<String>,
+    /// What the empty field asks for: commands, themes.
+    pub placeholder: &'static str,
 }
 
 pub enum Command {
@@ -363,7 +365,7 @@ pub fn render(
         InputBinding::new_access(state.input.clone(), |input| input, |input| input),
         AccessInputOptions {
             label: "Command",
-            placeholder: "Search commands",
+            placeholder: frame.placeholder,
             style: InputStyle {
                 text: theme::mono(palette.text_bright, theme::UI_SIZE + 1.0),
                 placeholder: theme::mono(palette.text_faint, theme::UI_SIZE + 1.0),
