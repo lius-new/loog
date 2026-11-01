@@ -7,7 +7,6 @@ import {prepareDependencies} from '../../dependencies/ensure.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { stageBundled } from '../lib/lock.mjs';
-import { stageLspServers } from '../lib/lsp-servers.mjs';
 
 import {
   DIST_DIR,
@@ -254,7 +253,6 @@ export function packageApp({ version }) {
   fs.mkdirSync(path.join(stage, 'bin'), { recursive: true });
   fs.copyFileSync(binary, path.join(stage, 'Loom'));
   stageBundled({ destination: path.join(stage, 'extensions') });
-  stageLspServers({ destination: path.join(stage, 'lsp-servers') });
   fs.chmodSync(path.join(stage, 'Loom'), 0o755);
   writeExecutable(path.join(stage, 'bin', 'loom'), LOOM_COMMAND);
   writeExecutable(path.join(stage, 'install.sh'), INSTALL_SCRIPT);

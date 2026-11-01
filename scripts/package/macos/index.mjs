@@ -11,7 +11,6 @@ import {prepareDependencies} from '../../dependencies/ensure.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { stageBundled } from '../lib/lock.mjs';
-import { stageLspServers } from '../lib/lsp-servers.mjs';
 
 import {
   DIST_DIR,
@@ -174,7 +173,6 @@ export function packageApp({ version }) {
   writeIcon(path.join(resources, 'Loom.icns'));
   // Grammars are WebAssembly, which is data to the system: nothing to sign.
   stageBundled({ destination: path.join(resources, 'extensions') });
-  stageLspServers({ destination: path.join(resources, 'lsp-servers') });
 
   sign(app, identity, path.join(ROOT, 'scripts/package/macos/entitlements.plist'));
   checkApp(app);

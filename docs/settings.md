@@ -99,10 +99,9 @@ reported; the other rules still apply.
 Implementation and ownership are described in [LSP architecture](architecture/lsp.md).
 
 Loom ships no language servers and does not look for them on your PATH. The
-servers it can run are the ones in the catalog published with each release
-(`lsp-servers/lsp-servers.toml` beside the application), which describes how to
-start each server and which languages it serves, plus servers you register
-yourself. A language can have several servers; they all run for a file, and their
+servers it can run are the ones that extensions declare (install one from the
+Extensions page: **Browse**, then Install; it brings the runtime it needs), plus
+servers you register yourself. A language can have several servers; they all run for a file, and their
 diagnostics are shown together. A language that no installed server serves just
 has no language-server features.
 
@@ -110,10 +109,9 @@ has no language-server features.
 
 ```jsonc
 "language_servers": {
-  // A catalogued server: change how it behaves, never which program it is.
+  // An extension's server: change how it behaves, never which program it is.
   "rust-analyzer": {
     "enabled": true,
-    "install": "manual",                           // manual | auto
     "args": [],                                    // replaces the default arguments
     "initialization_options": { "checkOnSave": false },
     "settings": { "rust-analyzer": { "check": { "command": "clippy" } } },
@@ -131,9 +129,9 @@ has no language-server features.
 }
 ```
 
-For a catalogued server only `enabled`, `install`, `args`, `initialization_options`,
+For an extension's server only `enabled`, `args`, `initialization_options`,
 `settings`, `env` and `priority` may be given; its `command`, `languages`, `root` and
-`display_name` are the catalog's. To run another program, register it under a new
+`display_name` are the extension's. To run another program, register it under a new
 name. An entry with a mistake is reported and skipped; the others still apply.
 
 A server runs once per project folder, found with the project files its definition
@@ -151,22 +149,6 @@ server ends it. If cancellation is not acknowledged within five seconds, or a ta
 reports no progress for five minutes, Loom stops tracking it and records a warning
 in the panel log. This does not mean the server finished the work; **Restart
 servers** remains available when a server is stuck.
-
-`install` says what Loom does when a file needs a catalogued server whose files are
-not on this computer yet. `manual` (the default) installs nothing on its own: the
-status bar shows the server with an amber dot, and the language panel lists it with an
-**Install** button and the download size, an estimate from the missing catalog
-archives that counts shared runtimes once. `auto` downloads and installs right away.
-A server you register needs no installation. Downloads are checked against the
-catalog's SHA-256 and the server is started once before it is activated.
-
-An installation in the language panel has a **Cancel** button. Cancelling removes
-queued work and cleans up partial downloads and staging files; a shared runtime
-continues while another installation still needs it. A blocked network call stays
-marked as cancelling until it returns or times out (30 seconds for connecting,
-60 seconds for a read). **Resume** starts a fresh attempt and reuses complete,
-verified archives. Automatic installation respects cancellation for the current
-language-service session; it does not resume a cancelled request on its own.
 
 `settings` is what the server gets when it asks for its configuration
 (`workspace/configuration`). Changing it tells the running server; it is not

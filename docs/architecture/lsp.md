@@ -4,7 +4,7 @@ This is the maintained design of Loom's local stdio language-server client,
 reviewed against the implementation on 2026-10-25. Shared identity and coordinate
 contracts are in [Language services](language-services.md). User configuration
 and shortcuts are in [Settings](../settings.md#language-servers); publication is
-in [Language server production](../../scripts/lsp-servers/README.md).
+in the [extensions repository](https://github.com/lius-new/loom-extensions) (`loom.lsp.*`).
 [Remaining work](../language-services-todo.md) distinguishes missing product
 behavior from acceptance that still needs evidence.
 
@@ -15,25 +15,30 @@ behavior from acceptance that still needs evidence.
 | `src/features/language_service/` | Pure protocol/session, positions, sync plans, capability registration, decoding, routing policy and snippets |
 | `src/features/language_service/server_set.rs` | Server definitions, language bindings and priority, outside the language registry |
 | `src/infrastructure/lsp/client.rs`, `job.rs` | Process, stdio transport, deadlines and process-tree ownership |
-| `src/infrastructure/lsp/manager.rs`, `manager_requests.rs` | Instances, document assignments, result freshness, request dispatch and installation coordination |
+| `src/infrastructure/lsp/manager.rs`, `manager_requests.rs` | Instances, document assignments, result freshness, request dispatch |
 | `src/infrastructure/lsp/manager_registration.rs`, `lsp_watch.rs` | Atomic registration and filesystem-watch leases |
-| `src/infrastructure/lsp_catalog.rs`, `lsp_install.rs` | Catalog consumption, pinned downloads, staged installation and runtime dependencies |
+| `src/app/extensions/` | A server an extension declares: its command and arguments are resolved to files of the extension and of the runtime it requires, then it joins the manager |
 | `src/app/language_services.rs`, `language_ui/` | Application snapshots, user interactions, save orchestration and workspace edits |
 | `src/app/runtime.rs` | Mounted service lifetime; dropping a service retires its servers |
 
 The coordinator owns instances on its own thread. Protocol reads, writes,
 stderr consumption and client driving are independent so a blocked write does
 not stop response consumption. Application/UI state stores interaction data and
-immutable results, not server processes. Neither server startup nor installation
-may block editing or local syntax.
+immutable results, not server processes. Server startup may not block editing or
+local syntax.
 
-## Definitions, installation and assignments
+## Definitions and assignments
 
-Server definitions come from the generated published catalog and explicit user
-registrations. Definitions are not embedded in language descriptions, and the
-runtime does not search `PATH` or invoke a package manager. A catalog describes
-the server command, supported languages, root policy and installable pack;
-several servers can share a pack. User servers use explicit executable paths.
+Server definitions come from installed extensions and explicit user registrations;
+Loom itself ships none. Definitions are not embedded in language descriptions, and
+the runtime does not search `PATH` or invoke a package manager. An extension
+declares the server command, supported languages, root policy and priority, and
+names its files as `${extension}/…` or, for a runtime it requires,
+`${runtime.<name>}/…`; the application resolves these to real paths before the
+manager sees them, and a command that still has a placeholder is unavailable.
+User servers use explicit executable paths. Installing, updating and removing
+servers is installing, updating and removing their extensions (and the runtime
+they require), which the Extensions page does.
 Configuration validation and precedence belong to `features/settings/servers.rs`.
 
 An instance key is the server name, resolved project root and launch definition.
@@ -42,14 +47,6 @@ language. Different servers can select different roots for the same file.
 Equivalent assignments share a process. A changed launch creates a different
 instance; configuration updates that do not alter the launch can be sent to the
 existing one. Each instance reports its own workspace-folder set.
-
-Managed installation verifies the catalog's archive size and SHA-256, extracts
-into staging, installs required runtime packs such as Node first, and activates
-a pack only after server initialization smoke tests succeed. Verified archives
-are reusable offline. Incomplete packs are not visible as installed packs.
-Cancellation uses installation generations and preserves shared dependencies
-needed elsewhere. The default installation policy is `ask`; `auto`, `never`,
-manual retry and notification dismissal are documented in Settings.
 
 ## Lifecycle, failure and progress
 
@@ -163,18 +160,15 @@ Save actions run through the same edit validation before the actual save.
 Pure protocol, fake-server, manager and application tests cover framing, Unicode,
 sync, cancellation, dynamic registration, stale responses and workspace edits.
 `examples/fake_lsp.rs` supplies reproducible server behavior. Real-server tests
-in `src/app/real_language_server_tests.rs` are opt-in and require installed packs;
+in `src/app/real_language_server_tests.rs` are opt-in and require installed servers;
 ordinary workspace test success does not imply they ran.
 
 ```sh
 node scripts/architecture/check.mjs
-node scripts/lsp-servers/check.mjs
-node --test scripts/lsp-servers/pipeline.test.mjs scripts/lsp-servers/catalog-sync.test.mjs
 node scripts/build/cargo.mjs test --locked --workspace
 ```
 
-Tooling dependencies and real installation prerequisites are documented in the
-producer README and test ignore reasons. Add capabilities only with matching
+Real installation prerequisites are documented in the test ignore reasons. Add capabilities only with matching
 negotiation, routing, decoding, freshness, cancellation and host tests. Keep
 language-specific server recipes outside protocol code. Remote/TCP servers,
 DAP, notebooks, embedded subdocument LSP and unnamed buffers are separate future

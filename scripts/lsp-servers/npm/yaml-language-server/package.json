@@ -1,8 +1,0 @@
-{
-  "name": "loom-lsp-yaml-language-server",
-  "version": "0.0.0",
-  "private": true,
-  "dependencies": {
-    "yaml-language-server": "2.0.0"
-  }
-}

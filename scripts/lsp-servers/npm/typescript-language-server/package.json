@@ -1,9 +1,0 @@
-{
-  "name": "loom-lsp-typescript-language-server",
-  "version": "0.0.0",
-  "private": true,
-  "dependencies": {
-    "typescript-language-server": "6.0.2",
-    "typescript": "5.9.3"
-  }
-}

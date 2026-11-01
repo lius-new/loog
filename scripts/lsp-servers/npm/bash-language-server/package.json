@@ -1,8 +1,0 @@
-{
-  "name": "loom-lsp-bash-language-server",
-  "version": "0.0.0",
-  "private": true,
-  "dependencies": {
-    "bash-language-server": "5.8.1"
-  }
-}

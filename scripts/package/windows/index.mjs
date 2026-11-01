@@ -7,7 +7,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stageBundled } from '../lib/lock.mjs';
-import { stageLspServers } from '../lib/lsp-servers.mjs';
 
 import {
   DIST_DIR,
@@ -158,7 +157,6 @@ export function packageApp({ version }) {
   fs.mkdirSync(path.join(stage, 'bin'), { recursive: true });
   fs.copyFileSync(exe, path.join(stage, 'Loom.exe'));
   stageBundled({ destination: path.join(stage, 'extensions') });
-  stageLspServers({ destination: path.join(stage, 'lsp-servers') });
   fs.writeFileSync(path.join(stage, 'bin', 'loom.cmd'), LOOM_CMD);
   for (const file of APP_FILES) {
     fs.copyFileSync(path.join(ROOT, file), path.join(stage, file));

@@ -12,7 +12,7 @@ const common = new Set(['Cargo.toml','Cargo.lock','rust-toolchain','rust-toolcha
 const language = ['src/domain/language','src/features/syntax','src/features/language_service',
   'src/infrastructure/language','src/infrastructure/syntax','src/app/language',
   'assets/language','assets/extensions/','assets/grammars/','assets/servers/','tests/language-runtime/',
-  'tests/fixtures/language','scripts/language-packs/','scripts/lsp-servers/'];
+  'tests/fixtures/language','scripts/language-packs/'];
 const markdown = ['src/app/markdown','src/features/markdown','src/ui/markdown',
   'src/infrastructure/markdown','src/domain/','crates/editor-core/','crates/markdown-tests/',
   'src/features/settings/','src/ui/theme.rs','src/ui/fonts.rs','src/ui/text_rendering.rs',

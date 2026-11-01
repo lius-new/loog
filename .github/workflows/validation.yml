@@ -91,7 +91,6 @@ jobs:
           npm ci --ignore-scripts --prefix scripts/language-packs
           node scripts/ci/test-tools.mjs
           node scripts/language-packs/check.mjs --all
-          node scripts/lsp-servers/check.mjs
           node scripts/dependencies/smoke.mjs
       - name: Install Linux native libraries
         if: runner.os == 'Linux' && (inputs.full || inputs.evidence || inputs.package)
