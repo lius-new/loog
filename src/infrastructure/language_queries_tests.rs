@@ -139,14 +139,12 @@ fn inspecting_a_position_names_the_winning_capture_and_where_it_was_written() {
 fn a_language_without_a_grammar_is_a_description_with_highlight_rules() {
     let temp = Temp::new();
     temp.write(
-        "sqlish/package.json",
-        r#"{ "schema": 1, "id": "sqlish", "grammars": {},
-             "languages": [{
-               "name": "sqlish", "display_name": "SQL-ish", "badge": "SQL",
-               "comments": { "line": "--" },
-               "highlight": { "keywords": ["select", "from"], "strings": ["'"] },
-               "variants": [{ "id": "sqlish" }],
-               "files": [{ "extensions": ["sqlish"], "variant": "sqlish" }] }] }"#,
+        "sqlish/language.json",
+        r#"{ "name": "sqlish", "display_name": "SQL-ish", "badge": "SQL",
+             "comments": { "line": "--" },
+             "highlight": { "keywords": ["select", "from"], "strings": ["'"] },
+             "variants": [{ "id": "sqlish" }],
+             "files": [{ "extensions": ["sqlish"], "variant": "sqlish" }] }"#,
     );
     let registry = Packages::discover(&temp.0, None).registry().unwrap();
     let language = registry.language_by_name("sqlish").unwrap();

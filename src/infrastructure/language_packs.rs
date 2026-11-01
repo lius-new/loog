@@ -30,77 +30,34 @@ const MAX_WASM_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_PACKAGES: usize = 128;
 const PLAIN: &str = r#"{"name":"plaintext","display_name":"Plain Text","badge":"TXT","variants":[{"id":"plaintext"}]}"#;
 
-#[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// A grammar of a pack. Grammars are WebAssembly modules (they run in a sandbox,
+/// so a downloaded or extension-supplied language cannot execute native code
+/// inside Loom), found beside the pack's `tree-sitter.json`.
+#[derive(Clone)]
 struct Module {
     module: String,
-    #[serde(default)]
-    symbol: Option<String>,
 }
 impl Module {
-    fn entry_point(&self, grammar: &str) -> String {
-        self.symbol
-            .clone()
-            .unwrap_or_else(|| format!("tree_sitter_{grammar}"))
-    }
+    /// The name after `tree_sitter_` in the module's entry point.
     fn wasm_name(&self, grammar: &str) -> Result<String, String> {
-        self.entry_point(grammar)
-            .strip_prefix("tree_sitter_")
-            .filter(|value| name(value))
-            .map(str::to_owned)
+        name(grammar)
+            .then(|| grammar.to_owned())
             .ok_or_else(|| "WASM entry point must be tree_sitter_<name>".to_owned())
     }
 }
-#[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// What a pack describes: its languages, and the grammars they use (none for a
+/// language that is only a description).
+#[derive(Clone)]
 struct Manifest {
-    schema: u32,
     id: String,
-    #[serde(default = "enabled")]
-    enabled: bool,
     languages: Vec<Value>,
-    /// Older packages may still list servers. They are read and ignored: servers
-    /// are defined by the language service, not by language packages.
-    #[serde(default)]
-    #[allow(dead_code)]
-    servers: Vec<Value>,
     grammars: BTreeMap<String, Module>,
-}
-fn enabled() -> bool {
-    true
 }
 
 fn name(value: &str) -> bool {
     let mut chars = value.chars();
     chars.next().is_some_and(|c| c.is_ascii_lowercase())
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-}
-// Grammars are WebAssembly modules: they run in a sandbox, so a downloaded or
-// extension-supplied language cannot execute native code inside Loom. A stem
-// names the upstream download without renaming it.
-fn module_file(module: &str) -> Result<String, String> {
-    if name(module) {
-        return Ok(format!("{module}.wasm"));
-    }
-    if let Some((stem, "wasm")) = module.rsplit_once('.') {
-        let mut chars = stem.chars();
-        if chars.next().is_some_and(|c| c.is_ascii_lowercase())
-            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
-        {
-            return Ok(module.to_owned());
-        }
-    }
-    Err(format!(
-        "invalid language module filename {module}; only WebAssembly (.wasm) grammars are supported"
-    ))
-}
-fn module_candidates(module: &str) -> Vec<String> {
-    let file = module_file(module).expect("validated module filename");
-    if name(module) {
-        vec![format!("tree-sitter-{module}.wasm"), file]
-    } else {
-        vec![file]
-    }
 }
 fn read_text(path: &Path, limit: u64) -> Result<String, String> {
     let file = fs::File::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
@@ -118,7 +75,8 @@ fn read_text(path: &Path, limit: u64) -> Result<String, String> {
 struct Installed {
     manifest: Manifest,
     root: PathBuf,
-    standard: Option<BTreeMap<String, standard::Grammar>>,
+    /// The `tree-sitter.json` grammars; empty for a language that is only a description.
+    standard: BTreeMap<String, standard::Grammar>,
 }
 
 fn registry(packages: &BTreeMap<String, Installed>) -> Result<Registry, String> {
@@ -154,36 +112,56 @@ fn registry(packages: &BTreeMap<String, Installed>) -> Result<Registry, String> 
     Registry::from_sources(&sources, &grammars).map_err(|e| e.to_string())
 }
 
-impl Manifest {
-    fn validate(&self, directory: &Path) -> Result<(), String> {
-        if self.schema != 1 {
-            return Err(format!(
-                "unsupported language package schema {}",
-                self.schema
-            ));
-        }
-        if !name(&self.id) || directory.file_name().is_none_or(|n| n != self.id.as_str()) {
-            return Err("package directory must match its canonical id".into());
-        }
-        for (grammar, module) in &self.grammars {
-            if !name(grammar)
-                || module_file(&module.module).is_err()
-                || module.symbol.as_deref().is_some_and(|symbol| !name(symbol))
-            {
-                return Err(format!("invalid language module entry {grammar}"));
-            }
-        }
-        // Each package is self-contained; references cannot depend on scan order.
-        registry(&BTreeMap::from([(
-            self.id.clone(),
-            Installed {
-                manifest: self.clone(),
-                root: directory.to_owned(),
-                standard: None,
+/// The pack in `directory`: a `tree-sitter.json` (grammars; the languages are made
+/// from it), a `language.json` (one language description, which needs no grammar),
+/// or both, where the description replaces the one made for the same language.
+fn read_pack(directory: &Path) -> Result<Installed, String> {
+    let has = |file: &str| directory.join(file).is_file();
+    let mut installed = if has("tree-sitter.json") {
+        standard::read(directory)?
+    } else if has("language.json") {
+        Installed {
+            manifest: Manifest {
+                id: String::new(),
+                languages: Vec::new(),
+                grammars: BTreeMap::new(),
             },
-        )]))
-        .map(|_| ())
+            root: directory.to_owned(),
+            standard: BTreeMap::new(),
+        }
+    } else {
+        return Err("it has neither tree-sitter.json nor language.json".into());
+    };
+    if has("language.json") {
+        let path = directory.join("language.json");
+        standard::contained(directory, &path)?;
+        let description: Value = serde_json::from_str(&read_text(&path, MAX_MANIFEST)?)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let language = description
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|language| name(language))
+            .ok_or_else(|| format!("{}: `name` must be a canonical name", path.display()))?
+            .to_owned();
+        if installed.manifest.id.is_empty() {
+            installed.manifest.id = language.clone();
+        }
+        let existing = installed
+            .manifest
+            .languages
+            .iter()
+            .position(|known| known.get("name").and_then(Value::as_str) == Some(&language));
+        match existing {
+            Some(index) => installed.manifest.languages[index] = description,
+            None => installed.manifest.languages.push(description),
+        }
     }
+    // Each pack is self-contained; references cannot depend on scan order.
+    registry(&BTreeMap::from([(
+        installed.manifest.id.clone(),
+        installed.clone(),
+    )]))?;
+    Ok(installed)
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
@@ -227,7 +205,6 @@ pub(crate) struct Packages {
     packages: BTreeMap<String, Installed>,
     loaded: Mutex<Loaded>,
     catalog: Option<Arc<catalog::Manager>>,
-    disabled: BTreeSet<String>,
     layering: Layering,
 }
 impl Packages {
@@ -258,7 +235,6 @@ impl Packages {
             packages: BTreeMap::new(),
             loaded: Mutex::default(),
             catalog: None,
-            disabled: BTreeSet::new(),
             layering: Layering::default(),
         }
     }
@@ -315,29 +291,15 @@ impl Packages {
         for directory in directories {
             // Ignore unrelated folders and partially downloaded packages.
             if !directory.join("tree-sitter.json").is_file()
-                && !directory.join("package.json").is_file()
+                && !directory.join("language.json").is_file()
             {
                 continue;
             }
             let result = (|| {
-                let installed = if directory.join("tree-sitter.json").is_file() {
-                    standard::read(&directory)?
-                } else {
-                    let path = directory.join("package.json");
-                    let manifest: Manifest = serde_json::from_str(&read_text(&path, MAX_MANIFEST)?)
-                        .map_err(|e| format!("{}: {e}", path.display()))?;
-                    manifest.validate(&directory)?;
-                    Installed {
-                        manifest,
-                        root: directory.clone(),
-                        standard: None,
-                    }
-                };
+                let installed = read_pack(&directory)?;
                 let manifest = &installed.manifest;
-                let enabled = manifest.enabled;
-                let affected: Vec<_> = manifest.grammars.keys().cloned().collect();
                 let mut candidate = self.packages.clone();
-                if replace && installed.standard.is_some() {
+                if replace && !installed.standard.is_empty() {
                     // A user copy replaces the same complete grammar collection,
                     // even when the upstream directory name is different.
                     candidate.retain(|_, old| {
@@ -346,22 +308,11 @@ impl Packages {
                 } else if !replace && candidate.contains_key(&manifest.id) {
                     return Err(format!("duplicate language collection {}", manifest.id));
                 }
-                if manifest.enabled {
-                    candidate.insert(manifest.id.clone(), installed);
-                } else {
-                    candidate.remove(&manifest.id);
-                }
+                candidate.insert(manifest.id.clone(), installed);
                 if candidate.len() > MAX_PACKAGES {
                     return Err("too many installed language packages".into());
                 }
                 registry(&candidate)?;
-                for grammar in affected {
-                    if enabled {
-                        self.disabled.remove(&grammar);
-                    } else {
-                        self.disabled.insert(grammar);
-                    }
-                }
                 self.packages = candidate;
                 Ok::<_, String>(())
             })();
@@ -399,14 +350,6 @@ impl Packages {
         let mut descriptions = BTreeMap::new();
         let mut combined = self.packages.clone();
         for (id, description) in catalog.descriptions()? {
-            if description
-                .manifest
-                .grammars
-                .keys()
-                .any(|g| self.disabled.contains(g))
-            {
-                continue;
-            }
             // Complete installed collections, including user overrides, stay authoritative.
             if self.packages.values().any(|p| {
                 p.manifest
@@ -479,18 +422,7 @@ impl Packages {
             .find_map(|p| p.manifest.grammars.get(grammar).map(|m| (p, m)))
     }
     fn module_path(package: &Installed, module: &str) -> PathBuf {
-        if let Some(grammars) = &package.standard {
-            return standard::module_path(&package.root, module, grammars[module].directory());
-        }
-        // A stem accepts an upstream WASM download without renaming. Explicit
-        // filenames select exactly one format; never borrow another package.
-        let root = package.root.join("modules");
-        let candidates = module_candidates(module);
-        candidates
-            .iter()
-            .map(|file| root.join(file))
-            .find(|file| file.is_file())
-            .unwrap_or_else(|| root.join(candidates.last().unwrap()))
+        standard::module_path(&package.root, module, package.standard[module].directory())
     }
     fn report(loaded: &mut Loaded, error: &str) {
         if loaded.activity.errors.insert(error.to_owned()) {
@@ -506,11 +438,7 @@ impl Packages {
         grammar: &str,
         file: &str,
     ) -> Result<Option<Stacked>, String> {
-        let paths = if let Some(grammars) = &package.standard {
-            grammars[grammar].queries(file)
-        } else {
-            vec![format!("grammars/{grammar}/{file}")]
-        };
+        let paths = package.standard[grammar].queries(file);
         let optional = file == "injections.scm";
         let mut base = Vec::new();
         let mut size = 0;
@@ -815,7 +743,7 @@ impl Resources for Packages {
 }
 /// The language packs extension packages contribute: for every package folder
 /// in `extensions` whose manifest lists a `contributes.languages` resource named
-/// `tree-sitter.json` (or `package.json`), the folder that file is in. The
+/// `tree-sitter.json` (or `language.json`), the folder that file is in. The
 /// manifest is read with the extension loader's own rules and a package whose
 /// manifest it rejects contributes nothing; nothing here runs or loads a module.
 pub(crate) fn extension_packs(extensions: &Path) -> Vec<PathBuf> {
@@ -964,7 +892,7 @@ fn queries_of(enabled: Enabled) -> Vec<ExtensionQuery> {
 /// the file is a pack manifest and stays inside the package after resolving links.
 fn pack_directory(package: &Path, path: &str) -> Option<PathBuf> {
     let file = Path::new(path).file_name()?.to_str()?;
-    if !matches!(file, "tree-sitter.json" | "package.json") {
+    if !matches!(file, "tree-sitter.json" | "language.json") {
         return None;
     }
     let base = package.canonicalize().ok()?;
@@ -975,25 +903,10 @@ fn pack_directory(package: &Path, path: &str) -> Option<PathBuf> {
 /// Why a language resource of an extension package cannot be used, checked the
 /// way startup discovery would: the pack's manifest, its grammars and file types.
 pub(crate) fn check_extension_pack(package: &Path, path: &str) -> Result<(), String> {
-    let directory = pack_directory(package, path)
-        .ok_or("a language resource must be a tree-sitter.json inside the package")?;
-    let installed = if directory.join("tree-sitter.json").is_file() {
-        standard::read(&directory)?
-    } else {
-        let text = read_text(&directory.join("package.json"), MAX_MANIFEST)?;
-        let manifest: Manifest = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-        manifest.validate(&directory)?;
-        Installed {
-            manifest,
-            root: directory.clone(),
-            standard: None,
-        }
-    };
-    registry(&BTreeMap::from([(
-        installed.manifest.id.clone(),
-        installed,
-    )]))
-    .map(|_| ())
+    let directory = pack_directory(package, path).ok_or(
+        "a language resource must be a tree-sitter.json or language.json inside the package",
+    )?;
+    read_pack(&directory).map(|_| ())
 }
 
 /// Where the application keeps its bundled resource directory `name`: beside the
@@ -1058,7 +971,6 @@ pub(crate) fn resources() -> Arc<Packages> {
                         packages: BTreeMap::new(),
                         loaded: Mutex::default(),
                         catalog: None,
-                        disabled: BTreeSet::new(),
                         layering: Layering::default(),
                     },
                 };

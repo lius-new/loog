@@ -15,11 +15,6 @@ impl Temp {
         fs::create_dir_all(&path).unwrap();
         Self(path)
     }
-    fn write(&self, id: &str, value: &Value) {
-        let dir = self.0.join(id);
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("package.json"), value.to_string()).unwrap();
-    }
 }
 impl Drop for Temp {
     fn drop(&mut self) {
@@ -27,84 +22,31 @@ impl Drop for Temp {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
-fn manifest() -> Value {
-    json!({"schema":1,"id":"sample","languages":[{
-        "name":"sample","display_name":"Sample","badge":"S",
-        "variants":[{"id":"sample","grammar":"sample"}],
-        "files":[{"extensions":["sample"],"variant":"sample"}]
-    }],"grammars":{"sample":{"module":"missing_module","symbol":"tree_sitter_sample"}}})
+/// A pack with one grammar, `sample`, for `.sample` files; no module or query is written.
+fn write_sample(temp: &Temp) -> PathBuf {
+    write_standard(
+        temp,
+        "sample",
+        &json!({"grammars":[{"name":"sample","file-types":["sample"]}]}),
+    )
 }
 
 #[test]
-fn standard_entry_points_are_inferred_and_explicit_aliases_are_preserved() {
-    let default: Module = serde_json::from_value(json!({"module":"python.wasm"})).unwrap();
-    assert_eq!(default.entry_point("python"), "tree_sitter_python");
-    let alias: Module =
-        serde_json::from_value(json!({"module":"python.wasm","symbol":"tree_sitter_python"}))
-            .unwrap();
-    assert_eq!(alias.entry_point("my_python"), "tree_sitter_python");
+fn the_wasm_module_is_looked_for_beside_the_pack_by_either_standard_name() {
     let temp = Temp::new();
-    let mut value = manifest();
-    value["grammars"]["sample"] = json!({"module":"sample.wasm"});
-    temp.write("sample", &value);
+    let root = write_sample(&temp);
     let source = Packages::discover(&temp.0, None);
-    assert!(
-        source
-            .registry()
-            .unwrap()
-            .language_by_name("sample")
-            .is_some()
-    );
-    assert_eq!(source.activity(), Activity::default());
-}
-
-#[test]
-fn only_webassembly_filenames_are_used_without_renaming_or_path_escape() {
-    assert_eq!(module_file("python").unwrap(), "python.wasm");
-    for file in ["python.wasm", "tree-sitter-python.wasm"] {
-        assert_eq!(module_file(file).unwrap(), file);
-    }
-    for invalid in [
-        // Native libraries are not run inside Loom.
-        "python.dll",
-        "python.so",
-        "python.dylib",
-        "libtree-sitter-python.so",
-        "../python.dll",
-        "a/python.so",
-        "a\\python.dll",
-        "C:python.dll",
-        "python..so",
-        "python.so.exe",
-        "python.json",
-        "../python.wasm",
-        "python.wasm.dll",
-        "",
-    ] {
-        assert!(module_file(invalid).is_err(), "{invalid}");
-    }
-}
-
-#[test]
-fn upstream_wasm_downloads_are_found_for_stems_and_explicit_filenames_select_one_file() {
-    let temp = Temp::new();
-    let mut value = manifest();
-    value["grammars"]["sample"] = json!({"module":"sample"});
-    temp.write("sample", &value);
-    let modules = temp.0.join("sample/modules");
-    fs::create_dir_all(&modules).unwrap();
-    for file in module_candidates("sample") {
-        fs::write(modules.join(file), "unloaded payload").unwrap();
-    }
-    let source = Packages::discover(&temp.0, None);
-    let (package, _) = source.grammar("sample").unwrap();
+    let (package, module) = source.grammar("sample").unwrap();
+    assert_eq!(module.wasm_name("sample").unwrap(), "sample");
+    assert!(module.wasm_name("Sample").is_err());
     assert_eq!(
         Packages::module_path(package, "sample"),
-        modules.join("tree-sitter-sample.wasm")
+        root.join("tree-sitter-sample.wasm")
     );
+    fs::write(root.join("sample.wasm"), "unloaded payload").unwrap();
     assert_eq!(
-        Packages::module_path(package, "sample.wasm"),
-        modules.join("sample.wasm")
+        Packages::module_path(package, "sample"),
+        root.join("sample.wasm")
     );
     assert_eq!(source.activity(), Activity::default());
 }
@@ -112,12 +54,8 @@ fn upstream_wasm_downloads_are_found_for_stems_and_explicit_filenames_select_one
 #[test]
 fn invalid_and_oversized_wasm_are_isolated_and_failures_are_cached() {
     let temp = Temp::new();
-    let mut value = manifest();
-    value["grammars"]["sample"] = json!({"module":"tree-sitter-sample.wasm"});
-    temp.write("sample", &value);
-    let modules = temp.0.join("sample/modules");
-    fs::create_dir_all(&modules).unwrap();
-    let path = modules.join("tree-sitter-sample.wasm");
+    let root = write_sample(&temp);
+    let path = root.join("tree-sitter-sample.wasm");
     fs::write(&path, "not WASM").unwrap();
     let source = Packages::discover(&temp.0, None);
     assert_eq!(source.activity(), Activity::default());
@@ -137,13 +75,6 @@ fn invalid_and_oversized_wasm_are_isolated_and_failures_are_cached() {
         .unwrap();
     let source = Packages::discover(&temp.0, None);
     assert!(source.language("sample").unwrap_err().contains("exceeds"));
-    let alias: Module =
-        serde_json::from_value(json!({"module":"sample.wasm","symbol":"tree_sitter_rust"}))
-            .unwrap();
-    assert_eq!(alias.wasm_name("custom").unwrap(), "rust");
-    let invalid: Module =
-        serde_json::from_value(json!({"module":"sample.wasm","symbol":"other"})).unwrap();
-    assert!(invalid.wasm_name("sample").is_err());
 }
 
 #[test]
@@ -166,7 +97,7 @@ fn no_packages_provide_plain_text_and_no_resource_activity() {
 #[test]
 fn metadata_recognition_is_lazy_and_missing_payload_failure_is_cached() {
     let temp = Temp::new();
-    temp.write("sample", &manifest());
+    write_sample(&temp);
     let source = Packages::discover(&temp.0, None);
     let registry = source.registry().unwrap();
     assert_eq!(
@@ -188,61 +119,58 @@ fn metadata_recognition_is_lazy_and_missing_payload_failure_is_cached() {
 }
 
 #[test]
-fn overrides_disable_and_restart_are_metadata_only() {
-    let app = Temp::new();
-    let user = Temp::new();
-    app.write("sample", &manifest());
-    let first = Packages::discover(&app.0, Some(&user.0));
-    let mut replacement = manifest();
-    replacement["enabled"] = json!(false);
-    user.write("sample", &replacement);
+fn a_language_json_beside_a_grammar_replaces_the_description_made_for_it() {
+    let temp = Temp::new();
+    let root = write_sample(&temp);
+    let before = Packages::discover(&temp.0, None).registry().unwrap();
+    let made = before.definition(before.language_by_name("sample").unwrap());
+    assert_eq!(made.display_name.as_ref(), "sample");
+    fs::write(
+        root.join("language.json"),
+        json!({"name":"sample","display_name":"Sample","badge":"SMP",
+            "comments":{"line":"#"},
+            "variants":[{"id":"sample","grammar":"sample"}],
+            "files":[{"extensions":["sample"],"variant":"sample"}]})
+        .to_string(),
+    )
+    .unwrap();
+    let source = Packages::discover(&temp.0, None);
     assert!(
-        first
-            .registry()
-            .unwrap()
-            .language_by_name("sample")
-            .is_some()
+        source.activity().errors.is_empty(),
+        "{:?}",
+        source.activity().errors
     );
-    let next = Packages::discover(&app.0, Some(&user.0));
-    assert!(
-        next.registry()
-            .unwrap()
-            .language_by_name("sample")
-            .is_none()
-    );
-    assert_eq!(next.activity(), Activity::default());
-    replacement["schema"] = json!(99);
-    user.write("sample", &replacement);
-    let invalid = Packages::discover(&app.0, Some(&user.0));
-    assert!(
-        invalid
-            .registry()
-            .unwrap()
-            .language_by_name("sample")
-            .is_some()
-    );
-    assert_eq!(invalid.activity().errors.len(), 1);
+    let registry = source.registry().unwrap();
+    let described = registry.definition(registry.language_by_name("sample").unwrap());
+    assert_eq!(described.display_name.as_ref(), "Sample");
+    assert_eq!(described.comments.line.as_deref(), Some("#"));
+    assert_eq!(source.grammar_names(), ["sample"]);
+    assert_eq!(source.activity(), Activity::default());
 }
 
 #[test]
 fn invalid_packages_do_not_corrupt_valid_metadata() {
     let temp = Temp::new();
-    temp.write("sample", &manifest());
-    for (id, value) in [
+    write_sample(&temp);
+    for (directory, description) in [
+        ("noname", json!({"display_name":"No name"})),
         (
-            "path",
-            json!({"schema":1,"id":"path","languages":[],"grammars":{"../escape":{"module":"x","symbol":"x"}}}),
+            "badname",
+            json!({"name":"Bad Name","display_name":"x","badge":"X","variants":[{"id":"x"}]}),
         ),
         (
             "field",
-            json!({"schema":1,"id":"field","languages":[],"grammars":{},"unknown":true}),
+            json!({"name":"field","display_name":"F","badge":"F","variants":[{"id":"field"}],"unknown":true}),
         ),
+        // Its id would be `sample`, which the grammar pack above already has.
         (
             "zconflict",
-            json!({"schema":1,"id":"zconflict","languages":[],"grammars":{"sample":{"module":"x","symbol":"x"}}}),
+            json!({"name":"sample","display_name":"S","badge":"S","variants":[{"id":"sample"}]}),
         ),
     ] {
-        temp.write(id, &value);
+        let folder = temp.0.join(directory);
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("language.json"), description.to_string()).unwrap();
     }
     // A conflicting incoming package is rejected atomically.
     let source = Packages::discover(&temp.0, None);
@@ -253,7 +181,7 @@ fn invalid_packages_do_not_corrupt_valid_metadata() {
             .language_by_name("sample")
             .is_some()
     );
-    assert_eq!(source.activity().errors.len(), 3);
+    assert_eq!(source.activity().errors.len(), 4);
     assert_eq!(source.activity().language_loads, 0);
 }
 
@@ -274,7 +202,10 @@ fn platform_paths_are_absolute_and_portable_directories_are_not_cargo_profiles()
         user_resource_directory_from("windows", get, "extensions"),
         Some(staged.clone())
     );
-    assert_eq!(user_resource_directory_from("windows", get, "queries"), None);
+    assert_eq!(
+        user_resource_directory_from("windows", get, "queries"),
+        None
+    );
     assert_eq!(
         user_resource_directory_from("windows", |_| Some("relative".into()), "extensions"),
         None
@@ -366,7 +297,9 @@ fn a_language_pack_inside_an_extension_package_is_found_at_startup() {
 
     let extensions = temp.0.join("extensions");
     let found = packs_in(
-        ["other", "weave"].map(|name| extensions.join(name)).to_vec(),
+        ["other", "weave"]
+            .map(|name| extensions.join(name))
+            .to_vec(),
         &Default::default(),
     );
     assert_eq!(
@@ -389,6 +322,30 @@ fn a_language_pack_inside_an_extension_package_is_found_at_startup() {
     }
     assert!(check_extension_pack(&package, "grammars/weave/tree-sitter.json").is_ok());
     assert!(check_extension_pack(&package, "grammars/weave/readme.json").is_err());
+}
+
+#[test]
+fn an_extension_can_contribute_a_language_that_is_only_a_description() {
+    let temp = Temp::new();
+    let package = extension_package(&temp, "notes", &["lang/language.json"]);
+    fs::create_dir_all(package.join("lang")).unwrap();
+    fs::write(
+        package.join("lang/language.json"),
+        json!({"name":"notes","display_name":"Notes","badge":"NT",
+            "highlight":{"keywords":["todo"]},
+            "variants":[{"id":"notes"}],
+            "files":[{"extensions":["notes"],"variant":"notes"}]})
+        .to_string(),
+    )
+    .unwrap();
+    assert!(check_extension_pack(&package, "lang/language.json").is_ok());
+    assert!(check_extension_pack(&package, "lang/package.json").is_err());
+    let found = packs_in(vec![package.clone()], &Default::default());
+    assert_eq!(found, [package.join("lang").canonicalize().unwrap()]);
+    let registry = Packages::from_directories(found).registry().unwrap();
+    let resolved = registry.resolve_path(Path::new("a.notes"));
+    assert_eq!(registry.definition_of(resolved).name.as_ref(), "notes");
+    assert!(resolved.grammar.is_none());
 }
 
 #[test]
@@ -586,10 +543,15 @@ fn invalid_standard_paths_duplicates_and_conflicts_leave_valid_packages_availabl
 }
 
 #[test]
-fn standard_manifest_is_authoritative_and_malformed_input_does_not_fall_back_to_legacy() {
+fn standard_manifest_is_authoritative_and_a_package_json_is_not_read() {
     let temp = Temp::new();
-    temp.write("sample", &manifest());
     let root = write_standard(&temp, "sample", &json!({"grammars":[]}));
+    // The old pack format is not a fallback.
+    fs::write(
+        root.join("package.json"),
+        json!({"schema":1,"id":"sample","languages":[],"grammars":{}}).to_string(),
+    )
+    .unwrap();
     let source = Packages::discover(&temp.0, None);
     assert!(source.grammar_names().is_empty());
     assert_eq!(source.activity().errors.len(), 1);

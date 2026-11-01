@@ -135,15 +135,20 @@ A list given here replaces the built-in one; a field left out keeps it
 a time and colours comments, strings that end on the same line, numbers and the
 listed words; it never guesses at functions or types. Data and markup languages
 (Markdown, JSON, TOML, YAML, INI, HTML, CSS, XML) get no keyword colouring unless
-their description lists words. A language like this is a `package.json` language
-description with `"grammars": {}`:
+their description lists words.
+
+The description above is a file named `language.json` in a folder of its own,
+referenced from `contributes.languages` like a grammar pack's `tree-sitter.json`:
 
 ~~~json
-{ "schema": 1, "id": "sqlish", "grammars": {}, "languages": [ { "name": "sqlish" } ]  }
+{ "id": "acme.sqlish.language", "path": "language/language.json" }
 ~~~
 
-(with the full description above in place of the abbreviated one), referenced from
-`contributes.languages` like a grammar pack.
+Its `name` must be a canonical name (lowercase letters, digits and underscores). A
+folder may hold a `tree-sitter.json` as well; the description in `language.json`
+then replaces the one Loom makes from the grammar, so a grammar pack can set its
+own comment markers, badge and file rules. The older `package.json` pack format is
+no longer read.
 
 ## Installing from the registry
 

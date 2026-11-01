@@ -171,11 +171,8 @@ pub(super) fn from_json(root: &Path, json: &str) -> Result<Installed, String> {
     }
     let languages: Vec<Value> = languages.into_values().collect();
     let manifest = Manifest {
-        schema: 1,
         id: id.clone(),
-        enabled: true,
         languages,
-        servers: Vec::new(),
         grammars: grammars
             .keys()
             .map(|name| {
@@ -183,7 +180,6 @@ pub(super) fn from_json(root: &Path, json: &str) -> Result<Installed, String> {
                     name.clone(),
                     Module {
                         module: name.clone(),
-                        symbol: None,
                     },
                 )
             })
@@ -192,7 +188,7 @@ pub(super) fn from_json(root: &Path, json: &str) -> Result<Installed, String> {
     let installed = Installed {
         manifest,
         root: root.to_owned(),
-        standard: Some(grammars),
+        standard: grammars,
     };
     registry(&BTreeMap::from([(id, installed.clone())]))?;
     Ok(installed)

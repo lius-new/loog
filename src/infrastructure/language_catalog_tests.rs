@@ -76,7 +76,6 @@ fn source(root: &Path, bytes: &[u8], download: Arc<Download>) -> Arc<Packages> {
             Some(root.join("extensions")),
             download,
         )),
-        disabled: BTreeSet::new(),
         layering: Default::default(),
     })
 }
@@ -120,36 +119,6 @@ fn catalog_registers_missing_languages_without_loading_or_downloading() {
     );
     assert_eq!(source.activity(), Activity::default());
     assert!(source.download_infos().is_empty());
-    assert!(!root.0.join("cache").exists());
-}
-
-#[test]
-fn explicitly_disabled_user_collections_are_not_reenabled_by_the_catalog() {
-    let root = Temporary::new(&std::env::temp_dir()).unwrap();
-    let user = root.0.join("user");
-    fs::create_dir_all(user.join("json")).unwrap();
-    fs::write(user.join("json/package.json"), serde_json::json!({
-        "schema": 1, "id": "json", "enabled": false, "languages": [], "grammars": { "json": { "module": "json" } }
-    }).to_string()).unwrap();
-    let file = catalog_file(&root.0, b"unused archive");
-    let mut resources = Packages::discover(&bundled(), Some(&user));
-    resources
-        .enable_catalog(
-            &file,
-            Some(root.0.join("cache")),
-            Some(root.0.join("extensions")),
-        )
-        .unwrap();
-    let registry = resources.registry().unwrap();
-    assert_eq!(
-        registry
-            .definition(registry.resolve_path(Path::new("file.json")).language)
-            .name
-            .as_ref(),
-        "plaintext"
-    );
-    assert!(resources.language("json").is_err());
-    assert!(resources.download_infos().is_empty());
     assert!(!root.0.join("cache").exists());
 }
 
