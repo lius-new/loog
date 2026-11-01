@@ -803,6 +803,12 @@ impl ExtensionHost {
                     "{name} was not installed by Loom; delete {place} yourself"
                 ));
             }
+            // Another extension that requires this one keeps it installed.
+            let unused_runtimes =
+                match crate::infrastructure::extensions::install::removal_check(&directory, id) {
+                    Ok(unused) => unused,
+                    Err(why) => return app.show_error(format!("Cannot uninstall {name}: {why}")),
+                };
             let effects = match service.uninstall(id) {
                 Ok((_, effects)) => effects,
                 Err(error) => return app.show_error(format!("{id}: {error}")),
@@ -816,6 +822,12 @@ impl ExtensionHost {
             if let Err(error) = crate::infrastructure::extensions::state::remove(&directory, id) {
                 return app.show_error(format!(
                     "Uninstalled {name} but could not delete it: {error}"
+                ));
+            }
+            if !unused_runtimes.is_empty() {
+                app.show_toast(format!(
+                    "Nothing uses {} any more; you can uninstall it",
+                    unused_runtimes.join(", ")
                 ));
             }
         });

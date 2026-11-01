@@ -137,7 +137,9 @@ impl Index {
         match (parse_time(&self.generated), parse_time(&self.expires)) {
             (Some(generated), Some(expires)) if expires > generated => {}
             _ => {
-                return bad("generated and expires must be times, expiring after generation".into());
+                return bad(
+                    "generated and expires must be times, expiring after generation".into(),
+                );
             }
         }
         let mut seen = std::collections::BTreeSet::new();
@@ -250,9 +252,20 @@ impl Entry {
         loom_version: &str,
         platform: &str,
     ) -> Option<(&VersionEntry, &Artifact)> {
+        self.best_matching(loom_version, platform, |_| true)
+    }
+
+    /// [`Self::best_for`] among the versions `accept` allows.
+    pub fn best_matching(
+        &self,
+        loom_version: &str,
+        platform: &str,
+        accept: impl Fn(&VersionEntry) -> bool,
+    ) -> Option<(&VersionEntry, &Artifact)> {
         let loom = parse_version(loom_version)?;
         self.versions
             .iter()
+            .filter(|version| accept(version))
             .filter(|version| {
                 version.engines.as_ref().is_none_or(|engines| {
                     Range::parse(&engines.loom).is_some_and(|range| range.matches(loom))
@@ -269,6 +282,232 @@ impl Entry {
             // The file says newest first; do not depend on it.
             .max_by_key(|(version, _)| parse_version(&version.version))
     }
+}
+
+/// What is installed of one extension, as far as planning needs to know.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Installed {
+    pub version: String,
+    /// `id@range` entries from its manifest.
+    pub requires: Vec<String>,
+    /// Kept at this version: no update is offered.
+    pub pinned: bool,
+}
+
+/// One package to fetch and install.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Step {
+    pub id: String,
+    pub version: String,
+    pub artifact: Artifact,
+}
+
+const MAX_DEPTH: usize = 16;
+
+fn satisfies(range: Option<&Range>, version: &str) -> bool {
+    range.is_none_or(|range| parse_version(version).is_some_and(|v| range.matches(v)))
+}
+
+/// What to install so that `id` is at its newest version this Loom can run, with
+/// everything it `requires` that is not installed (or not at an acceptable version).
+/// The steps are in the order to install them: a requirement before what needs it.
+/// An empty plan means there is nothing to do. Nothing is planned that would leave an
+/// installed extension without a version of something it requires.
+pub fn plan_install(
+    index: &Index,
+    installed: &std::collections::BTreeMap<String, Installed>,
+    id: &str,
+    loom_version: &str,
+    platform: &str,
+) -> Result<Vec<Step>, String> {
+    let mut steps = Vec::new();
+    plan_one(
+        index,
+        installed,
+        (loom_version, platform),
+        id,
+        None,
+        &mut steps,
+        &mut Vec::new(),
+    )?;
+    for step in &steps {
+        let Some(version) = parse_version(&step.version) else {
+            continue;
+        };
+        for (other, info) in installed {
+            if steps.iter().any(|planned| planned.id == *other) {
+                continue;
+            }
+            for requirement in &info.requires {
+                if let Some((required, range)) = super::manifest::parse_requirement(requirement)
+                    && required == step.id
+                    && !range.matches(version)
+                {
+                    return Err(format!(
+                        "{other} needs {requirement}, which {} {} would break",
+                        step.id, step.version
+                    ));
+                }
+            }
+        }
+    }
+    Ok(steps)
+}
+
+fn plan_one(
+    index: &Index,
+    installed: &std::collections::BTreeMap<String, Installed>,
+    (loom_version, platform): (&str, &str),
+    id: &str,
+    range: Option<&Range>,
+    steps: &mut Vec<Step>,
+    path: &mut Vec<String>,
+) -> Result<(), String> {
+    let wanted = range.is_some();
+    if wanted
+        && let Some(have) = installed.get(id)
+        && satisfies(range, &have.version)
+    {
+        return Ok(());
+    }
+    if let Some(planned) = steps.iter().find(|step| step.id == id) {
+        return if satisfies(range, &planned.version) {
+            Ok(())
+        } else {
+            Err(format!(
+                "{id} {} does not satisfy what another extension needs",
+                planned.version
+            ))
+        };
+    }
+    if path.iter().any(|known| known == id) || path.len() >= MAX_DEPTH {
+        return Err(format!("{id} requires itself ({})", path.join(" -> ")));
+    }
+    let entry = index
+        .entry(id)
+        .ok_or_else(|| format!("{id} is not in the registry"))?;
+    // What is installed and needs `id` keeps working: only versions it accepts.
+    let limits = limits_on(installed, id);
+    let (version, artifact) = entry
+        .best_matching(loom_version, platform, |v| {
+            satisfies(range, &v.version) && limits.iter().all(|l| satisfies(Some(l), &v.version))
+        })
+        .ok_or_else(|| {
+            format!("no version of {id} fits Loom {loom_version} on {platform} and what needs it")
+        })?;
+    path.push(id.to_owned());
+    for requirement in &version.requires {
+        let (required, needed) =
+            super::manifest::parse_requirement(requirement).ok_or_else(|| {
+                format!(
+                    "{id} {}: invalid requirement {requirement}",
+                    version.version
+                )
+            })?;
+        plan_one(
+            index,
+            installed,
+            (loom_version, platform),
+            required,
+            Some(&needed),
+            steps,
+            path,
+        )?;
+    }
+    path.pop();
+    // The one asked for, already at this version, needs nothing more.
+    if !wanted
+        && installed
+            .get(id)
+            .is_some_and(|have| have.version == version.version)
+    {
+        return Ok(());
+    }
+    steps.push(Step {
+        id: id.to_owned(),
+        version: version.version.clone(),
+        artifact: artifact.clone(),
+    });
+    Ok(())
+}
+
+/// The version ranges the installed extensions put on `id`.
+fn limits_on(installed: &std::collections::BTreeMap<String, Installed>, id: &str) -> Vec<Range> {
+    installed
+        .iter()
+        .filter(|(other, _)| other.as_str() != id)
+        .flat_map(|(_, have)| &have.requires)
+        .filter_map(|requirement| super::manifest::parse_requirement(requirement))
+        .filter(|(required, _)| *required == id)
+        .map(|(_, range)| range)
+        .collect()
+}
+
+/// The installed extensions the index has a newer version of, as `(id, from, to)`.
+/// Pinned ones are left out.
+pub fn updates(
+    index: &Index,
+    installed: &std::collections::BTreeMap<String, Installed>,
+    loom_version: &str,
+    platform: &str,
+) -> Vec<(String, String, String)> {
+    installed
+        .iter()
+        .filter(|(_, have)| !have.pinned)
+        .filter_map(|(id, have)| {
+            let limits = limits_on(installed, id);
+            let (best, _) = index
+                .entry(id)?
+                .best_matching(loom_version, platform, |v| {
+                    limits.iter().all(|l| satisfies(Some(l), &v.version))
+                })?;
+            (parse_version(&best.version)? > parse_version(&have.version)?)
+                .then(|| (id.clone(), have.version.clone(), best.version.clone()))
+        })
+        .collect()
+}
+
+/// The installed extensions that require `id`.
+pub fn dependents(
+    installed: &std::collections::BTreeMap<String, Installed>,
+    id: &str,
+) -> Vec<String> {
+    installed
+        .iter()
+        .filter(|(other, _)| other.as_str() != id)
+        .filter(|(_, have)| {
+            have.requires.iter().any(|requirement| {
+                super::manifest::parse_requirement(requirement)
+                    .is_some_and(|(required, _)| required == id)
+            })
+        })
+        .map(|(other, _)| other.clone())
+        .collect()
+}
+
+/// The runtimes `removing` requires that nothing else installed requires: they can
+/// be offered for removal along with it.
+pub fn orphaned_runtimes(
+    installed: &std::collections::BTreeMap<String, Installed>,
+    removing: &str,
+) -> Vec<String> {
+    let Some(have) = installed.get(removing) else {
+        return Vec::new();
+    };
+    have.requires
+        .iter()
+        .filter_map(|requirement| super::manifest::parse_requirement(requirement))
+        .map(|(required, _)| required)
+        .filter(|required| {
+            required.starts_with("loom.runtime.") && installed.contains_key(*required)
+        })
+        .filter(|required| {
+            dependents(installed, required)
+                .iter()
+                .all(|other| other == removing)
+        })
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Whether `new` may replace what was already seen: an index older than one seen
@@ -365,6 +604,161 @@ mod tests {
         );
         assert!(check_sequence(2, &index).is_ok());
         assert!(check_sequence(4, &index).unwrap_err().contains("older"));
+    }
+
+    const SERVERS: &str = r#"{
+      "schema": 1, "generated": "2026-11-01T00:00:00.000Z", "expires": "2026-12-01T00:00:00.000Z",
+      "sequence": 1, "keyId": "k",
+      "extensions": [
+        { "id": "loom.runtime.node", "name": "Node", "versions": [
+            { "version": "24.0.0", "artifacts": [{ "platform": "linux-x86_64", "url": "https://x/n24", "sha256": "SHA", "size": 9 }] },
+            { "version": "22.4.0", "artifacts": [{ "platform": "linux-x86_64", "url": "https://x/n22", "sha256": "SHA", "size": 9 }] }] },
+        { "id": "loom.lsp.pyright", "name": "Pyright", "versions": [
+            { "version": "2.0.0", "requires": ["loom.runtime.node@^22"],
+              "artifacts": [{ "platform": "linux-x86_64", "url": "https://x/p2", "sha256": "SHA", "size": 9 }] },
+            { "version": "1.0.0", "requires": ["loom.runtime.node@^22"],
+              "artifacts": [{ "platform": "linux-x86_64", "url": "https://x/p1", "sha256": "SHA", "size": 9 }] }] },
+        { "id": "loom.lsp.bash", "name": "Bash", "versions": [
+            { "version": "1.0.0", "requires": ["loom.runtime.node@^22"],
+              "artifacts": [{ "platform": "linux-x86_64", "url": "https://x/b1", "sha256": "SHA", "size": 9 }] }] },
+        { "id": "loom.lsp.loop-a", "name": "A", "versions": [
+            { "version": "1.0.0", "requires": ["loom.lsp.loop-b@^1"],
+              "artifacts": [{ "platform": "any", "url": "https://x/a", "sha256": "SHA", "size": 9 }] }] },
+        { "id": "loom.lsp.loop-b", "name": "B", "versions": [
+            { "version": "1.0.0", "requires": ["loom.lsp.loop-a@^1"],
+              "artifacts": [{ "platform": "any", "url": "https://x/b", "sha256": "SHA", "size": 9 }] }] }
+      ]
+    }"#;
+
+    fn servers() -> Index {
+        Index::parse(SERVERS.replace("SHA", &"c".repeat(64)).as_bytes()).unwrap()
+    }
+
+    fn have(items: &[(&str, &str, &[&str])]) -> std::collections::BTreeMap<String, Installed> {
+        items
+            .iter()
+            .map(|(id, version, requires)| {
+                (
+                    (*id).to_owned(),
+                    Installed {
+                        version: (*version).to_owned(),
+                        requires: requires.iter().map(|r| (*r).to_owned()).collect(),
+                        pinned: false,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn ids(steps: &[Step]) -> Vec<String> {
+        steps
+            .iter()
+            .map(|s| format!("{} {}", s.id, s.version))
+            .collect()
+    }
+
+    #[test]
+    fn a_server_is_planned_with_the_runtime_it_requires_first() {
+        let index = servers();
+        let plan =
+            |installed, id: &str| plan_install(&index, &installed, id, "0.2.0", "linux-x86_64");
+        // The runtime that fits ^22 is chosen, not the newest one.
+        assert_eq!(
+            ids(&plan(have(&[]), "loom.lsp.pyright").unwrap()),
+            ["loom.runtime.node 22.4.0", "loom.lsp.pyright 2.0.0"]
+        );
+        // A second server shares the runtime that is already there.
+        let node = have(&[("loom.runtime.node", "22.1.0", &[])]);
+        assert_eq!(
+            ids(&plan(node.clone(), "loom.lsp.bash").unwrap()),
+            ["loom.lsp.bash 1.0.0"]
+        );
+        // A runtime too new for what is asked is replaced only where nothing is broken.
+        let wrong = have(&[("loom.runtime.node", "20.0.0", &[])]);
+        assert_eq!(plan(wrong, "loom.lsp.bash").unwrap().len(), 2);
+        // Nothing to do for what is already current.
+        let current = have(&[
+            ("loom.lsp.bash", "1.0.0", &["loom.runtime.node@^22"]),
+            ("loom.runtime.node", "22.4.0", &[]),
+        ]);
+        assert!(plan(current, "loom.lsp.bash").unwrap().is_empty());
+        // Unknown, unavailable on this platform, and circular requirements are errors.
+        assert!(
+            plan(have(&[]), "loom.lsp.nope")
+                .unwrap_err()
+                .contains("not in the registry")
+        );
+        let error = plan_install(
+            &index,
+            &have(&[]),
+            "loom.lsp.pyright",
+            "0.2.0",
+            "windows-x86_64",
+        )
+        .unwrap_err();
+        assert!(error.contains("no version"), "{error}");
+        assert!(
+            plan(have(&[]), "loom.lsp.loop-a")
+                .unwrap_err()
+                .contains("requires itself")
+        );
+    }
+
+    #[test]
+    fn a_runtime_is_not_replaced_by_one_an_installed_extension_cannot_use() {
+        let index = servers();
+        let installed = have(&[
+            ("loom.runtime.node", "22.1.0", &[]),
+            ("loom.lsp.bash", "1.0.0", &["loom.runtime.node@^22"]),
+        ]);
+        // Asking for the runtime itself moves it to 22.4.0, not 24.0.0, which the server rejects.
+        let steps = plan_install(
+            &index,
+            &installed,
+            "loom.runtime.node",
+            "0.2.0",
+            "linux-x86_64",
+        )
+        .unwrap();
+        assert_eq!(ids(&steps), ["loom.runtime.node 22.4.0"]);
+        // With the server gone, nothing holds the runtime back.
+        let alone = have(&[("loom.runtime.node", "22.1.0", &[])]);
+        let steps =
+            plan_install(&index, &alone, "loom.runtime.node", "0.2.0", "linux-x86_64").unwrap();
+        assert_eq!(ids(&steps), ["loom.runtime.node 24.0.0"]);
+    }
+
+    #[test]
+    fn updates_skip_pinned_extensions_and_dependents_and_orphans_are_found() {
+        let index = servers();
+        let mut installed = have(&[
+            ("loom.runtime.node", "22.1.0", &[]),
+            ("loom.lsp.pyright", "1.0.0", &["loom.runtime.node@^22"]),
+            ("loom.lsp.bash", "1.0.0", &["loom.runtime.node@^22"]),
+        ]);
+        let found = updates(&index, &installed, "0.2.0", "linux-x86_64");
+        assert!(found.contains(&("loom.lsp.pyright".into(), "1.0.0".into(), "2.0.0".into())));
+        // The servers hold the runtime to what they accept.
+        assert!(found.contains(&("loom.runtime.node".into(), "22.1.0".into(), "22.4.0".into())));
+        installed.get_mut("loom.lsp.pyright").unwrap().pinned = true;
+        assert!(
+            updates(&index, &installed, "0.2.0", "linux-x86_64")
+                .iter()
+                .all(|(id, _, _)| id != "loom.lsp.pyright")
+        );
+
+        assert_eq!(
+            dependents(&installed, "loom.runtime.node"),
+            ["loom.lsp.bash", "loom.lsp.pyright"]
+        );
+        assert!(dependents(&installed, "loom.lsp.bash").is_empty());
+        // The runtime is still needed by the other server.
+        assert!(orphaned_runtimes(&installed, "loom.lsp.bash").is_empty());
+        installed.remove("loom.lsp.pyright");
+        assert_eq!(
+            orphaned_runtimes(&installed, "loom.lsp.bash"),
+            ["loom.runtime.node"]
+        );
     }
 
     #[test]

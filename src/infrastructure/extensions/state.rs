@@ -24,6 +24,8 @@ pub enum Source {
     },
     /// The language registry.
     Registry { sha256: String, release: String },
+    /// The extension registry index: the package at `url`, which hashed to `sha256`.
+    Index { sha256: String, url: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,6 +148,63 @@ pub fn record_install(
     })?;
     prune(root, id);
     Ok(replaced)
+}
+
+/// Put the record of `id` back as it was in `before` after an installation of
+/// `installed` failed further on, and delete the folder that installation made.
+pub fn undo_install(
+    root: &Path,
+    id: &str,
+    before: Option<&Entry>,
+    installed: &str,
+) -> Result<(), String> {
+    update(root, |state| match before {
+        Some(entry) => {
+            let mut entry = entry.clone();
+            // Pruning may have deleted the version kept for going back.
+            if entry
+                .previous
+                .as_ref()
+                .is_some_and(|previous| !version_dir(root, id, previous).is_dir())
+            {
+                entry.previous = None;
+            }
+            state.extensions.insert(id.to_owned(), entry);
+        }
+        None => {
+            state.extensions.remove(id);
+        }
+    })?;
+    if before.is_none_or(|entry| entry.version != installed) {
+        let _ = fs::remove_dir_all(version_dir(root, id, installed));
+        if before.is_none() {
+            let _ = fs::remove_dir(root.join(id));
+        }
+    }
+    Ok(())
+}
+
+/// Go back to the version in use before the current one. The current one becomes
+/// the version to go forward to. Returns `(from, to)`.
+pub fn roll_back(root: &Path, id: &str) -> Result<(String, String), String> {
+    update(root, |state| {
+        let entry = state
+            .extensions
+            .get_mut(id)
+            .ok_or_else(|| format!("{id} is not installed"))?;
+        let previous = entry
+            .previous
+            .clone()
+            .filter(|previous| {
+                version_dir(root, id, previous)
+                    .join("manifest.json")
+                    .is_file()
+            })
+            .ok_or_else(|| format!("there is no earlier version of {id} to go back to"))?;
+        let from = std::mem::replace(&mut entry.version, previous.clone());
+        entry.previous = Some(from.clone());
+        Ok((from, previous))
+    })?
 }
 
 /// Delete the version folders of `id` that the record neither uses nor keeps.

@@ -2,8 +2,8 @@
 //
 //   node scripts/extensions/package/pack.mjs <folder> [--out <directory>]
 //
-// The package is a gzip-compressed tar archive of the folder: its files sit at
-// the archive root, `manifest.json` among them. The output is
+// The package is a gzip-compressed tar archive with one root folder, named after
+// the extension id, that holds the folder's files, `manifest.json` among them. The output is
 // `<id>-<version>.loomext` (default directory: target/extension-packages) and a
 // `.sha256` file beside it. The same folder always gives the same bytes.
 //
@@ -136,7 +136,8 @@ export function pack(folder, out) {
   const sizes = new Map(files.map((f) => [f.path, f.data.length]));
   const problems = manifestProblems(manifest, (path) => sizes.get(path));
   if (problems.length) throw new Error(`the manifest is not ready to package:\n- ${problems.join('\n- ')}`);
-  const archive = gzipSync(createTar(files), { level: 9 });
+  // One root folder, named after the extension, holds everything.
+  const archive = gzipSync(createTar(files.map((f) => ({ ...f, path: `${manifest.id}/${f.path}` }))), { level: 9 });
   if (archive.length > MAX_ARCHIVE) throw new Error('the package is larger than 64 MiB');
   mkdirSync(out, { recursive: true });
   const file = join(out, `${manifest.id}-${manifest.version}.loomext`);

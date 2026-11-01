@@ -35,7 +35,7 @@ test('a complete folder is packed, the archive lists its files, and packing agai
     equal(first.id, 'acme.night');
     const bytes = readFileSync(first.file);
     const listing = spawnSync('tar', ['-tzf', first.file], { encoding: 'utf8' });
-    if (listing.status === 0) deepStrictEqual(listing.stdout.split(/\r?\n/).filter(Boolean).sort(), ['CHANGELOG.md', 'README.md', 'icon.svg', 'manifest.json', 'themes/dark.json']);
+    if (listing.status === 0) deepStrictEqual(listing.stdout.split(/\r?\n/).filter(Boolean).sort(), ['CHANGELOG.md', 'README.md', 'icon.svg', 'manifest.json', 'themes/dark.json'].map((name) => `acme.night/${name}`));
     equal(pack(dir, out).sha256, first.sha256, 'deterministic');
     equal(readFileSync(`${first.file}.sha256`, 'utf8').split(' ')[0], first.sha256);
     equal(gunzipSync(bytes).length % 512, 0, 'a whole number of tar blocks');

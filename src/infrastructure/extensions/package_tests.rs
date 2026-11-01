@@ -48,11 +48,12 @@ fn files(version: &str) -> Vec<(String, Vec<u8>)> {
     ]
 }
 
-/// A package from `entries`; a name is written into the header as given, so a
-/// hostile one can be made.
+/// A package from `entries`, all inside the root folder named after the extension; a
+/// name is written into the header as given, so a hostile one can be made.
 fn build(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
     let mut tar = tar::Builder::new(Vec::new());
     for (name, bytes) in entries {
+        let name = &format!("acme.night/{name}");
         let mut header = tar::Header::new_gnu();
         header.set_size(bytes.len() as u64);
         header.set_mode(0o644);
@@ -234,6 +235,60 @@ fn hostile_archives_are_refused_before_anything_is_installed() {
     );
     let error = import(&empty, &temp.0.join("extensions"), "0.1.8").unwrap_err();
     assert!(error.contains("no manifest.json"), "{error}");
+}
+
+#[test]
+fn the_root_folder_must_be_the_extension_and_the_only_one() {
+    let temp = Temp::new();
+    let extensions = temp.0.join("extensions");
+    let rename = |entries: &[(String, Vec<u8>)], root: &str| -> Vec<u8> {
+        let mut tar = tar::Builder::new(Vec::new());
+        for (name, bytes) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o644);
+            header.set_entry_type(tar::EntryType::Regular);
+            header.set_cksum();
+            tar.append_data(&mut header, format!("{root}/{name}"), bytes.as_slice())
+                .unwrap();
+        }
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gzip.write_all(&tar.into_inner().unwrap()).unwrap();
+        gzip.finish().unwrap()
+    };
+    // A root folder with another name than the extension's id.
+    let archive = temp.file("named.loomext", &rename(&files("1.0.0"), "something.else"));
+    let error = import(&archive, &extensions, "0.1.8").unwrap_err();
+    assert!(
+        error.contains("something.else") && error.contains("acme.night"),
+        "{error}"
+    );
+    // Files at the top, with no folder around them (the format before this one).
+    let mut tar = tar::Builder::new(Vec::new());
+    let mut header = tar::Header::new_gnu();
+    header.set_size(2);
+    header.set_mode(0o644);
+    header.set_entry_type(tar::EntryType::Regular);
+    header.set_cksum();
+    tar.append_data(&mut header, "manifest.json", &b"{}"[..])
+        .unwrap();
+    let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gzip.write_all(&tar.into_inner().unwrap()).unwrap();
+    let archive = temp.file("flat.loomext", &gzip.finish().unwrap());
+    let error = import(&archive, &extensions, "0.1.8").unwrap_err();
+    assert!(error.contains("root folder"), "{error}");
+    // Two root folders.
+    let mut entries = files("1.0.0");
+    entries.push(("../other/x.txt".into(), b"x".to_vec()));
+    assert!(
+        import(
+            &temp.file("two.loomext", &build(&entries)),
+            &extensions,
+            "0.1.8"
+        )
+        .is_err()
+    );
+    assert!(!extensions.join("acme.night").exists());
 }
 
 #[test]

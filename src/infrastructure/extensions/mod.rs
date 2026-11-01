@@ -9,6 +9,9 @@ pub mod documentation;
 pub mod fileops;
 pub mod http;
 pub mod icon;
+// Used by the extensions page and on-demand installs, which are built on it next.
+#[allow(dead_code)]
+pub mod install;
 pub mod package;
 pub mod ports;
 // Read by the extensions page and the installer, which are built on it next.

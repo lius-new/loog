@@ -318,7 +318,7 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
         header.set_size(bytes.len() as u64);
         header.set_mode(0o644);
         header.set_cksum();
-        tar.append_data(&mut header, file, bytes.as_slice())
+        tar.append_data(&mut header, format!("loom.midnight/{file}"), bytes.as_slice())
             .unwrap();
     }
     tar.into_inner().unwrap().finish().unwrap();
