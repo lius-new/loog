@@ -44,8 +44,23 @@ pub struct Entry {
     /// The languages a language server extension serves.
     #[serde(default)]
     pub serves: Vec<String>,
+    /// What the list shows before anything is installed. All optional: an index
+    /// published without them still works.
+    #[serde(default)]
+    pub icon: Option<Artwork>,
+    #[serde(default)]
+    pub readme: Option<String>,
+    #[serde(default)]
+    pub changelog: Option<String>,
     /// Newest first.
     pub versions: Vec<VersionEntry>,
+}
+
+/// An icon carried by the index: SVG source as text, or PNG as base64.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct Artwork {
+    pub format: String,
+    pub data: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

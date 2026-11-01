@@ -13,7 +13,13 @@ use crate::features::extensions::registry::{
 };
 use crate::infrastructure::extensions::registry::{self as fetch, Loaded};
 use crate::infrastructure::extensions::{install, package::Imported};
-use crate::ui::extensions_binding::{Contribution, Entry, Frame, RegistryStatus, Table, Update};
+use crate::features::markdown::content::Markup;
+use crate::infrastructure::image_filesystem;
+use crate::ui::extensions_binding::{
+    Contribution, Documentation, Entry, Frame, IconImage, RegistryStatus, Table, Update,
+};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use std::collections::{BTreeMap, BTreeSet};
 
 const LOOM: &str = env!("CARGO_PKG_VERSION");
@@ -37,6 +43,47 @@ pub(super) struct State {
     refreshed: bool,
     problem: Option<String>,
     installing: BTreeSet<String>,
+    /// What the index carries for the list, decoded once per index: the sequence
+    /// it was made from, and the result by extension id.
+    previews: (u64, BTreeMap<String, Preview>),
+}
+
+/// The icon, README and changelog of an extension that is not installed.
+#[derive(Clone, Default)]
+struct Preview {
+    icon: Option<IconImage>,
+    readme: Option<Documentation>,
+    changelog: Option<Documentation>,
+}
+
+/// Decode what `entry` carries. A document or icon that cannot be read is left out.
+fn preview(entry: &IndexEntry, base: &std::path::Path) -> Preview {
+    let document = |text: &Option<String>| {
+        text.as_ref().map(|text| Documentation {
+            content: Markup::markdown(text.clone()),
+            path: base.to_path_buf(),
+        })
+    };
+    let icon = entry.icon.as_ref().and_then(|artwork| {
+        let image = match artwork.format.as_str() {
+            "svg" => image_filesystem::svg(&artwork.data, 2.0),
+            "png" => BASE64
+                .decode(artwork.data.as_bytes())
+                .map_err(|error| error.to_string())
+                .and_then(|bytes| image_filesystem::decode(&bytes)),
+            other => Err(format!("unknown icon format {other}")),
+        }
+        .ok()?;
+        Some(IconImage {
+            identity: image.identity,
+            bytes: image.frames.first()?.bytes.clone(),
+        })
+    });
+    Preview {
+        icon,
+        readme: document(&entry.readme),
+        changelog: document(&entry.changelog),
+    }
 }
 
 /// What an extension asks for, in words. Only what the user would want to know first.
@@ -104,7 +151,7 @@ fn suggestion(
     None
 }
 
-fn index_entry(entry: &IndexEntry, version: &VersionEntry) -> Entry {
+fn index_entry(entry: &IndexEntry, version: &VersionEntry, preview: Preview) -> Entry {
     let mut contributions = Vec::new();
     if !entry.languages.is_empty() {
         let rows: Vec<[String; 3]> = entry
@@ -141,13 +188,13 @@ fn index_entry(entry: &IndexEntry, version: &VersionEntry) -> Entry {
             "extension-code"
         },
         tint: 0x38bdf8,
-        icon_image: None,
+        icon_image: preview.icon,
         categories: entry.categories.clone(),
         readme: Vec::new(),
-        readme_document: None,
+        readme_document: preview.readme,
         contributions,
         changelog: Vec::new(),
-        changelog_document: None,
+        changelog_document: preview.changelog,
         installed: None,
     }
 }
@@ -252,7 +299,7 @@ impl ExtensionHost {
     /// updates of installed ones, and how the registry stands.
     pub(super) fn add_registry(&self, frame: &mut Frame) {
         self.read_local();
-        let state = self.inner.registry.lock().unwrap();
+        let mut state = self.inner.registry.lock().unwrap();
         frame.registry = RegistryStatus {
             refreshing: state.refreshing,
             problem: state
@@ -263,9 +310,18 @@ impl ExtensionHost {
             installing: state.installing.iter().cloned().collect(),
             loaded: state.loaded.is_some(),
         };
+        let state = &mut *state;
         let Some(loaded) = &state.loaded else {
             return;
         };
+        if state.previews.0 != loaded.index.sequence {
+            state.previews = (loaded.index.sequence, BTreeMap::new());
+        }
+        let previews = &mut state.previews.1;
+        let preview_base = self
+            .root()
+            .unwrap_or_default()
+            .join("registry-preview");
         // An expired index offers nothing new.
         let Some(platform) = current_platform().filter(|_| !loaded.expired) else {
             return;
@@ -319,7 +375,11 @@ impl ExtensionHost {
                 continue;
             }
             if let Some((version, _)) = entry.best_for(LOOM, platform) {
-                frame.available.push(index_entry(entry, version));
+                let preview = previews
+                    .entry(entry.id.clone())
+                    .or_insert_with(|| preview(entry, &preview_base.join(&entry.id)))
+                    .clone();
+                frame.available.push(index_entry(entry, version, preview));
                 let asks = asks(version);
                 if !asks.is_empty() {
                     frame.asks.insert(entry.id.clone(), asks);
@@ -640,6 +700,41 @@ mod tests {
             recommends: Vec::new(),
             artifacts: Vec::new(),
         }
+    }
+
+    #[test]
+    fn what_the_index_carries_for_the_list_is_decoded_for_the_detail() {
+        use crate::features::extensions::registry::Index;
+        let sha = "a".repeat(64);
+        let index = Index::parse(
+            format!(
+                r##"{{ "schema": 1, "generated": "2026-11-01T00:00:00.000Z",
+                  "expires": "2026-12-01T00:00:00.000Z", "sequence": 1, "keyId": "k",
+                  "extensions": [
+                    {{ "id": "loom.lang.go", "name": "Go Language",
+                       "icon": {{ "format": "svg", "data": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\"/></svg>" }},
+                       "readme": "# Go", "changelog": "First release",
+                       "versions": [{{ "version": "1.0.0", "artifacts": [
+                         {{ "platform": "any", "url": "https://x/g", "sha256": "{sha}", "size": 3 }}] }}] }}
+                  ] }}"##
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        let entry = &index.extensions[0];
+        let made = preview(entry, std::path::Path::new("preview"));
+        assert!(made.icon.is_some());
+        assert_eq!(made.readme.unwrap().content.text.as_str(), "# Go");
+        assert!(made.changelog.is_some());
+        // An index published without them still gives an entry, just a bare one.
+        let bare = IndexEntry {
+            icon: None,
+            readme: None,
+            changelog: None,
+            ..entry.clone()
+        };
+        let made = preview(&bare, std::path::Path::new("preview"));
+        assert!(made.icon.is_none() && made.readme.is_none());
     }
 
     #[test]
