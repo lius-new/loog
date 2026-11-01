@@ -1,44 +1,44 @@
 {
   "schema": 1,
   "index": {
-    "sequence": 8,
+    "sequence": 14,
     "keyId": "index-2026-1",
-    "sha256": "5e52780eaf2fbb4f24602f1dc83770bf044e7f31e1f22e5ac8630ea6d365e5dc"
+    "sha256": "94cad8754511e7bb940e94f62d2dc71bd4f6024d386ad7f418e36a847d913942"
   },
   "extensions": [
     {
       "id": "loom.theme.aura",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "artifacts": [
         {
           "platform": "any",
-          "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.theme.aura-0.1.0/loom.theme.aura-0.1.0-any.loomext",
-          "sha256": "693b887798b543bea6a729207c1975f07fbf5d7cb766e2bd6fdd8dda05acb737",
-          "size": 2563
+          "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.theme.aura-0.1.1/loom.theme.aura-0.1.1-any.loomext",
+          "sha256": "2ce160efa2dad07d469a41eb7ffb26e7c6fad379368d8ce7e2daf4ac529bb620",
+          "size": 2601
         }
       ]
     },
     {
       "id": "loom.lang.json",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "artifacts": [
         {
           "platform": "any",
-          "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.json-0.1.0/loom.lang.json-0.1.0-any.loomext",
-          "sha256": "90a3467b760dbf997c4fb735027471a3862af8ae4cb0ec9fb0a3df5b133987aa",
-          "size": 4995
+          "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.json-0.1.1/loom.lang.json-0.1.1-any.loomext",
+          "sha256": "d7d63d59dbba0c198193111389a6f37ab96d92f54eea40f66c1bba073a39a655",
+          "size": 5034
         }
       ]
     },
     {
       "id": "loom.lang.markdown",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "artifacts": [
         {
           "platform": "any",
-          "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.markdown-0.1.0/loom.lang.markdown-0.1.0-any.loomext",
-          "sha256": "cbf24c995ea79e87ddcaef15bbdbf7797194fc87d8d094218a47ff1a790634b8",
-          "size": 127836
+          "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.markdown-0.1.1/loom.lang.markdown-0.1.1-any.loomext",
+          "sha256": "cfa297199c0078e01881142300e96a728f10a80b051510383a5c8400ab9f0b76",
+          "size": 127885
         }
       ]
     }

@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "generated": "2026-11-01T05:40:12.458Z",
-  "expires": "2026-12-01T05:40:12.458Z",
-  "sequence": 8,
+  "generated": "2026-11-01T08:06:29.256Z",
+  "expires": "2026-12-01T08:06:29.256Z",
+  "sequence": 14,
   "keyId": "index-2026-1",
   "extensions": [
     {
@@ -31,6 +31,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.bash-0.1.1/loom.lang.bash-0.1.1-any.loomext",
+              "sha256": "de090ac8c04279f8ddec4be325017d238dc773fea28d9a9f06e135cb06ba0604",
+              "size": 187333
+            }
+          ],
+          "source": {
+            "fingerprint": "d3ed3e9a8de706b0999ec50812e6750594b0a916278c7529f9ba1e5d0b9212c1",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -79,6 +100,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.c-0.1.1/loom.lang.c-0.1.1-any.loomext",
+              "sha256": "76dbe83b3aa4d05111f8c6061d0334207d40dee7de3a13acb003d0095465796b",
+              "size": 78128
+            }
+          ],
+          "source": {
+            "fingerprint": "afd6163db5bc43e1542575649901a601461148e2cafb32de6a3bc30026b69241",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -125,6 +167,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.cmake-0.1.1/loom.lang.cmake-0.1.1-any.loomext",
+              "sha256": "8cbb4422ce43987c6e1c23254c5234e460da5d411edc0759e1a35465b98da56d",
+              "size": 25554
+            }
+          ],
+          "source": {
+            "fingerprint": "85346f2b7daaf5a5f7821ee2a8b333c8dcaa202ca6557e30ce09a5acf52c4968",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -178,6 +241,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.cpp-0.1.1/loom.lang.cpp-0.1.1-any.loomext",
+              "sha256": "a7c14739cedf847a208535b15cb6a81702b153faf01eef2d10dbd7e8c74bd24b",
+              "size": 437941
+            }
+          ],
+          "source": {
+            "fingerprint": "ada669cd8284167dfdb0cf02f821d1968e63148b8613a94b5f8cb9dae2285236",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -225,6 +309,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.csharp-0.1.1/loom.lang.csharp-0.1.1-any.loomext",
+              "sha256": "35fea8a9661a8b533032d7d1d7f66317dc9e8e936b1f06ba22248a35a98044ec",
+              "size": 322818
+            }
+          ],
+          "source": {
+            "fingerprint": "35348bbd3af88f754091deb3d8ee4bd6f26f424a674866bb7fc9007a9a7f5543",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -271,6 +376,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.css-0.1.1/loom.lang.css-0.1.1-any.loomext",
+              "sha256": "e238940501f7c5b4015168ba4405ceac30197253e99e4dbc9ec92cd4033fb862",
+              "size": 24622
+            }
+          ],
+          "source": {
+            "fingerprint": "cae23ae1647baf3e1a6673fdacc0afbef0ac5af060f85db224a4b9f198109660",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -316,6 +442,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.dart-0.1.1/loom.lang.dart-0.1.1-any.loomext",
+              "sha256": "a38954a24dd1594fd8fc398173831b4fe617712d5cd25e5e19f0b211d31cb548",
+              "size": 123567
+            }
+          ],
+          "source": {
+            "fingerprint": "62b73f7030e8dd36ef0e514491c7352e144f712f695adb30abaa0ebffadfa4aa",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -364,6 +511,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.diff-0.1.1/loom.lang.diff-0.1.1-any.loomext",
+              "sha256": "3a9b83a887f5bd2780c0328eb55f476ab7427b4ab6c794b8f49873136a611c6d",
+              "size": 9635
+            }
+          ],
+          "source": {
+            "fingerprint": "04228755ab7bdb90b415440707a4d8b57623a1017aaf51841d279b39eac13fdd",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -411,6 +579,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.dockerfile-0.1.1/loom.lang.dockerfile-0.1.1-any.loomext",
+              "sha256": "a7d4c2d9e7943a860c54c58e1e594a258f1009a5129e0f6fcbb970c425a5e284",
+              "size": 20281
+            }
+          ],
+          "source": {
+            "fingerprint": "44ffff1bc566ed0f8f4e4e5ed26d4e2685ebc30079baefa4dfdbc576a7cd73e7",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -456,6 +645,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.fish-0.1.1/loom.lang.fish-0.1.1-any.loomext",
+              "sha256": "0348cd6af70c26fc5a7e82629233bd54f93d2fe22182f7de160e86211a545942",
+              "size": 21451
+            }
+          ],
+          "source": {
+            "fingerprint": "467400e827da6358e12e570a832b16d689db3f0cec292ef7c82608430c24866c",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -504,6 +714,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.gitattributes-0.1.1/loom.lang.gitattributes-0.1.1-any.loomext",
+              "sha256": "7d9d7f7740b2ef1df1a453fe95f713585fc59a2984341aebe1691ce3585247da",
+              "size": 7748
+            }
+          ],
+          "source": {
+            "fingerprint": "4971a76f9fd8b235ddb216874b27471bc8075df6a22d1e49e0cae901ef5b7aec",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -554,6 +785,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.gitcommit-0.1.1/loom.lang.gitcommit-0.1.1-any.loomext",
+              "sha256": "7e9b4c367f21cc01e7b42aa76ef68420d7e1e6f955d07c5a9349d8e69850aa6d",
+              "size": 232592
+            }
+          ],
+          "source": {
+            "fingerprint": "037c3fb8c8e9fc711f3cb94a6d608bc32b0ec0b241b1d619c3d1604fdc3fbca2",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -603,6 +855,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.gitignore-0.1.1/loom.lang.gitignore-0.1.1-any.loomext",
+              "sha256": "a81d8b39b5324b4fa8cc0e9ce0d5aa50886e1035c934cb8985dc6ff5d9eac951",
+              "size": 6630
+            }
+          ],
+          "source": {
+            "fingerprint": "8575a0d12a03943d3eb6cf616886c1dc071afeffaf99cd6ec4b2823a28083339",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -648,6 +921,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.go-0.1.1/loom.lang.go-0.1.1-any.loomext",
+              "sha256": "ca09467b9f515692dc627488515d2e780b20d8faf8eec6892ec9aa70b0cf5fe0",
+              "size": 43606
+            }
+          ],
+          "source": {
+            "fingerprint": "9d854aa8375429fde3624a9bc6e1b80294ac566afbf70a3251b8d0465d4c9fc2",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -695,6 +989,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.graphql-0.1.1/loom.lang.graphql-0.1.1-any.loomext",
+              "sha256": "fac8585c4d9572d8cacd635fa73078781b89ba06213882df9a74a2f7fb9f3ae1",
+              "size": 22447
+            }
+          ],
+          "source": {
+            "fingerprint": "0b598cf37100191385d3decca553423d99aafd8cdb3618d5f399c503d895b78f",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -744,6 +1059,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.hcl-0.1.1/loom.lang.hcl-0.1.1-any.loomext",
+              "sha256": "3b0439ae579725556b46d39c21a883fd4d32f3d6ce2ff67669a7af3136a2e8e7",
+              "size": 33425
+            }
+          ],
+          "source": {
+            "fingerprint": "6b6717b414560813d46db611f4bb3cfedf037cfefbd98c0d93147b3af76e4c4a",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -790,6 +1126,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.html-0.1.1/loom.lang.html-0.1.1-any.loomext",
+              "sha256": "fd114b712abd947047a7d3aad0219206d1408ae3a795ef78e25f6120966df49c",
+              "size": 9468
+            }
+          ],
+          "source": {
+            "fingerprint": "f9bf9577096edc82e66862fd5c4be8918d673e9fa7d92b39f255c4b3aba78fe2",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -839,6 +1196,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.ini-0.1.1/loom.lang.ini-0.1.1-any.loomext",
+              "sha256": "b3321d8e1eec3a97073abf30a5922fbce9c1a845b5733861f0ffd2f99977d500",
+              "size": 7647
+            }
+          ],
+          "source": {
+            "fingerprint": "a1b21768e11166149fbe3f3936b6f3c5fb9d8820e7c682ee8efcfbc5fc6cb94b",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -884,6 +1262,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.java-0.1.1/loom.lang.java-0.1.1-any.loomext",
+              "sha256": "bd34783b8ed8b6f30c5797f9b64ee0fb937a2aa78d851365dececa2a256e743e",
+              "size": 56224
+            }
+          ],
+          "source": {
+            "fingerprint": "8f07477a344824f5e9106ab5f16ac8bb61837fd7f621008c8180055bfb9e41ae",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -934,6 +1333,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.javascript-0.1.1/loom.lang.javascript-0.1.1-any.loomext",
+              "sha256": "ab9bac83a015d659bedc9758ce879ec6db28bc2beac2c6c6cbb3831ee33f0c15",
+              "size": 54324
+            }
+          ],
+          "source": {
+            "fingerprint": "c6cc74b9a0ffaa10ed4a7f051e4ba89fa47fed1bf2793552da00934c857dd640",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -983,6 +1403,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.json-0.1.1/loom.lang.json-0.1.1-any.loomext",
+              "sha256": "d7d63d59dbba0c198193111389a6f37ab96d92f54eea40f66c1bba073a39a655",
+              "size": 5034
+            }
+          ],
+          "source": {
+            "fingerprint": "b25b633fd27fa4f36f6046acb9c9297d04f8f33186563adb84033acdb6cd39ad",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -1028,6 +1469,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.json5-0.1.1/loom.lang.json5-0.1.1-any.loomext",
+              "sha256": "19101a5e0cbb25be4515e44771a85a39c68ee0bd1cc18e60e031c8000cf6e626",
+              "size": 9206
+            }
+          ],
+          "source": {
+            "fingerprint": "84da92d2bef4361d8131c0d44a8bf7717442dc00e42fce0e3d0d09d0d08b8192",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -1075,6 +1537,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.julia-0.1.1/loom.lang.julia-0.1.1-any.loomext",
+              "sha256": "39617949fa7db7dc49412abdeef470c6e1da579e276db5e6c142962483db775a",
+              "size": 252582
+            }
+          ],
+          "source": {
+            "fingerprint": "40f30ee6eaf82685bf69264d44149a75d5c73c41d3d90cd146a05c116b021d06",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -1121,6 +1604,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.kotlin-0.1.1/loom.lang.kotlin-0.1.1-any.loomext",
+              "sha256": "0dad8ac48d2920ab10f768d6b3aa81f4016015bd4c525e2397d80427d0a46ff7",
+              "size": 401006
+            }
+          ],
+          "source": {
+            "fingerprint": "0a9e183357bcb5e088e59c761575f9715d6aab26f621b4a3567c17a2e7294493",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -1170,6 +1674,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.latex-0.1.1/loom.lang.latex-0.1.1-any.loomext",
+              "sha256": "aa65308fc104de358c59ef41eec9e73126f2fa300f48d56adda73c817868d3ab",
+              "size": 170483
+            }
+          ],
+          "source": {
+            "fingerprint": "7b64f8cf2fdba6926379a9a96c185ad18833eb02b48c4ccab5c28099da580389",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -1215,6 +1740,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.lua-0.1.1/loom.lang.lua-0.1.1-any.loomext",
+              "sha256": "fa8debbc556be061afab521333948e5e0575ab25aabe7243be8f378de8a82e18",
+              "size": 16669
+            }
+          ],
+          "source": {
+            "fingerprint": "11a67a196779a84e62bac53bae1cffd614c39008af5afb24542161366785e203",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -1262,6 +1808,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.make-0.1.1/loom.lang.make-0.1.1-any.loomext",
+              "sha256": "02de8a6cc4d5d2457c0b21098ccf4e30a6cd6437510c61aa30a1cd2452ce8ae2",
+              "size": 39881
+            }
+          ],
+          "source": {
+            "fingerprint": "d047db21e0658750dafa7c65d5dab8c345b66364a28fb07783b388bf382648d4",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -1316,6 +1883,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.markdown-0.1.1/loom.lang.markdown-0.1.1-any.loomext",
+              "sha256": "cfa297199c0078e01881142300e96a728f10a80b051510383a5c8400ab9f0b76",
+              "size": 127885
+            }
+          ],
+          "source": {
+            "fingerprint": "9c2d0595fc12f2c823c4ab24dd7b3b63d5b014fa9d708c314006c96a416c6451",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -1361,6 +1949,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.nix-0.1.1/loom.lang.nix-0.1.1-any.loomext",
+              "sha256": "ed40f697487cc1d765d7e86dcb8ea7e835b54ec9520d09046b2a579c076b4745",
+              "size": 24849
+            }
+          ],
+          "source": {
+            "fingerprint": "3694e7d0eb56ed73e545cc3c9d723d320e5e8e484634b21fd8b909fa2f562f3f",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -1410,6 +2019,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.objc-0.1.1/loom.lang.objc-0.1.1-any.loomext",
+              "sha256": "530f90a3b7c750faf310bfb9ef145ed01cb8bd2924232c80d341591761811318",
+              "size": 291074
+            }
+          ],
+          "source": {
+            "fingerprint": "563e1fa9deba05120d539731f35786247f114ba5542849e14ac92ab56b1c7ba9",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -1458,6 +2088,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.perl-0.1.1/loom.lang.perl-0.1.1-any.loomext",
+              "sha256": "7cefaf29ebc1937b7d965c9e11c30df36bb901a3dd7a2ff95dcde4f1450a617d",
+              "size": 177252
+            }
+          ],
+          "source": {
+            "fingerprint": "e03d37167b5cc6c007273b2ceae8a424e3b8af781a2c990e482f2ce23f502205",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -1504,6 +2155,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.php-0.1.1/loom.lang.php-0.1.1-any.loomext",
+              "sha256": "8d465d43c564eaf7ab8acc14612b72321f8ae5253de84a979ce8e074e8ee1034",
+              "size": 112872
+            }
+          ],
+          "source": {
+            "fingerprint": "3e6b251cf2c604cfdbd549c147b6f2ee2385cf5386a70ae2e6034a335d12f4c1",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -1553,6 +2225,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.powershell-0.1.1/loom.lang.powershell-0.1.1-any.loomext",
+              "sha256": "18cb002f0b15e52d132f82e657002ee81136be245c1e5b4e32ed1459d333b017",
+              "size": 87286
+            }
+          ],
+          "source": {
+            "fingerprint": "98430995ed5181b7addc2ea92546833ec809ad573a8c1cc1c70c17d003369415",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -1599,6 +2292,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.protobuf-0.1.1/loom.lang.protobuf-0.1.1-any.loomext",
+              "sha256": "d886da3941afc4d58849a82924273e0127907169ee2204672e34ee7fb7cb500b",
+              "size": 17249
+            }
+          ],
+          "source": {
+            "fingerprint": "eb09f98bdc1c4440eeb4cdad6c933a90d18cfdf0d962a7bf09bc88926c887fdd",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -1648,6 +2362,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.python-0.1.1/loom.lang.python-0.1.1-any.loomext",
+              "sha256": "dd50821602ed93809d4332e1a1a8c659845a757bf7c0ba7fb4dc3460b1aeb597",
+              "size": 71818
+            }
+          ],
+          "source": {
+            "fingerprint": "8fc31791ed67b24910faed53e09289fc60b3bb38f3291fe0addbb4683375d532",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -1695,6 +2430,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.r-0.1.1/loom.lang.r-0.1.1-any.loomext",
+              "sha256": "649fdebc7cc051b140b6d5aaeddd0795bbfcce9cbe34642ba64b2828ba8d06e6",
+              "size": 53505
+            }
+          ],
+          "source": {
+            "fingerprint": "8529847c08391579ba656cb25dc06a40484fbbc3478eb5abd97e53db3d9e9cf8",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -1741,6 +2497,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.rst-0.1.1/loom.lang.rst-0.1.1-any.loomext",
+              "sha256": "e738c5e86cf11a5ca04c8461f983a1161a65c505172d4ee2e45d1241a989f274",
+              "size": 24388
+            }
+          ],
+          "source": {
+            "fingerprint": "d87c8c5fce59760494c2d5edfe5ff56d11086cfa28352a1cf1dd9e2d61f64ec7",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -1792,6 +2569,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.ruby-0.1.1/loom.lang.ruby-0.1.1-any.loomext",
+              "sha256": "a619c161e64ec5c24c0cb611168fbd376eb0e527ba10bf7afac4e045982922ee",
+              "size": 169691
+            }
+          ],
+          "source": {
+            "fingerprint": "3b9e96f0a75ad12643ffca9700e233b3159a68ef3fa4df1410c7936909f56e77",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -1837,6 +2635,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.rust-0.1.1/loom.lang.rust-0.1.1-any.loomext",
+              "sha256": "60becab30ba88cd838626648451c851a770313dca938dcb5d43523ad8a7623c9",
+              "size": 122634
+            }
+          ],
+          "source": {
+            "fingerprint": "6c24ed597a6912cf06095d7a60f84df2f5aa53bff1584a63ad91a00c08c3f32f",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -1885,6 +2704,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.scala-0.1.1/loom.lang.scala-0.1.1-any.loomext",
+              "sha256": "ca7476ec6bfe1f984c4c4d7128610e3cac7a38faa3d13159a985d5ad1334e7e2",
+              "size": 510605
+            }
+          ],
+          "source": {
+            "fingerprint": "a155b5beca1dcd29257e017e64cec0bee91d679fa3ce595d478f8d5cf88c04a8",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -1930,6 +2770,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.scss-0.1.1/loom.lang.scss-0.1.1-any.loomext",
+              "sha256": "cf9cca83c0896bf3fb620bffaf38d1d8c0dfee9a2ce8bf205f29c221b546c4d7",
+              "size": 24637
+            }
+          ],
+          "source": {
+            "fingerprint": "40dacf01aca27b4e095be72058fcc4be91015900f86e85c7c5bb3ca10a73122c",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -1977,6 +2838,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.sql-0.1.1/loom.lang.sql-0.1.1-any.loomext",
+              "sha256": "3532fb4a6efbfc06baf17c5b05c33f841f5c4d8c08e375c89a915f39d56fff03",
+              "size": 842634
+            }
+          ],
+          "source": {
+            "fingerprint": "7187027a39866ea9d54da277d4828e62efd98a020567a8c05b3dbac1303a4c38",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -2022,6 +2904,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.svelte-0.1.1/loom.lang.svelte-0.1.1-any.loomext",
+              "sha256": "ecb42aa2279a15c1f04cccc35391d2f95c5cce7fbffedfa2eb32fa9219f61878",
+              "size": 50669
+            }
+          ],
+          "source": {
+            "fingerprint": "b00c0a338a6826d7f3d490cfbed646f2a89d07ad988d7657fbe7876c8e55cc3a",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -2069,6 +2972,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.swift-0.1.1/loom.lang.swift-0.1.1-any.loomext",
+              "sha256": "a59f098d0b676bf63bdafaf51b4805161e8bfcb5010e1e357a8892ef8e891699",
+              "size": 317072
+            }
+          ],
+          "source": {
+            "fingerprint": "7e25076f95bbdf1148321040a73deaf08ccf4d350b563f066f18308c0c8a13c3",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -2114,6 +3038,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.toml-0.1.1/loom.lang.toml-0.1.1-any.loomext",
+              "sha256": "40a60a3beb9810c2794876665967d4dfd2f97b7aa13767f9222f203cd0baba59",
+              "size": 10232
+            }
+          ],
+          "source": {
+            "fingerprint": "e632b30d175adf5610034ca5f2117f8afe2874f3117934b0dba603e06371ffa7",
+            "revision": "cb802937c3384300e98c658185659de56807626c"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -2170,6 +3115,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.typescript-0.1.1/loom.lang.typescript-0.1.1-any.loomext",
+              "sha256": "53642a3eaaef362b168f57e74e5675fa8e018686db493944393b2bb675514e0e",
+              "size": 286163
+            }
+          ],
+          "source": {
+            "fingerprint": "15c1ea0b8f4924a805ab760dbb197cd87f2ea2af4ac2bfcef3132775f494db2e",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -2215,6 +3181,27 @@
         }
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.vue-0.1.1/loom.lang.vue-0.1.1-any.loomext",
+              "sha256": "59d473530e020808dc923095c30d201a64f3a08656c0ad88034ac1285fec5f09",
+              "size": 12624
+            }
+          ],
+          "source": {
+            "fingerprint": "caf56c83701f243f88e90441acd79d5a3592cf2990bc8e29202f4e5242ec1867",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -2266,6 +3253,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.xml-0.1.1/loom.lang.xml-0.1.1-any.loomext",
+              "sha256": "9f4bd02ef9e2995aa4eb96df50795b2868d2bc887761012fb770e649afe67484",
+              "size": 18975
+            }
+          ],
+          "source": {
+            "fingerprint": "42d066e34a9f680e9fea324fcb28c85cc7c63012f71924ae07bf9cf4446e5dfc",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -2313,6 +3321,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.yaml-0.1.1/loom.lang.yaml-0.1.1-any.loomext",
+              "sha256": "245311469c283d4882da5825dd15c7dea52205082c7fc225201f1a8fbd4de230",
+              "size": 38824
+            }
+          ],
+          "source": {
+            "fingerprint": "fe19091c3510234b2c43e08e0675d74387eaf47740ec452fb13c325008b4e96f",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -2359,6 +3388,27 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.zig-0.1.1/loom.lang.zig-0.1.1-any.loomext",
+              "sha256": "036b0bbf18a964b730e6df398e1c75390999ff02ab0bcedda252172c77afbbe9",
+              "size": 62812
+            }
+          ],
+          "source": {
+            "fingerprint": "b52fb789bfc7b64105e85a75d1c11cc4d6eafc11f3f91fe338c07e5985f5eaa8",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -2399,6 +3449,31 @@
         "bash"
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [
+            "loom.runtime.node@^0.1.0"
+          ],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.bash-language-server-0.1.1/loom.lsp.bash-language-server-0.1.1-any.loomext",
+              "sha256": "b2f71e435c3b5d8ccbe49264d8aed4b476fcc1b0b3b8006ea8c769efcc9bd370",
+              "size": 3750428
+            }
+          ],
+          "source": {
+            "fingerprint": "10c9f58ec862b1ecba4888c4e0c8764cab70a08661ce8780895e0ef66bbca267",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -2447,6 +3522,59 @@
         "typescript"
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.biome-0.1.1/loom.lsp.biome-0.1.1-linux-aarch64.loomext",
+              "sha256": "2c97bb9388b4604ed24ed5e02f2c2cd514e8842f0a065465eb05865b5203fb80",
+              "size": 23037794
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.biome-0.1.1/loom.lsp.biome-0.1.1-linux-x86_64.loomext",
+              "sha256": "25501bf27afcf59512a84b326e3f485438fda7aab7fe8574691c0f502d3f921f",
+              "size": 24699323
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.biome-0.1.1/loom.lsp.biome-0.1.1-macos-aarch64.loomext",
+              "sha256": "292c160a46e4ea68b897ffaa3b43df0c352c1a817692fa90fc4230a7e4a2fe54",
+              "size": 22818764
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.biome-0.1.1/loom.lsp.biome-0.1.1-macos-x86_64.loomext",
+              "sha256": "90c12b637630e7351cbc96c4bb5bebe22cdfdf2977597738715f0c703ea3abb4",
+              "size": 23814950
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.biome-0.1.1/loom.lsp.biome-0.1.1-windows-aarch64.loomext",
+              "sha256": "3398a5b9e1fd5d9b6e602e7f20455d917ed1bbb98e43138b2db8616eb0a47b8b",
+              "size": 24847676
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.biome-0.1.1/loom.lsp.biome-0.1.1-windows-x86_64.loomext",
+              "sha256": "3a1ca12739de068fe948e991644eece0f00e890c86837562fde14e2b09e1c052",
+              "size": 26309462
+            }
+          ],
+          "source": {
+            "fingerprint": "f9f3e6209243e3c750110bc11f90893872a5fbd6cd6ed61629a9c18df54f834f",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -2523,6 +3651,47 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.clangd-0.1.1/loom.lsp.clangd-0.1.1-linux-x86_64.loomext",
+              "sha256": "28aed47295b1aabdb4d6e46b7b2641002445523d0d89c6b2310e0fefe3bb0b48",
+              "size": 119738022
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.clangd-0.1.1/loom.lsp.clangd-0.1.1-macos-aarch64.loomext",
+              "sha256": "9c72170be539859e1783927e65b559cb775f8953b18952b624d93e609de01737",
+              "size": 104377268
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.clangd-0.1.1/loom.lsp.clangd-0.1.1-macos-x86_64.loomext",
+              "sha256": "b5f737c5fc4376256ce0bd9028c14eec0a5667513eef840318b566c0d00bf652",
+              "size": 104377260
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.clangd-0.1.1/loom.lsp.clangd-0.1.1-windows-x86_64.loomext",
+              "sha256": "ee35ff5942f08a00c7211787626bc8a5ae3a05bd9719305c074310f14821889c",
+              "size": 30941928
+            }
+          ],
+          "source": {
+            "fingerprint": "d965350f7746ffe6aaab5895f3744870c5b7305d2e81d3c5035d242744f67d98",
+            "revision": "cb802937c3384300e98c658185659de56807626c"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -2583,6 +3752,59 @@
         "go"
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.gopls-0.1.1/loom.lsp.gopls-0.1.1-linux-aarch64.loomext",
+              "sha256": "1a085594f9f90e4c28c1cab537dc122a7730c031f9daaa25e929c8d89d02f01b",
+              "size": 20741206
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.gopls-0.1.1/loom.lsp.gopls-0.1.1-linux-x86_64.loomext",
+              "sha256": "9144f1f8f8d404ef1d2a79b48e0aa139ec71600150f3c3e13c8c08180d9d6772",
+              "size": 22702147
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.gopls-0.1.1/loom.lsp.gopls-0.1.1-macos-aarch64.loomext",
+              "sha256": "195dfaf935b546b98740072cb98906d2b04c4f9c6e1b32da6efeedd0568cd0dd",
+              "size": 21833325
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.gopls-0.1.1/loom.lsp.gopls-0.1.1-macos-x86_64.loomext",
+              "sha256": "dbb070fedf1799eb87ede7b980f4bedc6816504c4b0c0b51b5f178d83f0b8c26",
+              "size": 23301068
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.gopls-0.1.1/loom.lsp.gopls-0.1.1-windows-aarch64.loomext",
+              "sha256": "953878c27ebb9ad288f8c3e45d804f00c10c8548439d4aeee5744df23e65aaef",
+              "size": 20843021
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.gopls-0.1.1/loom.lsp.gopls-0.1.1-windows-x86_64.loomext",
+              "sha256": "db4e2fff58c305f8e9a6142c5fd54afae7f40d6ac5883e55c1f1e55370c6ecfe",
+              "size": 22935909
+            }
+          ],
+          "source": {
+            "fingerprint": "e06c86c850482c43c293990d8f640d4d6739889ca5f9ca2bf791986fa04d35f0",
+            "revision": "cb802937c3384300e98c658185659de56807626c"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -2657,6 +3879,53 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.lua-language-server-0.1.1/loom.lsp.lua-language-server-0.1.1-linux-aarch64.loomext",
+              "sha256": "6fd003ec3c37dabf9dea54d8fa77594bf177ebb364438baa89f873b2923ad47c",
+              "size": 2631140
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.lua-language-server-0.1.1/loom.lsp.lua-language-server-0.1.1-linux-x86_64.loomext",
+              "sha256": "4d396f5940a548a108dbe016b3ad857bfee6d39e2f1a1d5cea29e9d4e2c9adb0",
+              "size": 3654861
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.lua-language-server-0.1.1/loom.lsp.lua-language-server-0.1.1-macos-aarch64.loomext",
+              "sha256": "f182778cb1c56c1bf3d92323c4afdf6e57751b1470f608efc994ecf1f223457f",
+              "size": 3244283
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.lua-language-server-0.1.1/loom.lsp.lua-language-server-0.1.1-macos-x86_64.loomext",
+              "sha256": "b23ced2b5ed695aefe8c14b7efc63588ff2d58e38c50e984a60fe4a3bd8f0010",
+              "size": 2321618
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.lua-language-server-0.1.1/loom.lsp.lua-language-server-0.1.1-windows-x86_64.loomext",
+              "sha256": "26258e388815af54a8c4f0d6d155d6f9ab8901d97450430091c9bee3d79139b3",
+              "size": 4101793
+            }
+          ],
+          "source": {
+            "fingerprint": "554604503254f094cf3eaf249a44af5f670146c5e17eca5f1164c13f4b082d64",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -2723,6 +3992,53 @@
         "markdown"
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.marksman-0.1.1/loom.lsp.marksman-0.1.1-linux-aarch64.loomext",
+              "sha256": "d92dcdc762bccb814fb7753d119ffe19c9dd79b034afb81a5940eea21ed24777",
+              "size": 15283355
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.marksman-0.1.1/loom.lsp.marksman-0.1.1-linux-x86_64.loomext",
+              "sha256": "99f7a5c2b8ed3b919a5ad1858a576ed47e59e50c92c1e923bd17f5579a43ccc3",
+              "size": 15505339
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.marksman-0.1.1/loom.lsp.marksman-0.1.1-macos-aarch64.loomext",
+              "sha256": "69354c0f090cdf6ca8019cfb991a7d8eea4c8344e8e0c9fcf44bc4b5e84b26d3",
+              "size": 30504051
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.marksman-0.1.1/loom.lsp.marksman-0.1.1-macos-x86_64.loomext",
+              "sha256": "e18bb8a9555a6376a77aabaf3d9dbd8193c51836f38aa1da6114650cd03584e9",
+              "size": 30504050
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.marksman-0.1.1/loom.lsp.marksman-0.1.1-windows-x86_64.loomext",
+              "sha256": "13b56ea73c925d905753b57f325e6247f111ba4e10133f88c0fa89a3b51bb048",
+              "size": 15203169
+            }
+          ],
+          "source": {
+            "fingerprint": "c43bb0bdde7dbd3ab9ff6ca9c583fefdfcce2ff8b76b9f70abaa46ff420e9cb7",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -2791,6 +4107,31 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [
+            "loom.runtime.node@^0.1.0"
+          ],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.pyright-0.1.1/loom.lsp.pyright-0.1.1-any.loomext",
+              "sha256": "760d55419a8d6649929fb08d209baa009014fdf5e99431029459ac7b338737ac",
+              "size": 3920878
+            }
+          ],
+          "source": {
+            "fingerprint": "34747c02eb3290c5d4c62c61c82c1de861fb00c9117f1e22c5bb065837ae19e5",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -2835,6 +4176,59 @@
         "python"
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.ruff-0.1.1/loom.lsp.ruff-0.1.1-linux-aarch64.loomext",
+              "sha256": "31d7d355e0641b6725bdba2e1cf7dfea89f2de6e795baa4deab47aa25b472dd8",
+              "size": 9971804
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.ruff-0.1.1/loom.lsp.ruff-0.1.1-linux-x86_64.loomext",
+              "sha256": "e739dc00e7da49f371935a9218d6339989667ac403ef351af89413e288373115",
+              "size": 10623493
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.ruff-0.1.1/loom.lsp.ruff-0.1.1-macos-aarch64.loomext",
+              "sha256": "f73d761613a1ad543b1b83e080abfba9b1255e960d130110d41582d5aea3bdfe",
+              "size": 9629323
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.ruff-0.1.1/loom.lsp.ruff-0.1.1-macos-x86_64.loomext",
+              "sha256": "c22b10c168a0a9c2a8fd9b08f80e844f6b24eaf23cb12fc8eefee1c96e00d798",
+              "size": 10406457
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.ruff-0.1.1/loom.lsp.ruff-0.1.1-windows-aarch64.loomext",
+              "sha256": "4f2acec5b94a3fe323692251fd8ce647f219935dcb9a6c749f9384f30e28030f",
+              "size": 10312438
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.ruff-0.1.1/loom.lsp.ruff-0.1.1-windows-x86_64.loomext",
+              "sha256": "7c2f70f718c178d7ac1869ad5a07da1be340273fe6e074f7493671384f160cba",
+              "size": 10436575
+            }
+          ],
+          "source": {
+            "fingerprint": "86b0e16330be4dac36f84740f1613c59842dc1d97836b73c290834b962938b13",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -2909,6 +4303,59 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.rust-analyzer-0.1.1/loom.lsp.rust-analyzer-0.1.1-linux-aarch64.loomext",
+              "sha256": "0d8e7b66232eda3424ff5b9519a4816113c97f8e76eb57f1924fb6e228559097",
+              "size": 15004864
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.rust-analyzer-0.1.1/loom.lsp.rust-analyzer-0.1.1-linux-x86_64.loomext",
+              "sha256": "adc996170c2a5732f75e863978e43a7ab4f817478136e644697206df7ce7aae2",
+              "size": 15371515
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.rust-analyzer-0.1.1/loom.lsp.rust-analyzer-0.1.1-macos-aarch64.loomext",
+              "sha256": "55b668818e065a3001950ca265b8ae9766ec13b00eb4e0f8eeccdb0e945aaf15",
+              "size": 14575142
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.rust-analyzer-0.1.1/loom.lsp.rust-analyzer-0.1.1-macos-x86_64.loomext",
+              "sha256": "a4b41697e7469d1eb32e22466b0a42a47031bb11bc94afc8fc4d9e99f912ef46",
+              "size": 15059060
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.rust-analyzer-0.1.1/loom.lsp.rust-analyzer-0.1.1-windows-aarch64.loomext",
+              "sha256": "1ceb187e7810e6949a3d01f1ff4dbdc64119106ae72c52d23e25facdb91cb9d0",
+              "size": 14197803
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.rust-analyzer-0.1.1/loom.lsp.rust-analyzer-0.1.1-windows-x86_64.loomext",
+              "sha256": "29f6416e5a5d26c61278cf83729c05678be233c2a260d0b1b3207a0cdd999ff9",
+              "size": 14838211
+            }
+          ],
+          "source": {
+            "fingerprint": "d5b55a50a70c41b348c28baab1fd83c63a4a5cdc51aeb19e0ba1c9a0d43904b2",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -2981,6 +4428,59 @@
         "toml"
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.taplo-0.1.1/loom.lsp.taplo-0.1.1-linux-aarch64.loomext",
+              "sha256": "b22a2ed81a323487832e04ecc60978e15150441e909192381d6429d1510aded6",
+              "size": 4812361
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.taplo-0.1.1/loom.lsp.taplo-0.1.1-linux-x86_64.loomext",
+              "sha256": "4a9635b6580ba0a8241eb4f7f075e4ab58ea736643b22e2ea8ee5da847449df9",
+              "size": 5216906
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.taplo-0.1.1/loom.lsp.taplo-0.1.1-macos-aarch64.loomext",
+              "sha256": "5d7947bbce4c873835ce24e0dca0446619fc1a841a5292b58b5e237c80365d57",
+              "size": 4786623
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.taplo-0.1.1/loom.lsp.taplo-0.1.1-macos-x86_64.loomext",
+              "sha256": "f42917131fee52e059333ef22bee7a3d6c1027dedd227fb03b72bd391f588098",
+              "size": 5013184
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.taplo-0.1.1/loom.lsp.taplo-0.1.1-windows-aarch64.loomext",
+              "sha256": "a245c7ce7e93d25cf27d7bb6f2dca7d238709b9b6353ce39d65884bb91cb7e1f",
+              "size": 5038527
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.taplo-0.1.1/loom.lsp.taplo-0.1.1-windows-x86_64.loomext",
+              "sha256": "cde15cf98213e79aaa3520589b8a82c8f8edf66dda84093db71e92333caff3db",
+              "size": 5350174
+            }
+          ],
+          "source": {
+            "fingerprint": "5a3461572960fdeabe2d34ae9b698f19cc66b10aa0f7025f5cc581d82c18efe0",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -3056,6 +4556,31 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [
+            "loom.runtime.node@^0.1.0"
+          ],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.typescript-language-server-0.1.1/loom.lsp.typescript-language-server-0.1.1-any.loomext",
+              "sha256": "8dca87d6d1185b05da0d7ca9ff9661e8e90daf067b3f5e61c921b3548dc88eff",
+              "size": 4898402
+            }
+          ],
+          "source": {
+            "fingerprint": "5b83fd587819e2ce3c862f586093c3ed7434f2acdfa40f2b1d6ec5aaf3db55a8",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -3106,6 +4631,31 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [
+            "loom.runtime.node@^0.1.0"
+          ],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.vscode-langservers-extracted-0.1.1/loom.lsp.vscode-langservers-extracted-0.1.1-any.loomext",
+              "sha256": "ea86f84316e1ad99a8dce3887ce3e1333dd59fb852b8fac465a5bf6b739888f9",
+              "size": 13802153
+            }
+          ],
+          "source": {
+            "fingerprint": "4d02b15dbc976261720adca537a940a09efb6c4e9de8d8cb4d26cc7af7745944",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -3151,6 +4701,31 @@
       ],
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [
+            "loom.runtime.node@^0.1.0"
+          ],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.yaml-language-server-0.1.1/loom.lsp.yaml-language-server-0.1.1-any.loomext",
+              "sha256": "d4ac26ad189621c3d3bf53a8f5481c220afe5ad32a936c9077c03ff419f9465d",
+              "size": 3860944
+            }
+          ],
+          "source": {
+            "fingerprint": "b9e98356ea08cf8a285d4fc6a3a570751c12095ae4e490c95b986ec38f5dbad9",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -3195,6 +4770,59 @@
         "zig"
       ],
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.zls-0.1.1/loom.lsp.zls-0.1.1-linux-aarch64.loomext",
+              "sha256": "963b8dded320ed91afd482f0f6df7ba5e39e97e79cfbcbe4ff1a30609f24da44",
+              "size": 5375964
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.zls-0.1.1/loom.lsp.zls-0.1.1-linux-x86_64.loomext",
+              "sha256": "1f15f4008d091f2acbf2201aa3013ee8cd4cd44ad4015f230e83464063fa1fe6",
+              "size": 5506018
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.zls-0.1.1/loom.lsp.zls-0.1.1-macos-aarch64.loomext",
+              "sha256": "7cefb64c85242823e7e3f51d9a3009419656f3b6595208428587a336c8ee51aa",
+              "size": 1580423
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.zls-0.1.1/loom.lsp.zls-0.1.1-macos-x86_64.loomext",
+              "sha256": "e275dbc4c21c2ada6b1f638fb4872903ec77431a4b16c755e267a0dfbc0efec3",
+              "size": 1641136
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.zls-0.1.1/loom.lsp.zls-0.1.1-windows-aarch64.loomext",
+              "sha256": "d3d783d43ebe56a9ffee2b888049970ef8f7fae89bb74e2696dfa3fc4fe4ad10",
+              "size": 4883874
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.zls-0.1.1/loom.lsp.zls-0.1.1-windows-x86_64.loomext",
+              "sha256": "16a906f79d4059c71fb0f573865b9bede128a0cfd42d6400e0c12ba99881ba4c",
+              "size": 5143678
+            }
+          ],
+          "source": {
+            "fingerprint": "bbd0857839720f76ae2ecd7bb67214acdf0b92bfae538b9533590ebb1daa28fb",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
@@ -3265,6 +4893,57 @@
       "license": "MIT",
       "versions": [
         {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.runtime.node-0.1.1/loom.runtime.node-0.1.1-linux-aarch64.loomext",
+              "sha256": "f9b43f8bf33194327822ee3518089b27df3d50ab7f5f719261994131a62e3ac0",
+              "size": 44938793
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.runtime.node-0.1.1/loom.runtime.node-0.1.1-linux-x86_64.loomext",
+              "sha256": "8b6f6fa4dd1e1ae4dac40f3960aee99ae866239c628615957f42264440f68bbd",
+              "size": 44858015
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.runtime.node-0.1.1/loom.runtime.node-0.1.1-macos-aarch64.loomext",
+              "sha256": "239449081a510101892e466e05e73377bdbe7a3c0776ee0d420b05ee6bdc8ce2",
+              "size": 38007973
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.runtime.node-0.1.1/loom.runtime.node-0.1.1-macos-x86_64.loomext",
+              "sha256": "638664b26d6f217639b3e3fb3714344e4b397a773db7d4c5ba9796a4b28db920",
+              "size": 38995391
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.runtime.node-0.1.1/loom.runtime.node-0.1.1-windows-aarch64.loomext",
+              "sha256": "b3a175bde594a2cdcff959effd50d43ea92dff5292448613de08443505e5876d",
+              "size": 29799717
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.runtime.node-0.1.1/loom.runtime.node-0.1.1-windows-x86_64.loomext",
+              "sha256": "36d06bdc49aad9eb56ba9a51b840f24a96e3c60986f8181c60a9bae15ac91fee",
+              "size": 34262203
+            }
+          ],
+          "source": {
+            "fingerprint": "b7faa0cece16a1771d11f57bcb504e62db92ab145380963a81baa76d270a45b6",
+            "revision": "6d43d353b8f4a0c674f0b4ff87e696d4983308f3"
+          }
+        },
+        {
           "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
@@ -3333,6 +5012,27 @@
       ],
       "license": "MIT",
       "versions": [
+        {
+          "version": "0.1.1",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.theme.aura-0.1.1/loom.theme.aura-0.1.1-any.loomext",
+              "sha256": "2ce160efa2dad07d469a41eb7ffb26e7c6fad379368d8ce7e2daf4ac529bb620",
+              "size": 2601
+            }
+          ],
+          "source": {
+            "fingerprint": "a17f8d591583227c53f07381cbfa059ce7172791b016458145406082e3f59354",
+            "revision": "cb802937c3384300e98c658185659de56807626c"
+          }
+        },
         {
           "version": "0.1.0",
           "engines": {
