@@ -263,6 +263,16 @@ fn repository_packages_install() {
     // What was installed is read back the way startup reads it.
     let state = crate::infrastructure::extensions::state::read(&extensions);
     assert_eq!(state.extensions.len(), installed);
+    // All the languages together register without clashing over names or file types.
+    let packs = crate::infrastructure::language_packs::extension_packs(&extensions);
+    let packages = crate::infrastructure::language_packs::Packages::from_directories(packs);
+    assert!(
+        packages.activity().errors.is_empty(),
+        "{:?}",
+        packages.activity().errors
+    );
+    let registry = packages.registry().unwrap();
+    eprintln!("{} languages registered", registry.languages().len());
 }
 
 #[test]
