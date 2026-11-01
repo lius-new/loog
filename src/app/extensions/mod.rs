@@ -480,9 +480,8 @@ fn domains_of(grants: &Grants, package: &Package) -> Vec<String> {
 fn execution_denial(denial: Denial) -> &'static str {
     match denial {
         Denial::PackageNotGranted => "this extension has not been granted local execution",
-        Denial::RootNotTrusted => "the folder is not trusted; run workspace::TrustWorkspace first",
-        Denial::RootNotGranted => {
-            "running programs in this folder has not been allowed; run workspace::AllowExtensionTools"
+        Denial::RootNotTrusted => {
+            "the folder is not trusted; trust it when Loom asks, or run workspace::TrustWorkspace"
         }
         Denial::NoTargetRoot => "a task needs a folder",
     }
@@ -2593,32 +2592,23 @@ impl ExtensionService {
         servers
     }
 
-    /// Let the packages that declare local execution run programs for this
-    /// root. The package grant, the folder's trust and this per-root grant are
-    /// all required (design §9.1). Returns how many packages were granted.
-    pub fn allow_tools(&mut self, root: &Path) -> usize {
-        let key = Self::root_key(root);
-        let mut granted = 0;
-        for package in self.packages.values() {
-            if package
-                .manifest
-                .capabilities
-                .iter()
-                .any(|c| c == "process.execute-local")
-            {
-                self.grants
-                    .grant_package(&package.identity, "process.execute-local");
-                self.grants
-                    .grant_root(&package.identity, "process.execute-local", &key);
-                granted += 1;
-            }
-        }
-        granted
+    /// Whether a running extension declares a language server for the language `name`.
+    pub fn serves_language(&self, name: &str) -> bool {
+        self.packages
+            .values()
+            .filter(|package| package.lifecycle.state() != State::Stopped)
+            .flat_map(|package| &package.manifest.contributes.language_servers)
+            .any(|server| {
+                server.languages.iter().any(|language| language == name)
+                    || server
+                        .bindings
+                        .iter()
+                        .any(|binding| binding.language == name)
+            })
     }
 
-    /// Take the root grant back and stop what already runs there.
-    pub fn revoke_tools(&mut self, root: &Path) -> Vec<Effect> {
-        self.grants.revoke_root(&Self::root_key(root));
+    /// Stop what extensions already run in `root`, for when its trust is taken away.
+    pub fn stop_tools_in(&mut self, root: &Path) -> Vec<Effect> {
         // Tasks are found by the folder handle they were started for.
         let handles: Vec<u64> = self
             .roots

@@ -1241,17 +1241,11 @@ fn task_json(script_windows: &str, script_unix: &str) -> String {
 
 impl Fixture {
     /// A fixture with a workspace folder, the task setting and (optionally) trust.
-    fn tasks(name: &str, task: String, trusted: bool, allowed: bool) -> (Fixture, PathBuf) {
-        Self::tasks_with(TASK_MANIFEST, name, task, trusted, allowed)
+    fn tasks(name: &str, task: String, trusted: bool) -> (Fixture, PathBuf) {
+        Self::tasks_with(TASK_MANIFEST, name, task, trusted)
     }
 
-    fn tasks_with(
-        manifest: &str,
-        name: &str,
-        task: String,
-        trusted: bool,
-        allowed: bool,
-    ) -> (Fixture, PathBuf) {
+    fn tasks_with(manifest: &str, name: &str, task: String, trusted: bool) -> (Fixture, PathBuf) {
         let mut f = fixture_with(name, "TODO text", 0..0, manifest);
         let folder =
             std::env::temp_dir().join(format!("loom-task-root-{}-{name}", std::process::id()));
@@ -1267,9 +1261,6 @@ impl Fixture {
             store.trust(&folder).unwrap();
         }
         f.service.set_trust(store);
-        if allowed {
-            assert_eq!(f.service.allow_tools(&folder), 1);
-        }
         let effects = f.service.set_setting_sources(
             serde_json::json!({ "example.tools.task": task }),
             None,
@@ -1295,14 +1286,14 @@ impl Fixture {
 }
 
 #[test]
-fn a_declared_language_server_may_run_only_in_folders_every_layer_allows() {
+fn a_declared_language_server_may_run_only_in_a_trusted_folder() {
     let manifest = TASK_MANIFEST.replace(
         "\"settings\": [",
         "\"language_servers\": [{ \"id\": \"example.tools.lsp\", \"languages\": [\"rust\"], \
          \"command\": \"tools/lsp\", \"root_markers\": [\"Cargo.toml\"] }], \"settings\": [",
     );
-    let refusal = |trusted, allowed, name: &str| {
-        let (f, folder) = Fixture::tasks_with(&manifest, name, String::new(), trusted, allowed);
+    let refusal = |trusted, name: &str| {
+        let (f, folder) = Fixture::tasks_with(&manifest, name, String::new(), trusted);
         let mut f = f;
         let effects = f.service.observe(&f.app);
         f.apply(effects);
@@ -1319,7 +1310,7 @@ fn a_declared_language_server_may_run_only_in_folders_every_layer_allows() {
         );
         (server, folder)
     };
-    let (untrusted, _) = refusal(false, false, "lsp-untrusted");
+    let (untrusted, _) = refusal(false, "lsp-untrusted");
     assert!(untrusted.allowed_roots.is_empty());
     assert!(
         untrusted.refusal.contains("not trusted"),
@@ -1327,15 +1318,8 @@ fn a_declared_language_server_may_run_only_in_folders_every_layer_allows() {
         untrusted.refusal
     );
 
-    let (ungranted, _) = refusal(true, false, "lsp-ungranted");
-    assert!(ungranted.allowed_roots.is_empty());
-    assert!(
-        ungranted.refusal.contains("workspace::AllowExtensionTools"),
-        "{}",
-        ungranted.refusal
-    );
-
-    let (allowed, folder) = refusal(true, true, "lsp-allowed");
+    // Trust is the only per-folder check: nothing else has to be allowed.
+    let (allowed, folder) = refusal(true, "lsp-allowed");
     assert_eq!(allowed.allowed_roots, vec![folder]);
 }
 
@@ -1346,7 +1330,7 @@ fn stopping_an_extension_withdraws_the_servers_it_declares_until_it_is_loaded_ag
         "\"language_servers\": [{ \"id\": \"example.tools.lsp\", \"languages\": [\"rust\"], \
          \"command\": \"lsp\", \"root_markers\": [\"Cargo.toml\"] }], \"settings\": [",
     );
-    let (mut f, _) = Fixture::tasks_with(&manifest, "lsp-stop", String::new(), true, true);
+    let (mut f, _) = Fixture::tasks_with(&manifest, "lsp-stop", String::new(), true);
     assert_eq!(f.service.language_servers().len(), 1);
     let effects = f.service.stop("example.tools");
     f.apply(effects);
@@ -1357,39 +1341,26 @@ fn stopping_an_extension_withdraws_the_servers_it_declares_until_it_is_loaded_ag
 }
 
 #[test]
-fn without_trust_or_a_tool_grant_a_task_is_refused_before_anything_starts() {
-    for (trusted, allowed, expected) in [
-        (false, false, "not trusted"),
-        (true, false, "workspace::AllowExtensionTools"),
-    ] {
-        let (mut f, _) = Fixture::tasks(
-            &format!("denied-{trusted}"),
-            task_json("echo hi", "echo hi"),
-            trusted,
-            allowed,
-        );
-        f.start_with_roots();
-        f.run("example.tools.run");
-        f.wait_for_log("task exited 1");
-        let logs: Vec<_> = f
-            .service
-            .package("example.tools")
-            .unwrap()
-            .logs
-            .iter()
-            .map(|l| l.1.clone())
-            .collect();
-        assert!(
-            logs.iter().any(|l| l.contains(expected)),
-            "{expected}: {logs:?}"
-        );
-        assert_eq!(f.runner.running(), 0);
-    }
+fn without_trust_a_task_is_refused_before_anything_starts() {
+    let (mut f, _) = Fixture::tasks("denied", task_json("echo hi", "echo hi"), false);
+    f.start_with_roots();
+    f.run("example.tools.run");
+    f.wait_for_log("task exited 1");
+    let logs: Vec<_> = f
+        .service
+        .package("example.tools")
+        .unwrap()
+        .logs
+        .iter()
+        .map(|l| l.1.clone())
+        .collect();
+    assert!(logs.iter().any(|l| l.contains("not trusted")), "{logs:?}");
+    assert_eq!(f.runner.running(), 0);
 }
 
 #[test]
 fn an_allowed_task_streams_output_and_reports_its_exit_once() {
-    let (mut f, _) = Fixture::tasks("allowed", task_json("echo hello", "echo hello"), true, true);
+    let (mut f, _) = Fixture::tasks("allowed", task_json("echo hello", "echo hello"), true);
     f.start_with_roots();
     f.run("example.tools.run");
     f.wait_for_log("task exited 1 code Some(0)");
@@ -1423,7 +1394,7 @@ fn a_working_directory_cannot_leave_the_folder() {
         "cwd": "../..",
     })
     .to_string();
-    let (mut f, _) = Fixture::tasks("escape", task, true, true);
+    let (mut f, _) = Fixture::tasks("escape", task, true);
     f.start_with_roots();
     f.run("example.tools.run");
     f.wait_for_log("task exited 1");
@@ -1444,7 +1415,7 @@ fn a_working_directory_cannot_leave_the_folder() {
 #[test]
 fn the_guest_can_cancel_its_task_and_still_hears_one_exit() {
     let task = task_json("ping -n 30 127.0.0.1 >nul", "sleep 30");
-    let (mut f, _) = Fixture::tasks("cancel", task, true, true);
+    let (mut f, _) = Fixture::tasks("cancel", task, true);
     f.start_with_roots();
     f.run("example.tools.run");
     f.pump_until(|f| !f.service.tasks.is_empty());
@@ -1453,18 +1424,18 @@ fn the_guest_can_cancel_its_task_and_still_hears_one_exit() {
 }
 
 #[test]
-fn removing_a_tool_grant_or_a_folder_stops_what_runs_there() {
+fn taking_trust_away_or_removing_a_folder_stops_what_runs_there() {
     let task = task_json("ping -n 30 127.0.0.1 >nul", "sleep 30");
-    let (mut f, folder) = Fixture::tasks("revoke", task.clone(), true, true);
+    let (mut f, folder) = Fixture::tasks("revoke", task.clone(), true);
     f.start_with_roots();
     f.run("example.tools.run");
     f.pump_until(|f| !f.service.tasks.is_empty());
-    let effects = f.service.revoke_tools(&folder);
+    let effects = f.service.stop_tools_in(&folder);
     assert_eq!(effects.len(), 1);
     f.apply(effects);
     f.wait_for_log("cancelled true");
 
-    let (mut g, folder) = Fixture::tasks("removed", task, true, true);
+    let (mut g, folder) = Fixture::tasks("removed", task, true);
     g.start_with_roots();
     g.run("example.tools.run");
     g.pump_until(|g| !g.service.tasks.is_empty());
@@ -1475,7 +1446,7 @@ fn removing_a_tool_grant_or_a_folder_stops_what_runs_there() {
 
 #[test]
 fn a_checker_publishes_findings_for_the_state_it_checked_and_not_for_a_changed_one() {
-    let (mut f, _) = Fixture::tasks("check", task_json("echo ok", "echo ok"), true, true);
+    let (mut f, _) = Fixture::tasks("check", task_json("echo ok", "echo ok"), true);
     f.start_with_roots();
     f.wait_for_log("opened 1");
     f.run("example.tools.check");

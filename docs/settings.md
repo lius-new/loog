@@ -281,7 +281,7 @@ entries with mistakes are reported and skipped.
 - **Keystrokes** join modifiers with `-`: `ctrl`, `alt`, `shift`, `cmd`, and
   `secondary` (Command on macOS, Ctrl elsewhere). Separate a sequence with spaces.
 - **Contexts**: `Workspace` (always), `Editor`, `Terminal`, `Input`, `Menu`,
-  `CloseConfirmation`, `CloneRepository`. Combine them with `&&`, `||`, `!` and
+  `TrustPrompt`, `CloseConfirmation`, `CloneRepository`. Combine them with `&&`, `||`, `!` and
   `>` (ancestor), and test attributes such as `extension == rs` or `os == windows`.
 - **Precedence**: a binding in a more specific context wins (Editor over
   Workspace); within one context, later bindings — yours — win.

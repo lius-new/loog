@@ -27,12 +27,19 @@ impl AppContext {
             }
         }
     }
+    /// Judges trust against the folders that are open, and asks about the ones
+    /// nobody has decided on, before anything that runs programs asks.
+    fn sync_trust(&self, app: &mut AppState) {
+        if let Some(runtime) = self.services() {
+            super::trust_prompt::sync(app, runtime.trust(), |language| {
+                runtime
+                    .extensions()
+                    .is_some_and(|host| host.serves_language(language))
+            });
+        }
+    }
     /// Tells the language servers about document changes this update made.
     fn sync_document_services(&self, app: &AppState) {
-        // Trust is judged against the folders that are open, before anything asks it.
-        if let Some(runtime) = self.services() {
-            runtime.trust().set_workspace(app.explorer.model.roots());
-        }
         if let Some(services) = self.services().and_then(|r| r.language_services()) {
             services.sync(app);
         }
@@ -53,6 +60,7 @@ impl AppContext {
                 .retain(|id, _| app.workspace.views.contains_key(id));
             super::image_preview::cleanup(app);
             self.invalidate_cancelled(before, app);
+            self.sync_trust(app);
             self.sync_document_services(app);
             super::language_ui::observe(self, app);
         });
@@ -66,6 +74,7 @@ impl AppContext {
                 super::markdown_view::sync_sources(app);
             }
             self.invalidate_cancelled(before, app);
+            self.sync_trust(app);
             self.sync_document_services(app);
             super::language_ui::observe(self, app);
             changed

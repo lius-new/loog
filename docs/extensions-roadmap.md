@@ -20,7 +20,7 @@ evidence.
 | Commands, edits | Commands and `extension::Run` key bindings, captured document and selection, atomic edits through the shared workspace transaction, one undo step. |
 | Providers | Diagnostics, formatting, completion (+ resolve), save participants, hover, definition, document outline, signature help, inlay hints, code actions. Answers join the language servers' replies, so the existing UI shows them. |
 | Host abilities | Settings (user and project), storage, bounded file read and find, bounded `GET`, create/rename/delete files with undo on failure, tasks (programs without a shell), published diagnostics. |
-| Trust and grants | Folders are untrusted by default; the innermost open folder decides. Running programs needs the package grant, a trusted folder and the folder's tool grant (`workspace::AllowExtensionTools`). |
+| Trust and grants | Folders are untrusted by default; the innermost open folder decides. Loom asks about each open folder nobody has decided on, one at a time, and remembers the answer, a "no" included. While open folders are declined the title bar shows a "Restricted" note; clicking it asks again. Running programs needs the package grant and a trusted folder; nothing else is asked per folder. |
 | Language servers | A package's declared servers start only where all three of those hold, and are stopped at once when any of them changes. |
 | Data resources | Themes (palette, terminal colors, syntax styles), snippets (completion list) and language packs (`tree-sitter.json` inside the package, found at startup; needs a restart). Each file is accepted or rejected on its own, with the reason. |
 | Management | `workspace::ShowExtensions`, `ReloadExtensions`, `RetryExtensions`, `StopExtensions`, trust and tool commands. |

@@ -6,6 +6,8 @@ pub struct ContextFacts {
     pub surface: &'static str,
     pub extension: Option<String>,
     pub vim_mode: &'static str,
+    /// The question whether to trust an opened folder is showing.
+    pub trust: bool,
     pub close: bool,
     pub clone: bool,
     pub stash: bool,
@@ -35,6 +37,7 @@ pub const TERMINAL: &str = "Terminal";
 pub const INPUT: &str = "Input";
 pub const MENU: &str = "Menu";
 pub const DIALOG: &str = "Dialog";
+pub const TRUST_PROMPT: &str = "TrustPrompt";
 pub const CLOSE_CONFIRMATION: &str = "CloseConfirmation";
 pub const CLONE_REPOSITORY: &str = "CloneRepository";
 pub const BRANCH_PICKER: &str = "BranchPicker";
@@ -86,7 +89,13 @@ pub fn vim_context(app: &ContextFacts) -> KeyContext {
 /// The context stack from the root to the focused element.
 pub fn context_stack(app: &ContextFacts) -> Vec<KeyContext> {
     // Modal dialogs are roots of their own, so workspace bindings never reach
-    // through them.
+    // through them. The trust question comes first: it can appear while a file
+    // is still open, and nothing may be typed into the folder before it is answered.
+    if app.trust {
+        let mut dialog = KeyContext::new(DIALOG);
+        dialog.add(TRUST_PROMPT);
+        return vec![dialog];
+    }
     if app.close {
         let mut dialog = KeyContext::new(DIALOG);
         dialog.add(CLOSE_CONFIRMATION);

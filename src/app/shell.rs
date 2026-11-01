@@ -183,6 +183,8 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let git_tag_input_focus = cx.focus_handle(UiId::new(git_confirm::TAG_INPUT_ID));
     let close_dialog_id = cx.use_stable_id();
     let close_dialog_focus = cx.focus_handle(close_dialog_id.clone());
+    let trust_dialog_id = cx.use_stable_id();
+    let trust_dialog_focus = cx.focus_handle(trust_dialog_id.clone());
     let keymap_search_id = cx.use_stable_id();
     let keymap_search_focus = cx.focus_handle(keymap_search_id.clone());
     let extensions_search_id = cx.use_stable_id();
@@ -891,6 +893,15 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     cx.use_effect(showing_close_request, move || {
         if showing_close_request {
             mounted_close_focus.focus();
+        }
+    });
+    // The trust question takes keyboard focus the same way, again for each folder
+    // it is asked about in turn.
+    let asking_about = s.chrome.trust_question().map(std::path::Path::to_path_buf);
+    let mounted_trust_focus = trust_dialog_focus.clone();
+    cx.use_effect(asking_about.clone(), move || {
+        if asking_about.is_some() {
+            mounted_trust_focus.focus();
         }
     });
     let mounted_create_focus = explorer_create_input_focus.clone();
@@ -1818,6 +1829,14 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             close_dialog_id,
             editor_focus.clone(),
             application_context.windows(),
+        ));
+    }
+    if s.chrome.trust_question().is_some() {
+        root = root.child(super::trust_prompt::render(
+            vp,
+            state.clone(),
+            trust_dialog_id,
+            editor_focus.clone(),
         ));
     }
     if s.palette.visible {

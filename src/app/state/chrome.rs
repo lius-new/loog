@@ -67,4 +67,19 @@ pub struct ChromeState {
     pub encoding: Option<crate::app::encoding::Picker>,
     /// The language server whose details card is open, by instance.
     pub language_details: Option<u64>,
+    /// The folder the trust question is about. Set from what is still undecided,
+    /// so it ends when the question is answered.
+    pub trust_prompt: Option<std::path::PathBuf>,
+    /// A declined folder the person asked to decide on again, from the title bar.
+    pub trust_review: Option<std::path::PathBuf>,
+}
+
+impl ChromeState {
+    /// The folder the trust question is showing for: one nobody has decided on
+    /// comes before one that is being looked at again.
+    pub fn trust_question(&self) -> Option<&std::path::Path> {
+        self.trust_prompt
+            .as_deref()
+            .or(self.trust_review.as_deref())
+    }
 }

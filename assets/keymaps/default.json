@@ -9,7 +9,8 @@
 //                          (Input CommitMessage: the Source Control message)
 //     Menu                 an editor, Explorer, tab or Source Control menu
 //                          is open (deepest)
-//   Dialog CloseConfirmation | Dialog CloneRepository | Dialog StashSwitch
+//   Dialog TrustPrompt | Dialog CloseConfirmation | Dialog CloneRepository
+//     | Dialog StashSwitch
 //     | Dialog GitConfirm | Dialog BranchPicker | Dialog CommandPalette
 //     (modal, separate roots)
 //
@@ -307,6 +308,14 @@
     "context": "Menu",
     "bindings": {
       "escape": "menu::Cancel"
+    }
+  },
+  {
+    // Enter trusts the folder; Escape is a "no" that is remembered.
+    "context": "TrustPrompt",
+    "bindings": {
+      "enter": "dialog::Confirm",
+      "escape": "dialog::Cancel"
     }
   },
   {

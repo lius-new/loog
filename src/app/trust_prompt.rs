@@ -1,0 +1,305 @@
+//! The question whether to trust an opened folder (design §9.1).
+//!
+//! Every open folder nobody has decided on is asked about once, one at a time, and
+//! the answer is remembered, a "no" included. What is asked about is always derived
+//! from the stored decisions, so answering is what ends the question.
+use crate::app::context::AppContext;
+use crate::app::state::AppState;
+use crate::domain::language::Registry;
+use crate::features::extensions::trust::Decision;
+use crate::features::keymap::action::Action;
+use crate::infrastructure::extensions::trust_store::TrustStore;
+use lgui::core::{UiFocusHandle, UiId};
+use lgui::prelude::{Element, UiRect};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+/// The folder to ask about now: the first open folder nobody has decided on, else
+/// the folder of a file that is open outside every folder, when an extension
+/// declares a language server for the file (a stray text file is not asked about).
+fn pending_folder(
+    app: &AppState,
+    trust: &TrustStore,
+    serves: impl Fn(&str) -> bool,
+) -> Option<PathBuf> {
+    if !trust.ready() {
+        return None;
+    }
+    trust
+        .undecided()
+        .into_iter()
+        .next()
+        .or_else(|| loose_directory(app, trust, serves))
+}
+
+fn loose_directory(
+    app: &AppState,
+    trust: &TrustStore,
+    serves: impl Fn(&str) -> bool,
+) -> Option<PathBuf> {
+    let id = app.workspace.active_document()?;
+    let document = app.workspace.documents.get(&id).filter(|d| d.is_text())?;
+    let path = document.meta.path.as_path();
+    if app
+        .explorer
+        .model
+        .roots()
+        .iter()
+        .any(|root| path.starts_with(root))
+    {
+        return None;
+    }
+    let directory = path.parent()?;
+    if trust.decision_of(directory) != Decision::Undecided {
+        return None;
+    }
+    let language = Registry::builtin().definition_of(document.meta.lang);
+    serves(&language.name).then(|| directory.to_path_buf())
+}
+
+/// Keeps trust judged against the open folders and the question in step with
+/// what is decided. Runs after every state change.
+pub(crate) fn sync(app: &mut AppState, trust: &TrustStore, serves: impl Fn(&str) -> bool) {
+    trust.set_workspace(app.explorer.model.roots());
+    let pending = pending_folder(app, trust, serves);
+    if app.chrome.trust_prompt != pending {
+        app.chrome.trust_prompt = pending;
+    }
+    // A second look at a folder ends when the folder is closed.
+    if let Some(folder) = &app.chrome.trust_review
+        && !app.explorer.model.roots().contains(folder)
+    {
+        app.chrome.trust_review = None;
+    }
+}
+
+/// What the title bar says while open folders are declined: how many, and what
+/// clicking it does. Nothing while a question is showing, which says it already.
+pub(crate) fn restricted(app: &AppState, trust: &TrustStore) -> Option<(usize, String)> {
+    if app.chrome.trust_question().is_some() {
+        return None;
+    }
+    let declined = trust.declined_open();
+    let first = declined.first()?;
+    let name = |path: &Path| {
+        path.file_name().map_or_else(
+            || path.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        )
+    };
+    let label = if declined.len() == 1 {
+        format!("{} is restricted. Decide again", name(first))
+    } else {
+        format!("{} folders are restricted. Decide again", declined.len())
+    };
+    Some((declined.len(), label))
+}
+
+/// Ask again about a folder that was declined: the one holding the active file,
+/// else the first. Answering decides it for good, and the next one can be looked at.
+pub(crate) fn review(state: &AppContext) {
+    let Some(runtime) = state.services() else {
+        return;
+    };
+    let declined = runtime.trust().declined_open();
+    state.update(|app| {
+        let active = app
+            .workspace
+            .active_path()
+            .and_then(|path| app.workspace_folder_of(path))
+            .map(Path::to_path_buf)
+            .filter(|folder| declined.contains(folder));
+        app.chrome.trust_review = active.or_else(|| declined.first().cloned());
+    });
+}
+
+/// Record the answer for `root` and carry it out: a trusted folder gets its
+/// servers started, a declined one stops what runs there.
+pub(crate) fn decide(state: &AppContext, root: &Path, trust: bool) {
+    let Some(runtime) = state.services() else {
+        return;
+    };
+    // The decision holds in memory even when saving it fails, so the question ends either way.
+    let saved = if trust {
+        runtime.trust().trust(root)
+    } else {
+        runtime.trust().decline(root)
+    };
+    if let Some(services) = runtime.language_services() {
+        services.restart();
+    }
+    if !trust && let Some(host) = runtime.extensions() {
+        host.stop_tools_in(root);
+    }
+    // Nothing is announced on success: the question simply ends. Only a failure to
+    // save is reported. The update is also what lets the next folder be asked about.
+    state.update(|app| {
+        app.chrome.trust_review = None;
+        if let Err(error) = saved {
+            app.show_error(format!("Could not save the trust decision: {error}"));
+        }
+    });
+}
+
+fn answer(state: &AppContext, trust: bool) -> bool {
+    let Some(root) = state.get().chrome.trust_question().map(Path::to_path_buf) else {
+        return false;
+    };
+    decide(state, &root, trust);
+    true
+}
+
+/// Enter trusts the folder; Escape is a "no", which is remembered.
+pub fn perform(state: &AppContext, editor_focus: &UiFocusHandle, action: Action) -> bool {
+    let trust = match action {
+        Action::DialogConfirm => true,
+        Action::DialogCancel | Action::DialogSecondary => false,
+        _ => return false,
+    };
+    let answered = answer(state, trust);
+    if answered {
+        editor_focus.focus();
+    }
+    answered
+}
+
+pub fn render(rect: UiRect, state: AppContext, id: UiId, focus: UiFocusHandle) -> Element {
+    let folder = state
+        .get()
+        .chrome
+        .trust_question()
+        .map(crate::ui::display_path)
+        .unwrap_or_default();
+    let on_answer = state.clone();
+    crate::ui::trust_prompt::render(
+        rect,
+        folder,
+        Arc::new(move |trust| {
+            answer(&on_answer, trust);
+        }),
+        id,
+        focus,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn store(tag: &str) -> TrustStore {
+        let store = TrustStore::default();
+        store.attach(std::env::temp_dir().join(format!(
+            "loom-trust-prompt-{}-{tag}/roots.json",
+            std::process::id()
+        )));
+        store
+    }
+
+    fn open(app: &mut AppState, folder: &Path) {
+        app.explorer.model.add_root(
+            &crate::infrastructure::explorer_filesystem::ExplorerFilesystem,
+            folder.to_path_buf(),
+        );
+    }
+
+    #[test]
+    fn each_open_folder_is_asked_about_in_turn_and_a_no_is_not_asked_again() {
+        let base = std::env::temp_dir().join(format!("loom-prompt-roots-{}", std::process::id()));
+        let (one, two) = (base.join("one"), base.join("two"));
+        std::fs::create_dir_all(&one).unwrap();
+        std::fs::create_dir_all(&two).unwrap();
+        let trust = store("turns");
+        let mut app = AppState::new();
+        open(&mut app, &one);
+        open(&mut app, &two);
+
+        sync(&mut app, &trust, |_| false);
+        let first = app
+            .chrome
+            .trust_prompt
+            .clone()
+            .expect("asks about a folder");
+        assert!(first.ends_with("one"), "{first:?}");
+
+        trust.trust(&first).unwrap();
+        sync(&mut app, &trust, |_| false);
+        let second = app.chrome.trust_prompt.clone().expect("then the next one");
+        assert!(second.ends_with("two"), "{second:?}");
+
+        trust.decline(&second).unwrap();
+        sync(&mut app, &trust, |_| false);
+        assert_eq!(app.chrome.trust_prompt, None, "both answered");
+        // The same folders on the next start are not asked about again.
+        sync(&mut app, &trust, |_| false);
+        assert_eq!(app.chrome.trust_prompt, None);
+    }
+
+    #[test]
+    fn nothing_is_asked_before_the_stored_decisions_are_read() {
+        let base = std::env::temp_dir().join(format!("loom-prompt-early-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let trust = TrustStore::default();
+        let mut app = AppState::new();
+        open(&mut app, &base);
+        sync(&mut app, &trust, |_| true);
+        assert_eq!(app.chrome.trust_prompt, None);
+    }
+
+    #[test]
+    fn declined_folders_are_noted_until_trusted_and_not_while_a_question_shows() {
+        let base = std::env::temp_dir().join(format!("loom-prompt-note-{}", std::process::id()));
+        let (one, two) = (base.join("one"), base.join("two"));
+        std::fs::create_dir_all(&one).unwrap();
+        std::fs::create_dir_all(&two).unwrap();
+        let trust = store("note");
+        let mut app = AppState::new();
+        open(&mut app, &one);
+        open(&mut app, &two);
+        sync(&mut app, &trust, |_| false);
+        assert!(
+            restricted(&app, &trust).is_none(),
+            "a folder being asked about is not noted"
+        );
+
+        let (first, second) = (
+            app.explorer.model.roots()[0].clone(),
+            app.explorer.model.roots()[1].clone(),
+        );
+        trust.decline(&first).unwrap();
+        trust.decline(&second).unwrap();
+        sync(&mut app, &trust, |_| false);
+        let (count, label) = restricted(&app, &trust).expect("both are noted");
+        assert_eq!(count, 2);
+        assert!(label.contains("2 folders"), "{label}");
+
+        // Looking again hides the note; trusting one leaves the other noted.
+        app.chrome.trust_review = Some(first.clone());
+        assert!(restricted(&app, &trust).is_none());
+        trust.trust(&first).unwrap();
+        app.chrome.trust_review = None;
+        let (count, label) = restricted(&app, &trust).unwrap();
+        assert_eq!(count, 1);
+        assert!(label.starts_with("two "), "{label}");
+
+        // Closing the folder that is looked at again ends the second look.
+        app.chrome.trust_review = Some(second.clone());
+        app.explorer.model.remove_root(&second);
+        sync(&mut app, &trust, |_| false);
+        assert_eq!(app.chrome.trust_review, None);
+    }
+
+    #[test]
+    fn the_question_goes_away_when_its_folder_is_closed() {
+        let base = std::env::temp_dir().join(format!("loom-prompt-close-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let trust = store("close");
+        let mut app = AppState::new();
+        open(&mut app, &base);
+        sync(&mut app, &trust, |_| false);
+        assert!(app.chrome.trust_prompt.is_some());
+        let root = app.explorer.model.roots()[0].clone();
+        app.explorer.model.remove_root(&root);
+        sync(&mut app, &trust, |_| false);
+        assert_eq!(app.chrome.trust_prompt, None);
+    }
+}

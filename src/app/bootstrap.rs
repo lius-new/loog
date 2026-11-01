@@ -158,6 +158,7 @@ pub(crate) fn svg_icons() -> SvgIconRegistry {
             .with_icon("command", icondata::LuCommand)
             .with_icon("update-available", icondata::VsArrowCircleDown)
             .with_icon("update-restart", icondata::VsDebugRestart)
+            .with_icon("workspace-untrusted", icondata::VsWorkspaceUntrusted)
             // Filled caption silhouettes avoid fragile subpixel SVG strokes.
             .with_icon(
                 "window-minimize",

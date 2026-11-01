@@ -2,7 +2,7 @@
 //!
 //! The store is shared between the UI (trust and revoke actions) and the
 //! language server manager, which asks before starting a process.
-use crate::features::extensions::trust::TrustedRoots;
+use crate::features::extensions::trust::{Decision, TrustedRoots};
 use crate::infrastructure::lsp::manager::StartGate;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -15,6 +15,8 @@ pub struct TrustStore {
 #[derive(Default)]
 struct Inner {
     file: Option<PathBuf>,
+    /// The decisions were read; before that every folder would look undecided.
+    loaded: bool,
     roots: TrustedRoots,
     /// The open workspace folders; the innermost one that holds a path decides
     /// whether it is trusted.
@@ -31,6 +33,7 @@ impl TrustStore {
         let mut inner = self.inner.lock().unwrap();
         inner.roots = roots;
         inner.file = Some(file);
+        inner.loaded = true;
     }
 
     pub fn is_trusted(&self, path: &Path) -> bool {
@@ -52,10 +55,52 @@ impl TrustStore {
         })
     }
 
-    pub fn revoke(&self, root: &Path) -> std::io::Result<()> {
+    /// Remember that the user said no to `root`: it stays untrusted and is not asked about again.
+    pub fn decline(&self, root: &Path) -> std::io::Result<()> {
         self.change(|roots| {
-            roots.revoke(root);
+            roots.decline(root);
         })
+    }
+
+    /// Whether the stored decisions have been read, so a folder can be called undecided.
+    pub fn ready(&self) -> bool {
+        self.inner.lock().unwrap().loaded
+    }
+
+    /// What was decided about `path`, a folder that may or may not be open.
+    pub fn decision_of(&self, path: &Path) -> Decision {
+        let inner = self.inner.lock().unwrap();
+        inner.roots.decision_within(path, &inner.workspace)
+    }
+
+    /// The open folders the user said no to, in the order they are open.
+    pub fn declined_open(&self) -> Vec<PathBuf> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .workspace
+            .iter()
+            .filter(|root| {
+                inner.roots.decision_within(root, &inner.workspace) == Decision::Declined
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// The open folders nobody has decided on yet, in the order they are open.
+    /// Empty until the stored decisions have been read.
+    pub fn undecided(&self) -> Vec<PathBuf> {
+        let inner = self.inner.lock().unwrap();
+        if !inner.loaded {
+            return Vec::new();
+        }
+        inner
+            .workspace
+            .iter()
+            .filter(|root| {
+                inner.roots.decision_within(root, &inner.workspace) == Decision::Undecided
+            })
+            .cloned()
+            .collect()
     }
 
     fn change(&self, edit: impl FnOnce(&mut TrustedRoots)) -> std::io::Result<()> {
@@ -119,19 +164,42 @@ mod tests {
     }
 
     #[test]
-    fn revoking_takes_effect_immediately_and_persists() {
+    fn declining_takes_effect_immediately_and_persists() {
         let path = file("b");
+        let _ = std::fs::remove_file(&path);
         let root = std::env::temp_dir().join("trust-project-b");
         let store = Arc::new(TrustStore::default());
         store.attach(path.clone());
+        store.set_workspace(std::slice::from_ref(&root));
         store.trust(&root).unwrap();
         let gate = store.start_gate();
         assert!((gate.0)(&root).is_ok());
-        store.revoke(&root).unwrap();
+        store.decline(&root).unwrap();
         assert!((gate.0)(&root).is_err());
         let again = TrustStore::default();
         again.attach(path);
+        again.set_workspace(std::slice::from_ref(&root));
         assert!(!again.is_trusted(&root));
+        assert!(again.undecided().is_empty(), "a no is remembered");
+    }
+
+    #[test]
+    fn only_open_folders_nobody_decided_on_are_undecided_and_not_before_the_file_is_read() {
+        let path = file("undecided");
+        let _ = std::fs::remove_file(&path);
+        let (one, two) = (
+            std::env::temp_dir().join("trust-undecided-one"),
+            std::env::temp_dir().join("trust-undecided-two"),
+        );
+        let store = TrustStore::default();
+        store.set_workspace(&[one.clone(), two.clone()]);
+        assert!(store.undecided().is_empty(), "decisions not read yet");
+        store.attach(path);
+        assert_eq!(store.undecided(), vec![one.clone(), two.clone()]);
+        store.trust(&one).unwrap();
+        assert_eq!(store.undecided(), vec![two.clone()]);
+        store.decline(&two).unwrap();
+        assert!(store.undecided().is_empty());
     }
 
     #[test]

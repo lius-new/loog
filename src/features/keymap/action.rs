@@ -109,8 +109,6 @@ actions! {
     StopExtensions => "workspace::StopExtensions", "Stop every running extension and its language servers until they are reloaded";
     TrustWorkspace => "workspace::TrustWorkspace", "Trust the current folder so language servers and tools may run";
     RevokeWorkspaceTrust => "workspace::RevokeWorkspaceTrust", "Stop trusting the current folder and stop its servers";
-    AllowExtensionTools => "workspace::AllowExtensionTools", "Let extensions run programs from the current folder (no sandbox)";
-    RevokeExtensionTools => "workspace::RevokeExtensionTools", "Stop extensions from running programs in the current folder";
     OpenSettingsFile => "workspace::OpenSettingsFile", "Open the user settings.json";
     OpenProjectSettingsFile => "workspace::OpenProjectSettingsFile", "Open the project .loom/settings.json";
     IncreaseFontSize => "workspace::IncreaseFontSize", "Increase the focused editor or terminal font size";

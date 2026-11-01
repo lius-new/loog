@@ -202,12 +202,12 @@ must also declare `process.execute-local`, because starting it runs a program.
 A command with a path separator that is not absolute starts inside the package;
 a bare name is looked up on `PATH` by the system. Loading a package only checks
 the declaration; the server starts for a project folder only when the package is
-granted local execution, the folder is trusted (`workspace::TrustWorkspace`) and
-the folder's tools are allowed (`workspace::AllowExtensionTools`). Otherwise the
-language panel lists the server as not started and says which of the three is
-missing. Revoking any of them, reloading a changed package or removing it stops
-the server at once; a name used by a catalogued or your own server is never
-replaced.
+granted local execution and the folder is trusted. Loom asks about each folder
+when it is opened and remembers the answer, a "no" included; `workspace::TrustWorkspace`
+and `workspace::RevokeWorkspaceTrust` change it later. Otherwise the language
+panel lists the server as not started and says which of the two is missing.
+Taking the trust away, reloading a changed package or removing it stops the
+server at once; a name used by a catalogued or your own server is never replaced.
 
 A completion answer carries items with an opaque `data` string. Highlighting an
 item asks the same provider to complete it (`completion-resolve`), and the
@@ -221,12 +221,11 @@ An extension that declares `process.execute-local` can run a program in a
 folder: `task-start` takes a program and an argument list (never a shell
 line), a folder handle from `list-roots`, an optional working directory inside
 the folder and a short allow list of environment variables. Output arrives as
-`task-output`, and the end as exactly one `task-exited`. A task needs three
-things at once: the extension's own grant, a trusted folder
-(`workspace::TrustWorkspace`) and the folder's tool permission
-(`workspace::AllowExtensionTools`). The permission is a local-execution
-permission, not a sandbox: the program can do whatever you can. Revoking any of
-them, or removing the folder, stops what runs there. A checker can show its
+`task-output`, and the end as exactly one `task-exited`. A task needs two
+things at once: the extension's own grant and a trusted folder (Loom asks when
+the folder is opened). The permission is a local-execution permission, not a
+sandbox: the program can do whatever you can. Taking the trust away, or
+removing the folder, stops what runs there. A checker can show its
 findings with `publish-diagnostics` for the document version it read.
 
 ## Storage, files and network

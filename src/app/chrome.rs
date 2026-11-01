@@ -14,6 +14,7 @@ pub fn title_binding(state: &AppContext, terminal: Option<TerminalToggle>) -> Ti
     let extensions = state.clone();
     let updater = state.clone();
     let toggler = state.clone();
+    let reviewer = state.clone();
     TitleBinding::new(
         move || {
             let app = reader.get();
@@ -24,6 +25,10 @@ pub fn title_binding(state: &AppContext, terminal: Option<TerminalToggle>) -> Ti
                 extensions_attention: crate::app::extensions_view::needs_attention(&reader),
                 maximized: crate::app::window::is_maximized(),
                 update: app.update.indicator(),
+                restricted: reader
+                    .services()
+                    .and_then(|runtime| crate::app::trust_prompt::restricted(&app, runtime.trust()))
+                    .map(|(count, label)| crate::ui::chrome::Restricted { count, label }),
                 drawer_open: app.drawer.visible,
                 source_control_open: app.source_control.visible,
                 terminal_open: app.default_terminal_open(),
@@ -46,6 +51,7 @@ pub fn title_binding(state: &AppContext, terminal: Option<TerminalToggle>) -> Ti
                 }
             }
         },
+        move || crate::app::trust_prompt::review(&reviewer),
     )
 }
 pub fn title(

@@ -404,14 +404,6 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             open_keymap_file(env);
             true
         }
-        Action::AllowExtensionTools => {
-            change_tools(env, true);
-            true
-        }
-        Action::RevokeExtensionTools => {
-            change_tools(env, false);
-            true
-        }
         Action::TrustWorkspace => {
             change_trust(env, true);
             true
@@ -520,16 +512,19 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             true
         }
         Action::DialogConfirm | Action::DialogCancel | Action::DialogSecondary => {
-            let (close_request, clone_dialog, stash_switch, git_confirm) =
+            let (trust_prompt, close_request, clone_dialog, stash_switch, git_confirm) =
                 read(&env.state, |app| {
                     (
+                        app.chrome.trust_question().is_some(),
                         app.editor.close_request.is_some(),
                         app.git.ui.clone_visible,
                         app.git.ui.stash_switch.is_some(),
                         app.git.ui.confirm.is_some(),
                     )
                 });
-            if close_request {
+            if trust_prompt {
+                crate::app::trust_prompt::perform(&env.state, &env.editor_focus, action)
+            } else if close_request {
                 close_confirmation::perform(
                     &env.state,
                     &env.editor_focus,
@@ -775,7 +770,8 @@ pub fn editor_shortcut_label(app: &AppState, action: Action) -> Option<String> {
 
 /// Trust or stop trusting the folder of the active file (the innermost
 /// workspace folder that contains it, else its own directory). Servers that
-/// were refused are started again, and revoking stops the running ones.
+/// were refused are started again, and declining stops the running ones. A "no"
+/// is remembered, like the answer to the trust prompt.
 fn change_trust(env: &KeyEnv, trust: bool) {
     let app = env.state.get();
     let Some(path) = app.workspace.active_path().map(|p| p.to_path_buf()) else {
@@ -790,73 +786,5 @@ fn change_trust(env: &KeyEnv, trust: bool) {
     let Some(root) = root else {
         return;
     };
-    let Some(runtime) = env.state.services() else {
-        return;
-    };
-    let result = if trust {
-        runtime.trust().trust(&root)
-    } else {
-        runtime.trust().revoke(&root)
-    };
-    match result {
-        Ok(()) => {
-            if let Some(services) = runtime.language_services() {
-                services.restart();
-            }
-            if !trust && let Some(host) = runtime.extensions() {
-                host.revoke_tools(&root);
-            }
-            let verb = if trust {
-                "Trusted"
-            } else {
-                "No longer trusting"
-            };
-            env.state
-                .update(|app| app.show_toast(format!("{verb} {}", root.display())));
-        }
-        Err(error) => env
-            .state
-            .update(|app| app.show_error(format!("Could not save the trust decision: {error}"))),
-    }
-}
-
-/// Allow or stop extensions running programs from the folder of the active
-/// file. The message says what the permission means: no sandbox.
-fn change_tools(env: &KeyEnv, allow: bool) {
-    let app = env.state.get();
-    let Some(path) = app.workspace.active_path().map(|p| p.to_path_buf()) else {
-        env.state
-            .update(|app| app.show_error("Open a file in the folder first"));
-        return;
-    };
-    let Some(root) = app
-        .workspace_folder_of(&path)
-        .map(|folder| folder.to_path_buf())
-        .or_else(|| path.parent().map(|parent| parent.to_path_buf()))
-    else {
-        return;
-    };
-    let Some(host) = env
-        .state
-        .services()
-        .and_then(|runtime| runtime.extensions())
-    else {
-        env.state
-            .update(|app| app.show_error("Extensions are not available"));
-        return;
-    };
-    let message = if allow {
-        let count = host.allow_tools(&root);
-        format!(
-            "{count} extension(s) may now run programs from {} with your user rights; this is not a sandbox. The folder must also be trusted.",
-            root.display()
-        )
-    } else {
-        host.revoke_tools(&root);
-        format!(
-            "Extensions can no longer run programs from {}",
-            root.display()
-        )
-    };
-    env.state.update(|app| app.show_toast(message));
+    crate::app::trust_prompt::decide(&env.state, &root, trust);
 }

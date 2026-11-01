@@ -26,6 +26,7 @@ pub fn facts(app: &AppState) -> ContextFacts {
             .and_then(|e| e.to_str())
             .map(str::to_owned),
         vim_mode: app.editor.vim.mode().context_name(),
+        trust: app.chrome.trust_question().is_some(),
         close: app.editor.close_request.is_some(),
         clone: app.git.ui.clone_visible,
         stash: app.git.ui.stash_switch.is_some(),

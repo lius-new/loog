@@ -13,7 +13,7 @@ use lgui::prelude::{Element, UiRect, VisualStyle, panel};
 use crate::features::update::{Indicator, Stage};
 use crate::ui::git::badge::{BADGE_H, BADGE_ICON, BADGE_PAD, ICON_GAP, TEXT_MARGIN, measure};
 
-use crate::ui::chrome::{PanelToggle, TitleBinding};
+use crate::ui::chrome::{PanelToggle, Restricted, TitleBinding};
 use crate::ui::theme;
 
 /// Windows 11 caption close-button red, the same in light and dark themes.
@@ -183,6 +183,68 @@ fn update_button(right: f32, bar: UiRect, indicator: Indicator, state: TitleBind
         })
 }
 
+/// The width of a badge-style title bar control with `text` beside its icon.
+fn badge_width(text: &str) -> f32 {
+    let style = theme::mono(theme::c().accent, theme::SMALL);
+    BADGE_PAD * 2.0 + BADGE_ICON + ICON_GAP + measure(text, &style) + TEXT_MARGIN
+}
+
+/// The standing note that open folders were declined, styled like the update
+/// control but in the warning color. Clicking it asks about the folder again.
+fn restricted_button(
+    right: f32,
+    bar: UiRect,
+    restricted: Restricted,
+    state: TitleBinding,
+) -> Element {
+    let text = if restricted.count > 1 {
+        format!("Restricted · {}", restricted.count)
+    } else {
+        "Restricted".to_owned()
+    };
+    let width = badge_width(&text);
+    let top = bar.top + (bar.height() - BADGE_H) / 2.0;
+    let rect = UiRect::new(right - width, top, right, top + BADGE_H);
+    let label = text.clone();
+    Element::new(move |cx| {
+        let c = theme::c();
+        let hovered = cx.context.interaction_flags(&cx.id).hovered;
+        let fill = if hovered {
+            VisualStyle::filled(c.active_line).radius(4.0)
+        } else {
+            VisualStyle::default().radius(4.0)
+        };
+        let icon_left = rect.left + BADGE_PAD;
+        let icon_top = rect.top + (BADGE_H - BADGE_ICON) / 2.0;
+        let text_left = icon_left + BADGE_ICON + ICON_GAP;
+        UiElement::panel(cx.id, rect, fill)
+            .child(
+                UiElement::icon(
+                    UiId::new("titlebar.restricted.icon"),
+                    UiRect::new(
+                        icon_left,
+                        icon_top,
+                        icon_left + BADGE_ICON,
+                        icon_top + BADGE_ICON,
+                    ),
+                    "workspace-untrusted",
+                )
+                .icon_style(IconStyle::new(c.warning)),
+            )
+            .child(UiElement::text(
+                UiId::new("titlebar.restricted.label"),
+                UiRect::new(text_left, rect.top, rect.right - BADGE_PAD, rect.bottom),
+                label.clone(),
+                theme::mono(c.warning, theme::SMALL),
+            ))
+    })
+    .key("titlebar.restricted.button")
+    .semantics(Semantics::new(SemanticRole::Button).name(restricted.label))
+    .event_policy(EventPolicy::INTERACTIVE)
+    .cursor(CursorIcon::Pointer)
+    .on_click(move |_: &mut UiEventContext| state.review_trust())
+}
+
 /// Width of each panel toggle button.
 const TOGGLE_W: f32 = 32.0;
 
@@ -265,11 +327,18 @@ pub fn render(rect: UiRect, state: TitleBinding, git_controls: Element) -> Eleme
         );
     }
 
+    // Standing notes sit left of the toggles, the newest need nearest the edge.
+    let mut notes_right = toggles_left - 6.0;
     if let Some(indicator) = frame.update {
-        bar = bar.child(update_button(
-            toggles_left - 6.0,
+        let width = badge_width(&indicator.text);
+        bar = bar.child(update_button(notes_right, rect, indicator, state.clone()));
+        notes_right -= width + 6.0;
+    }
+    if let Some(restricted) = frame.restricted {
+        bar = bar.child(restricted_button(
+            notes_right,
             rect,
-            indicator,
+            restricted,
             state.clone(),
         ));
     }

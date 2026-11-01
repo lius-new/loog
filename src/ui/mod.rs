@@ -38,6 +38,7 @@ pub mod terminal;
 pub(crate) mod text_rendering;
 pub mod titlebar;
 pub mod toast;
+pub mod trust_prompt;
 pub mod welcome;
 pub mod workspace_home;
 

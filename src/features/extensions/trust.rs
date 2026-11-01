@@ -3,6 +3,8 @@
 //! Trust answers "may project content take part in executable workflows";
 //! a grant answers "may this verified package use this capability". Both are
 //! needed for project-driven execution and neither substitutes for the other.
+//! There is no third layer: a folder is decided once (trusted or declined) when
+//! it is opened, and that decision is the only per-folder check.
 use std::collections::BTreeSet;
 
 /// A verified package: the self-declared id plus a content digest. A changed
@@ -28,28 +30,61 @@ pub enum RootTrust {
 pub enum Denial {
     PackageNotGranted,
     RootNotTrusted,
-    RootNotGranted,
     /// The operation needs a target root and none was given.
     NoTargetRoot,
 }
 
-/// Workspace roots the user has marked trusted (design §9.1).
+/// What the user has said about a folder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Decision {
+    Trusted,
+    /// The user was asked and said no; the answer is remembered, so no asking again.
+    Declined,
+    /// Not asked yet.
+    Undecided,
+}
+
+/// Workspace roots the user has decided on (design §9.1).
 ///
 /// Roots start untrusted; trust is never inferred from a parent or sibling
 /// folder, so a folder is trusted only when it is under a root that was
-/// explicitly trusted.
+/// explicitly trusted. A declined root stays untrusted and is not asked about again.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TrustedRoots {
     roots: BTreeSet<std::path::PathBuf>,
+    declined: BTreeSet<std::path::PathBuf>,
 }
 
 impl TrustedRoots {
     pub fn trust(&mut self, root: &std::path::Path) -> bool {
-        self.roots.insert(root.to_path_buf())
+        let was_declined = self.declined.remove(root);
+        self.roots.insert(root.to_path_buf()) || was_declined
     }
 
+    /// Remember a "no". A root that was trusted stops being trusted.
+    pub fn decline(&mut self, root: &std::path::Path) -> bool {
+        let was_trusted = self.roots.remove(root);
+        self.declined.insert(root.to_path_buf()) || was_trusted
+    }
+
+    /// Stop trusting `root` without remembering a "no".
     pub fn revoke(&mut self, root: &std::path::Path) -> bool {
         self.roots.remove(root)
+    }
+
+    /// The decision for the open folder `path`, given the open `workspace` folders.
+    pub fn decision_within(
+        &self,
+        path: &std::path::Path,
+        workspace: &[std::path::PathBuf],
+    ) -> Decision {
+        if self.is_trusted_within(path, workspace) {
+            Decision::Trusted
+        } else if self.declined.contains(path) {
+            Decision::Declined
+        } else {
+            Decision::Undecided
+        }
     }
 
     /// Whether `path` is inside a trusted root (component-wise, so
@@ -95,26 +130,37 @@ impl TrustedRoots {
     }
 
     pub fn to_json(&self) -> String {
-        let list: Vec<_> = self
-            .roots
-            .iter()
-            .map(|root| root.to_string_lossy().into_owned())
-            .collect();
-        serde_json::json!({ "trusted": list }).to_string()
+        let list = |roots: &BTreeSet<std::path::PathBuf>| -> Vec<String> {
+            roots
+                .iter()
+                .map(|root| root.to_string_lossy().into_owned())
+                .collect()
+        };
+        serde_json::json!({ "trusted": list(&self.roots), "declined": list(&self.declined) })
+            .to_string()
     }
 
     /// Tolerant of a missing or damaged file: that means nothing is trusted.
     pub fn from_json(text: &str) -> Self {
-        let roots = serde_json::from_str::<serde_json::Value>(text)
-            .ok()
-            .and_then(|value| value.get("trusted").cloned())
-            .and_then(|list| list.as_array().cloned())
-            .unwrap_or_default()
+        let value = serde_json::from_str::<serde_json::Value>(text).ok();
+        let read = |key: &str| -> BTreeSet<std::path::PathBuf> {
+            value
+                .as_ref()
+                .and_then(|value| value.get(key))
+                .and_then(|list| list.as_array())
+                .map(Vec::as_slice)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|entry| entry.as_str().map(std::path::PathBuf::from))
+                .filter(|path| path.is_absolute())
+                .collect()
+        };
+        let roots = read("trusted");
+        let declined = read("declined")
             .into_iter()
-            .filter_map(|entry| entry.as_str().map(std::path::PathBuf::from))
-            .filter(|path| path.is_absolute())
+            .filter(|path| !roots.contains(path))
             .collect();
-        Self { roots }
+        Self { roots, declined }
     }
 }
 
@@ -126,22 +172,12 @@ pub fn needs_root(capability: &str) -> bool {
 #[derive(Default)]
 pub struct Grants {
     package: BTreeSet<(PackageIdentity, String)>,
-    root: BTreeSet<(PackageIdentity, String, StableRoot)>,
 }
 
 impl Grants {
     pub fn grant_package(&mut self, package: &PackageIdentity, capability: &str) {
         self.package
             .insert((package.clone(), capability.to_owned()));
-    }
-
-    pub fn grant_root(&mut self, package: &PackageIdentity, capability: &str, root: &str) {
-        self.root
-            .insert((package.clone(), capability.to_owned(), root.to_owned()));
-    }
-
-    pub fn revoke_root(&mut self, root: &str) {
-        self.root.retain(|(_, _, granted)| granted != root);
     }
 
     /// Effective permission is the intersection of every applicable layer.
@@ -160,15 +196,9 @@ impl Grants {
         if !needs_root(capability) {
             return Ok(());
         }
-        let (root, trust) = target.ok_or(Denial::NoTargetRoot)?;
+        let (_, trust) = target.ok_or(Denial::NoTargetRoot)?;
         if trust != RootTrust::Trusted {
             return Err(Denial::RootNotTrusted);
-        }
-        if !self
-            .root
-            .contains(&(package.clone(), capability.to_owned(), root.to_owned()))
-        {
-            return Err(Denial::RootNotGranted);
         }
         Ok(())
     }
@@ -203,7 +233,7 @@ mod tests {
     const EXEC: &str = "process.execute-local";
 
     #[test]
-    fn execution_needs_package_grant_trusted_root_and_root_grant() {
+    fn execution_needs_the_package_grant_and_a_trusted_root_and_nothing_more() {
         let mut grants = Grants::default();
         let p = pkg("sha256:a");
         assert_eq!(
@@ -218,12 +248,33 @@ mod tests {
         );
         assert_eq!(
             grants.authorize(&p, EXEC, Some(("A", RootTrust::Trusted))),
-            Err(Denial::RootNotGranted)
-        );
-        grants.grant_root(&p, EXEC, "A");
-        assert_eq!(
-            grants.authorize(&p, EXEC, Some(("A", RootTrust::Trusted))),
             Ok(())
+        );
+    }
+
+    #[test]
+    fn a_declined_folder_is_remembered_and_trusting_it_later_replaces_the_no() {
+        let root = std::env::temp_dir().join("trust-declined");
+        let open = vec![root.clone()];
+        let mut roots = TrustedRoots::default();
+        assert_eq!(roots.decision_within(&root, &open), Decision::Undecided);
+        roots.decline(&root);
+        assert_eq!(roots.decision_within(&root, &open), Decision::Declined);
+        assert!(!roots.is_trusted_within(&root, &open));
+        assert_eq!(TrustedRoots::from_json(&roots.to_json()), roots);
+        roots.trust(&root);
+        assert_eq!(roots.decision_within(&root, &open), Decision::Trusted);
+        // Declining a trusted folder takes the trust away.
+        roots.decline(&root);
+        assert_eq!(roots.decision_within(&root, &open), Decision::Declined);
+        // A file that lists a folder as both keeps the trust.
+        let both = format!(
+            r#"{{"trusted":[{0}],"declined":[{0}]}}"#,
+            serde_json::to_string(&root.to_string_lossy()).unwrap()
+        );
+        assert_eq!(
+            TrustedRoots::from_json(&both).decision_within(&root, &open),
+            Decision::Trusted
         );
     }
 
@@ -261,42 +312,12 @@ mod tests {
     }
 
     #[test]
-    fn a_grant_on_root_a_cannot_start_tools_in_root_b() {
-        let mut grants = Grants::default();
-        let p = pkg("sha256:a");
-        grants.grant_package(&p, EXEC);
-        grants.grant_root(&p, EXEC, "A");
-        assert_eq!(
-            grants.authorize(&p, EXEC, Some(("B", RootTrust::Trusted))),
-            Err(Denial::RootNotGranted)
-        );
-    }
-
-    #[test]
     fn a_changed_digest_loses_every_grant() {
         let mut grants = Grants::default();
         grants.grant_package(&pkg("sha256:a"), "documents.read");
         assert_eq!(
             grants.authorize(&pkg("sha256:b"), "documents.read", None),
             Err(Denial::PackageNotGranted)
-        );
-    }
-
-    #[test]
-    fn revoking_a_root_removes_only_that_roots_grants() {
-        let mut grants = Grants::default();
-        let p = pkg("sha256:a");
-        grants.grant_package(&p, EXEC);
-        grants.grant_root(&p, EXEC, "A");
-        grants.grant_root(&p, EXEC, "B");
-        grants.revoke_root("A");
-        assert_eq!(
-            grants.authorize(&p, EXEC, Some(("A", RootTrust::Trusted))),
-            Err(Denial::RootNotGranted)
-        );
-        assert_eq!(
-            grants.authorize(&p, EXEC, Some(("B", RootTrust::Trusted))),
-            Ok(())
         );
     }
 

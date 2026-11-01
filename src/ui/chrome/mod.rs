@@ -45,9 +45,19 @@ pub struct TitleFrame {
     pub extensions_attention: bool,
     pub maximized: bool,
     pub update: Option<crate::features::update::Indicator>,
+    /// Open folders were declined, so extensions may not run programs there.
+    pub restricted: Option<Restricted>,
     pub drawer_open: bool,
     pub source_control_open: bool,
     pub terminal_open: bool,
+}
+/// The title bar's standing note that open folders are not trusted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Restricted {
+    /// How many open folders were declined.
+    pub count: usize,
+    /// What the control is called to assistive technology, and what clicking it does.
+    pub label: String,
 }
 /// A workspace panel the title bar shows or hides.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +73,7 @@ pub struct TitleBinding {
     open_extensions: Arc<dyn Fn() + Send + Sync>,
     update: Arc<dyn Fn() -> bool + Send + Sync>,
     toggle: Arc<dyn Fn(PanelToggle) + Send + Sync>,
+    review_trust: Arc<dyn Fn() + Send + Sync>,
 }
 impl TitleBinding {
     pub fn new(
@@ -71,6 +82,7 @@ impl TitleBinding {
         open_extensions: impl Fn() + Send + Sync + 'static,
         update: impl Fn() -> bool + Send + Sync + 'static,
         toggle: impl Fn(PanelToggle) + Send + Sync + 'static,
+        review_trust: impl Fn() + Send + Sync + 'static,
     ) -> Self {
         Self {
             read: Arc::new(read),
@@ -78,7 +90,12 @@ impl TitleBinding {
             open_extensions: Arc::new(open_extensions),
             update: Arc::new(update),
             toggle: Arc::new(toggle),
+            review_trust: Arc::new(review_trust),
         }
+    }
+    /// Ask again about a folder that was declined.
+    pub fn review_trust(&self) {
+        (self.review_trust)();
     }
     pub fn frame(&self) -> TitleFrame {
         (self.read)()

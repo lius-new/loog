@@ -542,14 +542,14 @@ impl ExtensionHost {
         }
     }
 
-    /// Allow extensions to run programs for `root`; returns how many were allowed.
-    pub(crate) fn allow_tools(&self, root: &Path) -> usize {
-        self.inner.service.lock().unwrap().allow_tools(root)
+    /// Whether an extension declares a language server for the language `name`.
+    pub(crate) fn serves_language(&self, name: &str) -> bool {
+        self.inner.service.lock().unwrap().serves_language(name)
     }
 
-    /// A folder lost its trust or its tool permission: what runs there stops.
-    pub(crate) fn revoke_tools(&self, root: &Path) {
-        let effects = self.inner.service.lock().unwrap().revoke_tools(root);
+    /// A folder lost its trust: what runs there stops.
+    pub(crate) fn stop_tools_in(&self, root: &Path) {
+        let effects = self.inner.service.lock().unwrap().stop_tools_in(root);
         for effect in effects {
             if let (Effect::CancelTask { task }, Some(runner)) = (effect, self.inner.runner.get()) {
                 runner.cancel(task);
