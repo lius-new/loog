@@ -21,6 +21,61 @@ fn service(name: &str) -> ExtensionService {
     )
 }
 
+/// A language server from the extensions repository, with the runtime it requires,
+/// installed and loaded: every file its command line names is really there. Run on
+/// purpose with `LOOM_EXTENSIONS_PACKAGES` set to the repository's `dist/packages`:
+/// `cargo test --bins repository_servers -- --ignored`.
+#[test]
+#[ignore]
+fn repository_servers_resolve_to_files_that_exist() {
+    let Some(packages) = std::env::var_os("LOOM_EXTENSIONS_PACKAGES") else {
+        return;
+    };
+    let root = std::env::temp_dir().join(format!("loom-repo-servers-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    for entry in std::fs::read_dir(packages).unwrap().flatten() {
+        let path = entry.path();
+        // Only this machine's packages install; the others name another platform.
+        if path.extension().is_some_and(|ext| ext == "loomext")
+            && let Err(error) = crate::infrastructure::extensions::package::import(
+                &path,
+                &root,
+                env!("CARGO_PKG_VERSION"),
+            )
+        {
+            eprintln!("skipped {}: {error}", path.display());
+        }
+    }
+    let mut service = service("repo-servers");
+    for dir in crate::infrastructure::extensions::state::folders(&root, false) {
+        service.adopt(&dir).unwrap();
+    }
+    let servers = service.language_servers();
+    assert!(!servers.is_empty(), "no language server was installed");
+    for server in servers {
+        let definition = &server.definition;
+        let command = definition["command"].as_str().unwrap();
+        assert!(
+            Path::new(command).is_file(),
+            "{}: command {command}",
+            server.name
+        );
+        for argument in definition["args"].as_array().unwrap() {
+            let argument = argument.as_str().unwrap();
+            if Path::new(argument).is_absolute() {
+                assert!(
+                    Path::new(argument).exists(),
+                    "{}: argument {argument}",
+                    server.name
+                );
+            }
+            assert!(!argument.contains("${"), "{}: {argument}", server.name);
+        }
+        eprintln!("{}: {command}", server.name);
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn the_sample_theme_extension_loads_and_both_themes_draw_with_their_own_colors() {
     let _turn = REGISTRY_TURN.lock().unwrap_or_else(|e| e.into_inner());
@@ -318,8 +373,12 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
         header.set_size(bytes.len() as u64);
         header.set_mode(0o644);
         header.set_cksum();
-        tar.append_data(&mut header, format!("loom.midnight/{file}"), bytes.as_slice())
-            .unwrap();
+        tar.append_data(
+            &mut header,
+            format!("loom.midnight/{file}"),
+            bytes.as_slice(),
+        )
+        .unwrap();
     }
     tar.into_inner().unwrap().finish().unwrap();
     host.import_into(&ui.state, &broken_theme, &work.join("ui-extensions"));

@@ -2511,15 +2511,31 @@ impl ExtensionService {
                 // or of the runtime extension it requires.
                 let command = declaration.command.as_str();
                 let mut unresolved = None;
+                let runtime = |id: &str| self.packages.get(id).map(|runtime| runtime.dir.clone());
                 match crate::features::extensions::servers::resolve_command(
                     command,
                     &package.dir,
-                    |id| self.packages.get(id).map(|runtime| runtime.dir.clone()),
+                    runtime,
                     cfg!(windows),
                 ) {
                     Ok(resolved) => definition["command"] = resolved.into(),
                     Err(error) => unresolved = Some(error),
                 }
+                // So are the arguments that name a file: a script for the runtime to run.
+                let mut arguments = Vec::new();
+                for argument in &declaration.args {
+                    match crate::features::extensions::servers::resolve_argument(
+                        argument,
+                        &package.dir,
+                        runtime,
+                    ) {
+                        Ok(resolved) => arguments.push(resolved),
+                        Err(error) => {
+                            unresolved.get_or_insert(error);
+                        }
+                    }
+                }
+                definition["args"] = arguments.into();
                 // A path with a separator that is not absolute starts inside the package.
                 if unresolved.is_none()
                     && command.contains(['/', '\\'])

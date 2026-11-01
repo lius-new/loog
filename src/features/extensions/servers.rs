@@ -69,6 +69,25 @@ pub fn resolve_command(
     runtime: impl Fn(&str) -> Option<std::path::PathBuf>,
     windows: bool,
 ) -> Result<String, String> {
+    resolve(command, package, runtime, windows)
+}
+
+/// An argument that names a file of the package or of its runtime (a script the
+/// runtime runs) is resolved like a command, but never gets `.exe` added.
+pub fn resolve_argument(
+    argument: &str,
+    package: &std::path::Path,
+    runtime: impl Fn(&str) -> Option<std::path::PathBuf>,
+) -> Result<String, String> {
+    resolve(argument, package, runtime, false)
+}
+
+fn resolve(
+    command: &str,
+    package: &std::path::Path,
+    runtime: impl Fn(&str) -> Option<std::path::PathBuf>,
+    windows: bool,
+) -> Result<String, String> {
     let (base, rest) = if let Some(rest) = command.strip_prefix("${extension}/") {
         (package.to_path_buf(), rest)
     } else if let Some(after) = command.strip_prefix("${runtime.")
@@ -177,6 +196,20 @@ mod tests {
                 .contains("not installed")
         );
         assert!(resolve("${extension}/../x", false).is_err());
+        // A script the runtime runs is a file of the package, with no .exe added even on Windows.
+        let script =
+            resolve_argument("${extension}/node_modules/s/cli.js", package, runtime).unwrap();
+        assert_eq!(
+            script,
+            Path::new("/ext/pkg")
+                .join("node_modules/s/cli.js")
+                .to_string_lossy()
+        );
+        assert_eq!(
+            resolve_argument("--stdio", package, runtime).unwrap(),
+            "--stdio"
+        );
+        assert!(resolve_argument("${runtime.python}/x", package, runtime).is_err());
     }
 
     #[test]
