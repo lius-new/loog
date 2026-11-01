@@ -46,8 +46,12 @@ test('locked packages are downloaded, checked against the lock and staged like b
   fs.writeFileSync(path.join(registry, 'index.snapshot.json'), '{}');
   fs.writeFileSync(path.join(registry, 'index.snapshot.json.sig'), '{}');
   const destination = path.join(root, 'app/extensions');
-  stageBundled({destination, lock: path.join(registry, 'extensions.lock'), locked, registry});
+  const catalog = path.join(root, 'registry.toml');
+  fs.writeFileSync(catalog, 'schema = 1\n');
+  stageBundled({destination, lock: path.join(registry, 'extensions.lock'), locked, registry, catalog});
   assert.equal(fs.readFileSync(path.join(destination, 'loom.look/a.json'), 'utf8'), '{}');
+  // The on-demand language list is not an extension and is kept beside them.
+  assert.equal(fs.readFileSync(path.join(destination, 'registry.toml'), 'utf8'), 'schema = 1\n');
   // The lock and the snapshot go beside the extensions folder.
   assert.equal(fs.readFileSync(path.join(root, 'app/registry/index.snapshot.json'), 'utf8'), '{}');
 });

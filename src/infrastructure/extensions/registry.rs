@@ -846,6 +846,18 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// What ships in assets/registry is a lock and snapshot that belong together,
+    /// signed by a key this build trusts.
+    #[test]
+    fn the_lock_and_snapshot_that_ship_with_loom_belong_together() {
+        let Some(dir) = shipped_dir().filter(|dir| dir.join(LOCK_FILE).is_file()) else {
+            return;
+        };
+        let lock = load_lock(&dir, KEYS).unwrap();
+        assert!(!lock.extensions.is_empty());
+        assert!(load_snapshot(&dir, KEYS, 0).is_some());
+    }
+
     #[test]
     fn an_expired_index_is_kept_but_marked() {
         let signer = signer();

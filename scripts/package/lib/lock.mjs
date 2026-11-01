@@ -77,17 +77,33 @@ export async function fetchLocked({lock, destination, fetchBytes = download}) {
   return lock.extensions.map(extension => extension.id);
 }
 
+/** Fetch the locked extensions unless they are already there. Nothing without a lock. */
+export async function ensureLocked({lock = LOCK_FILE, locked = LOCKED_DIR} = {}) {
+  const found = readLock(lock);
+  if (!found || found.extensions.every(extension => fs.existsSync(path.join(locked, extension.id, 'manifest.json')))) return;
+  await fetchLocked({lock: found, destination: locked});
+}
+
 /**
  * Stage the bundled extensions into `destination` (the `extensions` folder of the
  * application): the locked ones when there is a lock, else assets/extensions. The
  * lock and snapshot go to the `registry` folder beside it.
  */
-export function stageBundled({destination, lock = LOCK_FILE, locked = LOCKED_DIR, registry = REGISTRY_DIR}) {
+export function stageBundled({
+  destination,
+  lock = LOCK_FILE,
+  locked = LOCKED_DIR,
+  registry = REGISTRY_DIR,
+  catalog = path.join(ROOT, 'assets/extensions/registry.toml'),
+}) {
   const found = readLock(lock);
   if (!found) return stageExtensions({destination});
   const missing = found.extensions.filter(extension => !fs.existsSync(path.join(locked, extension.id, 'manifest.json')));
   if (missing.length) throw new Error(`Locked extensions are not fetched (${missing.map(e => e.id).join(', ')}); run node scripts/package/fetch-locked.mjs`);
   const binaries = stageExtensions({source: locked, destination});
+  // The list of languages downloaded on demand is not an extension; it stays until the
+  // languages are in the registry too.
+  if (fs.existsSync(catalog)) fs.copyFileSync(catalog, path.join(destination, 'registry.toml'));
   const shipped = path.join(path.dirname(path.resolve(destination)), 'registry');
   fs.mkdirSync(shipped, {recursive: true});
   for (const name of SHIPPED) {

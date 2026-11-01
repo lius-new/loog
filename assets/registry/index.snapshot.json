@@ -1,0 +1,138 @@
+{
+  "schema": 1,
+  "generated": "2026-11-01T02:19:35.789Z",
+  "expires": "2026-12-01T02:19:35.789Z",
+  "sequence": 1,
+  "keyId": "index-2026-1",
+  "extensions": [
+    {
+      "id": "loom.lang.json",
+      "name": "JSON Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for JSON.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "json",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "json",
+          "fileTypes": [
+            "json",
+            "jsonc",
+            "geojson",
+            "webmanifest"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.8",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.json-0.1.8/loom.lang.json-0.1.8-any.loomext",
+              "sha256": "0c83bdd5cc9a44999d298fcc0196e694a50c4d3dc4aba11815db25554eb9fef3",
+              "size": 4994
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.markdown",
+      "name": "Markdown Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Markdown, with fenced code blocks highlighted in their own language.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "markdown",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "markdown",
+          "fileTypes": [
+            "md",
+            "markdown",
+            "mdown",
+            "mkd"
+          ]
+        },
+        {
+          "name": "markdown_inline",
+          "fileTypes": []
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.8",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.markdown-0.1.8/loom.lang.markdown-0.1.8-any.loomext",
+              "sha256": "845f3e6d0e98f26caad32583f0deb1bf3c5ba9b16c002bd6a906adfcfcfd46d9",
+              "size": 127833
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loom.theme.aura",
+      "name": "Aura Themes",
+      "publisher": "Loom",
+      "description": "The Aura Light, Ember and High Contrast color themes.",
+      "categories": [
+        "Themes"
+      ],
+      "keywords": [
+        "theme",
+        "light",
+        "dark",
+        "high contrast"
+      ],
+      "license": "MIT",
+      "versions": [
+        {
+          "version": "0.1.8",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.theme.aura-0.1.8/loom.theme.aura-0.1.8-any.loomext",
+              "sha256": "cb72288066d6436c6e6500b2bad460c88bc6239edefea04a9ed9910ab2edd877",
+              "size": 2562
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -351,6 +351,52 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// The whole path against the published registry: fetch and verify the signed
+    /// index, plan, download, check the hash, install. Needs the network, so it is
+    /// run on purpose: `cargo test --bins live_registry -- --ignored`.
+    #[test]
+    #[ignore]
+    fn live_registry_installs_the_bundled_extensions() {
+        use super::super::registry;
+        use crate::features::extensions::registry::{current_platform, plan_install};
+        let root = temp("live");
+        let loaded = registry::current(
+            &registry::cache_dir(&root),
+            None,
+            registry::BASE,
+            registry::KEYS,
+            registry::now(),
+            &registry::http,
+        )
+        .unwrap();
+        assert_eq!(
+            loaded.origin,
+            registry::Origin::Live,
+            "{:?}",
+            loaded.problem
+        );
+        assert!(!loaded.expired);
+        let platform = current_platform().unwrap();
+        let loom = env!("CARGO_PKG_VERSION");
+        for id in ["loom.lang.json", "loom.lang.markdown", "loom.theme.aura"] {
+            let steps = plan_install(&loaded.index, &installed(&root), id, loom, platform).unwrap();
+            assert_eq!(steps.len(), 1, "{id}");
+            let done = install(&root, &steps, loom, &download).unwrap();
+            assert_eq!(done[0].id, id);
+            assert!(done[0].directory.join("manifest.json").is_file());
+        }
+        // Everything is installed now, so there is nothing left to plan.
+        let again = plan_install(
+            &loaded.index,
+            &installed(&root),
+            "loom.lang.json",
+            loom,
+            platform,
+        );
+        assert!(again.unwrap().is_empty());
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn rolling_back_switches_to_the_previous_version_and_back_again() {
         let root = temp("back");
