@@ -184,6 +184,17 @@ pub fn undo_install(
     Ok(())
 }
 
+/// Keep `id` at the version it has (or stop keeping it there).
+pub fn set_pinned(root: &Path, id: &str, pinned: bool) -> Result<(), String> {
+    update(root, |state| {
+        state
+            .extensions
+            .get_mut(id)
+            .map(|entry| entry.pinned = pinned)
+            .ok_or_else(|| format!("{id} is not installed"))
+    })?
+}
+
 /// Go back to the version in use before the current one. The current one becomes
 /// the version to go forward to. Returns `(from, to)`.
 pub fn roll_back(root: &Path, id: &str) -> Result<(String, String), String> {

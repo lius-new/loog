@@ -489,6 +489,12 @@ mod tests {
             ("1.0.0".into(), "1.1.0".into())
         );
         assert!(state::roll_back(&root, "loom.lsp.nope").is_err());
+        // A pinned extension is not offered an update, and the pin follows the version change.
+        state::set_pinned(&root, "loom.lsp.bash", true).unwrap();
+        assert!(installed(&root)["loom.lsp.bash"].pinned);
+        state::set_pinned(&root, "loom.lsp.bash", false).unwrap();
+        assert!(!installed(&root)["loom.lsp.bash"].pinned);
+        assert!(state::set_pinned(&root, "loom.lsp.nope", true).is_err());
         let _ = fs::remove_dir_all(&root);
     }
 }

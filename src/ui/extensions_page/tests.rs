@@ -21,6 +21,8 @@ fn entry(id: &str, enabled: bool, update: bool) -> Entry {
         installed: Some(Installed {
             enabled,
             bundled: false,
+            pinned: false,
+            previous: None,
             location: String::new(),
             update: update.then(|| Update {
                 version: "2.0.0".to_owned(),

@@ -94,6 +94,20 @@ fn actions(entry: &Entry, context: Context) -> Vec<HeadButton> {
             ));
         }
     }
+    if !installed.bundled {
+        buttons.push(if installed.pinned {
+            button("Unpin", Kind::Plain, act(Action::Unpin))
+        } else {
+            button("Pin Version", Kind::Plain, act(Action::Pin))
+        });
+        if let Some(previous) = &installed.previous {
+            buttons.push(button(
+                format!("Go Back to {previous}"),
+                Kind::Plain,
+                act(Action::Rollback),
+            ));
+        }
+    }
     if installed.enabled {
         buttons.push(button("Disable", Kind::Plain, act(Action::Disable)));
     } else {

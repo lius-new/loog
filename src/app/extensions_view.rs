@@ -95,6 +95,14 @@ pub fn run(state: &AppContext, command: Command) {
         }
         return;
     }
+    if let Command::Act(action @ (Action::Pin | Action::Unpin | Action::Rollback), id) = &command {
+        match state.services().and_then(|runtime| runtime.extensions()) {
+            Some(host) if *action == Action::Rollback => host.roll_back(state, id),
+            Some(host) => host.set_pinned(state, id, *action == Action::Pin),
+            None => state.update(|app| app.show_error("Extensions are not available")),
+        }
+        return;
+    }
     if let Command::Act(Action::Install | Action::Update, id) = &command {
         match state.services().and_then(|runtime| runtime.extensions()) {
             Some(host) => host.install(state, id),
@@ -296,6 +304,55 @@ mod tests {
 
         let busy = shown(false, true);
         assert!(has(&busy, "Installing…"));
+    }
+
+    /// An installed extension can be kept at its version and sent back to the one before.
+    #[test]
+    fn an_installed_extension_can_be_pinned_and_sent_back() {
+        let context = ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let rect = UiRect::new(0.0, 0.0, 1280.0, 800.0);
+        let shown = |pinned: bool, previous: Option<&str>, bundled: bool| {
+            let mut frame = FRAME.clone();
+            let id = frame.installed[0].id.clone();
+            let installed = frame.installed[0].installed.as_mut().unwrap();
+            installed.pinned = pinned;
+            // A pinned extension is not offered an update.
+            installed.update = None;
+            installed.previous = previous.map(str::to_owned);
+            installed.bundled = bundled;
+            let view: AppView = Arc::new(move |cx| {
+                let ui = cx.state_with({
+                    let id = id.clone();
+                    move || ExtensionsUiState {
+                        selected: Some(id.clone()),
+                        ..Default::default()
+                    }
+                });
+                let search = cx.use_stable_id();
+                let focus = cx.focus_handle(search.clone());
+                let frame = frame.clone();
+                let binding = Binding::new(StateAccess::from(ui), move || frame.clone(), |_| {});
+                crate::ui::extensions_page::render(rect, binding, search, focus)
+            });
+            let mut session = UiSession::new();
+            session.render_view(&view, rect, UiScale::ONE);
+            texts(&session)
+        };
+        let has = |texts: &[String], wanted: &str| texts.iter().any(|text| text.contains(wanted));
+        let plain = shown(false, Some("0.9.0"), false);
+        assert!(has(&plain, "Pin Version"));
+        assert!(has(&plain, "Go Back to 0.9.0"));
+        let pinned = shown(true, None, false);
+        assert!(has(&pinned, "Unpin"));
+        assert!(has(&pinned, "Pinned"));
+        assert!(!has(&pinned, "Go Back"));
+        // What ships with Loom is not managed here.
+        let bundled = shown(false, Some("0.9.0"), true);
+        assert!(!has(&bundled, "Pin Version") && !has(&bundled, "Go Back"));
     }
 
     /// With nothing installed the page offers browsing, and an empty Available list says why.

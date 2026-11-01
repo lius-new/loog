@@ -178,6 +178,9 @@ fn entry(package: &Package) -> Entry {
         installed: Some(Installed {
             enabled: !matches!(state, State::Stopped | State::Stopping),
             bundled: package.is_bundled(),
+            // The host fills these from what is recorded on disk.
+            pinned: false,
+            previous: None,
             location: package.dir.display().to_string(),
             update: None,
             error: (state == State::Failed).then(|| Notice {

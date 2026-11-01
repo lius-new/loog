@@ -148,6 +148,8 @@ fn weave() -> Entry {
         installed: Some(Installed {
             enabled: true,
             bundled: false,
+            pinned: false,
+            previous: None,
             location: location("acme.weave"),
             update: Some(Update {
                 version: s("0.5.0"),
@@ -210,6 +212,8 @@ fn selection_tools() -> Entry {
         installed: Some(Installed {
             enabled: true,
             bundled: false,
+            pinned: false,
+            previous: None,
             location: location("example.tools"),
             update: None,
             error: None,
@@ -271,6 +275,8 @@ fn night() -> Entry {
         installed: Some(Installed {
             enabled: true,
             bundled: false,
+            pinned: false,
+            previous: None,
             location: location("acme.night"),
             update: None,
             error: None,
@@ -322,6 +328,8 @@ fn lint() -> Entry {
         installed: Some(Installed {
             enabled: true,
             bundled: false,
+            pinned: false,
+            previous: None,
             location: location("acme.lint"),
             update: None,
             error: Some(Notice {
@@ -363,6 +371,8 @@ fn notes() -> Entry {
         installed: Some(Installed {
             enabled: false,
             bundled: false,
+            pinned: false,
+            previous: None,
             location: location("acme.notes"),
             update: None,
             error: None,

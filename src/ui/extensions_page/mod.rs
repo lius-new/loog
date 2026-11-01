@@ -624,6 +624,9 @@ fn row(ids: &mut Ids, rect: UiRect, entry: &Entry, selected: bool, state: &Bindi
             c.accent,
         ),
         None if quiet => (format!("{} · Disabled", entry.publisher), c.text_dim),
+        None if entry.installed.as_ref().is_some_and(|i| i.pinned) => {
+            (format!("{} · Pinned", entry.publisher), c.text_dim)
+        }
         None => (entry.publisher.clone(), c.text_dim),
     };
     row.child(line(

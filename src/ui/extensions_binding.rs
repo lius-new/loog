@@ -116,6 +116,10 @@ pub struct Installed {
     pub enabled: bool,
     /// It ships with Loom: it can be disabled but not uninstalled.
     pub bundled: bool,
+    /// Kept at this version: no update is offered.
+    pub pinned: bool,
+    /// The version in use before this one, which the extension can go back to.
+    pub previous: Option<String>,
     pub location: String,
     pub update: Option<Update>,
     /// It could not start: the detail leads with this.
@@ -264,6 +268,11 @@ pub enum Action {
     Install,
     /// Install the newer version of an installed extension.
     Update,
+    /// Keep the installed version; no update is offered.
+    Pin,
+    Unpin,
+    /// Go back to the version in use before this one, and stay on it.
+    Rollback,
 }
 
 #[derive(Clone)]

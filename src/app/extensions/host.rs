@@ -370,6 +370,7 @@ impl ExtensionHost {
         let mut frame =
             crate::app::extensions_view::installed_frame(&self.inner.service.lock().unwrap());
         self.add_registry(&mut frame);
+        self.add_management(&mut frame);
         frame
     }
 

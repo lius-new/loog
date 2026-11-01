@@ -179,6 +179,75 @@ impl ExtensionHost {
             .max_by_key(|loaded| loaded.index.sequence);
     }
 
+    /// Add to the installed entries what is recorded about their versions: whether
+    /// the version is kept, and which earlier one they can go back to.
+    pub(super) fn add_management(&self, frame: &mut Frame) {
+        use crate::infrastructure::extensions::state;
+        let Some(root) = self.root() else {
+            return;
+        };
+        let recorded = state::read(&root);
+        for entry in &mut frame.installed {
+            let (Some(installed), Some(kept)) =
+                (&mut entry.installed, recorded.extensions.get(&entry.id))
+            else {
+                continue;
+            };
+            installed.pinned = kept.pinned;
+            installed.previous = kept.previous.clone().filter(|previous| {
+                state::version_dir(&root, &entry.id, previous)
+                    .join("manifest.json")
+                    .is_file()
+            });
+        }
+    }
+
+    /// Keep `id` at its version (or stop keeping it there).
+    pub(crate) fn set_pinned(&self, context: &AppContext, id: &str, pinned: bool) {
+        let Some(root) = self.root() else {
+            return;
+        };
+        let id = id.to_owned();
+        context.update(move |app| {
+            match crate::infrastructure::extensions::state::set_pinned(&root, &id, pinned) {
+                Ok(()) => app.show_toast(if pinned {
+                    format!("{id} stays at this version")
+                } else {
+                    format!("{id} may be updated again")
+                }),
+                Err(error) => app.show_error(format!("{id}: {error}")),
+            }
+        });
+    }
+
+    /// Go back to the version of `id` in use before the current one, and keep it there:
+    /// the newer one would otherwise be offered at once.
+    pub(crate) fn roll_back(&self, context: &AppContext, id: &str) {
+        use crate::infrastructure::extensions::state;
+        let Some(root) = self.root() else {
+            return;
+        };
+        let host = self.clone_handle();
+        let id = id.to_owned();
+        context.update(move |app| {
+            let (from, to) = match state::roll_back(&root, &id) {
+                Ok(versions) => versions,
+                Err(error) => return app.show_error(format!("{id}: {error}")),
+            };
+            let _ = state::set_pinned(&root, &id, true);
+            let dir = state::version_dir(&root, &id, &to);
+            let adopted = host.inner.service.lock().unwrap().adopt(&dir);
+            match adopted {
+                Ok((_, effects)) => host.inner.apply(app, effects),
+                Err(error) => return app.show_error(format!("{id}: {error}")),
+            }
+            host.refresh_settings(app);
+            app.show_success(format!(
+                "{id} is back at {to} (it was {from}), and stays there"
+            ));
+        });
+    }
+
     /// Add what the registry offers to `frame`: the extensions to install, the
     /// updates of installed ones, and how the registry stands.
     pub(super) fn add_registry(&self, frame: &mut Frame) {
@@ -201,6 +270,10 @@ impl ExtensionHost {
         let Some(platform) = current_platform().filter(|_| !loaded.expired) else {
             return;
         };
+        let recorded = self
+            .root()
+            .map(|root| crate::infrastructure::extensions::state::read(&root))
+            .unwrap_or_default();
         let mut installed = BTreeMap::new();
         let mut known = BTreeSet::new();
         for package in self.inner.service.lock().unwrap().packages() {
@@ -212,7 +285,10 @@ impl ExtensionHost {
                     Installed {
                         version: package.manifest.version.clone(),
                         requires: package.manifest.requires.clone(),
-                        pinned: false,
+                        pinned: recorded
+                            .extensions
+                            .get(&package.manifest.id)
+                            .is_some_and(|entry| entry.pinned),
                     },
                 );
             }
