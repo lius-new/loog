@@ -263,11 +263,18 @@ fn platform_paths_are_absolute_and_portable_directories_are_not_cargo_profiles()
     assert_eq!(
         user_resource_directory_from(
             "windows",
-            |_| Some(home.clone().into_os_string()),
+            |key| (key != "LOOM_EXTENSIONS_DIR").then(|| home.clone().into_os_string()),
             "extensions"
         ),
         Some(home.join("Loom/extensions"))
     );
+    let staged = home.join("staged");
+    let get = |key: &str| (key == "LOOM_EXTENSIONS_DIR").then(|| staged.clone().into_os_string());
+    assert_eq!(
+        user_resource_directory_from("windows", get, "extensions"),
+        Some(staged.clone())
+    );
+    assert_eq!(user_resource_directory_from("windows", get, "queries"), None);
     assert_eq!(
         user_resource_directory_from("windows", |_| Some("relative".into()), "extensions"),
         None

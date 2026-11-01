@@ -2496,9 +2496,25 @@ impl ExtensionService {
             for declaration in &package.manifest.contributes.language_servers {
                 let (name, mut definition) =
                     crate::features::extensions::servers::definition(declaration);
-                // A path with a separator that is not absolute starts inside the package.
+                // `${extension}/…` and `${runtime.<name>}/…` name files of this package
+                // or of the runtime extension it requires.
                 let command = declaration.command.as_str();
-                if command.contains(['/', '\\']) && Path::new(command).is_relative() {
+                let mut unresolved = None;
+                match crate::features::extensions::servers::resolve_command(
+                    command,
+                    &package.dir,
+                    |id| self.packages.get(id).map(|runtime| runtime.dir.clone()),
+                    cfg!(windows),
+                ) {
+                    Ok(resolved) => definition["command"] = resolved.into(),
+                    Err(error) => unresolved = Some(error),
+                }
+                // A path with a separator that is not absolute starts inside the package.
+                if unresolved.is_none()
+                    && command.contains(['/', '\\'])
+                    && !command.starts_with("${")
+                    && Path::new(command).is_relative()
+                {
                     definition["command"] = package
                         .dir
                         .join(command)
@@ -2531,11 +2547,18 @@ impl ExtensionService {
                 {
                     denial = Denial::PackageNotGranted;
                 }
+                let refusal = match &unresolved {
+                    Some(error) => {
+                        allowed.clear();
+                        format!("{}: {error}", declaration.id)
+                    }
+                    None => format!("{}: {}", declaration.id, execution_denial(denial)),
+                };
                 servers.push(crate::infrastructure::lsp::manager::Contributed {
                     name,
                     definition,
                     allowed_roots: allowed,
-                    refusal: format!("{}: {}", declaration.id, execution_denial(denial)),
+                    refusal,
                 });
             }
         }

@@ -194,12 +194,30 @@ pub fn check_folder(folder: &Path, loom_version: &str) -> Result<Manifest, Strin
     }
     if !manifest.runs_on(loom_version) {
         return Err(format!(
-            "{} needs Loom {} or newer; this is Loom {loom_version}",
+            "{} needs Loom {}; this is Loom {loom_version}",
             manifest.name.as_deref().unwrap_or(&manifest.id),
             manifest.engines.as_ref().map_or("?", |e| e.loom.as_str())
         ));
     }
     Ok(manifest)
+}
+
+/// Make the files the manifest lists as `executables` runnable. Nothing else in
+/// the package gets the permission; a listed file that is missing is an error.
+fn mark_executables(folder: &Path, executables: &[String]) -> Result<(), String> {
+    for path in executables {
+        let file = folder.join(path);
+        if !fs::metadata(&file).is_ok_and(|meta| meta.is_file()) {
+            return Err(format!("`executables`: {path} is not in the package"));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&file, fs::Permissions::from_mode(0o755))
+                .map_err(|e| format!("{path}: {e}"))?;
+        }
+    }
+    Ok(())
 }
 
 /// Install the package `archive` into `extensions` (the folder that holds one
@@ -212,6 +230,7 @@ pub fn import(archive: &Path, extensions: &Path, loom_version: &str) -> Result<I
     fs::create_dir(&folder).map_err(|e| e.to_string())?;
     unpack(&bytes, &folder)?;
     let manifest = check_folder(&folder, loom_version)?;
+    mark_executables(&folder, &manifest.executables)?;
     let digest = sha256(&bytes);
     let name = manifest.name.clone().unwrap_or_default();
     let publisher = manifest.publisher.clone().unwrap_or_default();

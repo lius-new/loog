@@ -1013,6 +1013,14 @@ fn user_resource_directory_from(
     get: impl Fn(&str) -> Option<std::ffi::OsString>,
     name: &str,
 ) -> Option<PathBuf> {
+    // A development override: `loom-ext dev --to <dir>` stages extensions there.
+    if name == "extensions"
+        && let Some(dir) = get("LOOM_EXTENSIONS_DIR")
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_absolute())
+    {
+        return Some(dir);
+    }
     let home = || get("HOME").map(PathBuf::from);
     let base = match platform {
         "windows" => super::user_paths::windows_root(&get),

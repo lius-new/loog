@@ -10,7 +10,7 @@
   "license": "MIT",
   "repository": "https://github.com/lius-new/loom",
   "readme": "README.md",
-  "engines": { "loom": "0.1.8" },
+  "engines": { "loom": ">=0.1.8 <0.3" },
   "contributes": {
     "languages": [{ "id": "loom.lang.json.grammar", "path": "tree-sitter.json" }]
   }

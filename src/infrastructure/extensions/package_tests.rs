@@ -33,7 +33,7 @@ fn manifest(version: &str, extra: &str) -> String {
         "name": "Acme Night", "publisher": "Acme", "description": "A quieter palette.",
         "categories": ["Themes"], "license": "MIT", "repository": "https://example.com/acme",
         "icon": "icon.svg", "readme": "README.md", "changelog": "CHANGELOG.md",
-        "engines": {{ "loom": "0.1.0" }}{extra},
+        "engines": {{ "loom": ">=0.1.0" }}{extra},
         "contributes": {{ "themes": [{{ "id": "acme.night.dark", "path": "themes/dark.json" }}] }} }}"##
     )
 }
@@ -176,7 +176,7 @@ fn a_component_that_is_named_but_missing_and_a_loom_that_is_too_old_are_refused(
     let archive = temp.file("old.loomext", &build(&files("1.0.0")));
     let error = import(&archive, &temp.0.join("extensions"), "0.0.9").unwrap_err();
     assert!(
-        error.contains("needs Loom 0.1.0 or newer; this is Loom 0.0.9"),
+        error.contains("needs Loom >=0.1.0; this is Loom 0.0.9"),
         "{error}"
     );
 }

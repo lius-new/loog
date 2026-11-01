@@ -62,14 +62,31 @@ pub struct Manifest {
     pub changelog: Option<String>,
     #[serde(default)]
     pub engines: Option<Engines>,
+    /// Extensions that must be installed with this one, as `id@range`
+    /// (`loom.runtime.node@^22`).
+    #[serde(default)]
+    pub requires: Vec<String>,
+    /// Extension ids worth suggesting when this one is installed.
+    #[serde(default)]
+    pub recommends: Vec<String>,
+    /// Package-relative files that are programs; only these are made executable.
+    #[serde(default)]
+    pub executables: Vec<String>,
 }
 
 /// What the extension needs from the application.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Engines {
-    /// The oldest Loom version that can run it, `major.minor.patch`.
+    /// The Loom versions that can run it, as a range such as `>=0.1.8 <0.3`.
     pub loom: String,
+}
+
+/// An entry of `requires`: the extension and the versions of it that will do.
+pub fn parse_requirement(text: &str) -> Option<(&str, super::range::Range)> {
+    let (id, range) = text.split_once('@')?;
+    valid_id(id).then_some(())?;
+    Some((id, super::range::Range::parse(range)?))
 }
 
 /// The categories an extension may list (at most three).
@@ -223,8 +240,34 @@ pub struct LanguageServerDecl {
     pub args: Vec<String>,
     /// File names that mark a project root (for example `Cargo.toml`).
     pub root_markers: Vec<String>,
+    /// `nearest` (default) or `outermost`.
+    #[serde(default)]
+    pub root_strategy: Option<String>,
+    /// `workspace` (default), `file_directory` or `none`: where the server runs
+    /// when no marker is found.
+    #[serde(default)]
+    pub root_fallback: Option<String>,
+    /// Higher goes first among the servers for a language.
+    #[serde(default)]
+    pub priority: Option<i32>,
+    /// The language id the server expects for each language (and variant). Absent:
+    /// every language in `languages`, under its own name.
+    #[serde(default)]
+    pub bindings: Vec<LanguageBinding>,
     #[serde(default)]
     pub initialization_options: Option<serde_json::Value>,
+    /// The name shown to people.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LanguageBinding {
+    pub language: String,
+    #[serde(default)]
+    pub variant: Option<String>,
+    pub language_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -465,9 +508,25 @@ impl Manifest {
             }
         }
         if let Some(engines) = &self.engines
-            && !valid_version(&engines.loom)
+            && super::range::Range::parse(&engines.loom).is_none()
         {
-            return bad("`engines.loom` must look like 0.1.8".to_owned());
+            return bad("`engines.loom` must be a version range such as >=0.1.8 <0.3".to_owned());
+        }
+        for entry in &self.requires {
+            match parse_requirement(entry) {
+                Some((id, _)) if id != self.id => {}
+                _ => return bad(format!("`requires` entry `{entry}` must look like id@^1")),
+            }
+        }
+        if let Some(id) = self
+            .recommends
+            .iter()
+            .find(|id| !valid_id(id) || **id == self.id)
+        {
+            return bad(format!("`recommends` entry `{id}` is not another extension id"));
+        }
+        for path in &self.executables {
+            check_package_path(path)?;
         }
         Ok(())
     }
@@ -549,16 +608,11 @@ impl Manifest {
         let Some(engines) = &self.engines else {
             return true;
         };
-        let parse = |version: &str| -> Option<Vec<u64>> {
-            version
-                .split(['-', '+'])
-                .next()?
-                .split('.')
-                .map(|part| part.parse().ok())
-                .collect()
-        };
-        match (parse(current), parse(&engines.loom)) {
-            (Some(current), Some(required)) => current >= required,
+        match (
+            super::range::parse_version(current),
+            super::range::Range::parse(&engines.loom),
+        ) {
+            (Some(current), Some(range)) => range.matches(current),
             _ => false,
         }
     }
@@ -906,7 +960,7 @@ mod tests {
         "name": "Acme Night", "publisher": "Acme", "description": "A quieter palette.",
         "categories": ["Themes"], "keywords": ["dark"], "license": "MIT",
         "repository": "https://example.com/acme/night", "icon": "icon.svg",
-        "readme": "README.md", "changelog": "CHANGELOG.md", "engines": { "loom": "0.1.8" },
+        "readme": "README.md", "changelog": "CHANGELOG.md", "engines": { "loom": ">=0.1.8 <1" },
         "contributes": { "themes": [{ "id": "acme.night.dark", "path": "themes/dark.json" }] }
     }"##;
 
@@ -921,9 +975,9 @@ mod tests {
         let manifest = Manifest::parse(COMPLETE).unwrap();
         assert!(manifest.publishing_problems(sizes).is_empty());
         assert!(
-            manifest.runs_on("0.1.8") && manifest.runs_on("0.2.0") && manifest.runs_on("1.0.0")
+            manifest.runs_on("0.1.8") && manifest.runs_on("0.2.0") && manifest.runs_on("0.9.9")
         );
-        assert!(!manifest.runs_on("0.1.7"));
+        assert!(!manifest.runs_on("0.1.7") && !manifest.runs_on("1.0.0"));
         // A development manifest without the fields still loads, and says what it lacks.
         let bare = Manifest::parse(r#"{ "schema": 1, "id": "a.b", "version": "0.1.0" }"#).unwrap();
         assert!(bare.runs_on("0.0.1"));
@@ -972,6 +1026,27 @@ mod tests {
                 .err()
                 .unwrap_or_else(|| panic!("{to} was accepted"));
             assert!(error.to_string().contains(expected), "{to}: {error}");
+        }
+    }
+
+    #[test]
+    fn requires_recommends_and_executables_are_checked() {
+        let with = |extra: &str| COMPLETE.replace("\"schema\": 1,", &format!("\"schema\": 1, {extra},"));
+        let manifest = Manifest::parse(&with(
+            r#""requires": ["loom.runtime.node@^22"], "recommends": ["loom.lsp.pyright"], "executables": ["bin/server"]"#,
+        ))
+        .unwrap();
+        assert_eq!(manifest.requires, ["loom.runtime.node@^22"]);
+        assert_eq!(manifest.executables, ["bin/server"]);
+        for (extra, expected) in [
+            (r#""requires": ["loom.runtime.node"]"#, "requires"),
+            (r#""requires": ["loom.runtime.node@latest"]"#, "requires"),
+            (r#""requires": ["acme.night@^1"]"#, "requires"),
+            (r#""recommends": ["Not An Id"]"#, "recommends"),
+            (r#""executables": ["../bin/server"]"#, "inside the package"),
+        ] {
+            let error = Manifest::parse(&with(extra)).unwrap_err();
+            assert!(error.to_string().contains(expected), "{extra}: {error}");
         }
     }
 
