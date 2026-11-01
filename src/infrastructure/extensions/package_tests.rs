@@ -237,6 +237,34 @@ fn hostile_archives_are_refused_before_anything_is_installed() {
     assert!(error.contains("no manifest.json"), "{error}");
 }
 
+/// Packages made by the extensions repository install here. Run on purpose, with
+/// `LOOM_EXTENSIONS_PACKAGES` set to its `dist/packages` folder:
+/// `cargo test --bins repository_packages -- --ignored`.
+#[test]
+#[ignore]
+fn repository_packages_install() {
+    let Some(packages) = std::env::var_os("LOOM_EXTENSIONS_PACKAGES") else {
+        return;
+    };
+    let temp = Temp::new();
+    let extensions = temp.0.join("extensions");
+    let mut installed = 0;
+    for entry in fs::read_dir(packages).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != EXTENSION) {
+            continue;
+        }
+        let imported = import(&path, &extensions, env!("CARGO_PKG_VERSION"))
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        assert!(imported.directory.join("manifest.json").is_file());
+        installed += 1;
+    }
+    assert!(installed > 0, "no packages found");
+    // What was installed is read back the way startup reads it.
+    let state = crate::infrastructure::extensions::state::read(&extensions);
+    assert_eq!(state.extensions.len(), installed);
+}
+
 #[test]
 fn the_root_folder_must_be_the_extension_and_the_only_one() {
     let temp = Temp::new();
