@@ -6,16 +6,18 @@
 
 mod content;
 mod detail;
+mod scroll;
 mod widgets;
 
 use lgui::core::{UiFocusHandle, UiId, clip};
-use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel, scroll_view};
+use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel};
 use std::sync::Arc;
 
 use self::widgets::{Ids, Kind, Look, line};
+use crate::ui::components::scrollbar;
 use crate::ui::components::input::{self, AccessInputOptions, InputBinding, InputStyle};
 use crate::ui::extensions_binding::{
-    Binding, Command, Entry, ExtensionsUiState, Frame, RegistryStatus, StateFilter,
+    Binding, Command, Entry, ExtensionsUiState, Frame, RegistryStatus,
 };
 use crate::ui::tabs::{ellipsize_sans, icon, measure, measure_sans};
 use crate::ui::theme;
@@ -24,31 +26,23 @@ const LIST_MIN_W: f32 = 240.0;
 const LIST_MAX_W: f32 = 340.0;
 const SEARCH_TOP: f32 = 12.0;
 const SEARCH_H: f32 = 28.0;
-const CHIP_H: f32 = 22.0;
-const FOOTER_H: f32 = 32.0;
 const ROW_H: f32 = 62.0;
 const TILE: f32 = 36.0;
 const MARGIN: f32 = 12.0;
 
 /// The entries the list shows for `ui`, in order.
-fn visible<'a>(frame: &'a Frame, ui: &ExtensionsUiState, query: &str) -> Vec<&'a Entry> {
-    if ui.filter == StateFilter::Available {
-        return frame
-            .available
-            .iter()
-            .filter(|entry| entry.matches(query))
-            .collect();
+///
+/// Without a search, what is installed. A search looks through what is installed
+/// and then through what the registry offers.
+fn visible<'a>(frame: &'a Frame, query: &str) -> Vec<&'a Entry> {
+    if query.is_empty() {
+        return frame.installed.iter().collect();
     }
     frame
         .installed
         .iter()
+        .chain(&frame.available)
         .filter(|entry| entry.matches(query))
-        .filter(|entry| match (ui.filter, &entry.installed) {
-            (StateFilter::All, _) => true,
-            (StateFilter::Enabled, Some(installed)) => installed.enabled,
-            (StateFilter::Disabled, Some(installed)) => !installed.enabled,
-            _ => false,
-        })
         .collect()
 }
 
@@ -72,16 +66,11 @@ pub fn render(
     let c = theme::c();
     let mut page = panel(rect, VisualStyle::filled(c.bg));
 
-    // Nothing installed and no list asked for: the page invites finding something.
-    if frame.installed.is_empty() && query.is_empty() && ui.filter != StateFilter::Available {
-        return clip(rect, 0.0, 0.0).child(page.child(empty(rect, &state)));
-    }
-
     let list_w = (rect.width() * 0.32)
         .clamp(LIST_MIN_W, LIST_MAX_W)
         .min(rect.width());
     let list = UiRect::new(rect.left, rect.top, rect.left + list_w, rect.bottom);
-    let entries = visible(&frame, &ui, &query);
+    let entries = visible(&frame, &query);
     let selected = current(&entries, ui.selected.as_deref());
 
     page = page.child(list_column(
@@ -108,6 +97,10 @@ pub fn render(
             },
             &state,
         )),
+        // Nothing installed and nothing searched for: the page invites finding something.
+        None if frame.installed.is_empty() && query.is_empty() => {
+            page.child(empty(detail_area, &state))
+        }
         None => page.child(nothing_selected(detail_area)),
     };
     clip(rect, 0.0, 0.0).child(page)
@@ -137,7 +130,7 @@ fn empty(rect: UiRect, state: &Binding) -> Element {
         middle - 215.0,
         top + 130.0,
         430.0,
-        "Browse the extensions Loom offers, or import a .loomext package.",
+        "Search for extensions in the box on the left, or import a .loomext package.",
         widgets::aligned(theme::sans(c.text_muted, theme::UI_SIZE), TextAlign::Center),
         19.0,
     );
@@ -145,30 +138,16 @@ fn empty(rect: UiRect, state: &Binding) -> Element {
         root = root.child(element);
     }
     let y = top + 130.0 + height + 16.0;
-    let browse = "Browse Extensions";
     let import = "Import Extension";
-    let browse_w = widgets::button_width(browse, false, theme::UI_SIZE);
     let import_w = widgets::button_width(import, false, theme::UI_SIZE);
-    let total = browse_w + 8.0 + import_w;
-    let left = middle - total / 2.0;
-    let open = state.clone();
-    root = root.child(widgets::button(
-        &mut ids,
-        "ext.empty.browse".to_owned(),
-        UiRect::new(left, y, left + browse_w, y + 28.0),
-        browse,
-        None,
-        Kind::Primary,
-        move || open.run(Command::SetFilter(StateFilter::Available)),
-    ));
     let open = state.clone();
     root = root.child(widgets::button(
         &mut ids,
         "ext.empty.import".to_owned(),
-        UiRect::new(left + browse_w + 8.0, y, left + total, y + 28.0),
+        UiRect::new(middle - import_w / 2.0, y, middle + import_w / 2.0, y + 28.0),
         import,
         None,
-        Kind::Plain,
+        Kind::Primary,
         move || open.run(Command::Import),
     ));
     root
@@ -229,121 +208,15 @@ fn list_column(
             state.clone(),
             search_focus,
             search_id,
-            if ui.filter == StateFilter::Available {
-                "Search available extensions"
-            } else {
-                "Search installed extensions"
-            },
+            "Search extensions",
         ));
-    let mut y = search.bottom + 8.0;
-
-    // Filter chips.
-    let chips: Vec<(String, bool, Command)> = [
-        ("All", StateFilter::All),
-        ("Enabled", StateFilter::Enabled),
-        ("Disabled", StateFilter::Disabled),
-        ("Browse", StateFilter::Available),
-    ]
-    .into_iter()
-    .map(|(label, filter)| {
-        (
-            label.to_owned(),
-            ui.filter == filter,
-            Command::SetFilter(filter),
-        )
-    })
-    .collect();
-    {
-        let mut left = area.left + MARGIN;
-        for (label, on, command) in chips {
-            let width = measure_sans(&label, theme::SMALL + 1.0, 400) + 20.0;
-            if left + width > area.right - MARGIN {
-                break;
-            }
-            let rect = UiRect::new(left, y, left + width, y + CHIP_H);
-            let run = state.clone();
-            let look = Look {
-                fill: on.then(|| widgets::blend(c.sidebar, c.accent, 0.14)),
-                hover: if on {
-                    widgets::blend(c.sidebar, c.accent, 0.2)
-                } else {
-                    c.active_line
-                },
-                border: Some(if on { c.accent } else { c.border }),
-                radius: CHIP_H / 2.0,
-            };
-            column = column.child(
-                widgets::pad(format!("ext.chip.{label}"), rect, look)
-                    .child(line(
-                        rect,
-                        label.clone(),
-                        widgets::aligned(
-                            theme::sans(
-                                if on { c.text_bright } else { c.text_muted },
-                                theme::SMALL + 1.0,
-                            ),
-                            TextAlign::Center,
-                        ),
-                    ))
-                    .on_click(move || run.run(command.clone())),
-            );
-            left = rect.right + 6.0;
-        }
-        y += CHIP_H + 8.0;
-    }
+    let y = search.bottom + 8.0;
 
     // Rows.
-    let footer = UiRect::new(area.left, area.bottom - FOOTER_H, area.right, area.bottom);
-    let viewport = UiRect::new(area.left, y, area.right, footer.top);
+    let viewport = UiRect::new(area.left, y, area.right, area.bottom);
     column = column.child(rows(
         &mut ids, viewport, ui, query, entries, selected, registry, state,
     ));
-
-    // Footer.
-    column = column.child(widgets::rule(UiRect::new(
-        footer.left,
-        footer.top,
-        footer.right,
-        footer.top + 1.0,
-    )));
-    if ui.filter == StateFilter::Available {
-        let run = state.clone();
-        let label = if registry.refreshing {
-            "Refreshing…"
-        } else {
-            "Refresh"
-        };
-        let width = measure_sans(label, theme::SMALL + 1.0, 400) + 12.0;
-        column = column.child(widgets::link(
-            "ext.footer.left".to_owned(),
-            UiRect::new(
-                footer.left + 8.0,
-                footer.top + 4.0,
-                footer.left + 8.0 + width,
-                footer.bottom - 4.0,
-            ),
-            label,
-            TextAlign::Left,
-            move || run.run(Command::Refresh),
-        ));
-    }
-    let label = "Import Extension";
-    {
-        let run = state.clone();
-        let width = measure_sans(label, theme::SMALL + 1.0, 400) + 12.0;
-        column = column.child(widgets::link(
-            "ext.footer.right".to_owned(),
-            UiRect::new(
-                footer.right - 8.0 - width,
-                footer.top + 4.0,
-                footer.right - 8.0,
-                footer.bottom - 4.0,
-            ),
-            label,
-            TextAlign::Right,
-            move || run.run(Command::Import),
-        ));
-    }
     column.child(widgets::rule(UiRect::new(
         area.right - 1.0,
         area.top,
@@ -392,17 +265,17 @@ fn rows(
     registry: &RegistryStatus,
     state: &Binding,
 ) -> Element {
-    let c = theme::c();
     if entries.is_empty() {
-        return message(ids, viewport, ui, query, registry, state);
+        return message(ids, viewport, query, registry, state);
     }
     let mut items: Vec<Element> = Vec::new();
     let mut y = viewport.top;
     for entry in entries {
+        // Gutter on the right, so a row never sits under the thumb.
         let rect = UiRect::new(
             viewport.left + 6.0,
             y,
-            viewport.right - 6.0,
+            viewport.right - 6.0 - scrollbar::SIZE + 6.0,
             y + ROW_H - 2.0,
         );
         items.push(row(
@@ -410,70 +283,66 @@ fn rows(
             rect,
             entry,
             selected == Some(entry.id.as_str()),
+            !query.is_empty(),
             state,
         ));
         y += ROW_H;
     }
-    let content_h = y - viewport.top + 8.0;
-    Element::from(
-        scroll_view(viewport, (viewport.width(), content_h))
-            .vertical()
-            .thumb_color(c.scrollbar)
-            .children(items),
+    // The scroll starts over when the filter or the search shows another list.
+    scroll::view(
+        "ext.rows".to_owned(),
+        query.to_owned(),
+        viewport,
+        y + 8.0,
+        items,
+        &ui.list,
+        &state.ui,
+        |ui| &mut ui.list,
+        ROW_H,
     )
-    .key("ext.rows")
 }
 
 /// What stands in for an empty list.
 fn message(
     ids: &mut Ids,
     viewport: UiRect,
-    ui: &ExtensionsUiState,
     query: &str,
     registry: &RegistryStatus,
     state: &Binding,
 ) -> Element {
     let c = theme::c();
-    let (title, body, action): (String, &str, Option<(String, Command)>) =
-        if ui.filter == StateFilter::Available && query.is_empty() {
-            match (&registry.problem, registry.loaded, registry.refreshing) {
-                (_, false, true) => ("Looking for extensions…".to_owned(), "", None),
-                (Some(problem), false, _) => (
-                    "Could not reach the extension registry".to_owned(),
-                    problem.as_str(),
-                    Some(("Try again".to_owned(), Command::Refresh)),
-                ),
-                (_, false, false) => (
-                    "The extension registry has not been read".to_owned(),
-                    "",
-                    Some(("Look for extensions".to_owned(), Command::Refresh)),
-                ),
-                _ => (
-                    "Nothing more to install".to_owned(),
-                    "Everything the registry offers for this Loom is installed.",
-                    None,
-                ),
-            }
-        } else if query.is_empty() {
-            (
-                format!(
-                    "Nothing {}",
-                    if ui.filter == StateFilter::Enabled {
-                        "enabled"
-                    } else {
-                        "disabled"
-                    }
-                ),
-                "Change the filter to see the others.",
-                None,
-            )
-        } else {
-            (
+    let (title, body, action): (String, String, Option<(String, Command)>) = if query.is_empty()
+    {
+        (
+            "Nothing installed".to_owned(),
+            "Type above to search the extensions Loom offers.".to_owned(),
+            None,
+        )
+    } else {
+        // The registry is searched too; say when it could not be.
+        match (&registry.problem, registry.loaded, registry.refreshing) {
+            (_, false, true) => (
                 format!("No installed extension matches “{query}”"),
-                "Try another word.",
+                "Still looking in the extension registry…".to_owned(),
+                None,
+            ),
+            (Some(problem), false, _) => (
+                format!("No installed extension matches “{query}”"),
+                format!("Could not reach the extension registry: {problem}"),
+                Some(("Try again".to_owned(), Command::Refresh)),
+            ),
+            (_, false, false) => (
+                format!("No installed extension matches “{query}”"),
+                "The extension registry has not been read.".to_owned(),
+                Some(("Look for extensions".to_owned(), Command::Refresh)),
+            ),
+            _ => (
+                format!("No extension matches “{query}”"),
+                "Try another word.".to_owned(),
                 Some(("Clear search".to_owned(), Command::ClearSearch)),
-            )
-        };
+            ),
+        }
+    };
     let width = viewport.width() - 44.0;
     let center = widgets::aligned(
         theme::sans_semibold(c.text_bright, theme::UI_SIZE + 1.0),
@@ -488,7 +357,7 @@ fn message(
         viewport.left + 22.0,
         y,
         width,
-        body,
+        &body,
         widgets::aligned(theme::sans(c.text_muted, theme::UI_SIZE), TextAlign::Center),
         19.0,
     );
@@ -517,7 +386,14 @@ fn message(
 }
 
 /// One entry of the list.
-fn row(ids: &mut Ids, rect: UiRect, entry: &Entry, selected: bool, state: &Binding) -> Element {
+fn row(
+    ids: &mut Ids,
+    rect: UiRect,
+    entry: &Entry,
+    selected: bool,
+    searching: bool,
+    state: &Binding,
+) -> Element {
     let c = theme::c();
     let enabled = entry
         .installed
@@ -559,6 +435,28 @@ fn row(ids: &mut Ids, rect: UiRect, entry: &Entry, selected: bool, state: &Bindi
     // The right edge, from the outside in.
     let mut edge = rect.right - 10.0;
     let middle = rect.top + rect.height() / 2.0;
+    // Among search results an installed extension is marked with a pill, so it
+    // stands out from the ones that can be installed.
+    if searching && entry.installed.is_some() {
+        let style = theme::sans_semibold(c.accent, theme::SMALL);
+        let width = measure_sans("Installed", theme::SMALL, 600) + 16.0;
+        let pill = UiRect::new(edge - width, rect.top + 9.0, edge, rect.top + 25.0);
+        row = row.child(
+            theme::bordered(
+                pill,
+                widgets::blend(c.sidebar, c.accent, 0.16),
+                c.accent,
+                pill.height() / 2.0,
+                1.0,
+            )
+            .child(line(
+                pill,
+                "Installed",
+                widgets::aligned(style, TextAlign::Center),
+            )),
+        );
+        edge -= width + 8.0;
+    }
     if let Some(installed) = &entry.installed {
         if installed.enabled && installed.error.is_some() {
             row = row.child(icon(
@@ -616,17 +514,23 @@ fn row(ids: &mut Ids, rect: UiRect, entry: &Entry, selected: bool, state: &Bindi
         ));
     // The status of the extension, after who made it.
     let meta_rect = UiRect::new(left, top + 32.0, left + width + 6.0, top + 46.0);
-    let (meta, ink) = match update {
-        Some(update) => (
-            format!("{} · Update to {}", entry.publisher, update.version),
-            c.accent,
-        ),
-        None if quiet => (format!("{} · Disabled", entry.publisher), c.text_dim),
+    // Among search results an installed extension says so.
+    let mut notes: Vec<String> = Vec::new();
+    if quiet {
+        notes.push("Disabled".to_owned());
+    }
+    match update {
+        Some(update) => notes.push(format!("Update to {}", update.version)),
         None if entry.installed.as_ref().is_some_and(|i| i.pinned) => {
-            (format!("{} · Pinned", entry.publisher), c.text_dim)
+            notes.push("Pinned".to_owned())
         }
-        None => (entry.publisher.clone(), c.text_dim),
-    };
+        None => {}
+    }
+    let ink = if update.is_some() { c.accent } else { c.text_dim };
+    let meta = std::iter::once(entry.publisher.as_str())
+        .chain(notes.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" · ");
     row.child(line(
         meta_rect,
         ellipsize_sans(&meta, width, theme::SMALL + 1.0, 400),

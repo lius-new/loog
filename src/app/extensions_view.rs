@@ -4,7 +4,7 @@
 //! installer as the command palette.
 use crate::app::context::AppContext;
 use crate::ui::components::state_access::StateAccess;
-use crate::ui::extensions_binding::{Action, Binding, Command, DetailTab, StateFilter};
+use crate::ui::extensions_binding::{Action, Binding, Command, DetailTab};
 use lgui::core::{UiFocusHandle, UiId};
 use lgui::prelude::{Element, UiRect};
 
@@ -110,13 +110,10 @@ pub fn run(state: &AppContext, command: Command) {
         }
         return;
     }
-    // Opening the list fetches the newest index once; Refresh always does.
     let force = matches!(command, Command::Refresh);
-    let registry = force || matches!(command, Command::SetFilter(StateFilter::Available));
     state.update(|app| {
         let ui = &mut app.extensions_ui;
         match command {
-            Command::SetFilter(filter) => ui.filter = filter,
             Command::Select(id) => {
                 ui.selected = Some(id);
                 ui.tab = DetailTab::Details;
@@ -129,8 +126,16 @@ pub fn run(state: &AppContext, command: Command) {
             Command::Act(..) | Command::Import | Command::Refresh => {}
         }
     });
-    if registry && let Some(host) = state.services().and_then(|runtime| runtime.extensions()) {
-        host.refresh_registry(state, force);
+    if force && let Some(host) = state.services().and_then(|runtime| runtime.extensions()) {
+        host.refresh_registry(state, true);
+    }
+}
+
+/// The page was opened from the title bar: fetch the newest index once per run, so
+/// a search can offer what is not installed.
+pub fn opened(state: &AppContext) {
+    if let Some(host) = state.services().and_then(|runtime| runtime.extensions()) {
+        host.refresh_registry(state, false);
     }
 }
 
@@ -267,7 +272,7 @@ mod tests {
             }
             let view: AppView = Arc::new(move |cx| {
                 let ui = cx.state_with(move || ExtensionsUiState {
-                    filter: StateFilter::Available,
+                    search: crate::ui::components::input::InputState::new("pyright"),
                     selected: Some("loom.lsp.pyright".into()),
                     confirming: confirming.then(|| "loom.lsp.pyright".to_owned()),
                     ..Default::default()
@@ -286,8 +291,8 @@ mod tests {
 
         let plain = shown(false, false);
         assert!(has(&plain, "Pyright Language Server"));
-        assert!(has(&plain, "Browse"));
-        assert!(has(&plain, "Refresh"));
+        assert!(!has(&plain, "Browse"), "the filter chips are gone");
+        assert!(!has(&plain, "Refresh") && !has(&plain, "Import Extension"));
         assert!(has(&plain, "Not installed"));
         assert!(has(&plain, "Install"));
         assert!(!has(&plain, "Accept and install"));
@@ -355,19 +360,20 @@ mod tests {
         assert!(!has(&bundled, "Pin Version") && !has(&bundled, "Go Back"));
     }
 
-    /// With nothing installed the page offers browsing, and an empty Available list says why.
+    /// With nothing installed the page invites a search, and a search that finds
+    /// nothing says why when the registry could not be read.
     #[test]
-    fn an_empty_page_offers_browsing_and_an_unread_registry_says_so() {
+    fn an_empty_page_invites_a_search_and_an_unread_registry_says_so() {
         let context = ApplicationContext::empty(Default::default());
         let _fonts = lgui::backend::install_text_environment(
             &context,
             lgui::render_skia::skia_text_system_handle(),
         );
         let rect = UiRect::new(0.0, 0.0, 1000.0, 700.0);
-        let shown = |filter: StateFilter, frame: Frame| {
+        let shown = |query: &'static str, frame: Frame| {
             let view: AppView = Arc::new(move |cx| {
                 let ui = cx.state_with(move || ExtensionsUiState {
-                    filter,
+                    search: crate::ui::components::input::InputState::new(query),
                     ..Default::default()
                 });
                 let search = cx.use_stable_id();
@@ -381,24 +387,16 @@ mod tests {
             texts(&session)
         };
         let has = |texts: &[String], wanted: &str| texts.iter().any(|text| text.contains(wanted));
-        assert!(has(
-            &shown(StateFilter::All, Frame::default()),
-            "Browse Extensions"
-        ));
-        let unread = shown(StateFilter::Available, Frame::default());
+        let invited = shown("", Frame::default());
+        assert!(has(&invited, "No extensions installed") && has(&invited, "Import Extension"));
+        let unread = shown("go", Frame::default());
         assert!(has(&unread, "has not been read"));
         let mut failed = Frame::default();
         failed.registry.problem = Some("offline".into());
-        assert!(has(
-            &shown(StateFilter::Available, failed),
-            "Could not reach"
-        ));
+        assert!(has(&shown("go", failed), "Could not reach"));
         let mut loaded = Frame::default();
         loaded.registry.loaded = true;
-        assert!(has(
-            &shown(StateFilter::Available, loaded),
-            "Nothing more to install"
-        ));
+        assert!(has(&shown("go", loaded), "No extension matches"));
     }
 
     /// Draws the page to PNG files in `LOOM_PREVIEW_DIR`, to look at the layout.
@@ -650,7 +648,7 @@ mod tests {
     }
 
     #[test]
-    fn the_footer_and_empty_page_offer_import_and_dispatch_it() {
+    fn the_empty_page_offers_import_and_dispatches_it_while_a_list_has_no_footer() {
         use lgui::core::{InputEvent, Point, PointerButton, PointerData, dispatch_runtime_output};
         use std::sync::Mutex;
 
@@ -688,19 +686,15 @@ mod tests {
                     .iter()
                     .any(|text| text == "Open extensions folder" || text == "Reload")
             );
-            let node = session
-                .tree()
-                .nodes()
-                .iter()
-                .find(|node| {
-                    node.semantics.as_ref().and_then(|s| s.name.as_deref())
-                        == Some("Import Extension")
-                })
-                .expect("an import button even with no installed extensions");
-            let button = session.tree().hit_for_id(&node.id).unwrap().rect;
+            let node = session.tree().nodes().iter().find(|node| {
+                node.semantics.as_ref().and_then(|s| s.name.as_deref()) == Some("Import Extension")
+            });
             if !empty {
-                assert_eq!(button.bottom, rect.bottom - 4.0);
+                assert!(node.is_none(), "a list has no footer buttons");
+                continue;
             }
+            let node = node.expect("an import button with no installed extensions");
+            let button = session.tree().hit_for_id(&node.id).unwrap().rect;
             let point = Point::new(
                 (button.left + button.right) / 2.0,
                 (button.top + button.bottom) / 2.0,

@@ -55,28 +55,20 @@ fn ids<'a>(entries: &[&'a Entry]) -> Vec<&'a str> {
 }
 
 #[test]
-fn the_installed_list_follows_the_state_filter_and_the_search() {
+fn the_list_shows_what_is_installed_and_a_search_adds_what_the_registry_offers() {
     let frame = frame();
-    let mut ui = ExtensionsUiState::default();
-    assert_eq!(
-        ids(&visible(&frame, &ui, "")),
-        ["a.on", "b.off", "c.update"]
-    );
-    ui.filter = StateFilter::Disabled;
-    assert_eq!(ids(&visible(&frame, &ui, "")), ["b.off"]);
-    ui.filter = StateFilter::All;
-    assert_eq!(ids(&visible(&frame, &ui, "UPDATE")), ["c.update"]);
-    // Available lists the registry's extensions, which are not installed.
-    ui.filter = StateFilter::Available;
-    assert_eq!(ids(&visible(&frame, &ui, "")), ["d.new"]);
-    assert!(visible(&frame, &ui, "update").is_empty());
+    assert_eq!(ids(&visible(&frame, "")), ["a.on", "b.off", "c.update"]);
+    assert_eq!(ids(&visible(&frame, "UPDATE")), ["c.update"]);
+    // Installed matches come first, then the registry's extensions.
+    assert_eq!(ids(&visible(&frame, ".")), ["a.on", "b.off", "c.update", "d.new"]);
+    assert_eq!(ids(&visible(&frame, "d.new")), ["d.new"]);
+    assert!(visible(&frame, "nothing like this").is_empty());
 }
 
 #[test]
 fn the_detail_falls_back_to_the_first_result() {
     let frame = frame();
-    let ui = ExtensionsUiState::default();
-    let entries = visible(&frame, &ui, "");
+    let entries = visible(&frame, "");
     assert_eq!(current(&entries, Some("b.off")).unwrap().id, "b.off");
     assert_eq!(current(&entries, Some("gone")).unwrap().id, "a.on");
     assert_eq!(current(&entries, None).unwrap().id, "a.on");

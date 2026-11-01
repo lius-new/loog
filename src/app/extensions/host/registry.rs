@@ -493,7 +493,6 @@ impl ExtensionHost {
             }
             app.extensions_ui
                 .show_installed(found.first().cloned().unwrap_or_default());
-            app.extensions_ui.filter = crate::ui::extensions_binding::StateFilter::Available;
             app.extensions_ui.search.set_text(search);
             app.apply(crate::features::keymap::action::Action::OpenExtensions);
         });

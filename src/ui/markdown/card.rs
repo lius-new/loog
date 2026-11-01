@@ -3,7 +3,7 @@
 use super::reader::{self, Binding, ReaderEvent, ReaderFrame};
 use crate::features::markdown::content::Markup;
 use crate::ui::theme;
-use lgui::prelude::{Element, UiRect, text};
+use lgui::prelude::{Element, UiRect, VisualStyle, panel, text};
 use std::sync::Arc;
 pub type Painter = dyn Fn(&ReaderFrame, usize, UiRect, UiRect) -> Element + Send + Sync;
 pub type ImagePainter = dyn Fn(&ReaderFrame, &crate::features::markdown::layout::ImageBox, UiRect) -> Element
@@ -92,24 +92,14 @@ pub fn render(
     lgui::prelude::component(rect, move |cx, _| {
         let id = cx.use_stable_id();
         let focus = cx.focus_handle(id.clone());
+        // Until the document is ready the card stays empty. A parse usually takes a
+        // frame or two, and a notice that appears and goes at once reads as a flash.
         let Some(port) = document.port.clone() else {
-            return text(
-                rect,
-                "Documentation pending…",
-                theme::sans(theme::c().text_soft, 12.0),
-            )
-            .into();
+            return panel(rect, VisualStyle::default()).into();
         };
         let frame = match (port.resolve)(rect.width(), rect.height()) {
             Ok(Some(frame)) => frame,
-            Ok(None) => {
-                return text(
-                    rect,
-                    "Preparing documentation…",
-                    theme::sans(theme::c().text_soft, 12.0),
-                )
-                .into();
-            }
+            Ok(None) => return panel(rect, VisualStyle::default()).into(),
             Err(error) => return text(rect, error, theme::sans(theme::c().warning, 12.0)).into(),
         };
         let read = frame.reader.clone();

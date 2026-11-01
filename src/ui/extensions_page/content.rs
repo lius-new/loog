@@ -1,7 +1,7 @@
 //! The scrolling body of the detail pane: the readme, what the extension adds,
 //! its changelog and runtime messages, and the facts beside them.
 use lgui::core::{Color, TextStyle};
-use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel, scroll_view};
+use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel};
 
 use super::widgets::{self, Ids, Kind, Tone, blend, line, paragraph};
 use crate::ui::extensions_binding::{
@@ -531,15 +531,17 @@ pub(super) fn render(region: UiRect, ids: &mut Ids, body: Body<'_>) -> Element {
             let x = left + main_w + SIDE_GAP;
             let mut aside = Flow::new(x, region.top + PAD_TOP, SIDE_W);
             facts(&mut aside, entry);
-            root = root.child(
-                scroll_view(
-                    UiRect::new(x, region.top, region.right, region.bottom),
-                    (region.right - x, aside.y - region.top + 40.0),
-                )
-                .vertical()
-                .thumb_color(c.scrollbar)
-                .children(aside.items),
-            );
+            root = root.child(super::scroll::view(
+                "ext.aside".to_owned(),
+                entry.id.clone(),
+                UiRect::new(x, region.top, region.right, region.bottom),
+                aside.y + 40.0,
+                aside.items,
+                &body.state.ui.get().aside,
+                &body.state.ui,
+                |ui| &mut ui.aside,
+                ROW_LINE,
+            ));
         }
         return root;
     }
@@ -581,16 +583,22 @@ pub(super) fn render(region: UiRect, ids: &mut Ids, body: Body<'_>) -> Element {
         height = height.max(aside.y);
         items.append(&mut aside.items);
     }
-    let content_h = height - region.top + 40.0;
-    let key = format!("ext.body.{}.{:?}", entry.id, body.tab);
-    Element::from(
-        scroll_view(region, (region.width(), content_h))
-            .vertical()
-            .thumb_color(c.scrollbar)
-            .children(items),
+    let owner = format!("{}.{:?}", entry.id, body.tab);
+    super::scroll::view(
+        format!("ext.body.{owner}"),
+        owner,
+        region,
+        height + 40.0,
+        items,
+        &body.state.ui.get().detail,
+        &body.state.ui,
+        |ui| &mut ui.detail,
+        ROW_LINE,
     )
-    .key(key)
 }
+
+/// How far one wheel notch of lines scrolls the detail, per line.
+const ROW_LINE: f32 = 20.0;
 
 fn notices(main: &mut Flow, ids: &mut Ids, body: &Body<'_>) {
     let Some(installed) = &body.entry.installed else {

@@ -30,7 +30,10 @@ pub fn title_binding(state: &AppContext, terminal: Option<TerminalToggle>) -> Ti
             }
         },
         move || writer.update(|app| app.apply(Action::OpenSettings)),
-        move || extensions.update(|app| app.apply(Action::OpenExtensions)),
+        move || {
+            extensions.update(|app| app.apply(Action::OpenExtensions));
+            crate::app::extensions_view::opened(&extensions);
+        },
         move || crate::app::update::activate(&updater),
         move |panel| match panel {
             PanelToggle::Drawer => toggler.update(|app| app.apply(Action::ToggleDrawer)),

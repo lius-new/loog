@@ -6,17 +6,6 @@
 use crate::ui::components::{input::InputState, state_access::StateAccess};
 use std::sync::Arc;
 
-/// The state chips above the list.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum StateFilter {
-    #[default]
-    All,
-    Enabled,
-    Disabled,
-    /// The registry's extensions that are not installed.
-    Available,
-}
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DetailTab {
     #[default]
@@ -28,18 +17,37 @@ pub enum DetailTab {
 #[derive(Clone, Default)]
 pub struct ExtensionsUiState {
     pub search: InputState,
-    pub filter: StateFilter,
     pub selected: Option<String>,
     pub tab: DetailTab,
     /// The extension whose installation is waiting for the user to accept what it asks for.
     pub confirming: Option<String>,
+    /// The scroll of the list, of the detail body and of the facts beside a readme.
+    pub list: ScrollState,
+    pub detail: ScrollState,
+    pub aside: ScrollState,
+}
+
+/// How far one scrolling area is scrolled, and the thumb drag in progress. The
+/// offset belongs to `owner` (what the area shows); showing something else starts at
+/// the top.
+#[derive(Clone, Debug, Default)]
+pub struct ScrollState {
+    pub owner: String,
+    pub offset: f32,
+    pub dragging: bool,
+    pub drag_offset: f32,
+}
+
+impl ScrollState {
+    pub fn at(&self, owner: &str) -> f32 {
+        if self.owner == owner { self.offset } else { 0.0 }
+    }
 }
 
 impl ExtensionsUiState {
-    /// Clear the search and the filter so `id` is in the list, and select it.
+    /// Clear the search so `id` is in the list, and select it.
     pub fn show_installed(&mut self, id: String) {
         self.search.clear();
-        self.filter = StateFilter::All;
         self.selected = Some(id);
         self.tab = DetailTab::Details;
     }
@@ -244,7 +252,6 @@ pub struct Frame {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
-    SetFilter(StateFilter),
     Select(String),
     SetTab(DetailTab),
     ClearSearch,
