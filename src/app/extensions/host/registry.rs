@@ -18,6 +18,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const LOOM: &str = env!("CARGO_PKG_VERSION");
 
+/// What the registry can do about a file whose language Loom does not know.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Suggestion {
+    /// Install this extension.
+    Install { id: String, name: String },
+    /// It is installed; languages are read at startup.
+    Restart { name: String },
+}
+
 #[derive(Default)]
 pub(super) struct State {
     loaded: Option<Loaded>,
@@ -65,6 +74,34 @@ fn file_types(name: &str) -> Vec<String> {
     (1..parts.len())
         .map(|from| parts[from..].join("."))
         .collect()
+}
+
+/// The language extension of `index` that recognizes a file called `name`, longest
+/// file type first; `installed` says which extensions are installed already.
+fn suggestion(
+    index: &crate::features::extensions::registry::Index,
+    name: &str,
+    platform: &str,
+    installed: impl Fn(&str) -> bool,
+) -> Option<Suggestion> {
+    for file_type in file_types(name) {
+        for entry in index.for_file_type(&file_type) {
+            if !entry.id.starts_with("loom.lang.") {
+                continue;
+            }
+            let display = entry.name.trim_end_matches(" Language").to_owned();
+            if installed(&entry.id) {
+                return Some(Suggestion::Restart { name: display });
+            }
+            if entry.best_for(LOOM, platform).is_some() {
+                return Some(Suggestion::Install {
+                    id: entry.id.clone(),
+                    name: display,
+                });
+            }
+        }
+    }
+    None
 }
 
 fn index_entry(entry: &IndexEntry, version: &VersionEntry) -> Entry {
@@ -273,6 +310,20 @@ impl ExtensionHost {
         }
     }
 
+    /// What would give a file called `name` the syntax it lacks: a language extension of
+    /// the registry to install, or one that is installed already and waits for a restart.
+    /// `None` when the registry knows nothing for the file's type.
+    pub(crate) fn suggest_for(&self, name: &str) -> Option<Suggestion> {
+        self.read_local();
+        let state = self.inner.registry.lock().unwrap();
+        let loaded = state.loaded.as_ref().filter(|loaded| !loaded.expired)?;
+        let platform = current_platform()?;
+        let service = self.inner.service.lock().unwrap();
+        suggestion(&loaded.index, name, platform, |id| {
+            service.package(id).is_some()
+        })
+    }
+
     /// Show what the registry offers for a file called `name`: the Extensions page,
     /// on the extensions that recognize its type.
     pub(crate) fn find_for_file(&self, context: &AppContext, name: &str) {
@@ -449,8 +500,9 @@ impl ExtensionHost {
             ));
         }
         let also = done.len() - 1;
+        let suggested = self.recommended_after(asked);
         app.show_success(format!(
-            "{} {} installed{}{}",
+            "{} {} installed{}{}{}",
             asked.name,
             asked.version,
             if also > 0 {
@@ -462,8 +514,37 @@ impl ExtensionHost {
                 " (restart Loom to use its language)"
             } else {
                 ""
+            },
+            if suggested.is_empty() {
+                String::new()
+            } else {
+                format!(". You may also want {}", suggested.join(", "))
             }
         ));
+    }
+
+    /// The names of the extensions the installed `imported` recommends that the
+    /// registry offers and that are not installed.
+    fn recommended_after(&self, imported: &Imported) -> Vec<String> {
+        let recommends = std::fs::read_to_string(imported.directory.join("manifest.json"))
+            .ok()
+            .and_then(|text| crate::features::extensions::manifest::Manifest::parse(&text).ok())
+            .map(|manifest| manifest.recommends)
+            .unwrap_or_default();
+        if recommends.is_empty() {
+            return Vec::new();
+        }
+        let state = self.inner.registry.lock().unwrap();
+        let Some(loaded) = state.loaded.as_ref() else {
+            return Vec::new();
+        };
+        let service = self.inner.service.lock().unwrap();
+        recommends
+            .iter()
+            .filter(|id| service.package(id).is_none())
+            .filter_map(|id| loaded.index.entry(id))
+            .map(|entry| entry.name.clone())
+            .collect()
     }
 }
 
@@ -480,6 +561,48 @@ mod tests {
             recommends: Vec::new(),
             artifacts: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_file_without_syntax_is_offered_the_language_extension_or_a_restart() {
+        use crate::features::extensions::registry::Index;
+        let sha = "a".repeat(64);
+        let index = Index::parse(
+            format!(
+                r#"{{ "schema": 1, "generated": "2026-11-01T00:00:00.000Z",
+                  "expires": "2026-12-01T00:00:00.000Z", "sequence": 1, "keyId": "k",
+                  "extensions": [
+                    {{ "id": "loom.lang.rust", "name": "Rust Language",
+                       "languages": [{{ "name": "rust", "fileTypes": ["rs"] }}],
+                       "versions": [{{ "version": "1.0.0", "artifacts": [
+                         {{ "platform": "any", "url": "https://x/r", "sha256": "{sha}", "size": 3 }}] }}] }},
+                    {{ "id": "loom.lsp.rust-analyzer", "name": "rust-analyzer",
+                       "languages": [{{ "name": "rust", "fileTypes": ["rs"] }}],
+                       "versions": [{{ "version": "1.0.0", "artifacts": [
+                         {{ "platform": "any", "url": "https://x/a", "sha256": "{sha}", "size": 3 }}] }}] }}
+                  ] }}"#
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        let none = |_: &str| false;
+        assert_eq!(
+            suggestion(&index, "lib.rs", "linux-x86_64", none),
+            Some(Suggestion::Install {
+                id: "loom.lang.rust".into(),
+                name: "Rust".into()
+            })
+        );
+        // Installed already: the language is read at startup.
+        assert_eq!(
+            suggestion(&index, "lib.RS", "linux-x86_64", |id| id
+                == "loom.lang.rust"),
+            Some(Suggestion::Restart {
+                name: "Rust".into()
+            })
+        );
+        // Nothing for another type, and only languages are offered for syntax.
+        assert_eq!(suggestion(&index, "main.zig", "linux-x86_64", none), None);
     }
 
     #[test]

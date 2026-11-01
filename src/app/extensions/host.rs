@@ -40,6 +40,7 @@ struct Inner {
 }
 
 mod registry;
+pub(crate) use registry::Suggestion;
 
 /// Runs on the UI thread when the participants are done; `true` means write the files.
 pub(crate) type SaveContinuation = Box<dyn FnOnce(&AppContext, bool) + Send>;

@@ -256,6 +256,27 @@ pub fn status_binding(state: &AppContext) -> crate::ui::chrome::StatusBinding {
         },
     )
 }
+use crate::app::extensions::host::Suggestion;
+
+/// What the registry can do for the active file, when Loom has no syntax for it.
+fn syntax_suggestion(state: &AppContext, app: &crate::app::state::AppState) -> Option<Suggestion> {
+    let id = app.workspace.active_document()?;
+    let document = app.workspace.documents.get(&id).filter(|d| d.is_text())?;
+    if document.meta.lang.grammar.is_some() {
+        return None;
+    }
+    let name = document
+        .meta
+        .path
+        .file_name()?
+        .to_string_lossy()
+        .into_owned();
+    state
+        .services()
+        .and_then(|runtime| runtime.extensions())?
+        .suggest_for(&name)
+}
+
 /// Pending syntax resources and the active file's main language server.
 fn language_status(
     state: &AppContext,
@@ -285,7 +306,11 @@ fn language_status(
         notes.push(StatusNote {
             text: format!(
                 "{left_out} highlight {} left out",
-                if left_out == 1 { "query was" } else { "queries were" }
+                if left_out == 1 {
+                    "query was"
+                } else {
+                    "queries were"
+                }
             ),
             level: NoteLevel::Warning,
         });
@@ -293,6 +318,18 @@ fn language_status(
     let Some(id) = app.workspace.active_document() else {
         return (None, notes);
     };
+    // A file with no syntax of its own, for which the registry has an extension.
+    match syntax_suggestion(state, app) {
+        Some(Suggestion::Install { name, .. }) => notes.push(StatusNote {
+            text: format!("{name} syntax is available"),
+            level: NoteLevel::Quiet,
+        }),
+        Some(Suggestion::Restart { name }) => notes.push(StatusNote {
+            text: format!("Restart Loom to use {name} syntax"),
+            level: NoteLevel::Quiet,
+        }),
+        None => {}
+    }
     let Some(services) = state.services().and_then(|r| r.language_services()) else {
         return (None, notes);
     };
@@ -748,6 +785,37 @@ pub fn language_panel_frame(state: &AppContext) -> crate::ui::language_panel::Fr
         .filter(|i| i.status != "ready")
         .collect();
     let retry_downloads = downloads.iter().any(|i| i.error.is_some());
+    // The extension that would give the active file its syntax.
+    let suggestion = syntax_suggestion(state, &state.get());
+    if let Some(suggestion) = suggestion {
+        let (title, subtitle, install, status) = match suggestion {
+            Suggestion::Install { id, name } => (
+                format!("{name} syntax"),
+                "An extension adds it".to_owned(),
+                Some((id, "Install")),
+                "Available",
+            ),
+            Suggestion::Restart { name } => (
+                format!("{name} syntax"),
+                "Restart Loom to use it".to_owned(),
+                None,
+                "Installed",
+            ),
+        };
+        sections.push(Section {
+            group: Group::Download,
+            title,
+            subtitle,
+            subtitle_level: Level::Quiet,
+            state: status.to_owned(),
+            tone: Tone::Missing,
+            progress: Progress::None,
+            lines: Vec::new(),
+            install,
+            cancel_install: None,
+            restart: None,
+        });
+    }
     sections.extend(downloads.into_iter().map(|info| {
         let failed = info.error.is_some();
         Section {

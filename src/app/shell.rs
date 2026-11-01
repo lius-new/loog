@@ -1708,6 +1708,12 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                         services.restart();
                     }
                 }
+                // An extension of the registry has a dotted id; a language server's name has none.
+                crate::ui::language_panel::Event::Install(id) if id.contains('.') => {
+                    if let Some(host) = panel_state.services().and_then(|r| r.extensions()) {
+                        host.install(&panel_state, &id);
+                    }
+                }
                 crate::ui::language_panel::Event::Install(server) => {
                     if let Some(services) =
                         panel_state.services().and_then(|r| r.language_services())
