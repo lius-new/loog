@@ -92,7 +92,8 @@ pub fn parse_requirement(text: &str) -> Option<(&str, super::range::Range)> {
 /// The categories an extension may list (at most three).
 pub const CATEGORIES: &[&str] = &[
     "Themes",
-    "Languages",
+    "Syntax Highlighting",
+    "Language Services",
     "Snippets",
     "Linters",
     "Formatters",
@@ -1016,6 +1017,16 @@ mod tests {
                 "{field}: {missing:?}"
             );
         }
+    }
+
+    #[test]
+    fn language_categories_name_a_specific_function() {
+        for category in ["Syntax Highlighting", "Language Services"] {
+            let manifest = Manifest::parse(&COMPLETE.replace("Themes", category)).unwrap();
+            assert!(manifest.publishing_problems(sizes).is_empty());
+        }
+        let error = Manifest::parse(&COMPLETE.replace("Themes", "Languages")).unwrap_err();
+        assert!(error.to_string().contains("is not a category"), "{error}");
     }
 
     #[test]

@@ -5,7 +5,7 @@
   "name": "Markdown Language",
   "publisher": "Loom",
   "description": "Syntax highlighting for Markdown, with fenced code blocks highlighted in their own language.",
-  "categories": ["Languages"],
+  "categories": ["Syntax Highlighting"],
   "keywords": ["markdown", "syntax", "tree-sitter"],
   "license": "MIT",
   "repository": "https://github.com/lius-new/loom",

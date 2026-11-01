@@ -21,7 +21,7 @@ import { createTar } from './tar.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..', '..');
 
-export const CATEGORIES = ['Themes', 'Languages', 'Snippets', 'Linters', 'Formatters', 'Editing', 'Source control', 'Productivity', 'Other'];
+export const CATEGORIES = ['Themes', 'Syntax Highlighting', 'Language Services', 'Snippets', 'Linters', 'Formatters', 'Editing', 'Source control', 'Productivity', 'Other'];
 const MAX_ICON = 256 * 1024;
 const MAX_DOCUMENT = 512 * 1024;
 const MAX_ARCHIVE = 64 * 1024 * 1024;

@@ -32,12 +32,20 @@ without them:
 | `name` | The name people see (up to 60 characters). |
 | `publisher` | Who publishes it. |
 | `description` | One sentence (up to 200 characters). |
-| `categories` | One to three of: Themes, Languages, Snippets, Linters, Formatters, Editing, Source control, Productivity, Other. |
+| `categories` | One to three of: Themes, Syntax Highlighting, Language Services, Snippets, Linters, Formatters, Editing, Source control, Productivity, Other. |
 | `license` | An SPDX expression such as `MIT`. |
 | `repository` | An `https://` address. |
 | `icon` | A PNG or SVG file in the package (up to 256 KiB). |
 | `readme`, `changelog` | Markdown files in the package (up to 512 KiB each). |
 | `engines.loom` | The oldest Loom version it runs on, `major.minor.patch`. |
+
+Categories describe a specific function. Use `Syntax Highlighting` for grammar
+packs and highlight queries, and `Language Services` for completion, hover,
+navigation and language server integrations. Use `Linters`, `Formatters` and
+`Snippets` for those functions. An extension providing both highlighting and
+language services can list both categories. `Languages` is no longer accepted;
+existing extensions must replace it with the categories for their functions and
+publish updated packages and registry metadata.
 
 Optional: `keywords` (up to ten), `homepage` (`https://`). Every path in the
 manifest must exist in the package and stay inside it; the packer lists all

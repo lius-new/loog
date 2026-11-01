@@ -66,7 +66,7 @@ fn weave() -> Entry {
         icon: "extension-code",
         icon_image: None,
         tint: 0xa78bfa,
-        categories: strings(&["Languages", "Snippets"]),
+        categories: strings(&["Syntax Highlighting", "Language Services", "Snippets"]),
         readme_document: None,
         changelog_document: None,
         readme: vec![

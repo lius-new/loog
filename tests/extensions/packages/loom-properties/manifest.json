@@ -5,7 +5,7 @@
   "name": "Properties",
   "publisher": "Loom",
   "description": "Syntax highlighting and snippets for Java .properties files.",
-  "categories": ["Languages", "Snippets"],
+  "categories": ["Syntax Highlighting", "Snippets"],
   "keywords": ["properties", "java", "config"],
   "license": "MIT",
   "repository": "https://github.com/lius-new/loom",

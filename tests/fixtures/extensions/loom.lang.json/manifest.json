@@ -5,7 +5,7 @@
   "name": "JSON Language",
   "publisher": "Loom",
   "description": "Syntax highlighting for JSON.",
-  "categories": ["Languages"],
+  "categories": ["Syntax Highlighting"],
   "keywords": ["json", "syntax", "tree-sitter"],
   "license": "MIT",
   "repository": "https://github.com/lius-new/loom",

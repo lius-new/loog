@@ -61,6 +61,14 @@ test('wrong values and missing files are refused with a reason', () => {
   } finally { rmSync(missing, { recursive: true, force: true }); rmSync(out, { recursive: true, force: true }); }
 });
 
+test('language categories name a specific function instead of Languages', () => {
+  for (const category of ['Syntax Highlighting', 'Language Services']) {
+    deepStrictEqual(manifestProblems({ ...manifest, categories: [category] }, () => 100), []);
+  }
+  const problems = manifestProblems({ ...manifest, categories: ['Languages'] }, () => 100);
+  ok(problems.some(problem => problem.includes('`Languages` is not a category')));
+});
+
 test('paths that could leave the package are not paths', () => {
   for (const bad of ['../x', '/x', 'a/../b', 'a\\b', 'C:x', 'a/', '', 'a/.', 'trail.', 'a:b']) ok(!safePath(bad), bad);
   for (const good of ['a', 'a/b.json', 'themes/dark.json', '.hidden/file']) ok(safePath(good), good);
