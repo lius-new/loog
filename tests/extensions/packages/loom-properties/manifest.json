@@ -14,7 +14,7 @@
   "changelog": "CHANGELOG.md",
   "engines": { "loom": "0.1.8" },
   "contributes": {
-    "languages": [
+    "highlight": [
       { "id": "loom.properties.grammar", "path": "grammar/tree-sitter.json" }
     ],
     "snippets": [

@@ -19,6 +19,7 @@ pub(crate) mod extensions_binding;
 pub mod extensions_page;
 pub(crate) mod file_error;
 pub mod git;
+pub mod highlight_menu;
 pub(crate) mod image_preview;
 pub(crate) mod image_rendering;
 pub mod keymap_page;

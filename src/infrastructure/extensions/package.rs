@@ -287,7 +287,7 @@ pub fn import_expecting(
     let digest = sha256(&bytes);
     let name = manifest.name.clone().unwrap_or_default();
     let publisher = manifest.publisher.clone().unwrap_or_default();
-    let needs_restart = !manifest.contributes.languages.is_empty();
+    let needs_restart = !manifest.contributes.highlight.is_empty();
 
     let target = super::state::version_dir(extensions, &manifest.id, &manifest.version);
     fs::create_dir_all(target.parent().unwrap_or(extensions)).map_err(|e| e.to_string())?;

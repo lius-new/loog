@@ -125,7 +125,7 @@ settings. Linux and macOS are not yet verified.
 
 ## Providers
 
-Declare providers under `contributes.providers` (`diagnostics`, `formatting`,
+Declare providers under `contributes.language_service.providers` (`diagnostics`, `formatting`,
 `completion`, `save-participant`, `hover`, `definition`, `document-symbols`,
 `signature-help`, `inlay-hints` and `code-actions` are served). A document in a
 selected language wakes the extension and the host sends a `provider-request`
@@ -189,14 +189,14 @@ language and its snippets in the editor's snippet syntax:
 ```
 
 The snippets appear in the completion list of that language after the language
-servers' items (up to 500 per file). A `contributes.languages` resource is the
+servers' items (up to 500 per file). A `contributes.highlight` resource is the
 `tree-sitter.json` of a language pack inside the package; it is found at startup
 and needs a restart (see `docs/languages.md`). The roadmap of what is not done
 yet is `docs/extensions-roadmap.md`.
 
 ## Language servers
 
-`contributes.language_servers` declares a server (`id`, `languages`, `command`,
+`contributes.language_service.servers` declares a server (`id`, `languages`, `command`,
 `args`, `root_markers`, `initialization_options`). A package that declares one
 must also declare `process.execute-local`, because starting it runs a program.
 A command with a path separator that is not absolute starts inside the package;

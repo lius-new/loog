@@ -37,11 +37,11 @@ function copyTree(source, target, totals) {
   }
 }
 
-// The WebAssembly module of every grammar a language resource names. Grammars are
+// The WebAssembly module of every grammar a highlight resource names. Grammars are
 // run in a sandbox, so a native library is never accepted in its place.
 function grammarModules(folder, manifest) {
   const modules = [];
-  for (const resource of manifest.contributes?.languages ?? []) {
+  for (const resource of manifest.contributes?.highlight ?? []) {
     const pack = relative(resource.path);
     if (path.posix.basename(pack) !== 'tree-sitter.json') continue;
     const directory = path.join(folder, path.posix.dirname(pack));

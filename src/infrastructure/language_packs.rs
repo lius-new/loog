@@ -236,7 +236,7 @@ impl Packages {
     }
 
     /// The grammars of the language packs in these folders: the folders enabled
-    /// extensions name in their `contributes.languages`.
+    /// extensions name in their `contributes.highlight`.
     pub(crate) fn from_directories(directories: Vec<PathBuf>) -> Self {
         let mut source = Self::empty();
         source.add_directories(directories, false);
@@ -657,7 +657,7 @@ impl Resources for Packages {
     }
 }
 /// The language packs extension packages contribute: for every package folder
-/// in `extensions` whose manifest lists a `contributes.languages` resource named
+/// in `extensions` whose manifest lists a `contributes.highlight` resource named
 /// `tree-sitter.json` (or `language.json`), the folder that file is in. The
 /// manifest is read with the extension loader's own rules and a package whose
 /// manifest it rejects contributes nothing; nothing here runs or loads a module.
@@ -731,7 +731,7 @@ pub(crate) fn bundled_extensions_directory() -> Option<PathBuf> {
 fn packs_of(enabled: Enabled) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for (package, manifest) in enabled {
-        for resource in &manifest.contributes.languages {
+        for resource in &manifest.contributes.highlight {
             if let Some(directory) = pack_directory(&package, &resource.path) {
                 found.push(directory);
             }
@@ -794,7 +794,7 @@ fn queries_of(enabled: Enabled) -> Vec<ExtensionQuery> {
         let Ok(base) = package.canonicalize() else {
             continue;
         };
-        for query in &manifest.contributes.queries {
+        for query in &manifest.contributes.highlight_queries {
             let Ok(path) = package.join(&query.path).canonicalize() else {
                 continue;
             };

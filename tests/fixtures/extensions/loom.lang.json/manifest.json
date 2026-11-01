@@ -12,6 +12,6 @@
   "readme": "README.md",
   "engines": { "loom": ">=0.1.8 <0.3" },
   "contributes": {
-    "languages": [{ "id": "loom.lang.json.grammar", "path": "tree-sitter.json" }]
+    "highlight": [{ "id": "loom.lang.json.grammar", "path": "tree-sitter.json" }]
   }
 }

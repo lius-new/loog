@@ -112,15 +112,7 @@ fn asks(version: &VersionEntry) -> Vec<String> {
 /// The file types a file name can be recognized by, longest first: `a.d.ts` is
 /// `d.ts` and `ts`; a name without a dot (`Dockerfile`, `.gitignore`) stands for itself.
 fn file_types(name: &str) -> Vec<String> {
-    let lower = name.to_lowercase();
-    let trimmed = lower.trim_start_matches('.');
-    let parts: Vec<&str> = trimmed.split('.').collect();
-    if parts.len() == 1 {
-        return vec![trimmed.to_owned()];
-    }
-    (1..parts.len())
-        .map(|from| parts[from..].join("."))
-        .collect()
+    crate::features::highlight_menu::file_types(name)
 }
 
 /// The language extension of `index` that recognizes a file called `name`, longest
@@ -132,10 +124,8 @@ fn suggestion(
     installed: impl Fn(&str) -> bool,
 ) -> Option<Suggestion> {
     for file_type in file_types(name) {
+        // Only highlight extensions recognize file types, whatever they are called.
         for entry in index.for_file_type(&file_type) {
-            if !entry.id.starts_with("loom.lang.") {
-                continue;
-            }
             let display = entry.name.trim_end_matches(" Language").to_owned();
             if installed(&entry.id) {
                 return Some(Suggestion::Restart { name: display });
@@ -153,9 +143,9 @@ fn suggestion(
 
 fn index_entry(entry: &IndexEntry, version: &VersionEntry, preview: Preview) -> Entry {
     let mut contributions = Vec::new();
-    if !entry.languages.is_empty() {
+    if entry.is_highlight() {
         let rows: Vec<[String; 3]> = entry
-            .languages
+            .highlight
             .iter()
             .map(|language| {
                 [
@@ -167,7 +157,7 @@ fn index_entry(entry: &IndexEntry, version: &VersionEntry, preview: Preview) -> 
             .collect();
         contributions.push(Contribution::Table(Table {
             icon: "extensions",
-            title: "Languages",
+            title: "Highlight",
             total: rows.len(),
             head: ["Language", "File types", ""],
             mono: [true, true, false],
@@ -460,6 +450,45 @@ impl ExtensionHost {
         })
     }
 
+    /// The language extensions of the registry, for the language panel. `None` while
+    /// there is no usable index (none cached or shipped, or it has expired).
+    pub(crate) fn language_candidates(
+        &self,
+    ) -> Option<Vec<crate::features::highlight_menu::Candidate>> {
+        self.read_local();
+        let state = self.inner.registry.lock().unwrap();
+        let loaded = state.loaded.as_ref().filter(|loaded| !loaded.expired)?;
+        let platform = current_platform();
+        let service = self.inner.service.lock().unwrap();
+        Some(
+            loaded
+                .index
+                .extensions
+                .iter()
+                .filter(|entry| entry.is_highlight())
+                .map(|entry| crate::features::highlight_menu::Candidate {
+                    extension: entry.id.clone(),
+                    name: entry.name.trim_end_matches(" Language").to_owned(),
+                    languages: entry
+                        .highlight
+                        .iter()
+                        .map(|language| language.name.clone())
+                        .collect(),
+                    file_types: entry
+                        .highlight
+                        .iter()
+                        .flat_map(|language| &language.file_types)
+                        .map(|file_type| file_type.trim_start_matches('.').to_lowercase())
+                        .collect(),
+                    installed: service.package(&entry.id).is_some(),
+                    installable: platform
+                        .is_some_and(|platform| entry.best_for(LOOM, platform).is_some()),
+                    installing: state.installing.contains(&entry.id),
+                })
+                .collect(),
+        )
+    }
+
     /// Show what the registry offers for a file called `name`: the Extensions page,
     /// on the extensions that recognize its type.
     pub(crate) fn find_for_file(&self, context: &AppContext, name: &str) {
@@ -746,11 +775,11 @@ mod tests {
                   "expires": "2026-12-01T00:00:00.000Z", "sequence": 1, "keyId": "k",
                   "extensions": [
                     {{ "id": "loom.lang.rust", "name": "Rust Language",
-                       "languages": [{{ "name": "rust", "fileTypes": ["rs"] }}],
+                       "highlight": [{{ "name": "rust", "fileTypes": ["rs"] }}],
                        "versions": [{{ "version": "1.0.0", "artifacts": [
                          {{ "platform": "any", "url": "https://x/r", "sha256": "{sha}", "size": 3 }}] }}] }},
                     {{ "id": "loom.lsp.rust-analyzer", "name": "rust-analyzer",
-                       "languages": [{{ "name": "rust", "fileTypes": ["rs"] }}],
+                       "language_service": {{ "languages": ["rust"] }},
                        "versions": [{{ "version": "1.0.0", "artifacts": [
                          {{ "platform": "any", "url": "https://x/a", "sha256": "{sha}", "size": 3 }}] }}] }}
                   ] }}"#

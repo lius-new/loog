@@ -37,13 +37,15 @@ pub struct Entry {
     pub keywords: Vec<String>,
     #[serde(default)]
     pub license: String,
-    /// What a language extension recognizes, so a file's extension can be matched
-    /// to it without downloading anything.
+    /// What a highlight extension recognizes, so a file's extension can be matched
+    /// to it without downloading anything. An entry has it exactly when the
+    /// extension contributes `highlight`; nothing else says an extension is for
+    /// highlighting.
     #[serde(default)]
-    pub languages: Vec<LanguageInfo>,
-    /// The languages a language server extension serves.
+    pub highlight: Vec<LanguageInfo>,
+    /// What a language service extension answers for.
     #[serde(default)]
-    pub serves: Vec<String>,
+    pub language_service: Option<ServiceInfo>,
     /// What the list shows before anything is installed. All optional: an index
     /// published without them still works.
     #[serde(default)]
@@ -69,6 +71,20 @@ pub struct LanguageInfo {
     pub name: String,
     #[serde(default)]
     pub file_types: Vec<String>,
+}
+
+/// The languages a language service extension serves.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct ServiceInfo {
+    #[serde(default)]
+    pub languages: Vec<String>,
+}
+
+impl Entry {
+    /// Whether the extension is for highlighting.
+    pub fn is_highlight(&self) -> bool {
+        !self.highlight.is_empty()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -219,7 +235,7 @@ impl Index {
         self.extensions
             .iter()
             .filter(|entry| {
-                entry.languages.iter().any(|language| {
+                entry.highlight.iter().any(|language| {
                     language.file_types.iter().any(|known| {
                         known
                             .trim_start_matches('.')
@@ -545,7 +561,7 @@ mod tests {
       "schema": 1, "generated": "2026-11-01T00:00:00.000Z", "expires": "2026-12-01T00:00:00.000Z",
       "sequence": 3, "keyId": "index-2026-1",
       "extensions": [
-        { "id": "loom.lang.rust", "name": "Rust", "languages": [{ "name": "rust", "fileTypes": ["rs"] }],
+        { "id": "loom.lang.rust", "name": "Rust", "highlight": [{ "name": "rust", "fileTypes": ["rs"] }],
           "versions": [
             { "version": "2.0.0", "engines": { "loom": ">=0.3.0" },
               "artifacts": [{ "platform": "any", "url": "https://x/2.tgz", "sha256": "SHA", "size": 5 }] },

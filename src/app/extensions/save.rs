@@ -54,7 +54,7 @@ impl ExtensionService {
             if !allowed || !package.manifest.has_behaviour() {
                 continue;
             }
-            for provider in &package.manifest.contributes.providers {
+            for provider in &package.manifest.contributes.language_service.providers {
                 if provider.kind == DeclKind::SaveParticipant
                     && provider.selector.languages.contains(&language)
                 {

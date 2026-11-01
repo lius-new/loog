@@ -263,7 +263,7 @@ fn extension_package(temp: &Temp, name: &str, resources: &[&str]) -> PathBuf {
     fs::write(
         package.join("manifest.json"),
         json!({ "schema": 1, "id": format!("acme.{name}"), "version": "1.0.0",
-                "contributes": { "languages": list } })
+                "contributes": { "highlight": list } })
         .to_string(),
     )
     .unwrap();

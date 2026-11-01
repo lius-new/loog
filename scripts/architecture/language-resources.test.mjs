@@ -19,7 +19,7 @@ test('the host is independent of the language producer and concrete grammar crat
   for (const id of languages) {
     const extension = JSON.parse(fs.readFileSync(path.join(resources, id, 'manifest.json')));
     assert.equal(extension.id, id);
-    assert.deepEqual(extension.contributes.languages.map(language => language.path), ['tree-sitter.json']);
+    assert.deepEqual(extension.contributes.highlight.map(language => language.path), ['tree-sitter.json']);
     const manifest = JSON.parse(fs.readFileSync(path.join(resources, id, 'tree-sitter.json')));
     assert.equal(fs.existsSync(path.join(resources, id, 'package.json')), false);
     assert.ok(Array.isArray(manifest.grammars));

@@ -194,6 +194,8 @@ pub struct StatusNote {
 pub enum StatusCommand {
     ServerAction(ChipAction),
     LanguagePanel,
+    /// The language badge: which languages are highlighted and which can be installed.
+    HighlightMenu,
     Encoding,
     LineEnding,
     Indent,

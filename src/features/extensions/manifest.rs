@@ -133,21 +133,34 @@ pub struct Selector {
 pub struct Contributes {
     #[serde(default)]
     pub commands: Vec<CommandDecl>,
-    #[serde(default)]
-    pub providers: Vec<ProviderDecl>,
+    /// Color themes.
     #[serde(default)]
     pub themes: Vec<ResourceDecl>,
     #[serde(default)]
-    pub languages: Vec<ResourceDecl>,
-    #[serde(default)]
     pub snippets: Vec<ResourceDecl>,
+    /// Syntax highlighting: grammar packs (`tree-sitter.json`) and descriptions of
+    /// languages the built-in highlighter colours (`language.json`).
+    #[serde(default)]
+    pub highlight: Vec<ResourceDecl>,
     /// Highlight and injection queries for a grammar, layered over its own.
     #[serde(default)]
-    pub queries: Vec<QueryDecl>,
+    pub highlight_queries: Vec<QueryDecl>,
+    /// What answers hints and diagnostics for a language.
     #[serde(default)]
-    pub language_servers: Vec<LanguageServerDecl>,
+    pub language_service: LanguageService,
     #[serde(default)]
     pub settings: Vec<SettingDecl>,
+}
+
+/// The language service a package brings: language servers it asks Loom to run,
+/// and providers its own code answers with.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LanguageService {
+    #[serde(default)]
+    pub servers: Vec<LanguageServerDecl>,
+    #[serde(default)]
+    pub providers: Vec<ProviderDecl>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -635,8 +648,10 @@ impl Manifest {
             if !c.commands.is_empty() {
                 return Err(ManifestError::BehaviourWithoutComponent("commands"));
             }
-            if !c.providers.is_empty() {
-                return Err(ManifestError::BehaviourWithoutComponent("providers"));
+            if !c.language_service.providers.is_empty() {
+                return Err(ManifestError::BehaviourWithoutComponent(
+                    "language_service.providers",
+                ));
             }
             if !self.activation.is_empty() {
                 return Err(ManifestError::BehaviourWithoutComponent("activation"));
@@ -652,19 +667,19 @@ impl Manifest {
             self.namespaced(&command.id)?;
             unique(&command.id)?;
         }
-        for provider in &c.providers {
+        for provider in &c.language_service.providers {
             self.namespaced(&provider.id)?;
             unique(&provider.id)?;
             if provider.selector.languages.is_empty() {
                 return Err(ManifestError::EmptySelector(provider.id.clone()));
             }
         }
-        for resource in c.themes.iter().chain(&c.languages).chain(&c.snippets) {
+        for resource in c.themes.iter().chain(&c.highlight).chain(&c.snippets) {
             self.namespaced(&resource.id)?;
             unique(&resource.id)?;
             check_package_path(&resource.path)?;
         }
-        for query in &c.queries {
+        for query in &c.highlight_queries {
             self.namespaced(&query.id)?;
             unique(&query.id)?;
             check_package_path(&query.path)?;
@@ -688,7 +703,7 @@ impl Manifest {
                 return Err(ManifestError::BadSettingDefault(setting.key.clone()));
             }
         }
-        for server in &c.language_servers {
+        for server in &c.language_service.servers {
             self.namespaced(&server.id)?;
             unique(&server.id)?;
             if server.languages.is_empty() {
@@ -940,13 +955,13 @@ mod tests {
         let source = r#"{
             "schema": 1, "id": "acme.rust", "version": "1.0.0",
             "capabilities": ["process.execute-local"],
-            "contributes": { "language_servers": [
+            "contributes": { "language_service": { "servers": [
                 { "id": "acme.rust.analyzer", "languages": ["rust"], "command": "rust-analyzer", "args": ["--stdio"], "root_markers": ["Cargo.toml"] }
-            ] }
+            ] } }
         }"#;
         let manifest = Manifest::parse(source).unwrap();
         assert_eq!(
-            manifest.contributes.language_servers[0].command,
+            manifest.contributes.language_service.servers[0].command,
             "rust-analyzer"
         );
         // Without the capability the declaration could never be allowed to run.
@@ -1071,7 +1086,7 @@ mod tests {
     fn provider_selectors_must_name_a_language() {
         let source = SELECTION_TOOLS.replace(
             "\"commands\": [",
-            "\"providers\": [{ \"id\": \"example.selection-tools.diag\", \"kind\": \"diagnostics\", \"selector\": { \"languages\": [] } }], \"commands\": [",
+            "\"language_service\": { \"providers\": [{ \"id\": \"example.selection-tools.diag\", \"kind\": \"diagnostics\", \"selector\": { \"languages\": [] } }] }, \"commands\": [",
         );
         assert!(matches!(
             Manifest::parse(&source),
@@ -1097,16 +1112,16 @@ mod tests {
     }
 
     #[test]
-    fn queries_name_a_grammar_a_query_file_and_a_path_inside_the_package() {
+    fn highlight_queries_name_a_grammar_a_query_file_and_a_path_inside_the_package() {
         let parse = |query: &str| {
             Manifest::parse(&format!(
                 r#"{{ "schema": 1, "id": "acme.q", "version": "0.1.0",
-                     "contributes": {{ "queries": [{query}] }} }}"#
+                     "contributes": {{ "highlight_queries": [{query}] }} }}"#
             ))
         };
         let good = r#"{ "id": "acme.q.rust", "grammar": "rust", "file": "highlights.scm",
                          "path": "queries/rust.scm" }"#;
-        assert_eq!(parse(good).unwrap().contributes.queries.len(), 1);
+        assert_eq!(parse(good).unwrap().contributes.highlight_queries.len(), 1);
         for bad in [
             good.replace("rust\",", "Rust\","),
             good.replace("highlights.scm", "folds.scm"),

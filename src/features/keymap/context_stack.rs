@@ -8,6 +8,8 @@ pub struct ContextFacts {
     pub vim_mode: &'static str,
     /// The question whether to trust an opened folder is showing.
     pub trust: bool,
+    /// The highlight panel is open.
+    pub highlight_menu: bool,
     pub close: bool,
     pub clone: bool,
     pub stash: bool,
@@ -38,6 +40,7 @@ pub const INPUT: &str = "Input";
 pub const MENU: &str = "Menu";
 pub const DIALOG: &str = "Dialog";
 pub const TRUST_PROMPT: &str = "TrustPrompt";
+pub const HIGHLIGHT_MENU: &str = "HighlightMenu";
 pub const CLOSE_CONFIRMATION: &str = "CloseConfirmation";
 pub const CLONE_REPOSITORY: &str = "CloneRepository";
 pub const BRANCH_PICKER: &str = "BranchPicker";
@@ -114,6 +117,12 @@ pub fn context_stack(app: &ContextFacts) -> Vec<KeyContext> {
     if app.confirm {
         let mut dialog = KeyContext::new(DIALOG);
         dialog.add(GIT_CONFIRM);
+        return vec![dialog];
+    }
+    // The highlight panel's filter takes typing, so workspace shortcuts stay out.
+    if app.highlight_menu {
+        let mut dialog = KeyContext::new(DIALOG);
+        dialog.add(HIGHLIGHT_MENU);
         return vec![dialog];
     }
     // The palette's filter takes typing, so workspace shortcuts stay out.

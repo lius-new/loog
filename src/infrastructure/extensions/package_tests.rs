@@ -351,7 +351,7 @@ fn an_extension_with_a_language_pack_asks_for_a_restart() {
     let temp = Temp::new();
     let mut entries = files("1.0.0");
     entries[0].1 = manifest("1.0.0", "")
-        .replace("\"themes\": [", "\"languages\": [{ \"id\": \"acme.night.g\", \"path\": \"g/tree-sitter.json\" }], \"themes\": [")
+        .replace("\"themes\": [", "\"highlight\": [{ \"id\": \"acme.night.g\", \"path\": \"g/tree-sitter.json\" }], \"themes\": [")
         .into_bytes();
     assert!(import_files(&temp, &entries).unwrap().needs_restart);
 }

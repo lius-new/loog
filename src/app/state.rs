@@ -81,6 +81,7 @@ pub struct AppState {
     pub keymap_ui: crate::ui::keymap_binding::KeymapUiState,
     /// The command palette opened by `workspace::OpenCommandPalette`.
     pub palette: crate::app::palette::PaletteState,
+    pub highlight_menu: crate::app::highlight_menu::HighlightMenuState,
     /// Search, source, selection and tab of the Extensions page.
     pub extensions_ui: crate::ui::extensions_binding::ExtensionsUiState,
     /// Release checks and the title bar update button.
@@ -131,6 +132,7 @@ impl AppState {
             keymap: Default::default(),
             keymap_ui: Default::default(),
             palette: Default::default(),
+            highlight_menu: Default::default(),
             extensions_ui: Default::default(),
             update: Default::default(),
         }
@@ -661,6 +663,7 @@ impl AppState {
 
     fn close_menus(&mut self) {
         self.palette.close();
+        self.highlight_menu.close();
         self.terminal.ui.terminal_workspace_picker = None;
         self.editor.menu = None;
         self.explorer.ui.menu = None;

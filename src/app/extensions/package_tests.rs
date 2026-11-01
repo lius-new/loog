@@ -145,7 +145,7 @@ fn the_sample_language_extension_is_found_at_startup_and_highlights_with_its_mod
     let mut service = service("properties");
     let id = service.load_package(&package).unwrap();
     let loaded = service.package(&id).unwrap();
-    assert_eq!(loaded.resources.languages, ["loom.properties.grammar"]);
+    assert_eq!(loaded.resources.highlight, ["loom.properties.grammar"]);
     assert_eq!(loaded.resources.snippets, ["loom.properties.snippets"]);
     assert!(
         loaded.resources.rejected.is_empty(),

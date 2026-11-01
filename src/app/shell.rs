@@ -185,6 +185,8 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let close_dialog_focus = cx.focus_handle(close_dialog_id.clone());
     let trust_dialog_id = cx.use_stable_id();
     let trust_dialog_focus = cx.focus_handle(trust_dialog_id.clone());
+    let highlight_menu_input_id = cx.use_stable_id();
+    let highlight_menu_input_focus = cx.focus_handle(highlight_menu_input_id.clone());
     let keymap_search_id = cx.use_stable_id();
     let keymap_search_focus = cx.focus_handle(keymap_search_id.clone());
     let extensions_search_id = cx.use_stable_id();
@@ -857,6 +859,15 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     );
     crate::ui::hold_focus(
         cx,
+        s.highlight_menu
+            .visible
+            .then_some(s.highlight_menu.restore_terminal),
+        highlight_menu_input_focus.clone(),
+        terminal_focus.clone(),
+        editor_focus.clone(),
+    );
+    crate::ui::hold_focus(
+        cx,
         s.git
             .ui
             .stash_switch
@@ -1198,6 +1209,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                     || app.terminal.ui.terminal_workspace_picker.is_some()
                     || app.git.ui.branch_picker.is_some()
                     || app.palette.visible
+                    || app.highlight_menu.visible
                     || app.git.ui.stash_switch.is_some()
                     || app.git.ui.menu.is_some()
                     || app.git.ui.confirm.is_some()
@@ -1538,6 +1550,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         && s.terminal.ui.terminal_workspace_picker.is_none()
         && s.git.ui.branch_picker.is_none()
         && !s.palette.visible
+        && !s.highlight_menu.visible
         && s.git.ui.stash_switch.is_none()
         && s.git.ui.menu.is_none()
         && s.git.ui.confirm.is_none()
@@ -1837,6 +1850,14 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             state.clone(),
             trust_dialog_id,
             editor_focus.clone(),
+        ));
+    }
+    if s.highlight_menu.visible {
+        root = root.child(crate::ui::highlight_menu::render(
+            vp,
+            super::highlight_menu::binding(&state),
+            highlight_menu_input_focus.clone(),
+            highlight_menu_input_id.clone(),
         ));
     }
     if s.palette.visible {

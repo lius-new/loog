@@ -23,7 +23,7 @@ pub const USER_TEMPLATE: &str = r#"// Loom key bindings. Entries here override t
 //   - keystrokes: modifiers joined with "-" (ctrl, alt, shift, cmd, secondary),
 //     sequences separated by spaces: "secondary-k secondary-s"
 //   - contexts: Workspace, Editor, Vim (mode=normal|visual|insert|replace),
-//     Terminal, Input, Menu, TrustPrompt, CloseConfirmation, CloneRepository; combine with
+//     Terminal, Input, Menu, TrustPrompt, HighlightMenu, CloseConfirmation, CloneRepository; combine with
 //     &&, ||, ! and >. Keys no binding claims in a Vim context go to Vim.
 //   - actions: "namespace::Name", ["pane::ActivateItem", 0], or null to disable
 //   - Vim key mappings send keys in Vim notation to Vim, not mapped again:

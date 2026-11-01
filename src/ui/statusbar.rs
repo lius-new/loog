@@ -68,6 +68,8 @@ struct Items {
     encoding: Option<usize>,
     ending: Option<usize>,
     indent: Option<usize>,
+    /// The language badge, which opens the highlight panel.
+    badge: Option<usize>,
 }
 
 impl Items {
@@ -201,6 +203,19 @@ pub fn render(rect: UiRect, state: StatusBinding) -> Element {
                 .on_click(move || action.run(StatusCommand::Encoding)),
             );
         }
+        if items.badge == Some(index) {
+            let action = state.clone();
+            bar = bar.child(
+                panel(
+                    UiRect::new(x - 3.0, rect.top, x + w + TEXT_MARGIN, rect.bottom),
+                    VisualStyle::default(),
+                )
+                .event_policy(EventPolicy::INTERACTIVE)
+                .cursor(lgui::core::CursorIcon::Pointer)
+                .semantics(Semantics::new(SemanticRole::Button).name("Highlighting"))
+                .on_click(move || action.run(StatusCommand::HighlightMenu)),
+            );
+        }
         if items.ending == Some(index) || items.indent == Some(index) {
             let action = state.clone();
             let is_ending = items.ending == Some(index);
@@ -245,6 +260,7 @@ fn status_items(s: &StatusFrame) -> Items {
     let mut encoding = None;
     let mut ending = None;
     let mut indent = None;
+    let mut badge = None;
     if !s.pending.is_empty() {
         items.push((
             format!(
@@ -316,6 +332,7 @@ fn status_items(s: &StatusFrame) -> Items {
             ));
         }
         if file.is_file || file.is_diff {
+            badge = Some(items.len());
             items.push((
                 file.lang.badge().into(),
                 theme::mono_bold(file.lang.badge_color(), theme::SMALL),
@@ -337,6 +354,7 @@ fn status_items(s: &StatusFrame) -> Items {
         encoding,
         ending,
         indent,
+        badge,
     }
 }
 
@@ -545,6 +563,7 @@ mod tests {
                 move |command| {
                     seen.lock().unwrap().push(match command {
                         StatusCommand::LanguagePanel => "panel",
+                        StatusCommand::HighlightMenu => "highlighting",
                         StatusCommand::Encoding => "encoding",
                         StatusCommand::LineEnding => "ending",
                         StatusCommand::Indent => "indent",
@@ -560,7 +579,7 @@ mod tests {
             );
             let mut session = UiSession::new();
             session.render_view(&view, rect, UiScale::ONE);
-            for label in ["2 diagnostics", "Ln 1, Col 1", lang.badge()] {
+            for label in ["2 diagnostics", "Ln 1, Col 1"] {
                 let bounds = session
                     .tree()
                     .nodes()
@@ -579,6 +598,24 @@ mod tests {
                     "{label} opened a panel"
                 );
             }
+            // The language badge opens the highlight panel.
+            let badge = session
+                .tree()
+                .nodes()
+                .iter()
+                .find(|node| node.text.as_deref() == Some(lang.badge()))
+                .unwrap()
+                .paint_bounds;
+            click(
+                &mut session,
+                &context,
+                (badge.left + badge.right) / 2.0,
+                14.0,
+            );
+            assert_eq!(
+                commands.lock().unwrap().drain(..).collect::<Vec<_>>(),
+                ["highlighting"]
+            );
             for (ending, expected) in [(true, "ending"), (false, "indent")] {
                 let bounds = editing_anchor(rect, &frame, ending).unwrap();
                 click(

@@ -545,6 +545,10 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             crate::app::palette::open(&env.state);
             true
         }
+        Action::ShowHighlighting => {
+            crate::app::highlight_menu::open(&env.state);
+            true
+        }
         Action::SelectTheme => {
             crate::app::palette::open_themes(&env.state);
             true

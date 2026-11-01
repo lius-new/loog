@@ -47,7 +47,7 @@ fn entry(package: &Package) -> Entry {
     );
     for (title, resources) in [
         ("Themes", &c.themes),
-        ("Languages", &c.languages),
+        ("Highlight", &c.highlight),
         ("Snippets", &c.snippets),
     ] {
         table(
@@ -70,10 +70,10 @@ fn entry(package: &Package) -> Entry {
         );
     }
     table(
-        "Queries",
+        "Highlight queries",
         "extensions",
         ["Identifier", "Grammar and file", "File"],
-        c.queries
+        c.highlight_queries
             .iter()
             .map(|query| {
                 [
@@ -88,7 +88,8 @@ fn entry(package: &Package) -> Entry {
         "Language features",
         "extension-code",
         ["Identifier", "Feature", "Languages"],
-        c.providers
+        c.language_service
+            .providers
             .iter()
             .map(|provider| {
                 [
@@ -103,7 +104,8 @@ fn entry(package: &Package) -> Entry {
         "Language servers",
         "extension-code",
         ["Identifier", "Command", "Languages"],
-        c.language_servers
+        c.language_service
+            .servers
             .iter()
             .map(|server| {
                 [

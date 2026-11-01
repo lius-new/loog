@@ -8,4 +8,4 @@
   for the language release, not modified.
 
 The folder is a complete language pack in Loom's standard format. The extension
-manifest points at its `tree-sitter.json` under `contributes.languages`.
+manifest points at its `tree-sitter.json` under `contributes.highlight`.

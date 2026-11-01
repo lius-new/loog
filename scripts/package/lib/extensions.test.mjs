@@ -16,7 +16,7 @@ function fixture(t) {
   };
   write('loom.look/manifest.json', JSON.stringify({schema: 1, id: 'loom.look', version: '1.0.0', contributes: {themes: [{id: 'loom.look.a', path: 'a.json'}]}}));
   write('loom.look/a.json', '{}');
-  write('loom.lang.rust/manifest.json', JSON.stringify({schema: 1, id: 'loom.lang.rust', version: '1.0.0', contributes: {languages: [{id: 'loom.lang.rust.grammar', path: 'tree-sitter.json'}]}}));
+  write('loom.lang.rust/manifest.json', JSON.stringify({schema: 1, id: 'loom.lang.rust', version: '1.0.0', contributes: {highlight: [{id: 'loom.lang.rust.grammar', path: 'tree-sitter.json'}]}}));
   write('loom.lang.rust/tree-sitter.json', JSON.stringify({grammars: [{name: 'rust', 'file-types': ['rs']}]}));
   write('loom.lang.rust/tree-sitter-rust.wasm', '\0asm');
   write('loom.lang.rust/queries/highlights.scm', '(identifier) @variable');
@@ -48,7 +48,7 @@ test('a broken package stops packaging and leaves nothing of itself behind', t =
 
 test('resource paths cannot leave the package and an empty input is refused', t => {
   const {source, destination, write} = fixture(t);
-  write('loom.lang.rust/manifest.json', JSON.stringify({schema: 1, id: 'loom.lang.rust', version: '1.0.0', contributes: {languages: [{id: 'loom.lang.rust.grammar', path: '../tree-sitter.json'}]}}));
+  write('loom.lang.rust/manifest.json', JSON.stringify({schema: 1, id: 'loom.lang.rust', version: '1.0.0', contributes: {highlight: [{id: 'loom.lang.rust.grammar', path: '../tree-sitter.json'}]}}));
   assert.throws(() => stageExtensions({source, destination}), /Invalid extension resource path/);
   assert.throws(() => stageExtensions({source: '', destination}), /Supply/);
   const empty = path.join(fixture(t).root, 'empty');

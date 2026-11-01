@@ -15,7 +15,7 @@ Implementation boundaries and highlighting contracts are in
 | --- | --- |
 | Bundled | `loom.lang.json` and `loom.lang.markdown` ship with Loom in `extensions/` beside the executable (`Loom.app/Contents/Resources/extensions/` on macOS). They can be disabled, not uninstalled. |
 | Registry | The signed extension index lists languages available in **Extensions → Browse**. For a file without syntax, the language panel offers the extension that adds it. |
-| Installed | A `.loomext` package that contributes a language (see below), installed from the Extensions page. |
+| Installed | A `.loomext` package that contributes highlighting (see below), installed from the Extensions page. |
 
 The user's extensions are in `%APPDATA%/Loom/extensions/` on Windows,
 `~/Library/Application Support/Loom/extensions/` on macOS and
@@ -24,9 +24,32 @@ Linux. `XDG_DATA_HOME` must be absolute; locations never depend on the working
 directory. Grammars are read when Loom starts: install, remove, enable or disable
 an extension and restart, including languages installed from the registry.
 
-## A language extension
+## The highlight panel
 
-List the language pack's `tree-sitter.json` under `contributes.languages`:
+Click the language badge at the right end of the status bar, or run **Show
+Highlighting** (`workspace::ShowHighlighting`), to see what Loom can highlight.
+The panel has four groups:
+
+| Group | What it lists |
+| --- | --- |
+| Active | The languages of the open files. |
+| All | Every language Loom has syntax for. |
+| Recommended | Languages not installed whose file types the open files have, each with an Install button. |
+| More | The other languages the registry offers, open each time and foldable; the field in its header filters them by name. |
+
+Active and All show only each language's short mark; hold the pointer over one
+and its name appears in the footer. Install downloads the extension in the
+background; languages are read when Loom starts, so a banner at the top says
+which ones wait for a restart until then. Languages come from the cached or
+shipped registry index at once, and a newer index is fetched in the background.
+Esc closes the panel; a press outside it does too.
+
+## A highlight extension
+
+List the pack's `tree-sitter.json` under `contributes.highlight`. What an
+extension brings is named by what it is for: `highlight` and `highlight_queries`
+are syntax colouring, `language_service` (`servers` and `providers`) is what
+answers hints and diagnostics, `themes` are colour themes.
 
 ~~~json
 {
@@ -34,7 +57,7 @@ List the language pack's `tree-sitter.json` under `contributes.languages`:
   "id": "acme.weave",
   "version": "1.0.0",
   "contributes": {
-    "languages": [{ "id": "acme.weave.grammar", "path": "grammars/weave/tree-sitter.json" }]
+    "highlight": [{ "id": "acme.weave.grammar", "path": "grammars/weave/tree-sitter.json" }]
   }
 }
 ~~~
@@ -79,7 +102,7 @@ file is enough; open documents are coloured again at once.
 **Queries from an extension.** Declare them in the manifest, for any grammar:
 
 ~~~json
-{ "contributes": { "queries": [
+{ "contributes": { "highlight_queries": [
   { "id": "acme.rust-extra", "grammar": "rust", "file": "highlights.scm", "path": "queries/rust.scm" }
 ] } }
 ~~~
@@ -138,7 +161,7 @@ listed words; it never guesses at functions or types. Data and markup languages
 their description lists words.
 
 The description above is a file named `language.json` in a folder of its own,
-referenced from `contributes.languages` like a grammar pack's `tree-sitter.json`:
+referenced from `contributes.highlight` like a grammar pack's `tree-sitter.json`:
 
 ~~~json
 { "id": "acme.sqlish.language", "path": "language/language.json" }

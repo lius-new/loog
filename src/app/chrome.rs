@@ -252,6 +252,13 @@ pub fn status_binding(state: &AppContext) -> crate::ui::chrome::StatusBinding {
                     }
                 }
             }
+            StatusCommand::HighlightMenu => {
+                if writer.get().highlight_menu.visible {
+                    writer.update(|app| app.highlight_menu.close());
+                } else {
+                    crate::app::highlight_menu::open(&writer);
+                }
+            }
             StatusCommand::LanguagePanel => writer.update(|app| {
                 app.chrome.language_panel = !app.chrome.language_panel;
                 app.chrome.language_details = None;

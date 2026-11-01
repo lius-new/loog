@@ -285,7 +285,7 @@ const FEED_MAX_MESSAGES: usize = 64;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Accepted {
     pub themes: Vec<String>,
-    pub languages: Vec<String>,
+    pub highlight: Vec<String>,
     pub snippets: Vec<String>,
     /// `(resource id, why it was rejected)`
     pub rejected: Vec<(String, String)>,
@@ -353,11 +353,11 @@ fn accept_resources(
             Err(reason) => accepted.rejected.push((resource.id.clone(), reason)),
         }
     }
-    for resource in &c.languages {
-        // A language resource is a language pack; startup discovery loads it
+    for resource in &c.highlight {
+        // A highlight resource is a language pack; startup discovery loads it
         // (design §6.6.1), so it is held to the rules of a pack here.
         match crate::infrastructure::language_packs::check_extension_pack(dir, &resource.path) {
-            Ok(()) => accepted.languages.push(resource.id.clone()),
+            Ok(()) => accepted.highlight.push(resource.id.clone()),
             Err(reason) => accepted.rejected.push((resource.id.clone(), reason)),
         }
     }
@@ -854,9 +854,9 @@ impl ExtensionService {
                 if package.resources != Accepted::default() {
                     let r = &package.resources;
                     block.push_str(&format!(
-                        "\n  resources: {} theme(s), {} language(s), {} snippet file(s)",
+                        "\n  resources: {} theme(s), {} highlight pack(s), {} snippet file(s)",
                         r.themes.len(),
-                        r.languages.len(),
+                        r.highlight.len(),
                         r.snippets.len()
                     ));
                     for (id, reason) in &r.rejected {
@@ -1357,10 +1357,10 @@ impl ExtensionService {
     }
 
     fn observe_documents(&mut self, app: &AppState) -> Vec<Effect> {
-        let has_providers = self
-            .packages
-            .values()
-            .any(|p| p.manifest.has_behaviour() && !p.manifest.contributes.providers.is_empty());
+        let has_providers = self.packages.values().any(|p| {
+            p.manifest.has_behaviour()
+                && !p.manifest.contributes.language_service.providers.is_empty()
+        });
         if !has_providers && !self.packages.values().any(|p| subscribed(&p.manifest)) {
             return Vec::new();
         }
@@ -1589,7 +1589,7 @@ impl ExtensionService {
             if !allowed || !package.manifest.has_behaviour() {
                 continue;
             }
-            for provider in &package.manifest.contributes.providers {
+            for provider in &package.manifest.contributes.language_service.providers {
                 if provider.kind == declared
                     && provider.selector.languages.iter().any(|l| l == language)
                 {
@@ -1933,7 +1933,7 @@ impl ExtensionService {
             if !allowed || !package.manifest.has_behaviour() {
                 continue;
             }
-            for provider in &package.manifest.contributes.providers {
+            for provider in &package.manifest.contributes.language_service.providers {
                 if provider.kind == DeclKind::Completion
                     && provider.selector.languages.contains(&language)
                 {
@@ -2114,6 +2114,7 @@ impl ExtensionService {
                     package
                         .manifest
                         .contributes
+                        .language_service
                         .providers
                         .iter()
                         .find(|p| {
@@ -2429,6 +2430,7 @@ impl ExtensionService {
             .flat_map(|(owner, p)| {
                 p.manifest
                     .contributes
+                    .language_service
                     .providers
                     .iter()
                     .filter(|d| d.kind == DeclKind::Diagnostics)
@@ -2503,7 +2505,7 @@ impl ExtensionService {
             if package.lifecycle.state() == State::Stopped {
                 continue;
             }
-            for declaration in &package.manifest.contributes.language_servers {
+            for declaration in &package.manifest.contributes.language_service.servers {
                 let (name, mut definition) =
                     crate::features::extensions::servers::definition(declaration);
                 // `${extension}/…` and `${runtime.<name>}/…` name files of this package
@@ -2597,7 +2599,7 @@ impl ExtensionService {
         self.packages
             .values()
             .filter(|package| package.lifecycle.state() != State::Stopped)
-            .flat_map(|package| &package.manifest.contributes.language_servers)
+            .flat_map(|package| &package.manifest.contributes.language_service.servers)
             .any(|server| {
                 server.languages.iter().any(|language| language == name)
                     || server

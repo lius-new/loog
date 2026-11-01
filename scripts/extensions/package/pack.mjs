@@ -89,7 +89,7 @@ export function manifestProblems(manifest, sizeOf) {
   }
   // Data resources that the manifest lists must be in the package too.
   const contributes = manifest.contributes ?? {};
-  for (const kind of ['themes', 'languages', 'snippets']) {
+  for (const kind of ['themes', 'highlight', 'snippets']) {
     for (const resource of contributes[kind] ?? []) {
       if (!safePath(resource.path)) problems.push(`\`contributes.${kind}\`: ${resource.path} must stay inside the package`);
       else if (sizeOf(resource.path) === undefined) problems.push(`\`contributes.${kind}\`: ${resource.path} is not in the package`);

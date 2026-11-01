@@ -46,7 +46,7 @@ pub fn validate_extension() -> Result<(), String> {
         .map_err(|e| format!("{}: manifest.json: {e}", manifest_name(&folder)))?;
 
     let mut problems = Vec::new();
-    for resource in &manifest.contributes.languages {
+    for resource in &manifest.contributes.highlight {
         if let Err(error) =
             infrastructure::language_packs::check_extension_pack(&folder, &resource.path)
         {

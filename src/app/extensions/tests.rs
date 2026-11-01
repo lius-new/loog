@@ -810,11 +810,11 @@ pub(crate) fn provider_manifest(language: &str) -> String {
     "api": "loom:extension@0.1.0",
     "component": "extension.wasm",
     "capabilities": ["documents.read", "workspace.edit", "languages"],
-    "contributes": { "providers": [
+    "contributes": { "language_service": { "providers": [
         { "id": "example.tools.todo", "kind": "diagnostics", "selector": { "languages": ["LANG"] } },
         { "id": "example.tools.trim", "kind": "formatting", "selector": { "languages": ["LANG"] } },
         { "id": "example.tools.complete", "kind": "completion", "selector": { "languages": ["LANG"] } }
-    ] }
+    ] } }
 }"#
     .replace("LANG", language)
 }
@@ -1289,8 +1289,8 @@ impl Fixture {
 fn a_declared_language_server_may_run_only_in_a_trusted_folder() {
     let manifest = TASK_MANIFEST.replace(
         "\"settings\": [",
-        "\"language_servers\": [{ \"id\": \"example.tools.lsp\", \"languages\": [\"rust\"], \
-         \"command\": \"tools/lsp\", \"root_markers\": [\"Cargo.toml\"] }], \"settings\": [",
+        "\"language_service\": { \"servers\": [{ \"id\": \"example.tools.lsp\", \"languages\": [\"rust\"], \
+         \"command\": \"tools/lsp\", \"root_markers\": [\"Cargo.toml\"] }] }, \"settings\": [",
     );
     let refusal = |trusted, name: &str| {
         let (f, folder) = Fixture::tasks_with(&manifest, name, String::new(), trusted);
@@ -1327,8 +1327,8 @@ fn a_declared_language_server_may_run_only_in_a_trusted_folder() {
 fn stopping_an_extension_withdraws_the_servers_it_declares_until_it_is_loaded_again() {
     let manifest = TASK_MANIFEST.replace(
         "\"settings\": [",
-        "\"language_servers\": [{ \"id\": \"example.tools.lsp\", \"languages\": [\"rust\"], \
-         \"command\": \"lsp\", \"root_markers\": [\"Cargo.toml\"] }], \"settings\": [",
+        "\"language_service\": { \"servers\": [{ \"id\": \"example.tools.lsp\", \"languages\": [\"rust\"], \
+         \"command\": \"lsp\", \"root_markers\": [\"Cargo.toml\"] }] }, \"settings\": [",
     );
     let (mut f, _) = Fixture::tasks_with(&manifest, "lsp-stop", String::new(), true);
     assert_eq!(f.service.language_servers().len(), 1);
@@ -1342,7 +1342,7 @@ fn stopping_an_extension_withdraws_the_servers_it_declares_until_it_is_loaded_ag
 
 #[test]
 fn without_trust_a_task_is_refused_before_anything_starts() {
-    let (mut f, _) = Fixture::tasks("denied", task_json("echo hi", "echo hi"), false);
+    let (mut f, _) = Fixture::tasks("denied-untrusted", task_json("echo hi", "echo hi"), false);
     f.start_with_roots();
     f.run("example.tools.run");
     f.wait_for_log("task exited 1");
@@ -1764,9 +1764,9 @@ fn save_manifest(language: &str) -> String {
     "api": "loom:extension@0.1.0",
     "component": "extension.wasm",
     "capabilities": ["documents.read", "workspace.edit"],
-    "contributes": { "providers": [
+    "contributes": { "language_service": { "providers": [
         { "id": "example.tools.trim", "kind": "save-participant", "selector": { "languages": ["LANG"] } }
-    ] }
+    ] } }
 }"#
     .replace("LANG", language)
 }

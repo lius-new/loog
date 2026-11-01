@@ -400,13 +400,13 @@ mod tests {
             platform,
         );
         assert!(again.unwrap().is_empty());
-        // Every language the registry offers installs, and the grammars built by its
-        // CI load in Loom's loader together, with no clash over names or file types.
+        // Every highlight extension the registry offers installs, and the grammars built
+        // by its CI load in Loom's loader together, with no clash over names or file types.
         let languages: Vec<String> = loaded
             .index
             .extensions
             .iter()
-            .filter(|entry| entry.id.starts_with("loom.lang."))
+            .filter(|entry| entry.is_highlight())
             .map(|entry| entry.id.clone())
             .collect();
         for id in &languages {
