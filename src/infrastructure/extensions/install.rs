@@ -144,13 +144,19 @@ pub fn download(artifact: &Artifact, target: &Path) -> Result<(), String> {
         .user_agent(concat!("Loom/", env!("CARGO_PKG_VERSION")))
         .https_only(true)
         .build();
-    let response = agent
-        .get(&artifact.url)
-        .call()
-        .map_err(|error| match error {
-            ureq::Error::Status(code, _) => format!("the server returned HTTP {code}"),
-            error => error.to_string(),
-        })?;
+    // A connection that fails to open is tried once more; an answer from the server,
+    // good or bad, is taken as it is.
+    let mut attempt = 0;
+    let response = loop {
+        match agent.get(&artifact.url).call() {
+            Ok(response) => break response,
+            Err(ureq::Error::Status(code, _)) => {
+                return Err(format!("the server returned HTTP {code}"));
+            }
+            Err(error) if attempt >= 1 => return Err(error.to_string()),
+            Err(_) => attempt += 1,
+        }
+    };
     let io = |error: std::io::Error| error.to_string();
     let mut reader = response.into_reader().take(artifact.size + 1);
     let mut file = fs::File::create(target).map_err(io)?;
@@ -394,6 +400,41 @@ mod tests {
             platform,
         );
         assert!(again.unwrap().is_empty());
+        // Every language the registry offers installs, and the grammars built by its
+        // CI load in Loom's loader together, with no clash over names or file types.
+        let languages: Vec<String> = loaded
+            .index
+            .extensions
+            .iter()
+            .filter(|entry| entry.id.starts_with("loom.lang."))
+            .map(|entry| entry.id.clone())
+            .collect();
+        for id in &languages {
+            let steps = plan_install(&loaded.index, &installed(&root), id, loom, platform).unwrap();
+            install(&root, &steps, loom, &download).unwrap();
+        }
+        let packs = crate::infrastructure::language_packs::extension_packs(&root);
+        let packages = crate::infrastructure::language_packs::Packages::from_directories(packs);
+        assert!(
+            packages.activity().errors.is_empty(),
+            "{:?}",
+            packages.activity().errors
+        );
+        {
+            use crate::features::syntax::Resources;
+            let grammars = packages.grammar_names();
+            assert!(grammars.len() >= languages.len(), "{grammars:?}");
+            for grammar in &grammars {
+                packages
+                    .language(grammar)
+                    .unwrap_or_else(|error| panic!("{grammar}: {error}"));
+            }
+            eprintln!(
+                "{} grammars from {} extensions load",
+                grammars.len(),
+                languages.len()
+            );
+        }
         // A language server brings the runtime it requires, if the registry has them.
         if loaded
             .index
