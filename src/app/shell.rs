@@ -1708,17 +1708,10 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                         services.restart();
                     }
                 }
-                // An extension of the registry has a dotted id; a language server's name has none.
-                crate::ui::language_panel::Event::Install(id) if id.contains('.') => {
+                // The panel offers extensions of the registry to install.
+                crate::ui::language_panel::Event::Install(id) => {
                     if let Some(host) = panel_state.services().and_then(|r| r.extensions()) {
                         host.install(&panel_state, &id);
-                    }
-                }
-                crate::ui::language_panel::Event::Install(server) => {
-                    if let Some(services) =
-                        panel_state.services().and_then(|r| r.language_services())
-                    {
-                        services.install(&server);
                     }
                 }
                 crate::ui::language_panel::Event::CancelTask(target) => {
@@ -1726,13 +1719,6 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                         panel_state.services().and_then(|r| r.language_services())
                     {
                         services.cancel_task(target.instance, target.run, target.task);
-                    }
-                }
-                crate::ui::language_panel::Event::CancelInstall(target) => {
-                    if let Some(services) =
-                        panel_state.services().and_then(|r| r.language_services())
-                    {
-                        services.cancel_install(&target.server, target.generation);
                     }
                 }
                 crate::ui::language_panel::Event::RetryDownloads => {

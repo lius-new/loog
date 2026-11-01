@@ -586,7 +586,7 @@ impl Fixture {
         }
         let changes = Arc::new(AtomicUsize::new(0));
         let counter = changes.clone();
-        let manager = Manager::start(registry(), servers, None, manager_options, move || {
+        let manager = Manager::start(registry(), servers, manager_options, move || {
             counter.fetch_add(1, Ordering::Relaxed);
         });
         Self {
@@ -811,7 +811,7 @@ fn a_server_an_extension_declares_runs_only_where_it_is_allowed_and_stops_when_w
             refusal: "acme.fake: running programs here has not been allowed".into(),
         }]
     };
-    let manager = Manager::start(registry(), servers(&[]), None, options(), || {});
+    let manager = Manager::start(registry(), servers(&[]), options(), || {});
     let wait =
         |what: &str,
          check: &dyn Fn(&[crate::infrastructure::lsp::manager::InstanceInfo]) -> bool| {
@@ -1002,15 +1002,15 @@ fn a_missing_program_is_unavailable_and_not_retried() {
 }
 
 #[test]
-fn a_command_from_an_uninstalled_pack_is_reported_and_never_started() {
+fn a_command_with_an_unresolved_placeholder_is_reported_and_never_started() {
     let f = Fixture::with_servers(
-        servers_running("${pack}/tool", &[("fake-server", "fake", 0)]),
+        servers_running("${extension}/tool", &[("fake-server", "fake", 0)]),
         &[("fake-server", &[])],
     );
     f.show(vec![f.doc("a.fk", 0, "x")]);
     f.wait_status(
-        "not installed",
-        |s| matches!(s, Status::Unavailable(m) if m.contains("not installed")),
+        "unresolved",
+        |s| matches!(s, Status::Unavailable(m) if m.contains("could not be found")),
     );
     std::thread::sleep(Duration::from_millis(300));
     assert!(f.methods().is_empty(), "nothing was started");
@@ -1487,7 +1487,6 @@ fn real_rust_analyzer_sees_files_changed_outside_the_editor() {
     let manager = Manager::start(
         Registry::builtin(),
         crate::features::language_service::server_set::rust_analyzer_running(&program),
-        None,
         Options::default(),
         || {},
     );
@@ -1575,7 +1574,6 @@ fn real_rust_analyzer_reports_a_syntax_error() {
         crate::features::language_service::server_set::rust_analyzer_running(
             &std::env::var("LOOM_RUST_ANALYZER").unwrap_or_else(|_| "rust-analyzer".into()),
         ),
-        None,
         Options::default(),
         || {},
     );
@@ -1937,273 +1935,6 @@ fn underlines_follow_the_typing_while_the_server_has_nothing_new_to_say() {
     assert_eq!(still[0].range, 7..9);
 }
 
-mod installing {
-    use super::*;
-    use crate::features::settings::servers::InstallPolicy;
-    use crate::infrastructure::lsp_catalog::Catalog;
-    use crate::infrastructure::lsp_install::{Download, Installer, Smoke};
-    use ring::digest::{Context, SHA256};
-    use std::io::{Cursor, Read, Write};
-    use std::sync::Mutex;
-
-    const URL: &str =
-        "https://github.com/owner/loom/releases/download/lsp-servers-1/demo-any.tar.gz";
-
-    /// A pack whose server program is the fake language server itself.
-    fn pack() -> Vec<u8> {
-        let program = std::fs::read(fake_server()).expect("build the fake_lsp example first");
-        let name = if cfg!(windows) {
-            "demo/bin/demo.exe"
-        } else {
-            "demo/bin/demo"
-        };
-        let mut header = tar::Header::new_gnu();
-        header.set_path(name).unwrap();
-        header.set_size(program.len() as u64);
-        header.set_mode(0o755);
-        header.set_entry_type(tar::EntryType::Regular);
-        header.set_cksum();
-        let mut builder = tar::Builder::new(Vec::new());
-        builder.append(&header, program.as_slice()).unwrap();
-        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
-        encoder.write_all(&builder.into_inner().unwrap()).unwrap();
-        encoder.finish().unwrap()
-    }
-
-    struct World {
-        manager: Manager,
-        dir: PathBuf,
-        downloads: Arc<AtomicUsize>,
-        served: Arc<Mutex<Option<Vec<u8>>>>,
-        servers: Vec<LanguageServerSetting>,
-        _clean: Clean,
-    }
-
-    fn world() -> World {
-        let n = RUNS.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("loom-mgr-install-{}-{n}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let bytes = pack();
-        let mut context = Context::new(&SHA256);
-        context.update(&bytes);
-        let sha: String = context
-            .finish()
-            .as_ref()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        let text = format!(
-            r#"
-schema = 1
-[distribution]
-repository = "owner/loom"
-[packs.demo]
-version = "1.0.0"
-license = "MIT"
-[packs.demo.platforms.any]
-asset = "demo-any.tar.gz"
-release = "lsp-servers-1"
-sha256 = "{sha}"
-size = {}
-[servers.demo]
-name = "Demo"
-pack = "demo"
-command = "${{pack}}/bin/demo"
-args = ["--sync", "full"]
-[servers.demo.root]
-markers = ["fake.toml"]
-fallback = "file_directory"
-[[servers.demo.languages]]
-language = "fakelang"
-language_id = "fakelang"
-"#,
-            bytes.len()
-        );
-        let catalog = Catalog::parse(&text).unwrap();
-        let servers = Arc::new(catalog.servers().unwrap());
-        let served = Arc::new(Mutex::new(Some(bytes)));
-        let downloads = Arc::new(AtomicUsize::new(0));
-        let (served_for, count) = (served.clone(), downloads.clone());
-        let download: Arc<Download> = Arc::new(move |url: &str| {
-            count.fetch_add(1, Ordering::SeqCst);
-            match (url == URL, served_for.lock().unwrap().clone()) {
-                (true, Some(bytes)) => Ok(Box::new(Cursor::new(bytes)) as Box<dyn Read + Send>),
-                _ => Err(format!("404 {url}")),
-            }
-        });
-        let smoke: Arc<Smoke> = Arc::new(|_| Ok(()));
-        let installer = Installer::new(
-            Arc::new(catalog),
-            dir.join("managed"),
-            "linux-x86_64".into(),
-            download,
-            smoke,
-        );
-        let manager = Manager::start(registry(), servers, Some(installer), options(), || {});
-        World {
-            manager,
-            dir: dir.clone(),
-            downloads,
-            served,
-            servers: Vec::new(),
-            _clean: Clean(dir.clone()),
-        }
-    }
-
-    impl World {
-        fn show(&self) {
-            let path = self.dir.join("a.fk");
-            self.manager.update(Snapshot {
-                languages: Default::default(),
-                documents: vec![SnapshotDocument {
-                    language: registry().resolve_path(&path),
-                    path,
-                    stamp: Stamp {
-                        incarnation: 1,
-                        version: 0,
-                    },
-                    text: Arc::new("x".to_owned()),
-                }],
-                workspace_roots: vec![self.dir.clone()],
-                servers: self.servers.clone(),
-            });
-        }
-
-        fn status(&self) -> Option<Status> {
-            self.manager.infos().into_iter().next().map(|i| i.status)
-        }
-
-        fn wait(&self, what: &str, check: impl Fn(&Status) -> bool) {
-            let limit = Instant::now() + Duration::from_secs(20);
-            loop {
-                if self.status().as_ref().is_some_and(&check) {
-                    return;
-                }
-                assert!(
-                    Instant::now() < limit,
-                    "timed out waiting for {what}: {:?}",
-                    self.status()
-                );
-                std::thread::sleep(Duration::from_millis(20));
-            }
-        }
-    }
-
-    /// Removes the scratch directory after the manager has stopped its servers.
-    struct Clean(PathBuf);
-    impl Drop for Clean {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    #[test]
-    fn by_default_a_missing_pack_waits_until_the_person_installs_it() {
-        let w = world();
-        w.show();
-        w.wait("not installed", |s| matches!(s, Status::NotInstalled));
-        std::thread::sleep(Duration::from_millis(300));
-        assert_eq!(
-            w.downloads.load(Ordering::SeqCst),
-            0,
-            "asking never downloads"
-        );
-        w.manager.install("demo");
-        w.wait("ready", |s| matches!(s, Status::Ready));
-        assert_eq!(w.downloads.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn auto_installs_and_starts_without_being_asked() {
-        let mut w = world();
-        w.servers.push(LanguageServerSetting {
-            install: Some(InstallPolicy::Auto),
-            ..LanguageServerSetting::named("demo")
-        });
-        w.show();
-        w.wait("ready", |s| matches!(s, Status::Ready));
-    }
-
-    #[test]
-    fn multiple_project_roots_each_wait_for_the_person_to_install_the_pack() {
-        let w = world();
-        let documents = ["one/a.fk", "two/a.fk"]
-            .iter()
-            .map(|name| {
-                let path = w.dir.join(name);
-                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-                SnapshotDocument {
-                    language: registry().resolve_path(&path),
-                    path,
-                    stamp: Stamp {
-                        incarnation: 1,
-                        version: 0,
-                    },
-                    text: Arc::new("x".into()),
-                }
-            })
-            .collect();
-        w.manager.update(Snapshot {
-            documents,
-            workspace_roots: vec![w.dir.clone()],
-            ..Snapshot::default()
-        });
-        w.wait("not installed", |s| matches!(s, Status::NotInstalled));
-        assert_eq!(w.manager.infos().len(), 2);
-        w.manager.restart();
-        std::thread::sleep(Duration::from_millis(100));
-        assert_eq!(w.downloads.load(Ordering::SeqCst), 0);
-    }
-
-    #[test]
-    fn a_failed_install_is_reported_and_retry_recovers() {
-        let mut w = world();
-        w.servers.push(LanguageServerSetting {
-            install: Some(InstallPolicy::Auto),
-            ..LanguageServerSetting::named("demo")
-        });
-        let good = w.served.lock().unwrap().take();
-        w.show();
-        w.wait("install failed", |s| matches!(s, Status::InstallFailed(_)));
-        *w.served.lock().unwrap() = good;
-        w.manager.retry_installs();
-        w.wait("ready", |s| matches!(s, Status::Ready));
-    }
-
-    #[test]
-    fn a_server_the_person_registered_needs_no_install_and_runs_from_its_path() {
-        let mut w = world();
-        let program = fake_server().display().to_string();
-        let own: LanguageServerSetting = serde_json::from_value(serde_json::json!({
-            "command": program,
-            "args": ["--sync", "full"],
-            "languages": [{ "language": "fakelang", "language_id": "fakelang" }],
-            "root": { "markers": ["fake.toml"], "fallback": "file_directory" },
-            "priority": 100,
-        }))
-        .unwrap();
-        w.servers.push(LanguageServerSetting {
-            server: "mine".into(),
-            ..own
-        });
-        // Turn the catalogued server off, so only the registered one serves the file.
-        w.servers.push(LanguageServerSetting {
-            enabled: false,
-            ..LanguageServerSetting::named("demo")
-        });
-        w.show();
-        w.wait("ready", |s| matches!(s, Status::Ready));
-        assert_eq!(
-            w.downloads.load(Ordering::SeqCst),
-            0,
-            "nothing is installed"
-        );
-        let infos = w.manager.infos();
-        assert_eq!(infos.len(), 1);
-        assert_eq!(infos[0].server_id, "mine");
-    }
-}
 
 mod requests {
     use super::*;

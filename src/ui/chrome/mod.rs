@@ -140,16 +140,8 @@ pub struct ServerChip {
 /// The suggested action for a language server, shown as an icon beside its chip.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChipAction {
-    /// Download the server's pack.
-    Install(String),
-    /// Try an install again, or carry on with a cancelled one.
-    Retry(String),
     /// Restart the instance that stopped.
     Restart(u64),
-    CancelInstall {
-        server: String,
-        generation: u64,
-    },
     /// Look at the server's details in the language panel.
     Details(u64),
     /// The server is on its way; there is nothing to do yet.
@@ -159,20 +151,14 @@ impl ChipAction {
     /// The icon for the action; each action has its own.
     pub fn icon(&self) -> &'static str {
         match self {
-            Self::Install(_) => "cloud-download",
-            Self::Retry(_) => "refresh",
             Self::Restart(_) => "update-restart",
-            Self::CancelInstall { .. } => "close",
             Self::Details(_) => "info",
             Self::Pending => "sync",
         }
     }
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Install(_) => "Install language server",
-            Self::Retry(_) => "Retry installing language server",
             Self::Restart(_) => "Restart language server",
-            Self::CancelInstall { .. } => "Cancel installing language server",
             Self::Details(_) => "Show language server details",
             Self::Pending => "Language server is starting",
         }

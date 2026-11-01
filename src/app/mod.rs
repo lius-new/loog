@@ -114,9 +114,6 @@ pub(crate) mod context;
 
 pub(crate) mod update;
 
-#[cfg(test)]
-mod language_panel_install_tests;
-
 mod gif_playback;
 mod image_loading;
 pub(crate) mod image_preview;

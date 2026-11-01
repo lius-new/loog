@@ -11,7 +11,6 @@ use lgui::{WinitApplication, WinitWindowIcon, WinitWindowOptions};
 
 pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     crate::infrastructure::language_packs::initialize();
-    crate::infrastructure::lsp_catalog::initialize();
     launch::init(std::env::args_os().skip(1));
     let native_window_options = native_window_options()?;
     let settings = crate::infrastructure::settings_filesystem::load();

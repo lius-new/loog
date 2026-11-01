@@ -1,9 +1,9 @@
 //! The `language_servers`, `languages` and `lsp` settings.
 //!
-//! `language_servers` is an object keyed by server name. A name the catalog lists
-//! is a *catalogued* server: only how it behaves can be changed (turning it off,
-//! when to install it, its arguments, options, settings and environment); the
-//! program it runs cannot. Any other name registers a server of the person's own,
+//! `language_servers` is an object keyed by server name. A name an extension
+//! declares is an *extension's* server: only how it behaves can be changed (turning
+//! it off, its arguments, options, settings and environment); the program it runs
+//! cannot. Any other name registers a server of the person's own,
 //! with a full definition whose `command` is an absolute path. Loom never looks a
 //! program up on `PATH`.
 //!
@@ -13,18 +13,6 @@ use crate::features::language_service::server_set::{ServerDefinition, ServerSet,
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-
-/// Whether Loom installs a catalog server's pack when a file needs it.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum InstallPolicy {
-    /// Say the server is missing and wait for the person to install it from the
-    /// language panel.
-    #[default]
-    Manual,
-    /// Install it as soon as a file needs it.
-    Auto,
-}
 
 /// A language a registered server serves.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -56,9 +44,6 @@ pub struct LanguageServerSetting {
     pub server: String,
     #[serde(default = "enabled")]
     pub enabled: bool,
-    /// When a catalogued server's pack is installed; asking is the default.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub install: Option<InstallPolicy>,
     /// The program of a registered server: an absolute path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
@@ -95,7 +80,6 @@ impl LanguageServerSetting {
         Self {
             server: server.to_owned(),
             enabled: true,
-            install: None,
             command: None,
             args: None,
             initialization_options: None,
@@ -221,16 +205,6 @@ pub fn registered(
         }
     }
     (found, problems)
-}
-
-/// The install policy for `server`: the last entry that sets one, else installing by hand.
-pub fn install_policy(settings: &[LanguageServerSetting], server: &str) -> InstallPolicy {
-    settings
-        .iter()
-        .rev()
-        .filter(|entry| entry.server == server)
-        .find_map(|entry| entry.install)
-        .unwrap_or_default()
 }
 
 /// What the server gets for `workspace/configuration`.

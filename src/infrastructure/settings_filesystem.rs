@@ -122,11 +122,11 @@ pub fn current_file_is_own_write() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::features::settings::servers::{InstallPolicy, LanguageServerSetting};
+    use crate::features::settings::servers::LanguageServerSetting;
     #[test]
-    fn install_policy_is_written_and_reloaded_without_losing_other_preferences() {
+    fn server_settings_are_written_and_reloaded_without_losing_other_preferences() {
         let path = std::env::temp_dir().join(format!(
-            "loom-install-policy-{}.json",
+            "loom-server-settings-{}.json",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -147,7 +147,7 @@ mod tests {
         );
         fs::write(&path, &original).unwrap();
         let mut settings = parse(&original).unwrap().settings;
-        settings.language_servers[0].install = Some(InstallPolicy::Auto);
+        settings.language_servers[0].args = Some(vec!["--changed".to_owned()]);
         settings.language_servers.push(LanguageServerSetting {
             server: "other-user".into(),
             ..settings.language_servers[0].clone()

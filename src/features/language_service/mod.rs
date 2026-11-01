@@ -5,7 +5,6 @@ pub(crate) mod capabilities;
 pub(crate) mod completion;
 pub(crate) mod diagnostics;
 pub(crate) mod dynamic;
-pub(crate) mod expand;
 pub(crate) mod framing;
 pub(crate) mod fuzzy;
 pub(crate) mod message;

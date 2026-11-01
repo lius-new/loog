@@ -32,12 +32,6 @@ pub struct TaskTarget {
     pub task: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InstallTarget {
-    pub server: String,
-    pub generation: u64,
-}
-
 /// Where a section sits in the list, in display order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Group {
@@ -84,7 +78,6 @@ pub struct Section {
     pub lines: Vec<Line>,
     /// The server whose pack this section can install, with the action's label.
     pub install: Option<(String, &'static str)>,
-    pub cancel_install: Option<InstallTarget>,
     /// The instance this section can restart.
     pub restart: Option<u64>,
 }
@@ -103,9 +96,8 @@ pub enum Event {
     /// Restart one instance.
     RestartServer(u64),
     RetryDownloads,
-    /// Install the pack of the named server.
+    /// Install the extension with this id.
     Install(String),
-    CancelInstall(InstallTarget),
     CancelTask(TaskTarget),
 }
 pub type Commands = Arc<dyn Fn(Event) + Send + Sync>;
@@ -314,7 +306,7 @@ fn section_row(
     }
     let restart_icon = section
         .restart
-        .filter(|_| current && section.install.is_none() && section.cancel_install.is_none());
+        .filter(|_| current && section.install.is_none());
     if let Some(instance) = restart_icon {
         let button = UiRect::new(edge - 24.0, middle - 12.0, edge, middle + 12.0);
         let restart = commands.clone();
@@ -361,12 +353,6 @@ fn section_row(
         .map(|(server, label)| (*label, Event::Install(server.clone())))
         .or_else(|| {
             section
-                .cancel_install
-                .clone()
-                .map(|target| ("Cancel", Event::CancelInstall(target)))
-        })
-        .or_else(|| {
-            section
                 .restart
                 .filter(|_| !current)
                 .map(|instance| ("Restart", Event::RestartServer(instance)))
@@ -376,7 +362,6 @@ fn section_row(
         let commands = commands.clone();
         let click = move || match &event {
             Event::Install(server) => commands(Event::Install(server.clone())),
-            Event::CancelInstall(target) => commands(Event::CancelInstall(target.clone())),
             Event::RestartServer(instance) => commands(Event::RestartServer(*instance)),
             _ => {}
         };
@@ -572,7 +557,6 @@ mod tests {
                 })
                 .collect(),
             install: None,
-            cancel_install: None,
             restart: None,
         }
     }

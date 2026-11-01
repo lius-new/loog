@@ -10,7 +10,7 @@
 //! the order in which a language's servers are listed and tried.
 use crate::domain::language::{Registry, ResolvedLanguage, is_canonical_name};
 use serde_json::{Map, Value};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 /// How a server finds the project root of a file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -65,9 +65,6 @@ pub struct ServerDefinition {
     pub languages: Vec<LanguageBinding>,
     /// Higher is listed and preferred first.
     pub priority: i32,
-    /// The installable pack the command starts from, for a catalog server. A
-    /// server registered with a path of its own has none.
-    pub pack: Option<Arc<str>>,
 }
 
 struct RootDescriptor {
@@ -91,7 +88,6 @@ struct Descriptor {
     initialization_options: Option<Value>,
     languages: Vec<BindingDescriptor>,
     priority: i32,
-    pack: Option<String>,
 }
 
 /// The fields of a JSON object, rejecting any field not in `allowed` so that a
@@ -160,7 +156,6 @@ impl Descriptor {
                 "initialization_options",
                 "languages",
                 "priority",
-                "pack",
             ],
         )?;
         let root_value = object.get("root").ok_or("missing field `root`")?;
@@ -201,7 +196,6 @@ impl Descriptor {
                 .and_then(|priority| i32::try_from(priority).ok())
                 .ok_or("`priority` must be a whole number")?,
         };
-        let pack = optional_text(object, "pack", "a server")?;
         Ok(Self {
             name: text(object, "name", "a server")?,
             display_name: text(object, "display_name", "a server")?,
@@ -215,7 +209,6 @@ impl Descriptor {
             initialization_options: object.get("initialization_options").cloned(),
             languages,
             priority,
-            pack,
         })
     }
 }
@@ -243,11 +236,6 @@ impl Descriptor {
         }
         if self.command.trim().is_empty() || self.command.chars().any(char::is_control) {
             return Err("command must be a program name or path".into());
-        }
-        if let Some(pack) = &self.pack
-            && !is_server_name(pack)
-        {
-            return Err(format!("`{pack}` is not a pack name"));
         }
         if self
             .args
@@ -332,12 +320,9 @@ impl Descriptor {
                 })
                 .collect(),
             priority: self.priority,
-            pack: self.pack.map(|pack| Arc::from(pack.as_str())),
         }
     }
 }
-
-static INSTALLED: OnceLock<Arc<ServerSet>> = OnceLock::new();
 
 #[derive(Clone, Debug, Default)]
 pub struct ServerSet {
@@ -346,17 +331,10 @@ pub struct ServerSet {
 }
 
 impl ServerSet {
-    /// The process's servers: what `install` set at startup, or none. Loom ships no
-    /// server definitions; they come from the published catalog.
+    /// The servers Loom itself knows: none. Loom ships no server definitions; they come
+    /// from extensions and from the person's own settings.
     pub fn current() -> Arc<ServerSet> {
-        INSTALLED.get().cloned().unwrap_or_default()
-    }
-
-    /// Sets the process's servers. Only the first call counts.
-    pub fn install(set: ServerSet) -> Result<(), &'static str> {
-        INSTALLED
-            .set(Arc::new(set))
-            .map_err(|_| "the language servers are already in use")
+        Arc::default()
     }
 
     /// `sources` are `(name, definition JSON)` pairs. Parsing is strict: an
@@ -482,6 +460,7 @@ pub(crate) fn rust_analyzer_running(command: &str) -> Arc<ServerSet> {
 /// so tests supply their own.
 #[cfg(test)]
 pub(crate) fn rust_analyzer_for_tests() -> Arc<ServerSet> {
+    use std::sync::OnceLock;
     static SET: OnceLock<Arc<ServerSet>> = OnceLock::new();
     SET.get_or_init(|| {
         let definition = r#"{

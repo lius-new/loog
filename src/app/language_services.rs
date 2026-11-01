@@ -64,7 +64,6 @@ impl LanguageServices {
             manager: Manager::start(
                 Registry::builtin(),
                 servers,
-                crate::infrastructure::lsp_catalog::installer(),
                 Options {
                     start_gate: gate,
                     ..Options::default()
@@ -97,14 +96,6 @@ impl LanguageServices {
     /// Files were created, renamed or deleted by the application.
     pub fn files_changed(&self, change: crate::infrastructure::lsp::manager::FileChange) {
         self.manager.files_changed(change);
-    }
-
-    pub fn install(&self, server: &str) {
-        self.manager.install(server);
-    }
-
-    pub fn cancel_install(&self, server: &str, generation: u64) {
-        self.manager.cancel_install(server, generation);
     }
 
     pub fn publish_external(

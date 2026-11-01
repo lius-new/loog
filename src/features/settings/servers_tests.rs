@@ -200,15 +200,12 @@ fn entries_are_an_object_keyed_by_name_in_the_file() {
 }
 
 #[test]
-fn install_policy_and_settings_come_from_the_last_matching_entry() {
+fn settings_come_from_the_last_matching_entry() {
     let entries = [
-        entry("a", r#"{ "install": "auto", "settings": { "x": 1 } }"#),
-        entry("b", r#"{ "install": "auto" }"#),
-        entry("a", r#"{ "install": "manual" }"#),
+        entry("a", r#"{ "settings": { "x": 1 } }"#),
+        entry("b", r#"{ "enabled": false }"#),
+        entry("a", r#"{ "enabled": true }"#),
     ];
-    assert_eq!(install_policy(&entries, "a"), InstallPolicy::Manual);
-    assert_eq!(install_policy(&entries, "b"), InstallPolicy::Auto);
-    assert_eq!(install_policy(&entries, "c"), InstallPolicy::Manual);
     assert_eq!(
         server_settings(&entries, "a"),
         json!({}),

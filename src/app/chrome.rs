@@ -239,13 +239,7 @@ pub fn status_binding(state: &AppContext) -> crate::ui::chrome::StatusBinding {
                 if let Some(services) = writer.services().and_then(|r| r.language_services()) {
                     match action {
                         ChipAction::Details(_) | ChipAction::Pending => {}
-                        ChipAction::Install(server) | ChipAction::Retry(server) => {
-                            services.install(&server)
-                        }
                         ChipAction::Restart(instance) => services.restart_instance(instance),
-                        ChipAction::CancelInstall { server, generation } => {
-                            services.cancel_install(&server, generation)
-                        }
                     }
                 }
             }
@@ -382,7 +376,6 @@ fn server_chip(
     use crate::infrastructure::lsp::manager::Status;
     use crate::ui::chrome::ChipAction;
     use crate::ui::language_panel::{Progress, Tone};
-    let server = || info.server_id.clone();
     match &info.status {
         Status::Starting => (
             Tone::Busy,
@@ -426,56 +419,6 @@ fn server_chip(
             Progress::None,
             Some(ChipAction::Restart(info.id)),
         ),
-        Status::NotInstalled => (
-            Tone::Missing,
-            format!("{name} not installed"),
-            Progress::None,
-            Some(ChipAction::Install(server())),
-        ),
-        Status::Installing(text) => {
-            let percent = text
-                .strip_prefix("downloading ")
-                .and_then(|rest| rest.strip_suffix('%'))
-                .and_then(|number| number.parse::<u8>().ok());
-            let cancel = info
-                .install_generation
-                .map(|generation| ChipAction::CancelInstall {
-                    server: server(),
-                    generation,
-                });
-            match percent {
-                Some(percent) => (
-                    Tone::Busy,
-                    format!("{name} {percent}%"),
-                    Progress::Percent(percent),
-                    cancel,
-                ),
-                None => (
-                    Tone::Busy,
-                    format!("{name} {text}"),
-                    Progress::Spinner,
-                    cancel,
-                ),
-            }
-        }
-        Status::InstallFailed(_) => (
-            Tone::Failed,
-            format!("{name} install failed"),
-            Progress::None,
-            Some(ChipAction::Retry(server())),
-        ),
-        Status::InstallCancelling => (
-            Tone::Busy,
-            format!("{name} cancelling"),
-            Progress::None,
-            Some(ChipAction::Pending),
-        ),
-        Status::InstallCancelled => (
-            Tone::Missing,
-            format!("{name} cancelled"),
-            Progress::None,
-            Some(ChipAction::Retry(server())),
-        ),
     }
 }
 
@@ -496,11 +439,6 @@ pub fn language_details_frame(state: &AppContext) -> Option<crate::ui::language_
         Status::Restarting { attempt, .. } => (Tone::Failed, format!("Restarting ({attempt})")),
         Status::Failed(_) => (Tone::Failed, "Stopped".to_owned()),
         Status::Unavailable(_) => (Tone::Off, "Unavailable".to_owned()),
-        Status::NotInstalled => (Tone::Missing, "Not installed".to_owned()),
-        Status::Installing(text) => (Tone::Busy, format!("Installing, {text}")),
-        Status::InstallFailed(_) => (Tone::Failed, "Install failed".to_owned()),
-        Status::InstallCancelling => (Tone::Busy, "Cancelling".to_owned()),
-        Status::InstallCancelled => (Tone::Missing, "Cancelled".to_owned()),
     };
     let provides = match &info.providers {
         Some(providers) => {
@@ -643,7 +581,6 @@ pub fn language_panel_frame(state: &AppContext) -> crate::ui::language_panel::Fr
             let mut lines = Vec::new();
             let mut subtitle_level = Level::Quiet;
             let mut progress = Progress::None;
-            let mut install = None;
             let mut restart = None;
             let (tone, state_text, subtitle) = match &info.status {
                 Status::Starting => {
@@ -693,44 +630,6 @@ pub fn language_panel_frame(state: &AppContext) -> crate::ui::language_panel::Fr
                     });
                     (Tone::Off, "Unavailable".to_owned(), reason.clone())
                 }
-                Status::NotInstalled => {
-                    install = Some("Install");
-                    let size = info
-                        .download_bytes
-                        .map(|bytes| format!("{:.1} MB", bytes as f64 / 1_000_000.0))
-                        .unwrap_or_default();
-                    (Tone::Missing, "Not installed".to_owned(), with(size))
-                }
-                Status::Installing(text) => {
-                    let percent = text
-                        .strip_prefix("downloading ")
-                        .and_then(|rest| rest.strip_suffix('%'))
-                        .and_then(|number| number.parse::<u8>().ok());
-                    let state_text = match percent {
-                        Some(percent) => {
-                            progress = Progress::Percent(percent);
-                            format!("{percent}%")
-                        }
-                        None => {
-                            progress = Progress::Spinner;
-                            text.clone()
-                        }
-                    };
-                    (Tone::Busy, state_text, with("installing".to_owned()))
-                }
-                Status::InstallFailed(reason) => {
-                    install = Some("Retry");
-                    subtitle_level = Level::Error;
-                    (Tone::Failed, "Install failed".to_owned(), reason.clone())
-                }
-                Status::InstallCancelling => {
-                    progress = Progress::Spinner;
-                    (Tone::Busy, "Cancelling".to_owned(), languages.clone())
-                }
-                Status::InstallCancelled => {
-                    install = Some("Resume");
-                    (Tone::Missing, "Cancelled".to_owned(), languages.clone())
-                }
             };
             for task in &info.tasks {
                 let mut text = task.title.clone();
@@ -764,17 +663,7 @@ pub fn language_panel_frame(state: &AppContext) -> crate::ui::language_panel::Fr
                 tone,
                 progress,
                 lines,
-                install: install.map(|label| (info.server_id.clone(), label)),
-                cancel_install: if matches!(info.status, Status::Installing(_)) {
-                    info.install_generation.map(|generation| {
-                        crate::ui::language_panel::InstallTarget {
-                            server: info.server_id.clone(),
-                            generation,
-                        }
-                    })
-                } else {
-                    None
-                },
+                install: None,
                 restart,
             }
         })
@@ -812,7 +701,6 @@ pub fn language_panel_frame(state: &AppContext) -> crate::ui::language_panel::Fr
             progress: Progress::None,
             lines: Vec::new(),
             install,
-            cancel_install: None,
             restart: None,
         });
     }
@@ -832,7 +720,6 @@ pub fn language_panel_frame(state: &AppContext) -> crate::ui::language_panel::Fr
             },
             lines: Vec::new(),
             install: None,
-            cancel_install: None,
             restart: None,
         }
     }));

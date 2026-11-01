@@ -582,7 +582,7 @@ mod tests {
     fn language_servers_keep_good_entries_and_report_each_bad_one() {
         let outcome = parse_with(
             r#"{ "language_servers": {
-                "rust-analyzer": { "args": ["-v"], "install": "auto" },
+                "rust-analyzer": { "args": ["-v"] },
                 "nope": { "enabled": false },
                 "bad": { "initialization_options": 3 },
                 "worse": { "surprise": true }
