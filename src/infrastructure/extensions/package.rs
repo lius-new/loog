@@ -19,7 +19,9 @@ pub const EXTENSION: &str = "loomext";
 /// Largest archive accepted, and the most it may expand to.
 pub const MAX_ARCHIVE: u64 = 256 * 1024 * 1024;
 pub const MAX_UNPACKED: u64 = 512 * 1024 * 1024;
-const MAX_ENTRIES: usize = 4096;
+// Servers such as Pyright carry over 5,000 required type-stub files. Keep the
+// count bounded independently of the compressed and expanded byte limits.
+const MAX_ENTRIES: usize = 16_384;
 const MAX_MANIFEST: u64 = 1024 * 1024;
 
 /// What an import did.

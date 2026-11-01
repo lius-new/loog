@@ -76,6 +76,23 @@ fn import_files(temp: &Temp, entries: &[(String, Vec<u8>)]) -> Result<Imported, 
 }
 
 #[test]
+fn a_package_can_keep_the_thousands_of_type_stubs_a_language_server_needs() {
+    let temp = Temp::new();
+    let mut entries = files("1.0.0");
+    entries.extend((0..5_500).map(|index| {
+        (
+            format!("typeshed/stub_{index}.pyi"),
+            b"value: int\n".to_vec(),
+        )
+    }));
+    let imported = import_files(&temp, &entries).unwrap();
+    assert_eq!(
+        fs::read(imported.directory.join("typeshed/stub_5499.pyi")).unwrap(),
+        b"value: int\n"
+    );
+}
+
+#[test]
 fn a_complete_package_is_installed_whole_and_remembers_where_it_came_from() {
     let temp = Temp::new();
     let imported = import_files(&temp, &files("1.0.0")).unwrap();
