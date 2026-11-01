@@ -8,7 +8,7 @@ import {execFileSync} from 'node:child_process';
 import {github} from './github.mjs';
 import {requiredChecks, verifyCi} from './verify-ci.mjs';
 import {packagePlan, packageRelease} from './package.mjs';
-import {platforms, verifyAssets} from './assets.mjs';
+import {platforms, validators, verifyAssets} from './assets.mjs';
 import {publishDraft, createDraft, uploadToDraft} from './publish.mjs';
 const sha = 'a'.repeat(40), repo = 'test/loom';
 const ok = stdout => ({status:0,stdout,stderr:''});
@@ -103,6 +103,7 @@ function assetsFixture(t) {
     fs.writeFileSync(path.join(assets,'update-' + target + '.json'),JSON.stringify({signature:Buffer.alloc(64).toString('base64'),
       payload:Buffer.from(JSON.stringify({schema:1,version,platform:target,assets:records})).toString('base64')}));
   }
+  for (const name of validators) fs.writeFileSync(path.join(assets,name),'validator ' + name);
   const git = (...args) => execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
   git('init','-b','main');git('config','user.name','CI tests');git('config','user.email','ci@example.invalid');
   fs.writeFileSync(path.join(root,'Cargo.toml'),'[package]\nname = "loom"\nversion = "0.1.3"\n');
@@ -111,7 +112,10 @@ function assetsFixture(t) {
 }
 test('all platform assets, checksums and update metadata are checked before publication', t => {
   const f = assetsFixture(t);
-  assert.equal(verifyAssets(f.assets,f.version).length,13);
+  assert.equal(verifyAssets(f.assets,f.version).length,16);
+  fs.unlinkSync(path.join(f.assets,validators[1]));
+  assert.throws(() => verifyAssets(f.assets,f.version),/Missing release asset: loom-ext-validate-linux/);
+  fs.writeFileSync(path.join(f.assets,validators[1]),'validator');
   fs.writeFileSync(path.join(f.assets,f.names[0]),'corrupted');
   assert.throws(() => verifyAssets(f.assets,f.version),/Checksum mismatch/);
 });
@@ -131,7 +135,7 @@ test('the single publisher creates and verifies a draft before one complete uplo
   const f = assetsFixture(t), calls = [], replies = [failed('release not found'),ok('created'),ok('true'),ok('uploaded')];
   await publishDraft(f,args => {calls.push(args);return replies.shift();});
   assert.deepEqual(calls.map(args => args[1]),['view','create','view','upload']);
-  assert.equal(calls.at(-1).filter(arg => arg.startsWith(f.assets)).length,13);
+  assert.equal(calls.at(-1).filter(arg => arg.startsWith(f.assets)).length,16);
   assert.ok(calls[1].includes('--draft'));assert.ok(calls.at(-1).includes('--clobber'));
   assert.ok(!calls.some(args => args[1] === 'edit'));
 });

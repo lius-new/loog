@@ -1,5 +1,9 @@
+#[path = "infra_extensions.rs"]
+pub(crate) mod extensions;
 #[path = "packages.rs"]
 pub(crate) mod language_packs;
+#[path = "../../../src/infrastructure/query_watcher.rs"]
+pub(crate) mod query_watcher;
 #[path = "worker.rs"]
 pub(crate) mod syntax_worker;
 #[path = "../../../src/infrastructure/user_paths.rs"]

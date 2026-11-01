@@ -17,10 +17,16 @@ ureq = "2.12"
 toml = "1.1"
 tar = "0.4"
 flate2 = "1.1"
+notify = "8.2"
 
 [[bin]]
 name = "language-runtime-probe"
 path = "src/main.rs"
+test = false
+
+[[bin]]
+name = "loom-ext-validate"
+path = "src/validate_extension.rs"
 test = false
 
 [[bin]]

@@ -112,6 +112,20 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
           RELEASE_SHA: ${{ needs.verify.outputs.sha }}
         run: node scripts/release/package.mjs
+      - name: Build loom-ext-validate
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          # The extensions repository runs this to check its packages with the
+          # loaders and query compilers the application uses. macOS runners are arm64.
+          cargo build --release --locked --manifest-path tests/language-runtime/Cargo.toml --bin loom-ext-validate
+          case "$PLATFORM" in
+            windows) built=loom-ext-validate.exe; name=loom-ext-validate-windows-x86_64.exe ;;
+            linux) built=loom-ext-validate; name=loom-ext-validate-linux-x86_64 ;;
+            macos) built=loom-ext-validate; name=loom-ext-validate-macos-aarch64 ;;
+          esac
+          cp "tests/language-runtime/target/release/$built" ".packaging/dist/$name"
       - name: Smoke test staged Windows application
         if: matrix.platform == 'windows'
         shell: pwsh
@@ -157,6 +171,7 @@ jobs:
           path: |-
             .packaging/dist/Loom-${{ needs.verify.outputs.version }}-${{ matrix.target }}*
             .packaging/dist/update-${{ matrix.target }}.json
+            .packaging/dist/loom-ext-validate-*
           if-no-files-found: error
       - name: Remove signing keychain
         if: ${{ always() && matrix.platform == 'macos' }}

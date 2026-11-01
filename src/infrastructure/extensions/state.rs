@@ -55,7 +55,10 @@ pub fn version_dir(root: &Path, id: &str, version: &str) -> PathBuf {
 
 /// The recorded state; empty when the file is missing or unreadable.
 pub fn read(root: &Path) -> State {
-    crate::infrastructure::session_filesystem::read_json(&root.join(FILE)).unwrap_or_default()
+    fs::read_to_string(root.join(FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
 }
 
 /// Replace the file whole, so a crash leaves the old one or the new one.

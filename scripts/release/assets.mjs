@@ -8,6 +8,9 @@ export const platforms = {
   'linux-x86_64': {deb:'.deb',appimage:'.AppImage',tarball:'.tar.gz'},
   'macos-universal': {dmg:'.dmg',zip:'.zip'},
 };
+// loom-ext-validate, which the extensions repository downloads to check its packages.
+// The name carries no version: the release tag is part of the download address.
+export const validators = ['windows-x86_64.exe','linux-x86_64','macos-aarch64'].map(suffix => 'loom-ext-validate-' + suffix);
 export function verifyAssets(directory,version) {
   validateVersion(version);
   const files = [], metadata = new Map();
@@ -36,6 +39,11 @@ export function verifyAssets(directory,version) {
       const name = prefix + suffix, record = payload.assets[kind], actual = metadata.get(name);
       if (record.name !== name || record.sha256 !== actual.sha256 || record.size !== actual.size) throw Error('Update manifest mismatch: ' + name);
     }
+  }
+  for (const name of validators) {
+    const file = requireFile(name);
+    if (fs.statSync(file).size === 0) throw Error('Empty release asset: ' + name);
+    files.push(file);
   }
   return files.map(file => path.resolve(file)).sort();
 }

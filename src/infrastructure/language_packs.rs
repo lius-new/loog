@@ -758,6 +758,14 @@ pub(crate) fn packs_in(folders: Vec<PathBuf>, disabled: &BTreeSet<String>) -> Ve
     packs_of(enabled_extensions(folders, disabled))
 }
 
+/// The queries of the extension `folders`, except those of the `disabled` ids.
+pub(crate) fn queries_in(
+    folders: Vec<PathBuf>,
+    disabled: &BTreeSet<String>,
+) -> Vec<ExtensionQuery> {
+    queries_of(enabled_extensions(folders, disabled))
+}
+
 type Enabled = Vec<(PathBuf, crate::features::extensions::manifest::Manifest)>;
 
 /// The folders extensions are loaded from: the ones that ship with Loom, then the
