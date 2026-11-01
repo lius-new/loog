@@ -1,10 +1,961 @@
 {
   "schema": 1,
-  "generated": "2026-11-01T02:19:35.789Z",
-  "expires": "2026-12-01T02:19:35.789Z",
-  "sequence": 1,
+  "generated": "2026-11-01T05:40:12.458Z",
+  "expires": "2026-12-01T05:40:12.458Z",
+  "sequence": 8,
   "keyId": "index-2026-1",
   "extensions": [
+    {
+      "id": "loom.lang.bash",
+      "name": "Bash Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Bash.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "bash",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "bash",
+          "fileTypes": [
+            "sh",
+            "bash",
+            ".bashrc",
+            ".bash_profile"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.bash-0.1.0/loom.lang.bash-0.1.0-any.loomext",
+              "sha256": "410f604cd288d992a2f1a5d3969cea214667cee098d5b9f45dd7e708d4ad3db6",
+              "size": 187300
+            }
+          ],
+          "source": {
+            "fingerprint": "06f1d6cc96ae2b0bd6f3363479f311d59723ebb8674078cf1a3c2bdd21cb3832",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.c",
+      "name": "C Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for C.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "c",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "c",
+          "fileTypes": [
+            "c",
+            "h"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.c-0.1.0/loom.lang.c-0.1.0-any.loomext",
+              "sha256": "7c6e48eb62fe639967da91b98d2d88a4cb83b2c06882b6e66e32a0691e867125",
+              "size": 78134
+            }
+          ],
+          "source": {
+            "fingerprint": "62864704a8c8d72c37c0bdd01bfd003db132c6f85f9cc707bd360e298f4eeea0",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.cmake",
+      "name": "CMake Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for CMake.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "cmake",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT AND MPL-2.0",
+      "languages": [
+        {
+          "name": "cmake",
+          "fileTypes": [
+            "cmakelists.txt",
+            "cmake"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.cmake-0.1.0/loom.lang.cmake-0.1.0-any.loomext",
+              "sha256": "fef530686dd86c1a6af6f57b273e2ecc04a424edaba5799697785e673b51c2de",
+              "size": 25591
+            }
+          ],
+          "source": {
+            "fingerprint": "23b207bdfae160ba75a7e109a807604ed03f462fbc70af63b7aa493a90b8014a",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.cpp",
+      "name": "C++ Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for C++.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "c++",
+        "syntax",
+        "tree-sitter",
+        "cpp"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "cpp",
+          "fileTypes": [
+            "cpp",
+            "cc",
+            "cxx",
+            "hpp",
+            "hh",
+            "hxx"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.cpp-0.1.0/loom.lang.cpp-0.1.0-any.loomext",
+              "sha256": "ab58bb0c998819dc9701c90e105cbe553c7eb57c543bb28e4a782d6ac5d7cc41",
+              "size": 437945
+            }
+          ],
+          "source": {
+            "fingerprint": "b993411c65be3d9dcff6b60d47e7a246ec7b89f78ee418639d2998695d432774",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.csharp",
+      "name": "C# Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for C#.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "c#",
+        "syntax",
+        "tree-sitter",
+        "c_sharp"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "c_sharp",
+          "fileTypes": [
+            "cs"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.csharp-0.1.0/loom.lang.csharp-0.1.0-any.loomext",
+              "sha256": "ae184e1537b5d2e449013efacc15dd47cf032fc8958c4b5f9b9a864896c96df2",
+              "size": 322790
+            }
+          ],
+          "source": {
+            "fingerprint": "7f0dcfef71019c12ba2672615fe3b4da47ddec9aec938c8857607aee8cd79394",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.css",
+      "name": "CSS Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for CSS.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "css",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "css",
+          "fileTypes": [
+            "css"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.css-0.1.0/loom.lang.css-0.1.0-any.loomext",
+              "sha256": "a26711b3f1a3be72e7736349965756368e7c16e0e70f73b96b3b1c33b33ba32f",
+              "size": 24594
+            }
+          ],
+          "source": {
+            "fingerprint": "c960d1f76c25a2e46cfccf6bc236c6f5f311c56bb261af9082a15447bebf1222",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.dart",
+      "name": "Dart Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Dart.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "dart",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "dart",
+          "fileTypes": [
+            "dart"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.dart-0.1.0/loom.lang.dart-0.1.0-any.loomext",
+              "sha256": "bd0b7d4ff2fcf9acb3a3af717d8c0611e3b74dc8d5065bff46d514c70f312ed8",
+              "size": 123604
+            }
+          ],
+          "source": {
+            "fingerprint": "f04cc90cc3fb1dcd73f76b55325849a29744768ca0f1ae13230cff3b903b9917",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.diff",
+      "name": "Diff Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Diff.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "diff",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "diff",
+          "fileTypes": [
+            "diff",
+            "patch"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.diff-0.1.0/loom.lang.diff-0.1.0-any.loomext",
+              "sha256": "c55e181315fa1a3bdbc434d545e15a23a100dff71eabc2f47bca9550e56436d4",
+              "size": 9684
+            }
+          ],
+          "source": {
+            "fingerprint": "c65791ae78cd851d48ca51c24ccac36e044959fd447db7770c9a59fbc77ba238",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.dockerfile",
+      "name": "Dockerfile Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Dockerfile.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "dockerfile",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "dockerfile",
+          "fileTypes": [
+            "dockerfile",
+            "containerfile"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.dockerfile-0.1.0/loom.lang.dockerfile-0.1.0-any.loomext",
+              "sha256": "79fb0de2db7c6114f3c9e7ee0bd1d3885b95ed7165a2c5c27b190c071d846c7c",
+              "size": 20288
+            }
+          ],
+          "source": {
+            "fingerprint": "1b723a445d404209759eb7215e5da094f082f57a707223016e97d2f6302df838",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.fish",
+      "name": "Fish Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Fish.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "fish",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "Unlicense",
+      "languages": [
+        {
+          "name": "fish",
+          "fileTypes": [
+            "fish"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.fish-0.1.0/loom.lang.fish-0.1.0-any.loomext",
+              "sha256": "4a7207db9fa8dab3b7087f902954980e3f18dfbedef4765e1b375705576eb497",
+              "size": 21406
+            }
+          ],
+          "source": {
+            "fingerprint": "58bca8fb5e677865618f094993d01b5d5a778760ef0618f56c6af22e37540e16",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.gitattributes",
+      "name": "Git Attributes Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Git Attributes.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "git attributes",
+        "syntax",
+        "tree-sitter",
+        "gitattributes"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "gitattributes",
+          "fileTypes": [
+            "gitattributes",
+            ".gitattributes"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.gitattributes-0.1.0/loom.lang.gitattributes-0.1.0-any.loomext",
+              "sha256": "f1a48bd2adc022f960414c797b4c148461f59081793e1d546371a3a0d216de90",
+              "size": 7723
+            }
+          ],
+          "source": {
+            "fingerprint": "388b17fb9aad7b0c8277e3cc595a9cc915cfe74e085ed19958a0f1f0cd3a28a6",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.gitcommit",
+      "name": "Git Commit Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Git Commit.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "git commit",
+        "syntax",
+        "tree-sitter",
+        "gitcommit"
+      ],
+      "license": "NOASSERTION",
+      "languages": [
+        {
+          "name": "gitcommit",
+          "fileTypes": [
+            "commit_editmsg",
+            "merge_msg",
+            "tag_editmsg"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.gitcommit-0.1.0/loom.lang.gitcommit-0.1.0-any.loomext",
+              "sha256": "fcd313e8684ea600eac745fdde088de5014b85c5838e87f95225e3b8ed09ea0e",
+              "size": 232620
+            }
+          ],
+          "source": {
+            "fingerprint": "935e357c07400278a5962cbc14f301e4940bac14fcd79d0a46e7bf1b0f6e39cd",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.gitignore",
+      "name": "Git Ignore Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Git Ignore.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "git ignore",
+        "syntax",
+        "tree-sitter",
+        "gitignore"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "gitignore",
+          "fileTypes": [
+            "gitignore",
+            ".gitignore",
+            ".ignore"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.gitignore-0.1.0/loom.lang.gitignore-0.1.0-any.loomext",
+              "sha256": "16c8801d625f6287062008dd39e31e7ff7e556756fa08d3f6785ec7ea01ea361",
+              "size": 6604
+            }
+          ],
+          "source": {
+            "fingerprint": "6d28590d10dfc9f4a65d8bf1a606403b6960edacb0f6a25ba3d8ed95c3f9983a",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.go",
+      "name": "Go Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Go.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "go",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "go",
+          "fileTypes": [
+            "go"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.go-0.1.0/loom.lang.go-0.1.0-any.loomext",
+              "sha256": "d5b0ecd255db77b04e629acd3fc0e98308465c60ad7ad7c73e8af9a496a84c2f",
+              "size": 43571
+            }
+          ],
+          "source": {
+            "fingerprint": "0b9472536cf7fa4faaa49523ea8d6d28a0ec6222df7543eaf49bcb6b07d80453",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.graphql",
+      "name": "GraphQL Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for GraphQL.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "graphql",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT AND MPL-2.0",
+      "languages": [
+        {
+          "name": "graphql",
+          "fileTypes": [
+            "graphql",
+            "gql"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.graphql-0.1.0/loom.lang.graphql-0.1.0-any.loomext",
+              "sha256": "39f44f66c1a722277acf04de8388088cdfa963b42f6f2130858d00c28ebc039a",
+              "size": 22422
+            }
+          ],
+          "source": {
+            "fingerprint": "233ca0fc67648b0e33ebcad0572d2b9e9ed4d5b417448b64e372a226ec71a23c",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.hcl",
+      "name": "HCL Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for HCL.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "hcl",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "Apache-2.0 AND MPL-2.0",
+      "languages": [
+        {
+          "name": "hcl",
+          "fileTypes": [
+            "hcl",
+            "tf",
+            "tfvars"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.hcl-0.1.0/loom.lang.hcl-0.1.0-any.loomext",
+              "sha256": "9aa9ce6c51ae0d6b3386b17aaa69cf3d56c100f680010ae23a4ff00fb3d585ec",
+              "size": 33434
+            }
+          ],
+          "source": {
+            "fingerprint": "f595230b1ffde5b5d4e58a7645ae7813446605a3e1c7ad4226fea6d2d99ee0b7",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.html",
+      "name": "HTML Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for HTML.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "html",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "html",
+          "fileTypes": [
+            "html",
+            "htm"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.html-0.1.0/loom.lang.html-0.1.0-any.loomext",
+              "sha256": "f5790c4a315a828333e6903ff101ad723cb8ca704e06603bf1dcafe8ef84ae21",
+              "size": 9437
+            }
+          ],
+          "source": {
+            "fingerprint": "fd27f2ca89cfcfd1ab01d0a3755eee6d5a39db7920525deac725faac483caeb2",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.ini",
+      "name": "INI Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for INI.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "ini",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "Apache-2.0",
+      "languages": [
+        {
+          "name": "ini",
+          "fileTypes": [
+            "ini",
+            "cfg",
+            "conf"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.ini-0.1.0/loom.lang.ini-0.1.0-any.loomext",
+              "sha256": "ec42caa3271418e72ed02228b6b8edd19882bbf64a244c5e20b57de3d5b9b04f",
+              "size": 7650
+            }
+          ],
+          "source": {
+            "fingerprint": "0d010ff6c7c38cf3dc31591ae11ea5454cd976f157dece2bd4e568e79d525b28",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.java",
+      "name": "Java Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Java.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "java",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "java",
+          "fileTypes": [
+            "java"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.java-0.1.0/loom.lang.java-0.1.0-any.loomext",
+              "sha256": "0041e637198736db6c0afdc008350730da213c99436c9b8f8d686dd092eea565",
+              "size": 56190
+            }
+          ],
+          "source": {
+            "fingerprint": "a7e92488fe61387443322dfb3e9b7ee3a7e4265747892fa0eae63fd46a719689",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.javascript",
+      "name": "JavaScript Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for JavaScript.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "javascript",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "javascript",
+          "fileTypes": [
+            "js",
+            "jsx",
+            "mjs",
+            "cjs"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.javascript-0.1.0/loom.lang.javascript-0.1.0-any.loomext",
+              "sha256": "ea63e74bae1dd2f79644ead936a2ad60876536a0780ebdd2246f481a24c3be7b",
+              "size": 54292
+            }
+          ],
+          "source": {
+            "fingerprint": "1ac3bfad8621f7fc9c7756ade81e738029a4811bdfc97ae4de42652f1b5ffb72",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
     {
       "id": "loom.lang.json",
       "name": "JSON Language",
@@ -32,7 +983,7 @@
       ],
       "versions": [
         {
-          "version": "0.1.8",
+          "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
           },
@@ -42,11 +993,295 @@
           "artifacts": [
             {
               "platform": "any",
-              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.json-0.1.8/loom.lang.json-0.1.8-any.loomext",
-              "sha256": "0c83bdd5cc9a44999d298fcc0196e694a50c4d3dc4aba11815db25554eb9fef3",
-              "size": 4994
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.json-0.1.0/loom.lang.json-0.1.0-any.loomext",
+              "sha256": "90a3467b760dbf997c4fb735027471a3862af8ae4cb0ec9fb0a3df5b133987aa",
+              "size": 4995
             }
+          ],
+          "source": {
+            "fingerprint": "b3d5ec4482c294f6536ca16c47c6750197fa90812d9485e5662dca7ec60c7d9c",
+            "revision": "a77c5171a90221400f47a0454f43d7b08cc5807d"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.json5",
+      "name": "JSON5 Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for JSON5.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "json5",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "json5",
+          "fileTypes": [
+            "json5"
           ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.json5-0.1.0/loom.lang.json5-0.1.0-any.loomext",
+              "sha256": "3f4a12d74174b5dc8e71d6575bdf0415378c79e401d0c4dff9070581b15431c5",
+              "size": 9175
+            }
+          ],
+          "source": {
+            "fingerprint": "8597640027da8c551fb04e305a63f92d084e757ed9424d6668fbf7fe0eaf7e68",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.julia",
+      "name": "Julia Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Julia.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "julia",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT AND MPL-2.0",
+      "languages": [
+        {
+          "name": "julia",
+          "fileTypes": [
+            "jl"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.julia-0.1.0/loom.lang.julia-0.1.0-any.loomext",
+              "sha256": "9fd98432e412d71e737150b179d555cb2df096aac9a8c628a44553046ae00bda",
+              "size": 252585
+            }
+          ],
+          "source": {
+            "fingerprint": "6d94aeefbf364de429c06c2f410f44e9b6e4a0cf03f6a6c19c366b97e8a70d51",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.kotlin",
+      "name": "Kotlin Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Kotlin.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "kotlin",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "kotlin",
+          "fileTypes": [
+            "kt",
+            "kts"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.kotlin-0.1.0/loom.lang.kotlin-0.1.0-any.loomext",
+              "sha256": "844320dcc0e97e8117bfc3209251334484ac4508a9b694aea81a58b0736013f5",
+              "size": 401131
+            }
+          ],
+          "source": {
+            "fingerprint": "40010d80488c37a334912245eb230b06aa942318e34b3fb20b5ccc48f725aef3",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.latex",
+      "name": "LaTeX Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for LaTeX.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "latex",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT AND MPL-2.0",
+      "languages": [
+        {
+          "name": "latex",
+          "fileTypes": [
+            "tex",
+            "sty",
+            "cls"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.latex-0.1.0/loom.lang.latex-0.1.0-any.loomext",
+              "sha256": "c24b94b2c3d60f65a9b72135b5856bb75c69c64141f9b3c2c46467742a5e092b",
+              "size": 170575
+            }
+          ],
+          "source": {
+            "fingerprint": "e2adb89778820b53136291ab2cf601f1b14df6142c85ebfa10e8c7cd905bc63a",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.lua",
+      "name": "Lua Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Lua.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "lua",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "lua",
+          "fileTypes": [
+            "lua"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.lua-0.1.0/loom.lang.lua-0.1.0-any.loomext",
+              "sha256": "55a155397211424ea15aa071c21db9b604f8c8b85a3241d838122ddeabe79fc1",
+              "size": 16760
+            }
+          ],
+          "source": {
+            "fingerprint": "a98aaed067735e5247355b968e49176e515b6ea3f13f2f8c2a9c5b83464b68bd",
+            "revision": "a77c5171a90221400f47a0454f43d7b08cc5807d"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.make",
+      "name": "Make Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Make.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "make",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "make",
+          "fileTypes": [
+            "makefile",
+            "mk"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.make-0.1.0/loom.lang.make-0.1.0-any.loomext",
+              "sha256": "996b621d4126344f12439dceb21569b019a68a443d1b9c9461b216d049605577",
+              "size": 39962
+            }
+          ],
+          "source": {
+            "fingerprint": "6f1f7848b24d3d77a492fc6373b76b6668722e59fbf3b3610d52374abcfdc6bc",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
         }
       ]
     },
@@ -81,7 +1316,7 @@
       ],
       "versions": [
         {
-          "version": "0.1.8",
+          "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
           },
@@ -91,11 +1326,1994 @@
           "artifacts": [
             {
               "platform": "any",
-              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.markdown-0.1.8/loom.lang.markdown-0.1.8-any.loomext",
-              "sha256": "845f3e6d0e98f26caad32583f0deb1bf3c5ba9b16c002bd6a906adfcfcfd46d9",
-              "size": 127833
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.markdown-0.1.0/loom.lang.markdown-0.1.0-any.loomext",
+              "sha256": "cbf24c995ea79e87ddcaef15bbdbf7797194fc87d8d094218a47ff1a790634b8",
+              "size": 127836
             }
+          ],
+          "source": {
+            "fingerprint": "99d9934052f99a6090ed0633236d065af5bad16ec50de4f85f8391efcb7e6180",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.nix",
+      "name": "Nix Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Nix.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "nix",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "nix",
+          "fileTypes": [
+            "nix"
           ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.nix-0.1.0/loom.lang.nix-0.1.0-any.loomext",
+              "sha256": "dc58b141568b6c0f4b88c1dcb662eee91829358af3f3baf4ee551b6b95220122",
+              "size": 24863
+            }
+          ],
+          "source": {
+            "fingerprint": "2adfd75a302cf929e856aa44923ee8f1f2761a67206e0fe82909d0050df9cda8",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.objc",
+      "name": "Objective-C Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Objective-C.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "objective-c",
+        "syntax",
+        "tree-sitter",
+        "objc"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "objc",
+          "fileTypes": [
+            "m",
+            "mm"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.objc-0.1.0/loom.lang.objc-0.1.0-any.loomext",
+              "sha256": "cfc4d2f761b843c9059335abb14d1ad889b7d722d6b71f431832fb42160f84b4",
+              "size": 291195
+            }
+          ],
+          "source": {
+            "fingerprint": "643305486da94a509e3dc833f65d7944a5dab989b23d8923c08e08347d6c13e8",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.perl",
+      "name": "Perl Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Perl.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "perl",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "NOASSERTION",
+      "languages": [
+        {
+          "name": "perl",
+          "fileTypes": [
+            "pl",
+            "pm",
+            "t"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.perl-0.1.0/loom.lang.perl-0.1.0-any.loomext",
+              "sha256": "15438ed1fe95d49113cecdee2d99cf721479bca4ea25aaba5f6dbc91b386e537",
+              "size": 177309
+            }
+          ],
+          "source": {
+            "fingerprint": "6b3760f5982419e5e7cc5cbbd137962843238045a21ce992c8d4fa54dbf4c515",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.php",
+      "name": "PHP Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for PHP.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "php",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "php",
+          "fileTypes": [
+            "php",
+            "phtml"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.php-0.1.0/loom.lang.php-0.1.0-any.loomext",
+              "sha256": "bb14003ca8b184454b3cab4361a582a0a943d19c75cbee8a3af320092d6ff69e",
+              "size": 112849
+            }
+          ],
+          "source": {
+            "fingerprint": "d748009eff8ad4415e0750c2a311c715ba8619df249054ee60849d5e0b327ad7",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.powershell",
+      "name": "PowerShell Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for PowerShell.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "powershell",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "powershell",
+          "fileTypes": [
+            "ps1",
+            "psm1",
+            "psd1"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.powershell-0.1.0/loom.lang.powershell-0.1.0-any.loomext",
+              "sha256": "948c5a3bafc365a77e49bb526ad74ab60704cb9dbccb4be5881068bfe9aea2da",
+              "size": 87311
+            }
+          ],
+          "source": {
+            "fingerprint": "ad4b106b0702e40acc950a6cd37203ef934a7a2bfbf9bfe001581939cbc170a1",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.protobuf",
+      "name": "Protocol Buffers Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Protocol Buffers.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "protocol buffers",
+        "syntax",
+        "tree-sitter",
+        "proto"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "proto",
+          "fileTypes": [
+            "proto"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.protobuf-0.1.0/loom.lang.protobuf-0.1.0-any.loomext",
+              "sha256": "fc99425ddcf048cd8e3b76a1bdbf183510f2ce3d863abfd68715e76d23b8553d",
+              "size": 17219
+            }
+          ],
+          "source": {
+            "fingerprint": "7a5c9f90f3540af118c0e2adecab5d697466698842a8fd6bb53f795ae47eb656",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.python",
+      "name": "Python Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Python.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "python",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "python",
+          "fileTypes": [
+            "py",
+            "pyi",
+            "pyw"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.python-0.1.0/loom.lang.python-0.1.0-any.loomext",
+              "sha256": "51f5e3508008d060befc00285ff9290c60b14d744b2310f6a68adfad6001e207",
+              "size": 71785
+            }
+          ],
+          "source": {
+            "fingerprint": "4032c9c6a98bdc4ec390fc5d61c628f7f36951b32ec275f3de594689a2876cb5",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.r",
+      "name": "R Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for R.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "r",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "r",
+          "fileTypes": [
+            "r",
+            "rprofile"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.r-0.1.0/loom.lang.r-0.1.0-any.loomext",
+              "sha256": "3dfec073b042006577b65a0c8669d57b37f6cb6f035e04102ea219cfad47fc0c",
+              "size": 53550
+            }
+          ],
+          "source": {
+            "fingerprint": "c3f16ad9b6635edc45b147a106431476b6fdbf4ad408dbab6509d3f35304c456",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.rst",
+      "name": "reStructuredText Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for reStructuredText.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "restructuredtext",
+        "syntax",
+        "tree-sitter",
+        "rst"
+      ],
+      "license": "MIT AND MPL-2.0",
+      "languages": [
+        {
+          "name": "rst",
+          "fileTypes": [
+            "rst"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.rst-0.1.0/loom.lang.rst-0.1.0-any.loomext",
+              "sha256": "97208a0413be2518b734b88d923b88a340a1155327be49822c4186a704fe3cf0",
+              "size": 24447
+            }
+          ],
+          "source": {
+            "fingerprint": "55d7322f4a3730729aa34cdd705d91cbdec3f849101c926611305ed3076606de",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.ruby",
+      "name": "Ruby Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Ruby.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "ruby",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "ruby",
+          "fileTypes": [
+            "rb",
+            "rake",
+            "gemspec",
+            "gemfile",
+            "rakefile"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.ruby-0.1.0/loom.lang.ruby-0.1.0-any.loomext",
+              "sha256": "54ac77b90315572c29cb9e48fd8a2fbb09de71382d445b9d444f5f50989a54a5",
+              "size": 169663
+            }
+          ],
+          "source": {
+            "fingerprint": "ed91f7080b064d1e0a122b6402c4af97e232d9488bad6d659e7137cef429196d",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.rust",
+      "name": "Rust Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Rust.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "rust",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "rust",
+          "fileTypes": [
+            "rs"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.rust-0.1.0/loom.lang.rust-0.1.0-any.loomext",
+              "sha256": "4f805728470d89671a737ce8842daa503af58da711e6b40a3802a313013195de",
+              "size": 122612
+            }
+          ],
+          "source": {
+            "fingerprint": "ab645fc90170cae2101f83ddd8300ccb6867ad94b7605423e50a47aa049e5825",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.scala",
+      "name": "Scala Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Scala.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "scala",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "scala",
+          "fileTypes": [
+            "scala",
+            "sc"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.scala-0.1.0/loom.lang.scala-0.1.0-any.loomext",
+              "sha256": "9fe9287fa15fb97e6c2e3e092236e26868646312dc72ddbc50471572702696e0",
+              "size": 510718
+            }
+          ],
+          "source": {
+            "fingerprint": "aa07cff2d3581e4e18e05d927458f3940f21f99ffba09544e241d8a95009eac4",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.scss",
+      "name": "SCSS Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for SCSS.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "scss",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "scss",
+          "fileTypes": [
+            "scss"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.scss-0.1.0/loom.lang.scss-0.1.0-any.loomext",
+              "sha256": "d2b56e7e5e8fb79c4c30d13763546c7eab1631c08fd934e6f1d7fbe17ebf56e6",
+              "size": 24637
+            }
+          ],
+          "source": {
+            "fingerprint": "79f71ddfbb25a463244a8403db39543f15cbac5b83507270a6d0d218b6704687",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.sql",
+      "name": "SQL Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for SQL.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "sql",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "sql",
+          "fileTypes": [
+            "sql"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.sql-0.1.0/loom.lang.sql-0.1.0-any.loomext",
+              "sha256": "4a8605c40b80522aa23b61a805d68e82bf7625aed2d0b3c57d1b66ab965db412",
+              "size": 842711
+            }
+          ],
+          "source": {
+            "fingerprint": "98ef35b9619aafc40e32b3f71ce45ee92ba99e79e094a313da5f5bdbb2c7aadf",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.svelte",
+      "name": "Svelte Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Svelte.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "svelte",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "svelte",
+          "fileTypes": [
+            "svelte"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.svelte-0.1.0/loom.lang.svelte-0.1.0-any.loomext",
+              "sha256": "f69b8aa5b6c4a90865e449af0c8699d2b10d046c0d68350588ccfe4214e662d2",
+              "size": 50687
+            }
+          ],
+          "source": {
+            "fingerprint": "e5528eb4f2afd5e36e54045d619c68ec50941d51280102ac4cbaebe6583c7a55",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.swift",
+      "name": "Swift Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Swift.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "swift",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "swift",
+          "fileTypes": [
+            "swift"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.swift-0.1.0/loom.lang.swift-0.1.0-any.loomext",
+              "sha256": "aa02c2bf15c3f6789d7322c3615917c43e9ef53efd64384fad50312052e57267",
+              "size": 317107
+            }
+          ],
+          "source": {
+            "fingerprint": "2e035b6d2ff98249b19c60700b18c418bc8b6d96b5f60ee5867e5715c69a2561",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.toml",
+      "name": "TOML Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for TOML.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "toml",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "toml",
+          "fileTypes": [
+            "toml"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.toml-0.1.0/loom.lang.toml-0.1.0-any.loomext",
+              "sha256": "043e9ae22ee7c9ad450b3a1e412255c3da8cc62cb4953f0ce43be9e3c7d2f742",
+              "size": 10237
+            }
+          ],
+          "source": {
+            "fingerprint": "bea90be342e756f11b8b99fc008ad3e0831e240601342c3951db1b07667a920c",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.typescript",
+      "name": "TypeScript Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for TypeScript.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "typescript",
+        "syntax",
+        "tree-sitter",
+        "tsx"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "typescript",
+          "fileTypes": [
+            "ts",
+            "mts",
+            "cts"
+          ]
+        },
+        {
+          "name": "tsx",
+          "fileTypes": [
+            "tsx"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.typescript-0.1.0/loom.lang.typescript-0.1.0-any.loomext",
+              "sha256": "9de2323b4dfe1f243aa7f9cf6f444c29aeedb5d64b58280623aa8e64bef2fbcd",
+              "size": 286130
+            }
+          ],
+          "source": {
+            "fingerprint": "903606910757092e07732abb14fd6aea0cb4e8ae3fcef2c2709a0fc8c259718e",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.vue",
+      "name": "Vue Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Vue.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "vue",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "vue",
+          "fileTypes": [
+            "vue"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.vue-0.1.0/loom.lang.vue-0.1.0-any.loomext",
+              "sha256": "a4347453559620dc459aa34fe2c0efb300a6017e2fe0031c6b116e15f69e1862",
+              "size": 12591
+            }
+          ],
+          "source": {
+            "fingerprint": "c3ea48b47d94b2e0de053a648fe842a9180c0f0e0628aef565a576444b2a1798",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.xml",
+      "name": "XML Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for XML.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "xml",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "xml",
+          "fileTypes": [
+            "xml",
+            "svg",
+            "xsd",
+            "xsl",
+            "xslt"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.xml-0.1.0/loom.lang.xml-0.1.0-any.loomext",
+              "sha256": "22df946e01ba006d20b58e15b24985dd11daa3a44089c8ee63e8b13013ef770e",
+              "size": 18944
+            }
+          ],
+          "source": {
+            "fingerprint": "c67712dd81877b0c7278ceed1639478dfefac0dbcf22a39e61074a99679a7266",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.yaml",
+      "name": "YAML Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for YAML.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "yaml",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT",
+      "languages": [
+        {
+          "name": "yaml",
+          "fileTypes": [
+            "yaml",
+            "yml"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.yaml-0.1.0/loom.lang.yaml-0.1.0-any.loomext",
+              "sha256": "7edd27e0b303499a48219d9b2526e896a2beb7ada9d23b9b4a910e94e22483b8",
+              "size": 38831
+            }
+          ],
+          "source": {
+            "fingerprint": "2e157aad200632f66f6c95d208fc318b8b6455a6dd07a7c46c4273c10ca99f30",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lang.zig",
+      "name": "Zig Language",
+      "publisher": "Loom",
+      "description": "Syntax highlighting for Zig.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "zig",
+        "syntax",
+        "tree-sitter"
+      ],
+      "license": "MIT AND MPL-2.0",
+      "languages": [
+        {
+          "name": "zig",
+          "fileTypes": [
+            "zig"
+          ]
+        }
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lang.zig-0.1.0/loom.lang.zig-0.1.0-any.loomext",
+              "sha256": "63061a5361efb88dbbe339e3d679c860447d3a284407fdd1ed0af7eaa716d64e",
+              "size": 62845
+            }
+          ],
+          "source": {
+            "fingerprint": "4a4c6bdcd6d56112c07af009e62a39b7b562805e4bf07129ee2fdc5f86c08d39",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.bash-language-server",
+      "name": "Bash Language Server Language Server",
+      "publisher": "Loom",
+      "description": "The Bash Language Server language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "bash language server",
+        "language server",
+        "lsp"
+      ],
+      "license": "MIT",
+      "serves": [
+        "bash"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [
+            "loom.runtime.node@^0.1.0"
+          ],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.bash-language-server-0.1.0/loom.lsp.bash-language-server-0.1.0-any.loomext",
+              "sha256": "47a552bef999b2dfb16d1fe630b003b0be5e6fba3f730d997355a02c7bbd2a2e",
+              "size": 3750380
+            }
+          ],
+          "source": {
+            "fingerprint": "6237a21f8ada253affe73db0da50d89d900645f2ebcff43e312c8df54ba0fdd8",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.biome",
+      "name": "Biome Language Server",
+      "publisher": "Loom",
+      "description": "The Biome language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "biome",
+        "language server",
+        "lsp"
+      ],
+      "license": "MIT OR Apache-2.0",
+      "serves": [
+        "css",
+        "javascript",
+        "json",
+        "typescript"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.biome-0.1.0/loom.lsp.biome-0.1.0-linux-aarch64.loomext",
+              "sha256": "74e29de543c5885959822d8da1ecf5436fc84a9f393837587a6966c7f122a8e7",
+              "size": 23037681
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.biome-0.1.0/loom.lsp.biome-0.1.0-linux-x86_64.loomext",
+              "sha256": "0ac635f79cf939ef211856d766bedb6dfcf69bfe0131baa7453cab73152f0544",
+              "size": 24699219
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.biome-0.1.0/loom.lsp.biome-0.1.0-macos-aarch64.loomext",
+              "sha256": "9193035f9c27edb6c4803db1c6b30dc807d5bdd59f29ad58e9d571e6c6497ef4",
+              "size": 22818786
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.biome-0.1.0/loom.lsp.biome-0.1.0-macos-x86_64.loomext",
+              "sha256": "79ed8ac0c8ffae95f22e6b3b8cff3d71158dd472410800cc62de6569f33be6e5",
+              "size": 23814853
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.biome-0.1.0/loom.lsp.biome-0.1.0-windows-aarch64.loomext",
+              "sha256": "5dd65dce33090a9181fdaf5d56087f39a7b5ed37ff3d9ca8601ddffa5e2154d6",
+              "size": 24847572
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.biome-0.1.0/loom.lsp.biome-0.1.0-windows-x86_64.loomext",
+              "sha256": "1c43cd9a445961b75a5448e564003e3ef8fab86e4f3b56240f16ebb63ebe4dd5",
+              "size": 26309511
+            }
+          ],
+          "source": {
+            "fingerprint": "0096818a70f24942a43ba04e240146ad1e9ee908b1c6ab675bffb8b4b40469e3",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.clangd",
+      "name": "clangd Language Server",
+      "publisher": "Loom",
+      "description": "The clangd language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "clangd",
+        "language server",
+        "lsp"
+      ],
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "serves": [
+        "c",
+        "cpp",
+        "objc"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.clangd-0.1.0/loom.lsp.clangd-0.1.0-linux-x86_64.loomext",
+              "sha256": "7ee01c4d0f7c0193d7d00772c7ac73930a6148b4413f7a2d41b4e6867522bfc4",
+              "size": 119738087
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.clangd-0.1.0/loom.lsp.clangd-0.1.0-macos-aarch64.loomext",
+              "sha256": "a4c7dec7800063aea2a20f977d78d3f54182744ee31ca048608621511873f459",
+              "size": 104377169
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.clangd-0.1.0/loom.lsp.clangd-0.1.0-macos-x86_64.loomext",
+              "sha256": "e75a98348f77efa02fc0743d7fe8b9315a65cc8d7ef10557ae99632ca472f1c3",
+              "size": 104377191
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.clangd-0.1.0/loom.lsp.clangd-0.1.0-windows-x86_64.loomext",
+              "sha256": "7b59f508b3ba295dc4a7f1fa4f8c10e4e826e7713dcf22ea77cf2be9fd2dbc5c",
+              "size": 30941892
+            }
+          ],
+          "source": {
+            "fingerprint": "c4e24f905f28cc5601e22371edb30bbc57fd5890b7d90df5d620de6ef390c79d",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.gopls",
+      "name": "gopls Language Server",
+      "publisher": "Loom",
+      "description": "The gopls language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "gopls",
+        "language server",
+        "lsp"
+      ],
+      "license": "BSD-3-Clause",
+      "serves": [
+        "go"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.gopls-0.1.0/loom.lsp.gopls-0.1.0-linux-aarch64.loomext",
+              "sha256": "e530f62306ef1b650a1675a04256c517026f6100a9ef520dbd75d4799bdd844f",
+              "size": 20741216
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.gopls-0.1.0/loom.lsp.gopls-0.1.0-linux-x86_64.loomext",
+              "sha256": "1f75909d0b57ce47efa17415400d78ad093c409006df441ecea977de53100cc9",
+              "size": 22702028
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.gopls-0.1.0/loom.lsp.gopls-0.1.0-macos-aarch64.loomext",
+              "sha256": "f0bad8909d942d1157e92255d32091749c90c525017f0b544f77aa3acfb704cd",
+              "size": 21833238
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.gopls-0.1.0/loom.lsp.gopls-0.1.0-macos-x86_64.loomext",
+              "sha256": "fe4a5e06362f9e19b584fb47ecceae2f3114241d5984a1fe78030a3417f2e0aa",
+              "size": 23301010
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.gopls-0.1.0/loom.lsp.gopls-0.1.0-windows-aarch64.loomext",
+              "sha256": "0c3db018be8116820b5d1464d8b74b47893b6509ec09a72f596c4d97981e4d06",
+              "size": 20842934
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.gopls-0.1.0/loom.lsp.gopls-0.1.0-windows-x86_64.loomext",
+              "sha256": "d1313635889011dfd51c9e2b97f2d2d9cd792d2ca8b2ad3105de6b599bfa716f",
+              "size": 22935862
+            }
+          ],
+          "source": {
+            "fingerprint": "0a791b157d9dcbf5ffc775bb89d640e5c848cbc718437e65e522329ec736bde3",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.lua-language-server",
+      "name": "Lua Language Server Language Server",
+      "publisher": "Loom",
+      "description": "The Lua Language Server language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "lua language server",
+        "language server",
+        "lsp"
+      ],
+      "license": "MIT",
+      "serves": [
+        "lua"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.lua-language-server-0.1.0/loom.lsp.lua-language-server-0.1.0-linux-aarch64.loomext",
+              "sha256": "fb7f2aa43cd59d1f980c0a060182f54314a57cec5e2d0c4f63ec0ebd45754916",
+              "size": 2631130
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.lua-language-server-0.1.0/loom.lsp.lua-language-server-0.1.0-linux-x86_64.loomext",
+              "sha256": "81d568901a53e2fb98776d6cce80e13ea1f26a8d269f7ceaec6e8309d8c997eb",
+              "size": 3654835
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.lua-language-server-0.1.0/loom.lsp.lua-language-server-0.1.0-macos-aarch64.loomext",
+              "sha256": "b41f323d75a3688605530fd9e2f2f510231ae905d963e6230fcbaef4740b0ab3",
+              "size": 3244266
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.lua-language-server-0.1.0/loom.lsp.lua-language-server-0.1.0-macos-x86_64.loomext",
+              "sha256": "3f652a61a2b72cf5c24fda4d0e7c41f0b09fbe02cfb0b9aa8d3b8265360dcb9f",
+              "size": 2321580
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.lua-language-server-0.1.0/loom.lsp.lua-language-server-0.1.0-windows-x86_64.loomext",
+              "sha256": "34894b62890d36a7686b6e3d7ba410e42e3db16071609cca9cf2c6e1dc859fe0",
+              "size": 4101778
+            }
+          ],
+          "source": {
+            "fingerprint": "18d058a7f0c57cc9e4c328164ffae8bc8f7e2d74c21ba2418294b5ff2a82a4ae",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.marksman",
+      "name": "Marksman Language Server",
+      "publisher": "Loom",
+      "description": "The Marksman language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "marksman",
+        "language server",
+        "lsp"
+      ],
+      "license": "MIT",
+      "serves": [
+        "markdown"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.marksman-0.1.0/loom.lsp.marksman-0.1.0-linux-aarch64.loomext",
+              "sha256": "36acd080aae96a2d9fbd1464d65eb45e94046549beae4dd3089b9f6a8958da4f",
+              "size": 15283320
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.marksman-0.1.0/loom.lsp.marksman-0.1.0-linux-x86_64.loomext",
+              "sha256": "bfee2a1a949cd0c2fa1a99950768c4b9f75ce3d607521fa6fd8421ea7d8857d0",
+              "size": 15505241
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.marksman-0.1.0/loom.lsp.marksman-0.1.0-macos-aarch64.loomext",
+              "sha256": "f465dff0abdfe1c8e6a64eef2f0988043a7a2644bfe37d516cdbde6662d1e170",
+              "size": 30504012
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.marksman-0.1.0/loom.lsp.marksman-0.1.0-macos-x86_64.loomext",
+              "sha256": "ef7e5bd0c8d650baf87204c1d31001ff50bf07525109e3968a52a0dc6ccf7b17",
+              "size": 30504006
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.marksman-0.1.0/loom.lsp.marksman-0.1.0-windows-x86_64.loomext",
+              "sha256": "f1818f9a171e88d4c24214cec16b24c5ea88ef0e58a2b6d73c0cf2a3e994d958",
+              "size": 15203097
+            }
+          ],
+          "source": {
+            "fingerprint": "8d45fc1f91fa83e445eb592a4351c3eac949d42905f781c89f6e334a95157afd",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.pyright",
+      "name": "Pyright Language Server",
+      "publisher": "Loom",
+      "description": "The Pyright language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "pyright",
+        "language server",
+        "lsp"
+      ],
+      "license": "MIT",
+      "serves": [
+        "python"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [
+            "loom.runtime.node@^0.1.0"
+          ],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.pyright-0.1.0/loom.lsp.pyright-0.1.0-any.loomext",
+              "sha256": "ac5ae2bbd93a97f7d760f470717439f83c6e0aecb329e1a7573a3cf1005b2686",
+              "size": 3920864
+            }
+          ],
+          "source": {
+            "fingerprint": "a43b5b68ecb56791491190476ca5d0b793035d2cf800fb1a230d9407440ea5e4",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.ruff",
+      "name": "Ruff Language Server",
+      "publisher": "Loom",
+      "description": "The Ruff language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "ruff",
+        "language server",
+        "lsp"
+      ],
+      "license": "MIT",
+      "serves": [
+        "python"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.ruff-0.1.0/loom.lsp.ruff-0.1.0-linux-aarch64.loomext",
+              "sha256": "c67dfa58d6d91dadc72560e2aa5a055cbc7df59b2cd5917a7f10c85a1cbde4d7",
+              "size": 9971752
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.ruff-0.1.0/loom.lsp.ruff-0.1.0-linux-x86_64.loomext",
+              "sha256": "5179ffa09c14c307852f8f936b5dd62a64d88363e68d2b8f5e3c3cd6f579482e",
+              "size": 10623451
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.ruff-0.1.0/loom.lsp.ruff-0.1.0-macos-aarch64.loomext",
+              "sha256": "ed84c1b269606b87484dfc2ced59bc15a19f489aab3986e491cf49107fe27e66",
+              "size": 9629297
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.ruff-0.1.0/loom.lsp.ruff-0.1.0-macos-x86_64.loomext",
+              "sha256": "2f91828ea42f1e385dc387f10232916c22365d41dd4da47bed0b47fc3751d0a0",
+              "size": 10406406
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.ruff-0.1.0/loom.lsp.ruff-0.1.0-windows-aarch64.loomext",
+              "sha256": "0bf23a8c616e500bd0a372621765faa9e67d3b1f7437a19ccbb1e597afeb24b7",
+              "size": 10312388
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.ruff-0.1.0/loom.lsp.ruff-0.1.0-windows-x86_64.loomext",
+              "sha256": "08a598c2cf1ca5bd3b2979ba4ae4da38e875fcfe7cb6381d4a6e60741d7b5dc4",
+              "size": 10436550
+            }
+          ],
+          "source": {
+            "fingerprint": "d7cb6521808d1a5b2fd5ba7b42cd4e6afc628f48f8a149cf317576f92e380e23",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.rust-analyzer",
+      "name": "rust-analyzer Language Server",
+      "publisher": "Loom",
+      "description": "The rust-analyzer language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "rust-analyzer",
+        "language server",
+        "lsp"
+      ],
+      "license": "MIT OR Apache-2.0",
+      "serves": [
+        "rust"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.rust-analyzer-0.1.0/loom.lsp.rust-analyzer-0.1.0-linux-aarch64.loomext",
+              "sha256": "a85718bec16d24278308874a5d9757e39314d1d4494a19e5e14e9a06e0997a19",
+              "size": 15004785
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.rust-analyzer-0.1.0/loom.lsp.rust-analyzer-0.1.0-linux-x86_64.loomext",
+              "sha256": "094152650d2b5d77a8e6b5a4a5deddec086f0f98542ae25805dbd9cd0d795725",
+              "size": 15371513
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.rust-analyzer-0.1.0/loom.lsp.rust-analyzer-0.1.0-macos-aarch64.loomext",
+              "sha256": "943f8888a00c957e0a04860aa3e032a8a123e129d57e68a6069b648b3b4a55fb",
+              "size": 14575104
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.rust-analyzer-0.1.0/loom.lsp.rust-analyzer-0.1.0-macos-x86_64.loomext",
+              "sha256": "65aabf1139c1e9996857ae6329ea3a3c1f08969562e4e8ee99fbc254c65ca995",
+              "size": 15059028
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.rust-analyzer-0.1.0/loom.lsp.rust-analyzer-0.1.0-windows-aarch64.loomext",
+              "sha256": "428cb79e60fb9f84c9a38c6f1b48fade4cc72db7e8230fce4befc751ae86dbc6",
+              "size": 14197726
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.rust-analyzer-0.1.0/loom.lsp.rust-analyzer-0.1.0-windows-x86_64.loomext",
+              "sha256": "8d0bfec74a80b1a5a9dbd97798ac67acad582338ab284ba9d19cc1fda78e190f",
+              "size": 14838194
+            }
+          ],
+          "source": {
+            "fingerprint": "fba41be4ac15b5972dc9ab62ade2223505e02349077480e25cf0ee000a27d692",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.taplo",
+      "name": "Taplo Language Server",
+      "publisher": "Loom",
+      "description": "The Taplo language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "taplo",
+        "language server",
+        "lsp"
+      ],
+      "license": "MIT",
+      "serves": [
+        "toml"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.taplo-0.1.0/loom.lsp.taplo-0.1.0-linux-aarch64.loomext",
+              "sha256": "4d3f96ab0298005217bc2b5c05b13109ac965410be702a844a333a5e05a6fc22",
+              "size": 4812293
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.taplo-0.1.0/loom.lsp.taplo-0.1.0-linux-x86_64.loomext",
+              "sha256": "8bd10d6be944902314a50e1b0ab7142feffcf70c0ea8cfd8973dbb870c8f98a3",
+              "size": 5216841
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.taplo-0.1.0/loom.lsp.taplo-0.1.0-macos-aarch64.loomext",
+              "sha256": "09dbf6cfdddba90848f377468bba578252261ae73ac51352b34f47634bf27671",
+              "size": 4786587
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.taplo-0.1.0/loom.lsp.taplo-0.1.0-macos-x86_64.loomext",
+              "sha256": "831a73e29d0b51c729eb07d84d8c8d9ec788dd68c48c8757adfec8e9997a9a22",
+              "size": 5013133
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.taplo-0.1.0/loom.lsp.taplo-0.1.0-windows-aarch64.loomext",
+              "sha256": "3bc436151dfa039969a44c1fb459f0bfc2611dec16f130ff4b740eb2b75ddfae",
+              "size": 5038519
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.taplo-0.1.0/loom.lsp.taplo-0.1.0-windows-x86_64.loomext",
+              "sha256": "052f84857085d97c51057fe58886aaccc1b210cb5bea718508eaedafa74ddf17",
+              "size": 5350140
+            }
+          ],
+          "source": {
+            "fingerprint": "d79d5e695686933d6981c8880054108f3989d5667ef4dbe736ec81e04c06c6db",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.typescript-language-server",
+      "name": "TypeScript Language Server Language Server",
+      "publisher": "Loom",
+      "description": "The TypeScript Language Server language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "typescript language server",
+        "language server",
+        "lsp"
+      ],
+      "license": "Apache-2.0",
+      "serves": [
+        "javascript",
+        "typescript"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [
+            "loom.runtime.node@^0.1.0"
+          ],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.typescript-language-server-0.1.0/loom.lsp.typescript-language-server-0.1.0-any.loomext",
+              "sha256": "54d8224a40e3116170f2be25c875682dbe5eda6bc5e1799f57e93721c024563c",
+              "size": 4898391
+            }
+          ],
+          "source": {
+            "fingerprint": "c6174d0856c3306457465d201b159707c9bd2bccf08081710d90419bf7675745",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.vscode-langservers-extracted",
+      "name": "Vscode Langservers Extracted Language Server",
+      "publisher": "Loom",
+      "description": "The Vscode Langservers Extracted language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "vscode langservers extracted",
+        "language server",
+        "lsp"
+      ],
+      "license": "MIT",
+      "serves": [
+        "css",
+        "html",
+        "javascript",
+        "json",
+        "scss",
+        "typescript"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [
+            "loom.runtime.node@^0.1.0"
+          ],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.vscode-langservers-extracted-0.1.0/loom.lsp.vscode-langservers-extracted-0.1.0-any.loomext",
+              "sha256": "0f67cb2386cf14451965f84d472a73d8db8ce60c1a08242bd7e0703f735aab70",
+              "size": 13802134
+            }
+          ],
+          "source": {
+            "fingerprint": "ddb014351a3c8467798ad06c3050855ab59a2643583d76f62ec212d605f9bfe6",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.yaml-language-server",
+      "name": "YAML Language Server Language Server",
+      "publisher": "Loom",
+      "description": "The YAML Language Server language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "yaml language server",
+        "language server",
+        "lsp"
+      ],
+      "license": "MIT",
+      "serves": [
+        "yaml"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [
+            "loom.runtime.node@^0.1.0"
+          ],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "any",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.yaml-language-server-0.1.0/loom.lsp.yaml-language-server-0.1.0-any.loomext",
+              "sha256": "9af7d8275144744f5472b0f87b239c22646234e4c56421077f00b7919158749e",
+              "size": 3860935
+            }
+          ],
+          "source": {
+            "fingerprint": "c562c5cd6b204f9e34648a2be591e3b070be51cc7805361425c8de7afe0384d2",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.lsp.zls",
+      "name": "zls Language Server",
+      "publisher": "Loom",
+      "description": "The zls language server.",
+      "categories": [
+        "Languages"
+      ],
+      "keywords": [
+        "zls",
+        "language server",
+        "lsp"
+      ],
+      "license": "MIT",
+      "serves": [
+        "zig"
+      ],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [
+            "process.execute-local"
+          ],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.zls-0.1.0/loom.lsp.zls-0.1.0-linux-aarch64.loomext",
+              "sha256": "c1a786b7a214957e80111bef4836773faf0a3b0b6986ffbf002d740d0e7a853f",
+              "size": 5374919
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.zls-0.1.0/loom.lsp.zls-0.1.0-linux-x86_64.loomext",
+              "sha256": "d6b1c309f8e0ea214d01ecac260019a24096c91391f8b7354a9fe4a78ec1b73b",
+              "size": 5504112
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.zls-0.1.0/loom.lsp.zls-0.1.0-macos-aarch64.loomext",
+              "sha256": "3b578f0a5c38809d5d04c12c312ac95031efd2da4cded7148211a612b273cec2",
+              "size": 1579232
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.zls-0.1.0/loom.lsp.zls-0.1.0-macos-x86_64.loomext",
+              "sha256": "04dfdc6b51e095c6cacdc33054a1eef9703f2f6b5909c5385f82f379746458d2",
+              "size": 1639637
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.zls-0.1.0/loom.lsp.zls-0.1.0-windows-aarch64.loomext",
+              "sha256": "a975d3bde6b3887077cca66779e192882488abeaae80f40ebd01d2ec1a771f29",
+              "size": 4883028
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.lsp.zls-0.1.0/loom.lsp.zls-0.1.0-windows-x86_64.loomext",
+              "sha256": "6d32c63690529bd46ffc2a8d6c7baf9b8976d8524934645b15b624dbd1e74b5b",
+              "size": 5142507
+            }
+          ],
+          "source": {
+            "fingerprint": "1f1fe09f9f1f43a2b0ed0ffddeec8c2815814546fd40539af43f1e02b0572905",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
+        }
+      ]
+    },
+    {
+      "id": "loom.runtime.node",
+      "name": "Node.js Runtime",
+      "publisher": "Loom",
+      "description": "The Node.js runtime that JavaScript language servers run on.",
+      "categories": [
+        "Other"
+      ],
+      "keywords": [
+        "node.js",
+        "runtime"
+      ],
+      "license": "MIT",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "engines": {
+            "loom": ">=0.1.8 <0.3"
+          },
+          "capabilities": [],
+          "requires": [],
+          "recommends": [],
+          "artifacts": [
+            {
+              "platform": "linux-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.runtime.node-0.1.0/loom.runtime.node-0.1.0-linux-aarch64.loomext",
+              "sha256": "8de3740231f405bff68ce63efdee173d54278a0987d0c520b29213ca0274a624",
+              "size": 44938945
+            },
+            {
+              "platform": "linux-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.runtime.node-0.1.0/loom.runtime.node-0.1.0-linux-x86_64.loomext",
+              "sha256": "e413b7bd35b9f7fed49799c4de614f2771bdb946a7ffbc33636666a96631089b",
+              "size": 44858006
+            },
+            {
+              "platform": "macos-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.runtime.node-0.1.0/loom.runtime.node-0.1.0-macos-aarch64.loomext",
+              "sha256": "e0ecaad68c192c6eeb304baf794d0ae4f623df7003472540bbac3bdea81676fb",
+              "size": 38007987
+            },
+            {
+              "platform": "macos-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.runtime.node-0.1.0/loom.runtime.node-0.1.0-macos-x86_64.loomext",
+              "sha256": "1ff5502a60755fa5f570204a960f163a63dca6725881e2e8bb5a6cefcfee7392",
+              "size": 38995403
+            },
+            {
+              "platform": "windows-aarch64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.runtime.node-0.1.0/loom.runtime.node-0.1.0-windows-aarch64.loomext",
+              "sha256": "f20622fed22076e9ef144f2fd7d1b604365be0a9e66751d06bc3a39e5ab1aae4",
+              "size": 29799649
+            },
+            {
+              "platform": "windows-x86_64",
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.runtime.node-0.1.0/loom.runtime.node-0.1.0-windows-x86_64.loomext",
+              "sha256": "29854f5bdebc0b0cbe82daca80fc249625395bcd4395cc0542ca6da086731b9c",
+              "size": 34262339
+            }
+          ],
+          "source": {
+            "fingerprint": "ae471d66a101f724a70b71c9e74fb58ec26a4197734f42157dab6c09e9bb0bf1",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
         }
       ]
     },
@@ -116,7 +3334,7 @@
       "license": "MIT",
       "versions": [
         {
-          "version": "0.1.8",
+          "version": "0.1.0",
           "engines": {
             "loom": ">=0.1.8 <0.3"
           },
@@ -126,11 +3344,15 @@
           "artifacts": [
             {
               "platform": "any",
-              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.theme.aura-0.1.8/loom.theme.aura-0.1.8-any.loomext",
-              "sha256": "cb72288066d6436c6e6500b2bad460c88bc6239edefea04a9ed9910ab2edd877",
-              "size": 2562
+              "url": "https://github.com/lius-new/loom-extensions/releases/download/loom.theme.aura-0.1.0/loom.theme.aura-0.1.0-any.loomext",
+              "sha256": "693b887798b543bea6a729207c1975f07fbf5d7cb766e2bd6fdd8dda05acb737",
+              "size": 2563
             }
-          ]
+          ],
+          "source": {
+            "fingerprint": "9c16db7e6cdf8506ace8397c571cd543e0cef53809eadf83a1fca0bac65d7bbd",
+            "revision": "74fff6b6b8eac30883b8517dac10c268c6c96204"
+          }
         }
       ]
     }
