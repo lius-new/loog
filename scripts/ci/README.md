@@ -21,7 +21,7 @@ CI's own manual full input defaults to false.
 | --- | --- |
 | tooling | Script/test tooling and staged resources; self-tests once per OS |
 | evidence | Markdown, shared editor/domain, typography/settings and assets |
-| wasm | Language declarations, syntax/services/adapters and runtime fixtures |
+| validator | Production language/manifest rules, validator sources and extension fixtures; CLI tests once per OS |
 | standalone | Language-source independence and host entry point |
 | package | PR packaging/staging changes and packaged resources |
 
@@ -43,9 +43,9 @@ stable branch-protection check; repository settings are not changed here.
 
 ~~~sh
 npm ci --ignore-scripts --prefix scripts/ci
-npm ci --ignore-scripts --prefix scripts/language-packs
 node scripts/ci/test-tools.mjs
 node scripts/architecture/check.mjs
+cargo test --locked --manifest-path tools/ext-validate/Cargo.toml --test cli
 ~~~
 
 The suites cover real Git merge bases/renames/deletions, optional scope and result

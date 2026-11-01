@@ -4,11 +4,11 @@
 //! never waits on guest code. The application sends [`Job`]s and receives
 //! [`Event`]s through a sink; nothing UI-shaped crosses this boundary, only
 //! typed values and opaque ids (design §5, last layering rule).
-pub mod state;
 pub mod documentation;
 pub mod fileops;
 pub mod http;
 pub mod icon;
+pub mod state;
 // Used by the extensions page and on-demand installs, which are built on it next.
 #[allow(dead_code)]
 pub mod install;

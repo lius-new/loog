@@ -1,4 +1,0 @@
-# Build outputs
-/target/
-*.log
-!important.log

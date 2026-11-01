@@ -45,7 +45,11 @@ test('additional validation is a scope-gated reusable workflow and tools run onc
   assert.match(deep.jobs.matrix.if,/inputs.tooling/);
   assert.equal(deep.jobs.matrix.steps.filter(step => (step.run || '').includes('test-tools.mjs')).length,1);
   assert.match(deep.jobs.matrix.steps.find(step => (step.run || '').includes('test-tools.mjs')).if,/inputs.tooling/);
-  assert.match(runs(deep.jobs.matrix),/run-wasm\.mjs/);
+  const validator = deep.jobs.matrix.steps.find(step => (step.run || '').includes('--manifest-path tools/ext-validate/Cargo.toml'));
+  assert.equal(validator.run,'cargo test --locked --manifest-path tools/ext-validate/Cargo.toml --test cli');
+  assert.equal(validator.if,'inputs.full || inputs.validator');
+  assert.match(deep.jobs.matrix.steps.find(step => step.uses === './.github/actions/dependencies').if,/inputs.validator/);
+  assert.doesNotMatch(JSON.stringify(deep),/run-wasm\.mjs|inputs\.wasm|scripts\/language-packs/);
   assert.match(runs(deep.jobs.matrix),/production_markdown_evidence/);
   assert.match(runs(deep.jobs.standalone),/standalone-host\.mjs/);
   assert.equal(deep.jobs.standalone.steps.find(step => step.uses === 'dtolnay/rust-toolchain@stable').with.components,'rustfmt');

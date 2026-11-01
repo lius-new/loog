@@ -109,9 +109,6 @@ export function allowed(file, dependency) {
   if(file==='src/infrastructure/file_drop.rs')return ['infrastructure','domain','lgui','windows_sys'].includes(root);
   if(file==='src/infrastructure/syntax_worker.rs'||file==='src/infrastructure/syntax_worker_tests.rs'||file==='src/infrastructure/syntax_worker_bench.rs'||file==='src/infrastructure/syntax_worker_retained.rs')return ['infrastructure','features','domain','std::thread'].includes(root);
   if(file==='src/infrastructure/language_packs.rs'||file==='src/infrastructure/language_packs_unit_tests.rs'||file==='src/infrastructure/language_queries_tests.rs'||file==='src/infrastructure/language_standard.rs')return ['infrastructure','features','domain','libloading','serde','serde_json','tree_sitter','tree_sitter_language','std::fs'].includes(root)||(file.endsWith('_tests.rs')&&root==='std::process');
-  if(file==='src/infrastructure/language_catalog.rs'||file==='src/infrastructure/language_catalog_tests.rs')return ['infrastructure','features','domain','ring','serde','serde_json','toml','tar','flate2','ureq','std::fs','std::thread','std::process','loom_editor_core'].includes(root);
-  if(file==='src/infrastructure/lsp_install.rs'||file==='src/infrastructure/lsp_install_tests.rs')return ['infrastructure','features','domain','serde_json','ring','tar','flate2','ureq','std::fs','std::thread','std::process'].includes(root);
-  if(file==='src/infrastructure/lsp_catalog.rs'||file==='src/infrastructure/lsp_catalog_tests.rs')return ['infrastructure','features','domain','serde','serde_json','toml','std::fs'].includes(root);
   if(file==='src/infrastructure/keymap_filesystem.rs')return ['infrastructure','features','std::fs'].includes(root);
   if(file.startsWith('src/features/settings/'))return ['features','domain','serde','serde_json'].includes(root);
   if(['src/infrastructure/settings_filesystem.rs','src/infrastructure/project_settings.rs'].includes(file))return ['infrastructure','features','domain','std::fs'].includes(root);
@@ -119,7 +116,10 @@ export function allowed(file, dependency) {
   if(file.startsWith('src/features/terminal/'))return ['features','domain','serde','vt100'].includes(root);
   if(file.startsWith('src/features/explorer/'))return ['features','domain'].includes(root);
   if(file.startsWith('src/features/git/'))return ['features','domain'].includes(root);
+  if(file==='src/infrastructure/extensions/registry.rs'&&['base64','ring','serde'].includes(root))return true;
+  if(file==='src/infrastructure/extensions/state.rs'&&root==='serde')return true;
   if(file.startsWith('src/infrastructure/extensions/'))return ['infrastructure','features','domain','loom_extension_api','loom_extension_host','std::fs','std::thread','std::process','std::os','ignore','globset','ureq','serde_json'].filter(x=>x!=='serde_json'||file.endsWith('ports.rs')).includes(root)||(file==='src/infrastructure/extensions/trust_store.rs'&&root==='std::process')||(file==='src/infrastructure/extensions/http.rs'&&root==='std::net');
+  if(file==='src/features/palette.rs'&&root==='serde_json')return true;
   if(file.startsWith('src/features/extensions/'))return ['features','domain','serde','serde_json'].includes(root);
   if(file.startsWith('src/features/update/'))return ['features','domain','serde','serde_json'].includes(root);
   if(file==='src/infrastructure/update.rs')return ['infrastructure','features','domain','base64','ureq','ring','serde','serde_json','windows_sys','std::fs','std::process','std::thread'].includes(root);
@@ -183,7 +183,7 @@ export function violations(sources, policy) {
     if(file==='src/features/syntax/mod.rs' && /mod\s+test_support/.test(source)) {
       problems.push('Native syntax fixtures must be composed in the independent verification workspace');
     }
-    if(file.startsWith('src/') && /#\[path\s*=\s*"[^"]*tests\/language-runtime\//.test(source)) {
+    if(file.startsWith('src/') && /#\[path\s*=\s*"[^"]*(?:tests\/language-runtime|tools\/ext-validate)\//.test(source)) {
       problems.push(file+': host modules must not reference external native test files');
     }
     if(file.startsWith('src/')&&/#\s*\[\s*path\s*=\s*"[^"]*tests[\\/]markdown-p0[\\/]/.test(source))problems.push(file+': production sources must not import Markdown P0 prototypes');

@@ -542,9 +542,7 @@ mod tests {
     }
 
     fn frame(sections: Vec<Section>) -> Frame {
-        Frame {
-            sections,
-        }
+        Frame { sections }
     }
 
     #[test]

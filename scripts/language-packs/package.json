@@ -1,8 +1,0 @@
-{
-  "name": "loom-language-pack-tools",
-  "private": true,
-  "type": "module",
-  "engines": { "node": ">=20" },
-  "scripts": { "test": "node --test *.test.mjs" },
-  "dependencies": { "smol-toml": "1.6.0", "tar": "7.5.22" }
-}

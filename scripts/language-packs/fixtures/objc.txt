@@ -1,3 +1,0 @@
-@interface Hello
-- (int)value;
-@end

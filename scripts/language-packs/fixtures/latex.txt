@@ -1,4 +1,0 @@
-\documentclass{article}
-\begin{document}
-Hello \textbf{world}.
-\end{document}

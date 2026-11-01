@@ -14,7 +14,7 @@ Implementation boundaries and highlighting contracts are in
 | Source | How it gets there |
 | --- | --- |
 | Bundled | `loom.lang.json` and `loom.lang.markdown` ship with Loom in `extensions/` beside the executable (`Loom.app/Contents/Resources/extensions/` on macOS). They can be disabled, not uninstalled. |
-| Registry | `registry.toml`, next to the bundled extensions, lists the other languages Loom can install. When visible content needs one, it is downloaded and installed as the extension `loom.lang.<name>`. |
+| Registry | The signed extension index lists languages available in **Extensions → Browse**. For a file without syntax, the language panel offers the extension that adds it. |
 | Installed | A `.loomext` package that contributes a language (see below), installed from the Extensions page. |
 
 The user's extensions are in `%APPDATA%/Loom/extensions/` on Windows,
@@ -22,7 +22,7 @@ The user's extensions are in `%APPDATA%/Loom/extensions/` on Windows,
 `$XDG_DATA_HOME/loom/extensions/` (otherwise `~/.local/share/loom/extensions/`) on
 Linux. `XDG_DATA_HOME` must be absolute; locations never depend on the working
 directory. Grammars are read when Loom starts: install, remove, enable or disable
-an extension and restart. Languages installed from the registry work at once.
+an extension and restart, including languages installed from the registry.
 
 ## A language extension
 
@@ -152,27 +152,28 @@ no longer read.
 
 ## Installing from the registry
 
-`registry.toml` is read once at startup. It registers the listed languages' names
-and file associations without downloading anything. When visible content first
-needs a missing grammar, a background queue downloads the package: requests for the
-same package are deduplicated and at most two downloads run at once. Editing stays
-available with the built-in highlighting while the download is pending, the
-language status shows progress and failures with **Retry downloads**, and a failed
-request waits 30 seconds before trying again (explicit retry bypasses that).
-Finishing a download invalidates the syntax caches and colours visible documents
-without an edit or a restart.
+Open **Extensions → Browse** to fetch the signed index, or use **Refresh** to fetch
+it again. A cached index or the snapshot shipped with Loom supplies the list while
+offline. Signatures, expiry and a monotonic sequence protect the index; an expired
+index offers no new installations or updates. Files do not trigger automatic
+grammar downloads. **Find an Extension for This File** opens matching extensions,
+and the language panel offers installation when the current index has a match.
 
-Archives come from the repository, release tag and asset named in the registry, and
-their size and SHA-256 must match. Extraction rejects traversal, links, special
-files, duplicate paths and oversized payloads. The package's grammars and file
-associations must match the registry; only WebAssembly modules are accepted, and
-Loom compiles the module and the queries with its real loaders before it installs
-anything. The language is then installed as the extension `loom.lang.<name>`: a
-manifest is written beside the files, the folder is `extensions/loom.lang.<name>/<version>/`,
-`extensions/extensions.json` records that the registry installed it, and verified archives are kept in `extensions/.cache/` so a
-restart installs offline. An extension of the same name that you installed yourself
-is never replaced. The registry is a snapshot shipped with each release; Loom does
-not poll for a newer one.
+Choose **Install** or **Update**. When an extension needs capabilities such as
+running a language server, Loom first explains them and asks for acceptance.
+Required runtime extensions are installed with it. Downloads must match the
+signed index's size and SHA-256; extraction rejects traversal, links, special
+files, duplicate paths and oversized payloads. Each package must have a single
+root directory named after its extension id and a matching manifest.
+
+Installed versions live in `extensions/<id>/<version>/` and
+`extensions/extensions.json` records their source, enabled state, pinned version
+and previous version. **Pin Version** excludes an extension from updates;
+**Go Back** selects its previous version and pins it. An installed runtime cannot
+be removed while another installed extension requires it. Restart Loom after
+installing or changing a language extension to use its syntax. Installing a
+language may also name recommended server extensions; those are installed
+separately from Browse.
 
 ## Lifecycle and limits
 
@@ -198,7 +199,7 @@ node scripts/build/cargo.mjs test --locked --workspace
 node scripts/architecture/standalone-host.mjs --offline
 ~~~
 
-To run a source build with the extensions and catalogs of a packaged application,
+To run a source build with the extensions of a packaged application,
 stage them before launching (Cargo does not copy runtime resources):
 
 ~~~sh
@@ -207,16 +208,27 @@ node scripts/build/cargo.mjs run --locked
 ~~~
 
 The default directory is `target/debug`; pass another executable directory when
-needed. `assets/extensions` holds the bundled extensions (`loom.aura`,
-`loom.lang.json`, `loom.lang.markdown`) and `registry.toml`. Packaging copies it to
-`extensions/` on every platform with `scripts/package/stage-extensions.mjs`, after
+needed. `assets/registry/extensions.lock` pins the bundled extensions
+(`loom.theme.aura`, `loom.lang.json`, `loom.lang.markdown`). Staging fetches their
+packages from the independent [extensions repository](https://github.com/lius-new/loom-extensions)
+and checks their hashes. Packaging copies them to `extensions/` on every platform
+with `scripts/package/stage-extensions.mjs`, after
 checks that stop on a missing module, a native library standing in for a grammar,
 a manifest whose id differs from its folder, or a link in a package. Grammars are
 WebAssembly, so macOS has nothing to sign for them; the application itself is
 signed with `allow-jit` for Wasmtime.
 
-The registry is produced by the [batch producer](../scripts/language-packs/README.md),
-which builds language packages from pinned sources and publishes the archives; the
-bundled JSON and Markdown extensions are maintained by hand and producer runs do not
-rewrite them. The independent runtime workspace in `tests/language-runtime`
-compiles the production loader, syntax and worker sources against supplied modules.
+The extension repository owns recipes, package publication and the signed index.
+The lock and its signed index snapshot are copied to `registry/` beside the
+application's extensions. Refresh the lock and snapshot together before an
+application release. Test fixtures remain in `tests/fixtures/extensions`; they are
+not the source of the bundled packages.
+
+The standalone [extension validator](../tools/ext-validate/README.md) compiles the
+production manifest rules, language loader and query compilers. It checks packages
+and optionally parses and colours samples. Its CLI regression tests run against
+the checked-in WASM fixtures on each selected CI platform:
+
+~~~sh
+cargo test --locked --manifest-path tools/ext-validate/Cargo.toml --test cli
+~~~

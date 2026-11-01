@@ -1,3 +1,0 @@
-<template><div class="title">Hello</div></template>
-<script>const answer = 42;</script>
-<style>.title { color: red; }</style>

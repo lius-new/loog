@@ -1,0 +1,25 @@
+[package]
+name = "loom-ext-validate"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+loom-editor-core = { path = "../../crates/editor-core", features = ["diagnostics"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tree-sitter = { version = "0.27", features = ["wasm"] }
+streaming-iterator = "0.1"
+ring = "0.17"
+ureq = "2.12"
+toml = "1.1"
+tar = "0.4"
+flate2 = "1.1"
+notify = "8.2"
+
+[[bin]]
+name = "loom-ext-validate"
+path = "src/validate_extension.rs"
+test = false

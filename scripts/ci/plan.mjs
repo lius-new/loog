@@ -4,15 +4,17 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
-export const flags = ['tooling', 'evidence', 'wasm', 'standalone', 'package'];
+export const flags = ['tooling', 'evidence', 'validator', 'standalone', 'package'];
 const all = () => Object.fromEntries(flags.map(flag => [flag, true]));
 const none = () => Object.fromEntries(flags.map(flag => [flag, false]));
 const starts = (file, prefixes) => prefixes.some(prefix => file.startsWith(prefix));
 const common = new Set(['Cargo.toml','Cargo.lock','rust-toolchain','rust-toolchain.toml','build.rs','.gitignore','.gitattributes']);
 const language = ['src/domain/language','src/features/syntax','src/features/language_service',
   'src/infrastructure/language','src/infrastructure/syntax','src/app/language',
-  'assets/language','tests/fixtures/extensions/','assets/grammars/','assets/servers/','tests/language-runtime/',
-  'tests/fixtures/language','scripts/language-packs/'];
+  'assets/language','tests/fixtures/extensions/','assets/grammars/','assets/servers/','tools/ext-validate/',
+  'tests/fixtures/language'];
+const validator = [...language, 'src/domain/', 'crates/editor-core/', 'src/features/extensions/',
+  'src/infrastructure/extensions/state.rs', 'src/infrastructure/user_paths.rs', 'src/infrastructure/query_watcher.rs'];
 const markdown = ['src/app/markdown','src/features/markdown','src/ui/markdown',
   'src/infrastructure/markdown','src/domain/','crates/editor-core/','crates/markdown-tests/',
   'src/features/settings/','src/ui/theme.rs','src/ui/fonts.rs','src/ui/text_rendering.rs',
@@ -25,15 +27,15 @@ export function classify(files) {
     // Unknown layouts and changes to CI/toolchain policy take the safe full path.
     if (typeof file !== 'string' || !file || file.includes('\\') || file.split('/').includes('..') ||
       common.has(file) || starts(file, ['.github/','.cargo/','vendor/','scripts/ci/','scripts/dependencies/','scripts/lib/']) ||
-      !/^(src|crates|examples|tests|scripts|assets|icons|docs)\//.test(file) &&
+      !/^(src|crates|examples|tests|scripts|assets|icons|docs)\//.test(file) && !file.startsWith('tools/ext-validate/') &&
         !/^(README\.md|LICENSE[^/]*|THIRD_PARTY_NOTICES\.md|CONTRIBUTING\.md|CHANGELOG\.md)$/.test(file)) return all();
-    if (starts(file, ['scripts/','tests/','assets/','icons/'])) plan.tooling = true;
+    if (starts(file, ['scripts/','tests/','assets/','icons/','tools/'])) plan.tooling = true;
     if (starts(file, ['scripts/package/','scripts/package-','scripts/build/','assets/','icons/']) ||
       /^(README\.md|LICENSE[^/]*|THIRD_PARTY_NOTICES\.md)$/.test(file)) plan.package = true;
     if (starts(file, language)) {
-      plan.wasm = true;
       plan.standalone = true;
     }
+    if (starts(file, validator)) plan.validator = true;
     if (starts(file, markdown) || starts(file, language)) plan.evidence = true;
     if (file === 'src/main.rs') plan.standalone = true;
   }

@@ -1,1 +1,0 @@
-query Hello { user(id: "1") { name } }

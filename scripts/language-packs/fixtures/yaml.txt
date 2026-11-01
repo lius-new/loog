@@ -1,3 +1,0 @@
-name: Loom
-enabled: true
-count: 42

@@ -1,1 +1,0 @@
-pub fn main() void { const value: u32 = 42; _ = value; }

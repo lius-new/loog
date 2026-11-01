@@ -8,5 +8,5 @@ runs:
         path: |-
           ~/.cargo/registry
           ~/.cargo/git
-        key: cargo-sources-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'tests/language-runtime/Cargo.lock', 'rust-toolchain.toml') }}
+        key: cargo-sources-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'tools/ext-validate/Cargo.lock', 'rust-toolchain.toml') }}
         restore-keys: cargo-sources-${{ runner.os }}-${{ runner.arch }}-

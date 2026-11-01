@@ -369,7 +369,10 @@ pub fn binding(state: &AppContext, env: KeyEnv) -> Binding {
                 });
             }
             Command::Run(position) => {
-                let env = env.lock().unwrap_or_else(|error| error.into_inner()).clone();
+                let env = env
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .clone();
                 run(&env, position);
             }
         },
@@ -394,9 +397,11 @@ mod tests {
         let current = ThemeId::default();
         let entries = theme_entries(current);
         assert!(!entries.is_empty());
-        assert!(entries
-            .iter()
-            .all(|entry| matches!(entry.target, Target::Theme(_)) && entry.category == "Theme"));
+        assert!(
+            entries
+                .iter()
+                .all(|entry| matches!(entry.target, Target::Theme(_)) && entry.category == "Theme")
+        );
         let marked: Vec<_> = entries
             .iter()
             .filter(|entry| entry.description == "Current theme")

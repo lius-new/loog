@@ -32,7 +32,7 @@ test('invalid outputs or an inconsistent validation flag cannot disable selected
     const needs = successful();needs.changes.outputs[flag] = value;
     assert.ok(checkResults(needs).some(error => error.includes('invalid selection output: ' + flag)));
   }
-  const needs = successful(['wasm']);needs.changes.outputs.validation = 'false';
+  const needs = successful(['validator']);needs.changes.outputs.validation = 'false';
   assert.ok(checkResults(needs).includes('inconsistent validation selection'));
 });
 test('aggregate CLI preserves failures without rebuilding or invoking remote services', () => {

@@ -442,11 +442,14 @@ impl ExtensionHost {
 
     /// What installing or updating `id` would ask the user to accept.
     fn asks_for(&self, id: &str) -> Vec<String> {
-        let mut frame = Frame::default();
         // The installed entries are only needed to find the updates.
-        frame.installed =
-            crate::app::extensions_view::installed_frame(&self.inner.service.lock().unwrap())
-                .installed;
+        let mut frame = Frame {
+            installed: crate::app::extensions_view::installed_frame(
+                &self.inner.service.lock().unwrap(),
+            )
+            .installed,
+            ..Frame::default()
+        };
         self.add_registry(&mut frame);
         frame.asks.remove(id).unwrap_or_default()
     }

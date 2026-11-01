@@ -1,3 +1,0 @@
-feat: add language packages
-
-Support syntax highlighting.

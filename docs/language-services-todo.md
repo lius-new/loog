@@ -48,7 +48,7 @@ platform/toolchain, command, inputs and results when closing an item.
   successful three-platform run for source `ea73b40` under Rust 1.97.1. It is
   historical evidence for those jobs, not proof that opt-in real-server or manual
   desktop tests passed at the current source revision.
-- Native/WASM package loading has replaced the original static grammar-factory
+- Extension-supplied WASM loading has replaced the original static grammar-factory
   migration. Do not carry old C-grammar build steps or first-commit plans into
   current requirements. Loader compatibility remains as documented in
   [Language resources](languages.md).
@@ -66,9 +66,9 @@ View-local folding shares display rows with wrapping and covers hidden caret/
 selection, navigation, hit testing, scrolling and target expansion. See
 [Editing](editing.md#folding) for limits and shortcuts.
 
-Evidence on Windows: workspace tests (1,728 passed, 31 ignored), fmt, architecture
-gate and workspace all-targets Clippy; tests/language-runtime/run-wasm.mjs
---offline (12 catalog and 9 WASM checks plus installed probe); folding tests
+Historical evidence on Windows: workspace tests (1,728 passed, 31 ignored), fmt,
+architecture gate and workspace all-targets Clippy; the retired language-runtime
+suite (12 catalog and 9 WASM checks plus installed probe); folding tests
 repeated 10 times at 32 threads (6 passed each). Includes a real Rust WASM tree
 and a fake-server save barrier for a late folding response after switching tabs.
 Linux/macOS interaction results remain for subsequent CI; this record does not

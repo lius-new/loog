@@ -46,17 +46,20 @@ does not change Windows-wide mitigation settings.
 
 ## Layout
 
-Application assembly copies every extension in assets/extensions (the color
-themes and the JSON and Markdown languages) as it is into `extensions/` beside the
-executable, and registry.toml alongside them. Local, CI and release packaging all
-consume these same checked-in files; no language archive download, feed variables
-or grammar compilation is required.
+Application assembly requires `assets/registry/extensions.lock` and its signed
+index snapshot. `node scripts/package/fetch-locked.mjs` downloads and checks the
+locked theme, JSON and Markdown extension packages into `.packaging/locked/`.
+Local, CI and release staging all copy those packages to `extensions/` beside the
+executable and copy the lock and snapshot into the adjacent `registry/` directory.
+A missing lock or unfetched package stops staging; it does not fall back to test
+fixtures. Refresh the lock and snapshot together before each application release.
 
-JSON and Markdown are still built by the separate
-[language-package producer](../language-packs/README.md), but the packages in
-assets/extensions are maintained manually: the producer and publisher do not
-automatically replace them. Cargo does not link a grammar producer or any
-language-specific wrapper.
+The independent [extensions repository](https://github.com/lius-new/loom-extensions)
+owns extension recipes, builds and publication. Loom's repository retains
+`tests/fixtures/extensions` for regression tests and the standalone
+[extension validator](../../tools/ext-validate/README.md) for checking packages with
+the production loaders. Cargo does not link a concrete grammar or compile grammar
+sources when building the application.
 
 Grammars are WebAssembly and are copied unchanged on every platform; a native
 library never stands in for one, and a missing module, an extension whose id
@@ -66,7 +69,7 @@ allow-jit for Wasmtime. No Cargo profile or grammar source directory is consulte
 Consumer tests:
 
 ~~~sh
-node --test scripts/package/lib/extensions.test.mjs
+node --test scripts/package/lib/extensions.test.mjs scripts/package/lib/lock.test.mjs
 ~~~
 
 All downloads, tools, staging folders and artifacts live in the git-ignored

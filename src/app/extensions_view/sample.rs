@@ -13,7 +13,7 @@ fn strings(values: &[&str]) -> Vec<String> {
 }
 
 fn rows<const N: usize>(values: &[[&str; N]]) -> Vec<[String; N]> {
-    values.iter().map(|row| row.map(|cell| s(cell))).collect()
+    values.iter().map(|row| row.map(s)).collect()
 }
 
 fn releases(values: &[(&str, &str, &str)]) -> Vec<Release> {

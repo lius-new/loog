@@ -190,7 +190,12 @@ fn item_row(rect: UiRect, item: &Item, state: &Binding) -> Element {
     .on_click(move || run.run(Command::Run(index)));
     if item.selected {
         row = row.child(panel(
-            UiRect::new(rect.left, rect.top + 3.0, rect.left + 2.0, rect.bottom - 3.0),
+            UiRect::new(
+                rect.left,
+                rect.top + 3.0,
+                rect.left + 2.0,
+                rect.bottom - 3.0,
+            ),
             VisualStyle::filled(palette.accent).radius(1.0),
         ));
     }
@@ -335,7 +340,12 @@ pub fn render(
         });
 
     // Search field: a prompt, the text, and where the selection stands.
-    let query = UiRect::new(card.left + 1.0, card.top + 1.0, card.right - 1.0, card.top + QUERY_H);
+    let query = UiRect::new(
+        card.left + 1.0,
+        card.top + 1.0,
+        card.right - 1.0,
+        card.top + QUERY_H,
+    );
     surface = surface.child(crate::ui::tabs::icon(
         UiId::new("palette.prompt"),
         "command",
@@ -349,7 +359,12 @@ pub fn render(
     ));
     let count_w = measure(&frame.position, theme::SMALL, 400) + 4.0;
     surface = surface.child(text(
-        UiRect::new(query.right - PAD_X - count_w, query.top, query.right - PAD_X, query.bottom),
+        UiRect::new(
+            query.right - PAD_X - count_w,
+            query.top,
+            query.right - PAD_X,
+            query.bottom,
+        ),
         frame.position.clone(),
         theme::mono_right(palette.text_dim, theme::SMALL),
     ));
@@ -379,12 +394,22 @@ pub fn render(
         },
     ));
     surface = surface.child(panel(
-        UiRect::new(card.left + 1.0, query.bottom, card.right - 1.0, query.bottom + 1.0),
+        UiRect::new(
+            card.left + 1.0,
+            query.bottom,
+            card.right - 1.0,
+            query.bottom + 1.0,
+        ),
         VisualStyle::filled(palette.border),
     ));
 
     // The list.
-    let list = UiRect::new(card.left + 1.0, query.bottom + 1.0, card.right - 1.0, query.bottom + 1.0 + list_h);
+    let list = UiRect::new(
+        card.left + 1.0,
+        query.bottom + 1.0,
+        card.right - 1.0,
+        query.bottom + 1.0 + list_h,
+    );
     if let Some(query) = &frame.empty {
         let message = if query.is_empty() {
             "No commands".to_owned()
@@ -423,7 +448,12 @@ pub fn render(
     }
 
     // Footer hints.
-    let foot = UiRect::new(card.left + 1.0, card.bottom - FOOT_H, card.right - 1.0, card.bottom - 1.0);
+    let foot = UiRect::new(
+        card.left + 1.0,
+        card.bottom - FOOT_H,
+        card.right - 1.0,
+        card.bottom - 1.0,
+    );
     surface = surface.child(panel(
         UiRect::new(foot.left, foot.top, foot.right, foot.top + 1.0),
         VisualStyle::filled(palette.border),

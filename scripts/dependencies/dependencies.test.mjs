@@ -159,7 +159,7 @@ test('native CI prepares once; release compile owns target preparation and setup
     assert.ok(code.includes('await prepareDependencies('));
     if (os === 'macos') assert.ok(code.includes('prepareDependencies({target, env})'));
   }
-  for (const file of ['scripts/architecture/standalone-host.mjs','tests/language-runtime/run.mjs','tests/language-runtime/run-wasm.mjs']) assert.ok(read(file).includes('await prepareDependencies('));
+  for (const file of ['scripts/architecture/standalone-host.mjs']) assert.ok(read(file).includes('await prepareDependencies('));
   assert.ok(read('scripts/baseline/run.mjs').includes('../dependencies/ensure.mjs'));
 });
 

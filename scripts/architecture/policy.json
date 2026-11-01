@@ -64,6 +64,10 @@
       "owner": "ui/keymap_binding KeymapUiState",
       "remove_in": "composition"
     },
+    "palette": {
+      "owner": "app/palette: PaletteState (query, selection, focus restoration and recent commands); search rules live in features/palette",
+      "remove_in": "composition"
+    },
     "chrome": {
       "owner": "app/state/chrome: ChromeState",
       "remove_in": "composition"

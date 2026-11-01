@@ -479,8 +479,8 @@ pub fn template() -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::features::settings::theme_id::REGISTRY_TURN;
     use super::*;
+    use crate::features::settings::theme_id::REGISTRY_TURN;
 
     #[test]
     fn settings_round_trip_as_json() {
@@ -737,8 +737,8 @@ mod tests {
 
 #[cfg(test)]
 mod file_tests {
-    use crate::features::settings::theme_id::REGISTRY_TURN;
     use super::*;
+    use crate::features::settings::theme_id::REGISTRY_TURN;
 
     #[test]
     fn interface_scale_saves_reloads_and_resets_preserving_comments() {

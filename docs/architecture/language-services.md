@@ -151,17 +151,17 @@ tree eviction does not by itself invalidate retained display spans.
 
 Run the workspace rules and architecture checks as described in
 [Building Loom](../building.md). The independent
-[language runtime tests](../../tests/language-runtime/README.md) exercise the
-production loader/syntax paths with installed WASM/native inputs.
+[extension validator](../../tools/ext-validate/README.md) exercises the production
+manifest rules, loader and query compilers with WASM fixtures and optional samples.
 
 ```sh
 node scripts/architecture/check.mjs
 node --test scripts/architecture/language-resources.test.mjs
 node scripts/build/cargo.mjs test --locked --workspace
-node tests/language-runtime/run-wasm.mjs --offline
+cargo test --locked --manifest-path tools/ext-validate/Cargo.toml --test cli
 ```
 
-The WASM command requires its cached or explicitly supplied pinned input. Report
+The validator tests use the checked-in extension fixtures. Report
 fixture, build profile, toolchain, platform, cache conditions and sample counts
 with performance measurements. CI configuration alone is not evidence that a
 specific real-server or desktop scenario passed.

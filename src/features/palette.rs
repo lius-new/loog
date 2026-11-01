@@ -66,7 +66,8 @@ fn is_motion(name: &str) -> bool {
         "editor::SelectLargerSyntaxNode",
         "editor::SelectSmallerSyntaxNode",
     ];
-    (name.starts_with("editor::Move") || name.starts_with("editor::Select")) && !KEEP.contains(&name)
+    (name.starts_with("editor::Move") || name.starts_with("editor::Select"))
+        && !KEEP.contains(&name)
 }
 
 fn listed(name: &str) -> bool {
@@ -106,7 +107,10 @@ fn category(namespace: &str) -> String {
 /// commands (`id`, `title`).
 pub fn catalog(extension_commands: &[(String, String)]) -> Vec<Entry> {
     let mut entries = Vec::new();
-    for meta in ACTIONS.iter().filter(|meta| !meta.takes_argument && listed(meta.name)) {
+    for meta in ACTIONS
+        .iter()
+        .filter(|meta| !meta.takes_argument && listed(meta.name))
+    {
         let Ok(action) = Action::from_json(&Value::String(meta.name.to_owned())) else {
             continue;
         };
@@ -139,7 +143,8 @@ fn fuzzy(query: &[char], title: &str) -> Option<(i32, Vec<usize>)> {
     let mut score = 0;
     let mut next = 0;
     for &wanted in query {
-        let found = (next..chars.len()).find(|&i| chars[i].to_lowercase().eq(wanted.to_lowercase()))?;
+        let found =
+            (next..chars.len()).find(|&i| chars[i].to_lowercase().eq(wanted.to_lowercase()))?;
         if positions.last().is_some_and(|&last| last + 1 == found) {
             score += 4;
         }
@@ -151,7 +156,10 @@ fn fuzzy(query: &[char], title: &str) -> Option<(i32, Vec<usize>)> {
         positions.push(found);
         next = found + 1;
     }
-    Some((score - i32::try_from(chars.len()).unwrap_or(0) / 8, positions))
+    Some((
+        score - i32::try_from(chars.len()).unwrap_or(0) / 8,
+        positions,
+    ))
 }
 
 /// The entries `query` selects, best first. An empty query lists everything,
@@ -162,7 +170,14 @@ pub fn search(entries: &[Entry], query: &str, recent: &[String]) -> Vec<Hit> {
     let mut scored: Vec<(i32, Option<usize>, Hit)> = Vec::new();
     if query.is_empty() {
         for (index, entry) in entries.iter().enumerate() {
-            scored.push((0, recency(entry), Hit { index, positions: Vec::new() }));
+            scored.push((
+                0,
+                recency(entry),
+                Hit {
+                    index,
+                    positions: Vec::new(),
+                },
+            ));
         }
         // Recent first, then each category together in the order they first appear.
         let mut categories: Vec<&str> = Vec::new();
@@ -183,7 +198,11 @@ pub fn search(entries: &[Entry], query: &str, recent: &[String]) -> Vec<Hit> {
         return scored.into_iter().map(|(_, _, hit)| hit).collect();
     }
     let wanted: Vec<char> = query.chars().filter(|c| !c.is_whitespace()).collect();
-    let terms: Vec<String> = query.to_lowercase().split_whitespace().map(str::to_owned).collect();
+    let terms: Vec<String> = query
+        .to_lowercase()
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
     for (index, entry) in entries.iter().enumerate() {
         if let Some((score, positions)) = fuzzy(&wanted, &entry.title) {
             scored.push((score + 100, recency(entry), Hit { index, positions }));
@@ -191,12 +210,23 @@ pub fn search(entries: &[Entry], query: &str, recent: &[String]) -> Vec<Hit> {
             // Not in the title: the description may still say what it does.
             let haystack = format!("{} {}", entry.category, entry.description).to_lowercase();
             if terms.iter().all(|term| haystack.contains(term)) {
-                scored.push((0, recency(entry), Hit { index, positions: Vec::new() }));
+                scored.push((
+                    0,
+                    recency(entry),
+                    Hit {
+                        index,
+                        positions: Vec::new(),
+                    },
+                ));
             }
         }
     }
     scored.sort_by_key(|(score, recent, hit)| {
-        (std::cmp::Reverse(*score), recent.unwrap_or(usize::MAX), hit.index)
+        (
+            std::cmp::Reverse(*score),
+            recent.unwrap_or(usize::MAX),
+            hit.index,
+        )
     });
     scored.into_iter().map(|(_, _, hit)| hit).collect()
 }
@@ -252,7 +282,10 @@ mod tests {
 
     #[test]
     fn word_starts_and_runs_rank_first() {
-        let entries = [entry("a", "Close Active Tab"), entry("b", "Toggle Terminal")];
+        let entries = [
+            entry("a", "Close Active Tab"),
+            entry("b", "Toggle Terminal"),
+        ];
         let hits = search(&entries, "tt", &[]);
         assert_eq!(hits[0].index, 1);
     }

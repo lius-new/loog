@@ -11,7 +11,7 @@ on:
       evidence:
         type: boolean
         default: false
-      wasm:
+      validator:
         type: boolean
         default: false
       standalone:
@@ -34,8 +34,8 @@ on:
         description: Run evidence validation
         type: boolean
         default: false
-      wasm:
-        description: Run wasm validation
+      validator:
+        description: Test the extension validator with production loaders and WASM fixtures
         type: boolean
         default: false
       standalone:
@@ -53,7 +53,7 @@ env:
 jobs:
   matrix:
     name: Validate ${{ matrix.label }}
-    if: inputs.full || inputs.tooling || inputs.evidence || inputs.wasm || inputs.package
+    if: inputs.full || inputs.tooling || inputs.evidence || inputs.validator || inputs.package
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -77,21 +77,17 @@ jobs:
         with:
           toolchain: 1.97.1
       - name: Prepare native validation dependencies
-        if: inputs.full || inputs.tooling || inputs.evidence || inputs.package
+        if: inputs.full || inputs.tooling || inputs.evidence || inputs.validator || inputs.package
         uses: ./.github/actions/dependencies
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          package-manager-cache: false
-        if: "!(inputs.full || inputs.tooling || inputs.evidence || inputs.package)"
       - name: Run development-tool self-tests
         if: inputs.full || inputs.tooling
         run: |-
           npm ci --ignore-scripts --prefix scripts/ci
-          npm ci --ignore-scripts --prefix scripts/language-packs
           node scripts/ci/test-tools.mjs
-          node scripts/language-packs/check.mjs --all
           node scripts/dependencies/smoke.mjs
+      - name: Test extension validation with production loaders
+        if: inputs.full || inputs.validator
+        run: cargo test --locked --manifest-path tools/ext-validate/Cargo.toml --test cli
       - name: Install Linux native libraries
         if: runner.os == 'Linux' && (inputs.full || inputs.evidence || inputs.package)
         uses: ./.github/actions/linux-build-dependencies
@@ -108,9 +104,6 @@ jobs:
           path: markdown-evidence/
           if-no-files-found: error
           retention-days: 14
-      - name: Verify installed WASM runtime
-        if: inputs.full || inputs.wasm
-        run: node tests/language-runtime/run-wasm.mjs
       - name: Read preview package version
         if: inputs.full || inputs.package
         run: node scripts/release/version.mjs --read-env

@@ -275,13 +275,15 @@ pub enum Action {
     Rollback,
 }
 
+type DocumentationReader =
+    dyn Fn(&Entry, DetailTab) -> Option<crate::ui::markdown::card::Document> + Send + Sync;
+
 #[derive(Clone)]
 pub struct Binding {
     pub ui: StateAccess<ExtensionsUiState>,
     read: Arc<dyn Fn() -> Frame + Send + Sync>,
     run: Arc<dyn Fn(Command) + Send + Sync>,
-    documentation:
-        Arc<dyn Fn(&Entry, DetailTab) -> Option<crate::ui::markdown::card::Document> + Send + Sync>,
+    documentation: Arc<DocumentationReader>,
 }
 
 impl Binding {

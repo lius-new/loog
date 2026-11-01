@@ -196,10 +196,7 @@ mod tests {
         let mut app = editor_app();
         let none = KeyModifiers::empty();
         assert_eq!(
-            action(
-                &app,
-                character("P", secondary() | KeyModifiers::SHIFT)
-            ),
+            action(&app, character("P", secondary() | KeyModifiers::SHIFT)),
             Some(Action::OpenCommandPalette)
         );
         app.palette.visible = true;

@@ -171,7 +171,7 @@ fn empty(rect: UiRect, state: &Binding) -> Element {
         Kind::Plain,
         move || open.run(Command::Import),
     ));
-    root.into()
+    root
 }
 
 fn nothing_selected(area: UiRect) -> Element {
@@ -513,9 +513,7 @@ fn message(
             move || run.run(command.clone()),
         ));
     }
-    panel(viewport, VisualStyle::default())
-        .children(items)
-        .into()
+    panel(viewport, VisualStyle::default()).children(items)
 }
 
 /// One entry of the list.

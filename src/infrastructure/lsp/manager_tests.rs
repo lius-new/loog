@@ -1935,7 +1935,6 @@ fn underlines_follow_the_typing_while_the_server_has_nothing_new_to_say() {
     assert_eq!(still[0].range, 7..9);
 }
 
-
 mod requests {
     use super::*;
     use crate::features::language_service::reply;

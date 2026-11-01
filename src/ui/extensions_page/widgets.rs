@@ -315,5 +315,5 @@ pub(super) fn chip(rect: UiRect, label: &str, style: TextStyle) -> Element {
 }
 
 pub(super) fn rule(rect: UiRect) -> Element {
-    panel(rect, VisualStyle::filled(theme::c().border)).into()
+    panel(rect, VisualStyle::filled(theme::c().border))
 }

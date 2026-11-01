@@ -1,1 +1,0 @@
-SELECT name, COUNT(*) FROM users WHERE active = TRUE GROUP BY name;

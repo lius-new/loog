@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 export function hostFile(file) {
-  return !file.startsWith('tests/language-runtime/') && !file.startsWith('language-packs/') && !file.startsWith('crates/language-packs/') &&
+  return !file.startsWith('tools/ext-validate/') && !file.startsWith('language-packs/') && !file.startsWith('crates/language-packs/') &&
     !file.startsWith('assets/grammars/') && !file.startsWith('assets/languages/') &&
     !file.startsWith('assets/servers/') && !file.startsWith('tests/fixtures/extensions/loom.lang.');
 }

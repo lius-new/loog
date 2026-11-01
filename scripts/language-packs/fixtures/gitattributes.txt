@@ -1,2 +1,0 @@
-*.rs text eol=lf
-*.png binary

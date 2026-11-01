@@ -501,12 +501,12 @@ impl AppState {
             }
             Action::MenuSelectNext if self.palette.visible => self.palette.move_selection(1),
             Action::MenuSelectPrevious if self.palette.visible => self.palette.move_selection(-1),
-            Action::MenuPageDown if self.palette.visible => {
-                self.palette.move_selection(crate::app::palette::VISIBLE_ROWS as isize)
-            }
-            Action::MenuPageUp if self.palette.visible => {
-                self.palette.move_selection(-(crate::app::palette::VISIBLE_ROWS as isize))
-            }
+            Action::MenuPageDown if self.palette.visible => self
+                .palette
+                .move_selection(crate::app::palette::VISIBLE_ROWS as isize),
+            Action::MenuPageUp if self.palette.visible => self
+                .palette
+                .move_selection(-(crate::app::palette::VISIBLE_ROWS as isize)),
             Action::MenuSelectNext => {
                 crate::ui::git::branch_picker::move_selection(&mut self.git, 1)
             }

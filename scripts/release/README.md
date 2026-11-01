@@ -56,7 +56,7 @@ Malformed sections fail generation instead of silently dropping their contents.
    version into Cargo.toml and the root Loom entry in Cargo.lock. Only these two
    version fields may change. HEAD/tags/index remain unchanged; dependencies stay
    locked. Each platform then runs setup, compile, package and bundle once. It does not rerun
-   workspace tests, WASM integration, development-tool tests or evidence capture.
+   workspace tests, extension-validator tests, development-tool tests or evidence capture.
 4. Final product checks remain: staged Windows startup/normal close, Linux .deb
    installation, macOS .dmg/signature checks, and signed update manifest creation.
 5. Once all platform jobs succeed, one writer downloads this run's artifacts,
@@ -69,6 +69,14 @@ Manual Release dispatch defaults to publish=false and still requires exact-SHA
 CI. Enable publish to upload the resulting packages to a draft. Missing, pending
 or failed CI stops before builds; finish/rerun CI and rerun Release. There is no
 cross-workflow polling or background CI rerun.
+
+Each application release also includes `loom-ext-validate` for Windows x64,
+Linux x64 and macOS arm64. It uses the application's production manifest rules,
+language loader and query compilers; see [the validator](../../tools/ext-validate/README.md).
+After the release is published, pin its validator URLs and SHA-256 digests in
+`tools/validator.lock` in the extensions repository. Do not pin a local build or
+an asset that has not been published. The extensions repository can use a local
+build through `LOOM_EXT_VALIDATE` until the first validator release is available.
 
 Transient GitHub transport/429/5xx errors retry only the current operation up to
 three attempts with bounded subprocess timeouts. Missing drafts and permission

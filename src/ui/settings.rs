@@ -4,9 +4,7 @@
 //! values, so there is no separate apply/save step.
 
 use lgui::core::{CursorIcon, EventPolicy, TextStyle, UiEventContext, WheelUnit, clip};
-use lgui::prelude::{
-    Element, TextAlign, UiRect, VisualStyle, component, group, panel, text,
-};
+use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, component, group, panel, text};
 
 use crate::features::update::About;
 use crate::ui::components::input::{
@@ -922,4 +920,3 @@ fn switch(rect: UiRect, on: bool) -> Element {
         .radius(KNOB / 2.0),
     ))
 }
-

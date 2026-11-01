@@ -1,2 +1,0 @@
-set name world
-echo "Hello $name"

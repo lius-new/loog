@@ -368,19 +368,16 @@ fn theme_card_elements(ids: &mut Ids, card: UiRect, theme_card: &ThemeCard) -> V
     let name_y = card.top + PREVIEW_H;
     if let Some(reason) = &theme_card.rejected {
         let fill = blend(c.surface, c.error, 0.05);
-        items.push(panel(preview, VisualStyle::filled(fill).radius(7.0)).into());
-        items.push(
-            panel(
-                UiRect::new(
-                    preview.left,
-                    preview.bottom - 8.0,
-                    preview.right,
-                    preview.bottom,
-                ),
-                VisualStyle::filled(fill),
-            )
-            .into(),
-        );
+        items.push(panel(preview, VisualStyle::filled(fill).radius(7.0)));
+        items.push(panel(
+            UiRect::new(
+                preview.left,
+                preview.bottom - 8.0,
+                preview.right,
+                preview.bottom,
+            ),
+            VisualStyle::filled(fill),
+        ));
         let middle = (preview.left + preview.right) / 2.0;
         items.push(icon(
             ids.next(),
@@ -427,19 +424,16 @@ fn theme_card_elements(ids: &mut Ids, card: UiRect, theme_card: &ThemeCard) -> V
     }
 
     let background = Color(theme_card.background);
-    items.push(panel(preview, VisualStyle::filled(background).radius(7.0)).into());
-    items.push(
-        panel(
-            UiRect::new(
-                preview.left,
-                preview.bottom - 8.0,
-                preview.right,
-                preview.bottom,
-            ),
-            VisualStyle::filled(background),
-        )
-        .into(),
-    );
+    items.push(panel(preview, VisualStyle::filled(background).radius(7.0)));
+    items.push(panel(
+        UiRect::new(
+            preview.left,
+            preview.bottom - 8.0,
+            preview.right,
+            preview.bottom,
+        ),
+        VisualStyle::filled(background),
+    ));
     let size = theme::SMALL + 1.0;
     let char_w = mono_width(size);
     let sample: [&[(&str, u32)]; 5] = [
