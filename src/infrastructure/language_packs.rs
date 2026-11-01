@@ -17,8 +17,6 @@ use std::{
 };
 use tree_sitter::{Language, Parser, WasmStore, wasmtime};
 
-#[path = "language_catalog.rs"]
-mod catalog;
 #[path = "language_standard.rs"]
 mod standard;
 
@@ -204,7 +202,6 @@ struct Layering {
 pub(crate) struct Packages {
     packages: BTreeMap<String, Installed>,
     loaded: Mutex<Loaded>,
-    catalog: Option<Arc<catalog::Manager>>,
     layering: Layering,
 }
 impl Packages {
@@ -234,7 +231,6 @@ impl Packages {
         Self {
             packages: BTreeMap::new(),
             loaded: Mutex::default(),
-            catalog: None,
             layering: Layering::default(),
         }
     }
@@ -326,84 +322,12 @@ impl Packages {
     }
 
     pub(crate) fn registry(&self) -> Result<Registry, String> {
-        let mut packages = self.packages.clone();
-        if let Some(catalog) = &self.catalog {
-            for (id, description) in &catalog.descriptions {
-                packages.insert(format!("catalog:{id}"), description.clone());
-            }
-        }
-        registry(&packages)
-    }
-    /// Offer the languages of the registry `file` for download on demand. Archives
-    /// are kept in `cache`; an installed language becomes an extension in
-    /// `extensions`.
-    fn enable_catalog(
-        &mut self,
-        file: &Path,
-        cache: Option<PathBuf>,
-        extensions: Option<PathBuf>,
-    ) -> Result<(), String> {
-        if !file.exists() {
-            return Ok(());
-        }
-        let catalog = catalog::Catalog::read(file)?;
-        let mut descriptions = BTreeMap::new();
-        let mut combined = self.packages.clone();
-        for (id, description) in catalog.descriptions()? {
-            // Complete installed collections, including user overrides, stay authoritative.
-            if self.packages.values().any(|p| {
-                p.manifest
-                    .grammars
-                    .keys()
-                    .any(|g| description.manifest.grammars.contains_key(g))
-            }) {
-                continue;
-            }
-            let mut candidate = combined.clone();
-            candidate.insert(format!("catalog:{id}"), description.clone());
-            match registry(&candidate) {
-                Ok(_) => {
-                    combined = candidate;
-                    descriptions.insert(id, description);
-                }
-                Err(error) => Self::report(
-                    self.loaded.get_mut().unwrap(),
-                    &format!("catalog {id}: {error}"),
-                ),
-            }
-        }
-        self.catalog = Some(catalog::Manager::new(
-            catalog,
-            descriptions,
-            cache,
-            extensions,
-        ));
-        Ok(())
+        registry(&self.packages)
     }
     fn available(&self, grammar: &str) -> Result<(Installed, Module), String> {
-        if let Some((installed, module)) = self.grammar(grammar) {
-            return Ok((installed.clone(), module.clone()));
-        }
-        let installed = self
-            .catalog
-            .as_ref()
-            .ok_or_else(|| format!("language package {grammar} is not installed"))?
-            .request(grammar)?;
-        let module = installed
-            .manifest
-            .grammars
-            .get(grammar)
-            .ok_or("downloaded grammar is missing")?
-            .clone();
-        Ok((installed, module))
-    }
-    pub(crate) fn download_infos(&self) -> Vec<catalog::Info> {
-        self.catalog.as_ref().map(|c| c.infos()).unwrap_or_default()
-    }
-    pub(crate) fn retry_downloads(&self) {
-        if let Some(catalog) = &self.catalog {
-            catalog.retry();
-        }
+        self.grammar(grammar)
+            .map(|(installed, module)| (installed.clone(), module.clone()))
+            .ok_or_else(|| format!("language package {grammar} is not installed"))
     }
     pub(crate) fn activity(&self) -> Activity {
         self.loaded.lock().unwrap().activity.clone()
@@ -623,24 +547,15 @@ fn validate_abi(path: &Path, language: &Language) -> Result<(), String> {
 }
 impl Resources for Packages {
     fn generation(&self) -> u64 {
-        self.catalog.as_ref().map_or(0, |c| c.generation())
-            + self.layering.generation.load(Ordering::Acquire)
+        self.layering.generation.load(Ordering::Acquire)
     }
-    fn pending(&self, grammar: &str) -> bool {
-        self.catalog.as_ref().is_some_and(|c| c.pending(grammar))
+    fn pending(&self, _grammar: &str) -> bool {
+        false
     }
     fn subscribe(&self, changed: Arc<dyn Fn() + Send + Sync>) {
-        self.layering
-            .listeners
-            .lock()
-            .unwrap()
-            .push(changed.clone());
-        if let Some(catalog) = &self.catalog {
-            catalog.subscribe(changed);
-        }
+        self.layering.listeners.lock().unwrap().push(changed);
     }
     fn language(&self, grammar: &str) -> Result<Language, String> {
-        // Waiting for an installation is temporary, never a cached module failure.
         let (package, module) = self.available(grammar)?;
         let mut loaded = self.loaded.lock().unwrap();
         if let Some(language) = loaded.languages.get(grammar) {
@@ -799,11 +714,12 @@ pub(crate) fn installed_extension_queries() -> Vec<ExtensionQuery> {
 }
 
 /// Where the extensions that ship with Loom are kept: `extensions` beside the
-/// executable (in the bundle's `Resources` on macOS). Tests use the source tree.
+/// executable (in the bundle's `Resources` on macOS). Tests use copies of them in
+/// `tests/fixtures/extensions`.
 pub(crate) fn bundled_extensions_directory() -> Option<PathBuf> {
     #[cfg(test)]
     {
-        Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/extensions"))
+        Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/extensions"))
     }
     #[cfg(not(test))]
     {
@@ -975,32 +891,15 @@ pub(crate) fn resources() -> Arc<Packages> {
                 let root = std::env::var_os("LOOM_TEST_LANGUAGE_PACKS");
                 let source = match root {
                     Some(path) => Packages::discover(Path::new(&path), None),
-                    None => Packages {
-                        packages: BTreeMap::new(),
-                        loaded: Mutex::default(),
-                        catalog: None,
-                        layering: Layering::default(),
-                    },
+                    None => Packages::empty(),
                 };
                 Arc::new(source)
             }
             #[cfg(not(test))]
             {
                 // Grammars come from extensions: the ones that ship with Loom and
-                // the ones installed. One added later is seen after a restart,
-                // unless it is downloaded on demand from the registry below.
-                let mut source = Packages::from_directories(installed_extension_packs());
-                let user = user_resource_directory("extensions");
-                if let Some(registry) =
-                    bundled_extensions_directory().map(|directory| directory.join("registry.toml"))
-                    && let Err(error) = source.enable_catalog(
-                        &registry,
-                        user.as_ref().map(|p| p.join(".cache").join("languages")),
-                        user,
-                    )
-                {
-                    Packages::report(source.loaded.get_mut().unwrap(), &error);
-                }
+                // the ones installed. One added later is seen after a restart.
+                let source = Packages::from_directories(installed_extension_packs());
                 source.set_query_sources(
                     user_resource_directory("queries"),
                     installed_extension_queries(),

@@ -3,8 +3,9 @@
 // SHA-256, and `index.snapshot.json` is the signed index it was locked against, which
 // the application falls back to when the live index cannot be fetched.
 //
-// Both live in assets/registry and are refreshed with each application release.
-// While there is no lock, the folders in assets/extensions are shipped as they are.
+// Both live in assets/registry and are refreshed with each application release
+// (run `loom-ext lock` in the extensions repository after its release workflow, and
+// copy its output there). Nothing else is shipped as an extension.
 //
 //   node scripts/package/fetch-locked.mjs    download and check the locked packages
 //
@@ -77,33 +78,29 @@ export async function fetchLocked({lock, destination, fetchBytes = download}) {
   return lock.extensions.map(extension => extension.id);
 }
 
-/** Fetch the locked extensions unless they are already there. Nothing without a lock. */
+/** The lock, which a release cannot do without. */
+function requireLock(file) {
+  const lock = readLock(file);
+  if (!lock) throw new Error(`${file} is missing; run loom-ext lock in the extensions repository and copy its output to assets/registry`);
+  return lock;
+}
+
+/** Fetch the locked extensions unless they are already there. */
 export async function ensureLocked({lock = LOCK_FILE, locked = LOCKED_DIR} = {}) {
-  const found = readLock(lock);
-  if (!found || found.extensions.every(extension => fs.existsSync(path.join(locked, extension.id, 'manifest.json')))) return;
+  const found = requireLock(lock);
+  if (found.extensions.every(extension => fs.existsSync(path.join(locked, extension.id, 'manifest.json')))) return;
   await fetchLocked({lock: found, destination: locked});
 }
 
 /**
- * Stage the bundled extensions into `destination` (the `extensions` folder of the
- * application): the locked ones when there is a lock, else assets/extensions. The
- * lock and snapshot go to the `registry` folder beside it.
+ * Stage the locked extensions into `destination` (the `extensions` folder of the
+ * application). The lock and snapshot go to the `registry` folder beside it.
  */
-export function stageBundled({
-  destination,
-  lock = LOCK_FILE,
-  locked = LOCKED_DIR,
-  registry = REGISTRY_DIR,
-  catalog = path.join(ROOT, 'assets/extensions/registry.toml'),
-}) {
-  const found = readLock(lock);
-  if (!found) return stageExtensions({destination});
+export function stageBundled({destination, lock = LOCK_FILE, locked = LOCKED_DIR, registry = REGISTRY_DIR}) {
+  const found = requireLock(lock);
   const missing = found.extensions.filter(extension => !fs.existsSync(path.join(locked, extension.id, 'manifest.json')));
   if (missing.length) throw new Error(`Locked extensions are not fetched (${missing.map(e => e.id).join(', ')}); run node scripts/package/fetch-locked.mjs`);
   const binaries = stageExtensions({source: locked, destination});
-  // The list of languages downloaded on demand is not an extension; it stays until the
-  // languages are in the registry too.
-  if (fs.existsSync(catalog)) fs.copyFileSync(catalog, path.join(destination, 'registry.toml'));
   const shipped = path.join(path.dirname(path.resolve(destination)), 'registry');
   fs.mkdirSync(shipped, {recursive: true});
   for (const name of SHIPPED) {

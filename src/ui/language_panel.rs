@@ -86,7 +86,6 @@ pub struct Section {
 pub struct Frame {
     /// Ordered by group.
     pub sections: Vec<Section>,
-    pub retry_downloads: bool,
 }
 
 pub enum Event {
@@ -95,7 +94,6 @@ pub enum Event {
     Restart,
     /// Restart one instance.
     RestartServer(u64),
-    RetryDownloads,
     /// Install the extension with this id.
     Install(String),
     CancelTask(TaskTarget),
@@ -231,24 +229,6 @@ pub fn render(
         policy,
         move || restart(Event::Restart),
     ));
-    if frame.retry_downloads {
-        let label = "Retry downloads";
-        let width = measure(label, theme::SMALL, 400) + 8.0;
-        let retry = commands.clone();
-        body = body.child(link(
-            UiRect::new(
-                footer.right - PAD - INSET - width,
-                footer.top,
-                footer.right - PAD - INSET,
-                footer.bottom,
-            ),
-            label,
-            theme::c().text_soft,
-            TextAlign::Right,
-            policy,
-            move || retry(Event::RetryDownloads),
-        ));
-    }
     overlay.child(body)
 }
 
@@ -564,7 +544,6 @@ mod tests {
     fn frame(sections: Vec<Section>) -> Frame {
         Frame {
             sections,
-            retry_downloads: false,
         }
     }
 

@@ -1721,9 +1721,6 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                         services.cancel_task(target.instance, target.run, target.task);
                     }
                 }
-                crate::ui::language_panel::Event::RetryDownloads => {
-                    crate::infrastructure::language_packs::resources().retry_downloads();
-                }
                 crate::ui::language_panel::Event::RestartServer(instance) => {
                     if let Some(services) =
                         panel_state.services().and_then(|r| r.language_services())

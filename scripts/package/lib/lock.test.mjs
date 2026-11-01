@@ -46,12 +46,8 @@ test('locked packages are downloaded, checked against the lock and staged like b
   fs.writeFileSync(path.join(registry, 'index.snapshot.json'), '{}');
   fs.writeFileSync(path.join(registry, 'index.snapshot.json.sig'), '{}');
   const destination = path.join(root, 'app/extensions');
-  const catalog = path.join(root, 'registry.toml');
-  fs.writeFileSync(catalog, 'schema = 1\n');
-  stageBundled({destination, lock: path.join(registry, 'extensions.lock'), locked, registry, catalog});
+  stageBundled({destination, lock: path.join(registry, 'extensions.lock'), locked, registry});
   assert.equal(fs.readFileSync(path.join(destination, 'loom.look/a.json'), 'utf8'), '{}');
-  // The on-demand language list is not an extension and is kept beside them.
-  assert.equal(fs.readFileSync(path.join(destination, 'registry.toml'), 'utf8'), 'schema = 1\n');
   // The lock and the snapshot go beside the extensions folder.
   assert.equal(fs.readFileSync(path.join(root, 'app/registry/index.snapshot.json'), 'utf8'), '{}');
 });
@@ -71,10 +67,11 @@ test('a package that is not what the lock says stops the release', async t => {
   await assert.rejects(fetchLocked({lock: damaged.lock, destination: path.join(damaged.root, 'locked'), fetchBytes: damaged.fetchBytes}), /does not match the lock/);
 });
 
-test('without a lock the bundled folders are used, and a lock without its fetch is an error', t => {
+test('a release needs a lock, and a lock needs its packages fetched', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-lock-none-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   assert.equal(readLock(path.join(root, 'missing.lock')), null);
+  assert.throws(() => stageBundled({destination: path.join(root, 'out/extensions'), lock: path.join(root, 'missing.lock')}), /is missing; run loom-ext lock/);
   const file = path.join(root, 'extensions.lock');
   fs.writeFileSync(file, JSON.stringify({schema: 1, extensions: [{id: 'loom.look', version: '1.0.0', artifacts: []}]}));
   assert.throws(() => stageBundled({destination: path.join(root, 'out/extensions'), lock: file, locked: path.join(root, 'none'), registry: root}), /not fetched/);

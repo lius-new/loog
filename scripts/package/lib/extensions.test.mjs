@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,17 +20,15 @@ function fixture(t) {
   write('loom.lang.rust/tree-sitter.json', JSON.stringify({grammars: [{name: 'rust', 'file-types': ['rs']}]}));
   write('loom.lang.rust/tree-sitter-rust.wasm', '\0asm');
   write('loom.lang.rust/queries/highlights.scm', '(identifier) @variable');
-  write('registry.toml', 'schema = 1\n');
   return {root, source, write, destination: path.join(root, 'staged')};
 }
 
-test('every extension is copied whole, with the registry beside them', t => {
+test('every extension is copied whole', t => {
   const {source, destination} = fixture(t);
   const binaries = stageExtensions({source, destination});
   assert.deepEqual(binaries, [path.join(destination, 'loom.lang.rust', 'tree-sitter-rust.wasm')]);
   assert.equal(fs.readFileSync(path.join(destination, 'loom.look/a.json'), 'utf8'), '{}');
   assert.equal(fs.existsSync(path.join(destination, 'loom.lang.rust/queries/highlights.scm')), true);
-  assert.equal(fs.readFileSync(path.join(destination, 'registry.toml'), 'utf8'), 'schema = 1\n');
 });
 
 test('a broken package stops packaging and leaves nothing of itself behind', t => {
@@ -57,14 +56,14 @@ test('resource paths cannot leave the package and an empty input is refused', t 
   assert.throws(() => stageExtensions({source: empty, destination}), /No bundled extensions/);
 });
 
-test('the extensions in the repository stage cleanly', t => {
+test('the copies of the bundled extensions used by tests stage cleanly', t => {
   const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-packaging-real-'));
   t.after(() => fs.rmSync(destination, {recursive: true, force: true}));
-  const binaries = stageExtensions({destination});
+  const source = fileURLToPath(new URL('../../../tests/fixtures/extensions', import.meta.url));
+  const binaries = stageExtensions({source, destination});
   const names = binaries.map(file => path.basename(file)).sort();
   assert.deepEqual(names, ['tree-sitter-json.wasm', 'tree-sitter-markdown.wasm', 'tree-sitter-markdown_inline.wasm']);
   for (const id of ['loom.aura', 'loom.lang.json', 'loom.lang.markdown']) {
     assert.equal(fs.existsSync(path.join(destination, id, 'manifest.json')), true, id);
   }
-  assert.equal(fs.existsSync(path.join(destination, 'registry.toml')), true);
 });

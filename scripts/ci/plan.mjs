@@ -11,7 +11,7 @@ const starts = (file, prefixes) => prefixes.some(prefix => file.startsWith(prefi
 const common = new Set(['Cargo.toml','Cargo.lock','rust-toolchain','rust-toolchain.toml','build.rs','.gitignore','.gitattributes']);
 const language = ['src/domain/language','src/features/syntax','src/features/language_service',
   'src/infrastructure/language','src/infrastructure/syntax','src/app/language',
-  'assets/language','assets/extensions/','assets/grammars/','assets/servers/','tests/language-runtime/',
+  'assets/language','tests/fixtures/extensions/','assets/grammars/','assets/servers/','tests/language-runtime/',
   'tests/fixtures/language','scripts/language-packs/'];
 const markdown = ['src/app/markdown','src/features/markdown','src/ui/markdown',
   'src/infrastructure/markdown','src/domain/','crates/editor-core/','crates/markdown-tests/',

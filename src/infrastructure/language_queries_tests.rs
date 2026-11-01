@@ -32,7 +32,7 @@ impl Drop for Temp {
 /// The JSON extension that ships with Loom: the smallest real grammar there is.
 /// The standalone host is tested with every language extension removed.
 fn packages() -> Option<Packages> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/extensions");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/extensions");
     root.join("loom.lang.json")
         .is_dir()
         .then(|| Packages::discover(&root, None))

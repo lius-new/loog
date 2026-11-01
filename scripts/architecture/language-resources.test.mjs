@@ -13,7 +13,7 @@ test('the host is independent of the language producer and concrete grammar crat
     assert.deepEqual(runtimeGrammarManifestErrors(fs.readFileSync(path.join(root, file), 'utf8')), [], file);
   }
   assert.equal(fs.existsSync(path.join(root, 'assets/language-packs')), false, 'language packs are extensions now');
-  const resources = path.join(root, 'assets/extensions');
+  const resources = path.join(root, 'tests/fixtures/extensions');
   // The grammars that ship with Loom, each inside its own extension package.
   const languages = fs.readdirSync(resources).filter(id => fs.existsSync(path.join(resources, id, 'tree-sitter.json'))).sort();
   assert.deepEqual(languages, ['loom.lang.json', 'loom.lang.markdown']);

@@ -1,7 +1,7 @@
 //! Extensions that ship with Loom.
 //!
 //! They are the folders in `extensions` beside the executable (staged there by
-//! the build and packaging scripts from `assets/extensions`), and are loaded like
+//! packaging, from the locked packages of the extensions repository), and are loaded like
 //! any other package. The user can disable them but not uninstall them.
 use crate::infrastructure::language_packs::bundled_extensions_directory;
 use std::path::{Path, PathBuf};

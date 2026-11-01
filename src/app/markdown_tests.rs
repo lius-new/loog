@@ -899,7 +899,7 @@ fn stale_frame_release_cancels_the_gesture_without_opening_a_link() {
 
 #[test]
 fn visible_snippets_load_known_wasm_resources_and_unknown_languages_remain_plain() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/extensions");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/extensions");
     let packages = Arc::new(crate::infrastructure::language_packs::Packages::discover(
         &root, None,
     ));

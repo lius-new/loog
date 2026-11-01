@@ -1,10 +1,9 @@
-// Stage the extensions that ship with Loom. Every folder in assets/extensions is a
-// complete extension package: it is copied as it is, after checks that make a
+// Stage the extensions that ship with Loom. Every folder in `source` (the locked
+// packages, unpacked) is a complete extension package: it is copied as it is, after checks that make a
 // broken or unsafe package stop packaging rather than ship. This module never
 // builds extension code.
 import fs from 'node:fs';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
 
 const MAX_FILES = 4096;
 const MAX_BYTES = 256 * 1024 * 1024;
@@ -65,10 +64,7 @@ function grammarModules(folder, manifest) {
   return modules;
 }
 
-export function stageExtensions({
-  source = fileURLToPath(new URL('../../../assets/extensions', import.meta.url)),
-  destination,
-}) {
+export function stageExtensions({source, destination}) {
   if (!source) throw new Error('Supply the bundled extensions');
   const root = path.resolve(source);
   const ids = fs.readdirSync(root, {withFileTypes: true})
@@ -87,7 +83,5 @@ export function stageExtensions({
     copyTree(input, output, totals);
     for (const module of modules) binaries.push(path.join(output, path.relative(input, module)));
   }
-  const registry = path.join(root, 'registry.toml');
-  if (fs.existsSync(registry)) fs.copyFileSync(registry, path.join(destination, 'registry.toml'));
   return binaries;
 }

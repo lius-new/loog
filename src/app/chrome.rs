@@ -281,20 +281,6 @@ fn language_status(
 ) {
     use crate::ui::chrome::{NoteLevel, ServerChip, StatusNote};
     let mut notes = Vec::new();
-    if let Some(info) = crate::infrastructure::language_packs::resources()
-        .download_infos()
-        .into_iter()
-        .find(|i| i.status != "ready")
-    {
-        notes.push(StatusNote {
-            text: format!("{} syntax: {}", info.name, info.status),
-            level: if info.error.is_some() {
-                NoteLevel::Warning
-            } else {
-                NoteLevel::Quiet
-            },
-        });
-    }
     let left_out = crate::infrastructure::language_packs::resources().query_problem_count();
     if left_out > 0 {
         notes.push(StatusNote {
@@ -668,12 +654,6 @@ pub fn language_panel_frame(state: &AppContext) -> crate::ui::language_panel::Fr
             }
         })
         .collect();
-    let downloads: Vec<_> = crate::infrastructure::language_packs::resources()
-        .download_infos()
-        .into_iter()
-        .filter(|i| i.status != "ready")
-        .collect();
-    let retry_downloads = downloads.iter().any(|i| i.error.is_some());
     // The extension that would give the active file its syntax.
     let suggestion = syntax_suggestion(state, &state.get());
     if let Some(suggestion) = suggestion {
@@ -704,31 +684,9 @@ pub fn language_panel_frame(state: &AppContext) -> crate::ui::language_panel::Fr
             restart: None,
         });
     }
-    sections.extend(downloads.into_iter().map(|info| {
-        let failed = info.error.is_some();
-        Section {
-            group: Group::Download,
-            title: format!("{} syntax", info.name),
-            subtitle: info.error.unwrap_or_default(),
-            subtitle_level: Level::Warning,
-            state: info.status.to_string(),
-            tone: if failed { Tone::Failed } else { Tone::Busy },
-            progress: if failed {
-                Progress::None
-            } else {
-                Progress::Spinner
-            },
-            lines: Vec::new(),
-            install: None,
-            restart: None,
-        }
-    }));
-    // The active file's servers first, then the others, then downloads; each keeps its order.
+    // The active file's servers first, then the others, then syntax to install.
     sections.sort_by_key(|section| section.group);
-    Frame {
-        sections,
-        retry_downloads,
-    }
+    Frame { sections }
 }
 
 /// The active text file's path and the ids of the servers its language is bound to.
