@@ -35,7 +35,11 @@ struct Inner {
     hooked: std::sync::atomic::AtomicBool,
     /// The themes revision last published.
     themes_seen: std::sync::atomic::AtomicU64,
+    /// The registry index and what is being done with it.
+    registry: Mutex<registry::State>,
 }
+
+mod registry;
 
 /// Runs on the UI thread when the participants are done; `true` means write the files.
 pub(crate) type SaveContinuation = Box<dyn FnOnce(&AppContext, bool) + Send>;
@@ -293,6 +297,7 @@ impl ExtensionHost {
             next_language: std::sync::atomic::AtomicU64::new(1),
             hooked: std::sync::atomic::AtomicBool::new(false),
             themes_seen: std::sync::atomic::AtomicU64::new(0),
+            registry: Mutex::new(registry::State::default()),
         });
         let _ = inner.self_ref.set(Arc::downgrade(&inner));
         inner.service.lock().unwrap().set_trust(inner.trust.clone());
@@ -361,7 +366,10 @@ impl ExtensionHost {
     }
 
     pub(crate) fn frame(&self) -> crate::ui::extensions_binding::Frame {
-        crate::app::extensions_view::installed_frame(&self.inner.service.lock().unwrap())
+        let mut frame =
+            crate::app::extensions_view::installed_frame(&self.inner.service.lock().unwrap());
+        self.add_registry(&mut frame);
+        frame
     }
 
     pub(crate) fn needs_attention(&self) -> bool {
@@ -668,15 +676,11 @@ impl ExtensionHost {
             }
             Ok(done) => {
                 let mut service = self.inner.service.lock().unwrap();
-                let loaded = if service.package(&done.id).is_some() {
-                    service.reload(&done.id).map(|effects| {
-                        self.inner.apply(app, effects);
-                    })
-                } else {
-                    service
-                        .load_package(&done.directory)
-                        .map(|id| service.grant_declared(&id))
-                };
+                // A new version lives in a folder of its own, so the old one is
+                // stopped and the new folder is loaded in its place.
+                let loaded = service.adopt(&done.directory).map(|(_, effects)| {
+                    self.inner.apply(app, effects);
+                });
                 let rejected = service
                     .package(&done.id)
                     .map(|package| {

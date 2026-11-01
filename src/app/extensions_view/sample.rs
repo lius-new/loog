@@ -374,5 +374,6 @@ fn notes() -> Entry {
 pub fn frame() -> Frame {
     Frame {
         installed: vec![weave(), selection_tools(), night(), lint(), notes()],
+        ..Default::default()
     }
 }

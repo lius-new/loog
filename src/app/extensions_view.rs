@@ -4,7 +4,7 @@
 //! installer as the command palette.
 use crate::app::context::AppContext;
 use crate::ui::components::state_access::StateAccess;
-use crate::ui::extensions_binding::{Action, Binding, Command, DetailTab};
+use crate::ui::extensions_binding::{Action, Binding, Command, DetailTab, StateFilter};
 use lgui::core::{UiFocusHandle, UiId};
 use lgui::prelude::{Element, UiRect};
 
@@ -95,6 +95,16 @@ pub fn run(state: &AppContext, command: Command) {
         }
         return;
     }
+    if let Command::Act(Action::Install | Action::Update, id) = &command {
+        match state.services().and_then(|runtime| runtime.extensions()) {
+            Some(host) => host.install(state, id),
+            None => state.update(|app| app.show_error("Extensions are not available")),
+        }
+        return;
+    }
+    // Opening the list fetches the newest index once; Refresh always does.
+    let force = matches!(command, Command::Refresh);
+    let registry = force || matches!(command, Command::SetFilter(StateFilter::Available));
     state.update(|app| {
         let ui = &mut app.extensions_ui;
         match command {
@@ -102,13 +112,18 @@ pub fn run(state: &AppContext, command: Command) {
             Command::Select(id) => {
                 ui.selected = Some(id);
                 ui.tab = DetailTab::Details;
+                ui.confirming = None;
             }
             Command::SetTab(tab) => ui.tab = tab,
             Command::ClearSearch => ui.search.clear(),
+            Command::CancelInstall => ui.confirming = None,
             // Reloading arrives with the extension manager; the rest was handled above.
-            Command::Act(..) | Command::Import => {}
+            Command::Act(..) | Command::Import | Command::Refresh => {}
         }
     });
+    if registry && let Some(host) = state.services().and_then(|runtime| runtime.extensions()) {
+        host.refresh_registry(state, force);
+    }
 }
 
 pub(crate) fn import_package(state: &AppContext) {
@@ -119,6 +134,26 @@ pub(crate) fn import_package(state: &AppContext) {
     if let Some(package) = crate::infrastructure::file_dialogs::pick_extension_package() {
         host.import(state, &package);
     }
+}
+
+/// "Find an extension for this file": open the Extensions page on what the registry
+/// offers for the current file's type, or say that it offers nothing.
+pub(crate) fn find_for_active_file(state: &AppContext) {
+    let Some(host) = state.services().and_then(|runtime| runtime.extensions()) else {
+        state.update(|app| app.show_error("Extensions are not available"));
+        return;
+    };
+    let name = state
+        .get()
+        .workspace
+        .active_path()
+        .and_then(|path| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned());
+    let Some(name) = name else {
+        state.update(|app| app.show_toast("Open a file first."));
+        return;
+    };
+    host.find_for_file(state, &name);
 }
 
 pub fn render(
@@ -194,6 +229,119 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The Available list offers installing; what the install asks for is shown when
+    /// confirming, and an install in progress says so.
+    #[test]
+    fn available_extensions_offer_installing_and_say_what_it_asks_for() {
+        let context = ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let mut frame = FRAME.clone();
+        let mut offered = frame.installed[0].clone();
+        offered.id = "loom.lsp.pyright".into();
+        offered.name = "Pyright Language Server".into();
+        offered.installed = None;
+        frame.available = vec![offered];
+        frame.asks.insert(
+            "loom.lsp.pyright".into(),
+            vec!["Run programs on your computer, such as a language server".into()],
+        );
+        frame.registry.loaded = true;
+        let rect = UiRect::new(0.0, 0.0, 1280.0, 800.0);
+        let shown = |confirming: bool, installing: bool| {
+            let mut frame = frame.clone();
+            if installing {
+                frame.registry.installing = vec!["loom.lsp.pyright".into()];
+            }
+            let view: AppView = Arc::new(move |cx| {
+                let ui = cx.state_with(move || ExtensionsUiState {
+                    filter: StateFilter::Available,
+                    selected: Some("loom.lsp.pyright".into()),
+                    confirming: confirming.then(|| "loom.lsp.pyright".to_owned()),
+                    ..Default::default()
+                });
+                let search = cx.use_stable_id();
+                let focus = cx.focus_handle(search.clone());
+                let frame = frame.clone();
+                let binding = Binding::new(StateAccess::from(ui), move || frame.clone(), |_| {});
+                crate::ui::extensions_page::render(rect, binding, search, focus)
+            });
+            let mut session = UiSession::new();
+            session.render_view(&view, rect, UiScale::ONE);
+            texts(&session)
+        };
+        let has = |texts: &[String], wanted: &str| texts.iter().any(|text| text.contains(wanted));
+
+        let plain = shown(false, false);
+        assert!(has(&plain, "Pyright Language Server"));
+        assert!(has(&plain, "Browse"));
+        assert!(has(&plain, "Refresh"));
+        assert!(has(&plain, "Not installed"));
+        assert!(has(&plain, "Install"));
+        assert!(!has(&plain, "Accept and install"));
+        assert!(
+            !has(&plain, "Run programs"),
+            "asked only once the user presses Install"
+        );
+
+        let confirming = shown(true, false);
+        assert!(has(&confirming, "Accept and install"));
+        assert!(has(&confirming, "Cancel"));
+        assert!(has(&confirming, "Installing this lets it"));
+        assert!(has(&confirming, "Run programs on your computer"));
+
+        let busy = shown(false, true);
+        assert!(has(&busy, "Installing…"));
+    }
+
+    /// With nothing installed the page offers browsing, and an empty Available list says why.
+    #[test]
+    fn an_empty_page_offers_browsing_and_an_unread_registry_says_so() {
+        let context = ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let rect = UiRect::new(0.0, 0.0, 1000.0, 700.0);
+        let shown = |filter: StateFilter, frame: Frame| {
+            let view: AppView = Arc::new(move |cx| {
+                let ui = cx.state_with(move || ExtensionsUiState {
+                    filter,
+                    ..Default::default()
+                });
+                let search = cx.use_stable_id();
+                let focus = cx.focus_handle(search.clone());
+                let frame = frame.clone();
+                let binding = Binding::new(StateAccess::from(ui), move || frame.clone(), |_| {});
+                crate::ui::extensions_page::render(rect, binding, search, focus)
+            });
+            let mut session = UiSession::new();
+            session.render_view(&view, rect, UiScale::ONE);
+            texts(&session)
+        };
+        let has = |texts: &[String], wanted: &str| texts.iter().any(|text| text.contains(wanted));
+        assert!(has(
+            &shown(StateFilter::All, Frame::default()),
+            "Browse Extensions"
+        ));
+        let unread = shown(StateFilter::Available, Frame::default());
+        assert!(has(&unread, "has not been read"));
+        let mut failed = Frame::default();
+        failed.registry.problem = Some("offline".into());
+        assert!(has(
+            &shown(StateFilter::Available, failed),
+            "Could not reach"
+        ));
+        let mut loaded = Frame::default();
+        loaded.registry.loaded = true;
+        assert!(has(
+            &shown(StateFilter::Available, loaded),
+            "Nothing more to install"
+        ));
     }
 
     /// Draws the page to PNG files in `LOOM_PREVIEW_DIR`, to look at the layout.

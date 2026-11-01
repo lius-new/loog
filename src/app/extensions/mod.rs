@@ -707,6 +707,24 @@ impl ExtensionService {
         Ok(effects)
     }
 
+    /// Start using the package folder `dir`, a new install or a new version of one
+    /// that is loaded: what ran before from another folder is stopped, and the
+    /// capabilities the package declares are granted, because the user asked for
+    /// this install (and confirmed what it asks for). Returns its id.
+    pub fn adopt(&mut self, dir: &Path) -> Result<(String, Vec<Effect>), String> {
+        let source = std::fs::read_to_string(dir.join("manifest.json"))
+            .map_err(|e| format!("manifest.json: {e}"))?;
+        let manifest = Manifest::parse(&source).map_err(|e| e.to_string())?;
+        let effects = if self.packages.contains_key(&manifest.id) {
+            self.stop(&manifest.id)
+        } else {
+            Vec::new()
+        };
+        let id = self.load_package(dir)?;
+        self.grant_declared(&id);
+        Ok((id, effects))
+    }
+
     /// The user approves the package's declared capabilities.
     pub fn grant_declared(&mut self, id: &str) {
         if let Some(package) = self.packages.get(id) {

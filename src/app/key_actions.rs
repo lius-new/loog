@@ -437,6 +437,10 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             super::extensions_view::import_package(&env.state);
             true
         }
+        Action::FindExtensionForFile => {
+            super::extensions_view::find_for_active_file(&env.state);
+            true
+        }
         Action::InspectHighlight => {
             super::highlight_inspect::inspect_cursor(&env.state);
             true

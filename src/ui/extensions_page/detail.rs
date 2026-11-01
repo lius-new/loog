@@ -4,7 +4,7 @@ use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel};
 
 use super::content::{self, Body};
 use super::widgets::{self, Ids, Kind, Look, Tone, line};
-use crate::ui::extensions_binding::{Action, Binding, Command, DetailTab, Entry};
+use crate::ui::extensions_binding::{Action, Binding, Command, DetailTab, Entry, RegistryStatus};
 use crate::ui::tabs::{ellipsize_sans, measure, measure_sans};
 use crate::ui::theme;
 
@@ -34,54 +34,92 @@ fn state_label(entry: &Entry) -> (&'static str, Tone) {
 }
 
 struct HeadButton {
-    label: &'static str,
+    label: String,
     icon: Option<&'static str>,
     kind: Kind,
     command: Option<Command>,
 }
 
-fn actions(entry: &Entry) -> Vec<HeadButton> {
+/// What the detail needs to know besides the extension itself.
+#[derive(Clone, Copy)]
+pub(super) struct Context<'a> {
+    pub registry: &'a RegistryStatus,
+    /// What installing or updating it asks for, in words.
+    pub asks: &'a [String],
+    /// The user is being asked whether to accept `asks`.
+    pub confirming: bool,
+}
+
+fn button(label: impl Into<String>, kind: Kind, command: Option<Command>) -> HeadButton {
+    HeadButton {
+        label: label.into(),
+        icon: None,
+        kind,
+        command,
+    }
+}
+
+fn actions(entry: &Entry, context: Context) -> Vec<HeadButton> {
     let id = entry.id.clone();
     let act = |action| Some(Command::Act(action, id.clone()));
+    let busy = context.registry.installing.contains(&entry.id);
     let Some(installed) = &entry.installed else {
-        return Vec::new();
+        return if busy {
+            vec![button("Installing…", Kind::Plain, None)]
+        } else if context.confirming {
+            vec![
+                button("Accept and install", Kind::Primary, act(Action::Install)),
+                button("Cancel", Kind::Plain, Some(Command::CancelInstall)),
+            ]
+        } else {
+            vec![button("Install", Kind::Primary, act(Action::Install))]
+        };
     };
     let mut buttons = Vec::new();
+    if let Some(update) = &installed.update {
+        if busy {
+            buttons.push(button("Updating…", Kind::Plain, None));
+        } else if context.confirming {
+            buttons.push(button(
+                "Accept and update",
+                Kind::Primary,
+                act(Action::Update),
+            ));
+            buttons.push(button("Cancel", Kind::Plain, Some(Command::CancelInstall)));
+        } else {
+            buttons.push(button(
+                format!("Update to {}", update.version),
+                Kind::Primary,
+                act(Action::Update),
+            ));
+        }
+    }
     if installed.enabled {
-        buttons.push(HeadButton {
-            label: "Disable",
-            icon: None,
-            kind: Kind::Plain,
-            command: act(Action::Disable),
-        });
+        buttons.push(button("Disable", Kind::Plain, act(Action::Disable)));
     } else {
-        buttons.push(HeadButton {
-            label: "Enable",
-            icon: None,
-            kind: Kind::Primary,
-            command: act(Action::Enable),
-        });
+        buttons.push(button("Enable", Kind::Primary, act(Action::Enable)));
     }
     if entry.failed() {
         buttons.push(HeadButton {
-            label: "Reload",
+            label: "Reload".to_owned(),
             icon: Some("refresh"),
             kind: Kind::Primary,
             command: act(Action::Reload),
         });
     }
     if !installed.bundled {
-        buttons.push(HeadButton {
-            label: "Uninstall",
-            icon: None,
-            kind: Kind::Plain,
-            command: act(Action::Uninstall),
-        });
+        buttons.push(button("Uninstall", Kind::Plain, act(Action::Uninstall)));
     }
     buttons
 }
 
-pub(super) fn render(area: UiRect, entry: &Entry, tab: DetailTab, state: &Binding) -> Element {
+pub(super) fn render(
+    area: UiRect,
+    entry: &Entry,
+    tab: DetailTab,
+    context: Context,
+    state: &Binding,
+) -> Element {
     let c = theme::c();
     let mut ids = Ids::new("ext.detail");
     let mut root = panel(area, VisualStyle::filled(c.bg));
@@ -156,8 +194,8 @@ pub(super) fn render(area: UiRect, entry: &Entry, tab: DetailTab, state: &Bindin
 
     // Actions.
     let mut button_left = left;
-    for (index, action) in actions(entry).into_iter().enumerate() {
-        let width = widgets::button_width(action.label, action.icon.is_some(), theme::UI_SIZE);
+    for (index, action) in actions(entry, context).into_iter().enumerate() {
+        let width = widgets::button_width(&action.label, action.icon.is_some(), theme::UI_SIZE);
         let rect = UiRect::new(button_left, y, button_left + width, y + BUTTON_H);
         let run = state.clone();
         let command = action.command;
@@ -165,7 +203,7 @@ pub(super) fn render(area: UiRect, entry: &Entry, tab: DetailTab, state: &Bindin
             &mut ids,
             format!("ext.head.{}.{index}", entry.id),
             rect,
-            action.label,
+            &action.label,
             action.icon,
             action.kind,
             move || {
@@ -177,6 +215,42 @@ pub(super) fn render(area: UiRect, entry: &Entry, tab: DetailTab, state: &Bindin
         button_left = rect.right + 8.0;
     }
     y += BUTTON_H;
+
+    // What accepting would let the extension do, when the user is being asked.
+    if context.confirming && !context.asks.is_empty() {
+        y += 12.0;
+        let title = "Installing this lets it:";
+        let mut lines = vec![line(
+            UiRect::new(left + 12.0, y + 8.0, right - 12.0, y + 26.0),
+            title,
+            theme::sans_semibold(c.text_bright, theme::UI_SIZE),
+        )];
+        let mut inner = y + 30.0;
+        for ask in context.asks {
+            let (text, height) = widgets::paragraph(
+                left + 12.0,
+                inner,
+                right - left - 24.0,
+                &format!("• {ask}"),
+                theme::sans(c.text, theme::UI_SIZE),
+                19.0,
+            );
+            lines.extend(text);
+            inner += height + 2.0;
+        }
+        let box_rect = UiRect::new(left, y, right, inner + 8.0);
+        root = root.child(theme::bordered(
+            box_rect,
+            widgets::blend(c.bg, c.accent, 0.06),
+            widgets::blend(c.border, c.accent, 0.4),
+            6.0,
+            1.0,
+        ));
+        for element in lines {
+            root = root.child(element);
+        }
+        y = box_rect.bottom;
+    }
 
     // Tabs, over a rule the selected one's underline covers.
     let tabs_top = (y + 22.0).max(tile_rect.bottom + 22.0);

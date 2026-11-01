@@ -13,7 +13,10 @@ pub(crate) fn frame(service: &ExtensionService) -> Frame {
             .cmp(&b.name.to_lowercase())
             .then(a.id.cmp(&b.id))
     });
-    Frame { installed }
+    Frame {
+        installed,
+        ..Default::default()
+    }
 }
 
 fn entry(package: &Package) -> Entry {

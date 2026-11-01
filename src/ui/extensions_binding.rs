@@ -13,6 +13,8 @@ pub enum StateFilter {
     All,
     Enabled,
     Disabled,
+    /// The registry's extensions that are not installed.
+    Available,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -29,6 +31,8 @@ pub struct ExtensionsUiState {
     pub filter: StateFilter,
     pub selected: Option<String>,
     pub tab: DetailTab,
+    /// The extension whose installation is waiting for the user to accept what it asks for.
+    pub confirming: Option<String>,
 }
 
 impl ExtensionsUiState {
@@ -181,8 +185,20 @@ impl Entry {
     }
 
     pub fn matches(&self, query: &str) -> bool {
+        // What the extension adds counts too, so a file type finds the language for it.
+        let adds: String = self
+            .contributions
+            .iter()
+            .filter_map(|contribution| match contribution {
+                Contribution::Table(table) => Some(table),
+                Contribution::Themes(_) => None,
+            })
+            .flat_map(|table| table.rows.iter())
+            .flat_map(|row| row.iter())
+            .map(|cell| format!(" {cell}"))
+            .collect();
         let haystack = format!(
-            "{} {} {} {} {}",
+            "{} {} {} {} {}{adds}",
             self.name,
             self.id,
             self.tagline,
@@ -197,9 +213,29 @@ impl Entry {
     }
 }
 
+/// How the registry stands: what the Available list is based on.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RegistryStatus {
+    /// The newest index is being fetched.
+    pub refreshing: bool,
+    /// Why the newest index could not be used, when what is shown is older.
+    pub problem: Option<String>,
+    /// The index is past its expiry: nothing new is offered from it.
+    pub expired: bool,
+    /// Extensions being installed or updated now.
+    pub installing: Vec<String>,
+    /// Whether an index has been read at all.
+    pub loaded: bool,
+}
+
 #[derive(Clone, Default)]
 pub struct Frame {
     pub installed: Vec<Entry>,
+    /// Extensions of the registry that are not installed, newest version of each.
+    pub available: Vec<Entry>,
+    /// What installing an extension asks for, in words, by extension id.
+    pub asks: std::collections::BTreeMap<String, Vec<String>>,
+    pub registry: RegistryStatus,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -212,6 +248,10 @@ pub enum Command {
     Act(Action, String),
     /// Pick an extension package and install it.
     Import,
+    /// Fetch the newest registry index.
+    Refresh,
+    /// Drop the question of whether to install what an extension asks for.
+    CancelInstall,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -220,6 +260,10 @@ pub enum Action {
     Disable,
     Reload,
     Uninstall,
+    /// Install an extension of the registry (and what it requires).
+    Install,
+    /// Install the newer version of an installed extension.
+    Update,
 }
 
 #[derive(Clone)]

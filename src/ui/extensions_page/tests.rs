@@ -39,6 +39,12 @@ fn frame() -> Frame {
             entry("b.off", false, false),
             entry("c.update", true, true),
         ],
+        available: vec![{
+            let mut available = entry("d.new", true, false);
+            available.installed = None;
+            available
+        }],
+        ..Default::default()
     }
 }
 
@@ -58,6 +64,10 @@ fn the_installed_list_follows_the_state_filter_and_the_search() {
     assert_eq!(ids(&visible(&frame, &ui, "")), ["b.off"]);
     ui.filter = StateFilter::All;
     assert_eq!(ids(&visible(&frame, &ui, "UPDATE")), ["c.update"]);
+    // Available lists the registry's extensions, which are not installed.
+    ui.filter = StateFilter::Available;
+    assert_eq!(ids(&visible(&frame, &ui, "")), ["d.new"]);
+    assert!(visible(&frame, &ui, "update").is_empty());
 }
 
 #[test]
