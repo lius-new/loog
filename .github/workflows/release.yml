@@ -106,6 +106,9 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
         if: matrix.platform == 'macos'
+      - name: Fetch the locked extensions
+        # Does nothing while assets/registry has no extensions.lock.
+        run: node scripts/package/fetch-locked.mjs
       - name: Build and package once
         env:
           VERSION: ${{ needs.verify.outputs.version }}

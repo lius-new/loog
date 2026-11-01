@@ -10,7 +10,7 @@ import {prepareDependencies} from '../../dependencies/ensure.mjs';
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { stageExtensions } from '../lib/extensions.mjs';
+import { stageBundled } from '../lib/lock.mjs';
 import { stageLspServers } from '../lib/lsp-servers.mjs';
 
 import {
@@ -173,7 +173,7 @@ export function packageApp({ version }) {
   }
   writeIcon(path.join(resources, 'Loom.icns'));
   // Grammars are WebAssembly, which is data to the system: nothing to sign.
-  stageExtensions({ destination: path.join(resources, 'extensions') });
+  stageBundled({ destination: path.join(resources, 'extensions') });
   stageLspServers({ destination: path.join(resources, 'lsp-servers') });
 
   sign(app, identity, path.join(ROOT, 'scripts/package/macos/entitlements.plist'));

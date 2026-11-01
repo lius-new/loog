@@ -10,7 +10,7 @@
 //! An index with a lower `sequence` than one already seen is refused (a replay of
 //! a superseded file). An index past its `expires` time is still read, but marked
 //! expired: Loom then offers nothing new, and what is installed keeps working.
-use crate::features::extensions::registry::{Index, check_sequence};
+use crate::features::extensions::registry::{Artifact, Index, check_sequence};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::{Deserialize, Serialize};
@@ -37,6 +37,9 @@ const MAX_SIGNATURE: u64 = 8 * 1024;
 const INDEX_FILE: &str = "index.json";
 const SIGNATURE_FILE: &str = "index.json.sig";
 const META_FILE: &str = "index.meta.json";
+const SNAPSHOT_FILE: &str = "index.snapshot.json";
+const SNAPSHOT_SIGNATURE_FILE: &str = "index.snapshot.json.sig";
+const LOCK_FILE: &str = "extensions.lock";
 
 /// What the next request tells the server about the copy we have.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -65,6 +68,8 @@ pub enum Origin {
     Live,
     /// Read from the cache because the server could not be reached or its answer was refused.
     Cached,
+    /// The index this copy of Loom shipped with, because nothing newer was available.
+    Snapshot,
 }
 
 #[derive(Debug)]
@@ -190,6 +195,7 @@ fn refresh(
     base: &str,
     keys: &[(&str, &str)],
     now: i64,
+    floor: u64,
     transport: &Transport,
 ) -> Result<Loaded, String> {
     let cached = load_cached(dir, keys, now);
@@ -207,6 +213,8 @@ fn refresh(
         Fetched::NotModified => {
             let mut cached =
                 cached.ok_or("the server reported no change, but nothing is cached")?;
+            // A cache older than what shipped with Loom is not "current".
+            check_sequence(floor, &cached.index)?;
             meta.checked = now;
             let _ = write_atomic(
                 dir,
@@ -229,6 +237,7 @@ fn refresh(
             let index = verify(&bytes, &signature, keys)?;
             let seen = meta
                 .highest_sequence
+                .max(floor)
                 .max(cached.as_ref().map_or(0, |cached| cached.index.sequence));
             check_sequence(seen, &index)?;
             write_atomic(dir, SIGNATURE_FILE, &signature)?;
@@ -255,24 +264,132 @@ fn refresh(
     }
 }
 
+/// The index this copy of Loom shipped with: `index.snapshot.json` and its signature
+/// in `dir`, checked like any other index. `None` when there is none, or it does not verify.
+pub fn load_snapshot(dir: &Path, keys: &[(&str, &str)], now: i64) -> Option<Loaded> {
+    let index = read_limited(&dir.join(SNAPSHOT_FILE), MAX_INDEX)?;
+    let signature = read_limited(&dir.join(SNAPSHOT_SIGNATURE_FILE), MAX_SIGNATURE)?;
+    let index = verify(&index, &signature, keys).ok()?;
+    let expired = index.is_expired(now);
+    Some(Loaded {
+        index,
+        expired,
+        origin: Origin::Snapshot,
+        problem: None,
+    })
+}
+
 /// The index to use: a fresh one when the server gives a good one, else the cached
-/// copy (with the reason), else an error.
+/// copy or the shipped snapshot, whichever has the higher sequence (with the reason
+/// the server's was not used), else an error.
+///
+/// The snapshot is signed with the same keys and shipped with the release, so its
+/// sequence is also a floor: a live index older than it is a replay.
 pub fn current(
     dir: &Path,
+    snapshot: Option<&Path>,
     base: &str,
     keys: &[(&str, &str)],
     now: i64,
     transport: &Transport,
 ) -> Result<Loaded, String> {
-    match refresh(dir, base, keys, now, transport) {
+    let shipped = snapshot.and_then(|dir| load_snapshot(dir, keys, now));
+    let floor = shipped.as_ref().map_or(0, |shipped| shipped.index.sequence);
+    match refresh(dir, base, keys, now, floor, transport) {
         Ok(loaded) => Ok(loaded),
-        Err(problem) => match load_cached(dir, keys, now) {
-            Some(mut cached) => {
-                cached.problem = Some(problem);
-                Ok(cached)
+        Err(problem) => {
+            let best = [load_cached(dir, keys, now), shipped]
+                .into_iter()
+                .flatten()
+                .max_by_key(|loaded| loaded.index.sequence);
+            match best {
+                Some(mut best) => {
+                    best.problem = Some(problem);
+                    Ok(best)
+                }
+                None => Err(problem),
             }
-            None => Err(problem),
-        },
+        }
+    }
+}
+
+/// The extensions this copy of Loom ships, as `loom-ext lock` wrote them.
+#[derive(Debug, Deserialize)]
+pub struct Lock {
+    pub schema: u32,
+    pub index: LockedIndex,
+    pub extensions: Vec<LockedExtension>,
+}
+
+/// Which index the lock was made against.
+#[derive(Debug, Deserialize)]
+pub struct LockedIndex {
+    pub sequence: u64,
+    #[serde(rename = "keyId")]
+    pub key_id: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LockedExtension {
+    pub id: String,
+    pub version: String,
+    pub artifacts: Vec<Artifact>,
+}
+
+/// Read `extensions.lock` in `dir` and check it against the snapshot beside it: the
+/// snapshot must verify, be the very bytes the lock hashes, and list each locked
+/// version with the packages the lock names.
+pub fn load_lock(dir: &Path, keys: &[(&str, &str)]) -> Result<Lock, String> {
+    let missing = |name: &str| format!("{} is missing or too large", dir.join(name).display());
+    let lock_bytes =
+        read_limited(&dir.join(LOCK_FILE), 1024 * 1024).ok_or_else(|| missing(LOCK_FILE))?;
+    let lock: Lock = serde_json::from_slice(&lock_bytes)
+        .map_err(|error| format!("{LOCK_FILE} is not valid: {error}"))?;
+    if lock.schema != 1 {
+        return Err(format!("{LOCK_FILE}: unsupported schema {}", lock.schema));
+    }
+    let snapshot =
+        read_limited(&dir.join(SNAPSHOT_FILE), MAX_INDEX).ok_or_else(|| missing(SNAPSHOT_FILE))?;
+    let signature = read_limited(&dir.join(SNAPSHOT_SIGNATURE_FILE), MAX_SIGNATURE)
+        .ok_or_else(|| missing(SNAPSHOT_SIGNATURE_FILE))?;
+    let index = verify(&snapshot, &signature, keys)?;
+    if super::package::sha256(&snapshot) != lock.index.sha256
+        || index.sequence != lock.index.sequence
+        || index.key_id != lock.index.key_id
+    {
+        return Err(format!(
+            "{LOCK_FILE} was not made against the snapshot beside it"
+        ));
+    }
+    for locked in &lock.extensions {
+        let listed = index
+            .entry(&locked.id)
+            .and_then(|entry| entry.versions.iter().find(|v| v.version == locked.version));
+        if listed.is_none_or(|version| version.artifacts != locked.artifacts) {
+            return Err(format!(
+                "{LOCK_FILE}: {} {} is not in the snapshot as locked",
+                locked.id, locked.version
+            ));
+        }
+    }
+    Ok(lock)
+}
+
+/// Where the lock and the snapshot ship: `registry` beside the executable. Tests use
+/// the source tree.
+pub fn shipped_dir() -> Option<PathBuf> {
+    #[cfg(test)]
+    {
+        Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/registry"))
+    }
+    #[cfg(not(test))]
+    {
+        let executable = std::env::current_exe().ok()?;
+        Some(crate::infrastructure::language_packs::bundled_directory(
+            &executable,
+            "registry",
+        ))
     }
 }
 
@@ -492,14 +609,14 @@ mod tests {
         let dir = temp("cache");
         let get = |u: &str, c: &Conditions, l: u64| server.get(u, c, l);
 
-        let first = current(&dir, "https://h", &keys, NOW, &get).unwrap();
+        let first = current(&dir, None, "https://h", &keys, NOW, &get).unwrap();
         assert_eq!(
             (first.origin, first.expired, first.index.sequence),
             (Origin::Live, false, 1)
         );
         assert!(server.requests.borrow()[0].1 == Conditions::default());
 
-        let again = current(&dir, "https://h", &keys, NOW + 60, &get).unwrap();
+        let again = current(&dir, None, "https://h", &keys, NOW + 60, &get).unwrap();
         assert_eq!(again.origin, Origin::Live);
         let requests = server.requests.borrow();
         let last_index = requests
@@ -528,15 +645,15 @@ mod tests {
         let server = Server::new(&text, sign(&signer, "k1", text.as_bytes()));
         let dir = temp("offline");
         let get = |u: &str, c: &Conditions, l: u64| server.get(u, c, l);
-        assert!(current(&dir, "https://h", &keys, NOW, &get).is_ok());
+        assert!(current(&dir, None, "https://h", &keys, NOW, &get).is_ok());
         *server.down.borrow_mut() = true;
-        let cached = current(&dir, "https://h", &keys, NOW, &get).unwrap();
+        let cached = current(&dir, None, "https://h", &keys, NOW, &get).unwrap();
         assert_eq!(cached.origin, Origin::Cached);
         assert_eq!(cached.problem.as_deref(), Some("offline"));
         // With nothing cached there is nothing to fall back on.
         let empty = temp("offline-empty");
         assert_eq!(
-            current(&empty, "https://h", &keys, NOW, &get).unwrap_err(),
+            current(&empty, None, "https://h", &keys, NOW, &get).unwrap_err(),
             "offline"
         );
         let _ = fs::remove_dir_all(&dir);
@@ -551,7 +668,7 @@ mod tests {
         let dir = temp("replay");
         let get = |u: &str, c: &Conditions, l: u64| server.get(u, c, l);
         assert_eq!(
-            current(&dir, "https://h", &keys, NOW, &get)
+            current(&dir, None, "https://h", &keys, NOW, &get)
                 .unwrap()
                 .index
                 .sequence,
@@ -563,17 +680,169 @@ mod tests {
         *server.index.borrow_mut() = old.as_bytes().to_vec();
         *server.signature.borrow_mut() = sign(&signer, "k1", old.as_bytes());
         *server.etag.borrow_mut() = "\"two\"".into();
-        let kept = current(&dir, "https://h", &keys, NOW, &get).unwrap();
+        let kept = current(&dir, None, "https://h", &keys, NOW, &get).unwrap();
         assert_eq!((kept.origin, kept.index.sequence), (Origin::Cached, 5));
         assert!(kept.problem.unwrap().contains("older"));
 
         // Even with the cache gone, the highest sequence seen is remembered.
         fs::remove_file(dir.join(INDEX_FILE)).unwrap();
         assert!(
-            current(&dir, "https://h", &keys, NOW, &get)
+            current(&dir, None, "https://h", &keys, NOW, &get)
                 .unwrap_err()
                 .contains("older")
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn ship(dir: &Path, signer: &Signer, sequence: u64) -> String {
+        let text = index_text(sequence, "k1", LATER);
+        fs::create_dir_all(dir).unwrap();
+        fs::write(dir.join(SNAPSHOT_FILE), &text).unwrap();
+        fs::write(
+            dir.join(SNAPSHOT_SIGNATURE_FILE),
+            sign(signer, "k1", text.as_bytes()),
+        )
+        .unwrap();
+        text
+    }
+
+    #[test]
+    fn the_shipped_snapshot_stands_in_when_nothing_else_is_available_and_the_newest_wins() {
+        let signer = signer();
+        let keys = [("k1", signer.public.as_str())];
+        let shipped = temp("snapshot-shipped");
+        ship(&shipped, &signer, 4);
+        let dir = temp("snapshot");
+        let down = Server::new("", Vec::new());
+        *down.down.borrow_mut() = true;
+        let get = |u: &str, c: &Conditions, l: u64| down.get(u, c, l);
+
+        // Offline with an empty cache: the snapshot, with the reason the server was not used.
+        let loaded = current(&dir, Some(&shipped), "https://h", &keys, NOW, &get).unwrap();
+        assert_eq!(
+            (loaded.origin, loaded.index.sequence),
+            (Origin::Snapshot, 4)
+        );
+        assert_eq!(loaded.problem.as_deref(), Some("offline"));
+
+        // A cache newer than the snapshot is preferred; an older one is not.
+        let newer = index_text(6, "k1", LATER);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(INDEX_FILE), &newer).unwrap();
+        fs::write(
+            dir.join(SIGNATURE_FILE),
+            sign(&signer, "k1", newer.as_bytes()),
+        )
+        .unwrap();
+        let loaded = current(&dir, Some(&shipped), "https://h", &keys, NOW, &get).unwrap();
+        assert_eq!((loaded.origin, loaded.index.sequence), (Origin::Cached, 6));
+        let older = index_text(2, "k1", LATER);
+        fs::write(dir.join(INDEX_FILE), &older).unwrap();
+        fs::write(
+            dir.join(SIGNATURE_FILE),
+            sign(&signer, "k1", older.as_bytes()),
+        )
+        .unwrap();
+        let loaded = current(&dir, Some(&shipped), "https://h", &keys, NOW, &get).unwrap();
+        assert_eq!(
+            (loaded.origin, loaded.index.sequence),
+            (Origin::Snapshot, 4)
+        );
+
+        // A snapshot that does not verify is as good as none.
+        fs::write(shipped.join(SNAPSHOT_FILE), index_text(9, "k1", LATER)).unwrap();
+        assert!(load_snapshot(&shipped, &keys, NOW).is_none());
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&shipped);
+    }
+
+    #[test]
+    fn the_snapshot_sets_the_floor_for_a_live_index() {
+        let signer = signer();
+        let keys = [("k1", signer.public.as_str())];
+        let shipped = temp("floor-shipped");
+        ship(&shipped, &signer, 5);
+        let dir = temp("floor");
+        // The server answers with a validly signed index older than what shipped.
+        let stale = index_text(3, "k1", LATER);
+        let server = Server::new(&stale, sign(&signer, "k1", stale.as_bytes()));
+        let get = |u: &str, c: &Conditions, l: u64| server.get(u, c, l);
+        let loaded = current(&dir, Some(&shipped), "https://h", &keys, NOW, &get).unwrap();
+        assert_eq!(
+            (loaded.origin, loaded.index.sequence),
+            (Origin::Snapshot, 5)
+        );
+        assert!(loaded.problem.unwrap().contains("older"));
+        assert!(!dir.join(INDEX_FILE).exists(), "the replay was not kept");
+        // A newer one is taken.
+        let fresh = index_text(7, "k1", LATER);
+        *server.index.borrow_mut() = fresh.as_bytes().to_vec();
+        *server.signature.borrow_mut() = sign(&signer, "k1", fresh.as_bytes());
+        let loaded = current(&dir, Some(&shipped), "https://h", &keys, NOW, &get).unwrap();
+        assert_eq!((loaded.origin, loaded.index.sequence), (Origin::Live, 7));
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&shipped);
+    }
+
+    #[test]
+    fn a_lock_must_match_the_snapshot_it_ships_with() {
+        let signer = signer();
+        let keys = [("k1", signer.public.as_str())];
+        let dir = temp("lock");
+        let text = ship(&dir, &signer, 2);
+        let good = serde_json::json!({
+            "schema": 1,
+            "index": { "sequence": 2, "keyId": "k1", "sha256": super::super::package::sha256(text.as_bytes()) },
+            "extensions": [{ "id": "loom.lang.rust", "version": "1.0.0", "artifacts": [
+                { "platform": "any", "url": "https://x/r.loomext", "sha256": "b".repeat(64), "size": 3 }] }],
+        });
+        let write =
+            |lock: &serde_json::Value| fs::write(dir.join(LOCK_FILE), lock.to_string()).unwrap();
+        write(&good);
+        let lock = load_lock(&dir, &keys).unwrap();
+        assert_eq!(
+            (lock.index.sequence, lock.extensions[0].id.as_str()),
+            (2, "loom.lang.rust")
+        );
+
+        for (path, value, expected) in [
+            (
+                "/index/sha256",
+                serde_json::json!("0".repeat(64)),
+                "not made against",
+            ),
+            ("/index/sequence", serde_json::json!(9), "not made against"),
+            (
+                "/extensions/0/version",
+                serde_json::json!("9.9.9"),
+                "not in the snapshot",
+            ),
+            (
+                "/extensions/0/artifacts/0/size",
+                serde_json::json!(4),
+                "not in the snapshot",
+            ),
+            (
+                "/extensions/0/id",
+                serde_json::json!("loom.lang.zig"),
+                "not in the snapshot",
+            ),
+            ("/schema", serde_json::json!(2), "unsupported schema"),
+        ] {
+            let mut bad = good.clone();
+            *bad.pointer_mut(path).unwrap() = value;
+            write(&bad);
+            let error = load_lock(&dir, &keys).unwrap_err();
+            assert!(error.contains(expected), "{path}: {error}");
+        }
+        // A snapshot signed by someone else is refused even if the lock matches it.
+        write(&good);
+        fs::write(
+            dir.join(SNAPSHOT_SIGNATURE_FILE),
+            sign(&self::signer(), "k1", text.as_bytes()),
+        )
+        .unwrap();
+        assert!(load_lock(&dir, &keys).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -586,7 +855,7 @@ mod tests {
         let dir = temp("expired");
         let get = |u: &str, c: &Conditions, l: u64| server.get(u, c, l);
         let week_later = NOW + 7 * 86_400;
-        let loaded = current(&dir, "https://h", &keys, week_later, &get).unwrap();
+        let loaded = current(&dir, None, "https://h", &keys, week_later, &get).unwrap();
         assert!(loaded.expired);
         assert!(!load_cached(&dir, &keys, NOW).unwrap().expired);
         assert!(load_cached(&dir, &keys, week_later).unwrap().expired);
@@ -601,12 +870,12 @@ mod tests {
         let server = Server::new(&text, sign(&signer, "k1", text.as_bytes()));
         let dir = temp("damaged");
         let get = |u: &str, c: &Conditions, l: u64| server.get(u, c, l);
-        current(&dir, "https://h", &keys, NOW, &get).unwrap();
+        current(&dir, None, "https://h", &keys, NOW, &get).unwrap();
         assert!(load_cached(&dir, &keys, NOW).is_some());
         fs::write(dir.join(INDEX_FILE), text.replace("Rust", "Evil")).unwrap();
         assert!(load_cached(&dir, &keys, NOW).is_none());
         // With the cache unusable the server's answer is fetched whole, not "not modified".
-        let again = current(&dir, "https://h", &keys, NOW, &get).unwrap();
+        let again = current(&dir, None, "https://h", &keys, NOW, &get).unwrap();
         assert_eq!(again.origin, Origin::Live);
         let _ = fs::remove_dir_all(&dir);
     }
