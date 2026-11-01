@@ -5,6 +5,8 @@
 *.rs text eol=lf
 *.svg text eol=lf
 *.toml text eol=lf
+# The signature and the lock's hash cover these exact bytes; no line-ending conversion.
+assets/registry/* -text
 *.ico binary
 *.png binary
 *.wasm binary
