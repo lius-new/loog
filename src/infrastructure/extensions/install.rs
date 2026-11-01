@@ -394,6 +394,35 @@ mod tests {
             platform,
         );
         assert!(again.unwrap().is_empty());
+        // A language server brings the runtime it requires, if the registry has them.
+        if loaded
+            .index
+            .entry("loom.lsp.bash-language-server")
+            .is_some()
+        {
+            let steps = plan_install(
+                &loaded.index,
+                &installed(&root),
+                "loom.lsp.bash-language-server",
+                loom,
+                platform,
+            )
+            .unwrap();
+            let ids: Vec<_> = steps.iter().map(|step| step.id.as_str()).collect();
+            assert_eq!(ids, ["loom.runtime.node", "loom.lsp.bash-language-server"]);
+            install(&root, &steps, loom, &download).unwrap();
+            let node = installed(&root);
+            assert_eq!(
+                crate::features::extensions::registry::dependents(&node, "loom.runtime.node"),
+                ["loom.lsp.bash-language-server"]
+            );
+            // Keep the result to look at, when asked to.
+            if let Some(keep) = std::env::var_os("LOOM_KEEP_LIVE_INSTALL") {
+                let _ = fs::remove_dir_all(&keep);
+                fs::rename(&root, keep).unwrap();
+                return;
+            }
+        }
         let _ = fs::remove_dir_all(&root);
     }
 
