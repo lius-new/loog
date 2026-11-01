@@ -5,7 +5,9 @@
 use super::*;
 use crate::features::highlighting::HighlightId;
 use crate::features::settings::theme_id::{REGISTRY_TURN, ThemeId};
-use crate::infrastructure::language_packs::{Packages, check_extension_pack, extension_packs};
+use crate::infrastructure::language_packs::{
+    Packages, check_extension_pack, extension_packs, packs_in,
+};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -98,7 +100,7 @@ fn the_sample_language_extension_is_found_at_startup_and_highlights_with_its_mod
     assert!(check_extension_pack(&package, "grammar/tree-sitter.json").is_ok());
 
     // Startup discovery finds the pack inside it (and nothing in a data-only package).
-    let found = extension_packs(&root);
+    let found = packs_in(vec![package.clone()], &Default::default());
     assert_eq!(found, [package.join("grammar").canonicalize().unwrap()]);
     let nowhere = std::env::temp_dir().join(format!("loom-no-packs-{}", std::process::id()));
     let packages = Arc::new(Packages::discover_with(&nowhere, &found, None));

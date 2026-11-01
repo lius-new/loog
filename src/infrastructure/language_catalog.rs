@@ -1,5 +1,6 @@
 //! Consume the application-pinned catalog. Downloads never run on a parser/UI thread.
 use super::*;
+use crate::infrastructure::extensions::state;
 use ring::digest::{SHA256, digest};
 use std::{
     collections::VecDeque,
@@ -419,34 +420,41 @@ impl Manager {
             crate::features::syntax::validate_resources(&validation, grammar)?;
         }
         // The language is installed as an ordinary extension: a manifest names its
-        // grammar, and a marker records that the registry put it there.
+        // grammar, and the extensions record says that the registry put it there.
         let extensions = self
             .extensions
             .as_ref()
             .ok_or("No user directory is available for extensions")?;
         let extension = extension_id(id);
+        let version = registry_version(p);
         fs::write(
             directory.join("manifest.json"),
             registry_manifest(&extension, p),
         )
         .map_err(|e| e.to_string())?;
-        fs::write(
-            directory.join(REGISTRY_MARKER),
-            serde_json::json!({"sha256": p.sha256, "release": p.release}).to_string(),
-        )
-        .map_err(|e| e.to_string())?;
         fs::create_dir_all(extensions).map_err(|e| e.to_string())?;
-        let destination = extensions.join(&extension);
+        // An extension of the same name that the user installed is theirs.
+        let recorded = state::read(extensions).extensions.get(&extension).cloned();
+        let ours = recorded
+            .as_ref()
+            .is_some_and(|entry| matches!(entry.source, state::Source::Registry { .. }));
+        if (recorded.is_some() && !ours)
+            || (recorded.is_none() && extensions.join(&extension).exists())
+        {
+            return Err(format!(
+                "{extension}: an extension with this name is already installed"
+            ));
+        }
+        let destination = state::version_dir(extensions, &extension, &version);
+        let source = state::Source::Registry {
+            sha256: p.sha256.clone(),
+            release: p.release.clone(),
+        };
         let quarantine = Temporary::new(cache)?;
         // Existing files are reused only if every extracted byte matches the pinned archive.
         if destination.exists() {
-            // An extension of the same name that the user installed is theirs.
-            if !destination.join(REGISTRY_MARKER).is_file() {
-                return Err(format!(
-                    "{extension}: an extension with this name is already installed"
-                ));
-            }
             if inventory(&directory)? == inventory(&destination).unwrap_or_default() {
+                state::record_install(extensions, &extension, &version, source)?;
                 return standard::read(&destination);
             }
             // Move only what the registry installed aside before installing verified bytes.
@@ -456,12 +464,15 @@ impl Manager {
                 Err(e) => return Err(format!("repair language extension {id}: {e}")),
             }
         }
+        fs::create_dir_all(destination.parent().unwrap_or(extensions))
+            .map_err(|e| e.to_string())?;
         match fs::rename(&directory, &destination) {
             Ok(()) => {}
             Err(_)
                 if destination.exists() && inventory(&directory)? == inventory(&destination)? => {}
             Err(e) => return Err(format!("activate language package {id}: {e}")),
         }
+        state::record_install(extensions, &extension, &version, source)?;
         standard::read(&destination)
     }
     fn fetch(&self, package: &Package, archive: &Path) -> Result<Vec<u8>, String> {
@@ -482,28 +493,29 @@ impl Manager {
     }
 }
 
-/// Present in a folder the registry installed, so it is never taken for one the
-/// user installed.
-const REGISTRY_MARKER: &str = ".registry.json";
-
 /// The extension a registry language is installed as.
 fn extension_id(id: &str) -> String {
     format!("loom.lang.{}", id.replace('_', "-"))
 }
 
-/// The manifest of a registry language: a resource-only extension that
-/// contributes its grammar.
-fn registry_manifest(extension: &str, package: &Package) -> String {
+/// The version of a registry language: the date of its release, or 0.0.0.
+fn registry_version(package: &Package) -> String {
     let release = package
         .release
         .strip_prefix("language-packs-")
         .unwrap_or("");
     let parts: Vec<&str> = release.split('.').take(3).collect();
-    let version = if parts.len() == 3 && parts.iter().all(|p| p.parse::<u32>().is_ok()) {
+    if parts.len() == 3 && parts.iter().all(|p| p.parse::<u32>().is_ok()) {
         parts.join(".")
     } else {
         "0.0.0".to_owned()
-    };
+    }
+}
+
+/// The manifest of a registry language: a resource-only extension that
+/// contributes its grammar.
+fn registry_manifest(extension: &str, package: &Package) -> String {
+    let version = registry_version(package);
     serde_json::json!({
         "schema": 1,
         "id": extension,

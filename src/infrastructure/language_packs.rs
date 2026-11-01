@@ -819,39 +819,47 @@ impl Resources for Packages {
 /// manifest is read with the extension loader's own rules and a package whose
 /// manifest it rejects contributes nothing; nothing here runs or loads a module.
 pub(crate) fn extension_packs(extensions: &Path) -> Vec<PathBuf> {
-    packs_of(enabled_extensions(
-        &[extensions.to_owned()],
-        &super::extensions::disabled::read(extensions),
-    ))
+    packs_in(
+        super::extensions::state::folders(extensions, true),
+        &super::extensions::state::disabled(extensions),
+    )
+}
+
+/// The language packs of the extension `folders`, except those of the `disabled` ids.
+pub(crate) fn packs_in(folders: Vec<PathBuf>, disabled: &BTreeSet<String>) -> Vec<PathBuf> {
+    packs_of(enabled_extensions(folders, disabled))
 }
 
 type Enabled = Vec<(PathBuf, crate::features::extensions::manifest::Manifest)>;
 
 /// The folders extensions are loaded from: the ones that ship with Loom, then the
-/// user's. What the user disabled is listed in the user's folder.
-fn extension_roots() -> (Vec<PathBuf>, BTreeSet<String>) {
+/// version of each the user installed that is in use. What the user turned off
+/// is recorded in the user's folder, bundled extensions included.
+fn extension_folders() -> (Vec<PathBuf>, BTreeSet<String>) {
     let user = user_resource_directory("extensions");
     let disabled = user
         .as_deref()
-        .map(super::extensions::disabled::read)
+        .map(super::extensions::state::disabled)
         .unwrap_or_default();
-    let roots = [bundled_extensions_directory(), user]
-        .into_iter()
-        .flatten()
-        .collect();
-    (roots, disabled)
+    let mut folders = bundled_extensions_directory()
+        .map(|root| bundled_folders(&root))
+        .unwrap_or_default();
+    if let Some(user) = user {
+        folders.extend(super::extensions::state::folders(&user, true));
+    }
+    (folders, disabled)
 }
 
 /// The language packs of every enabled extension, bundled and installed.
 pub(crate) fn installed_extension_packs() -> Vec<PathBuf> {
-    let (roots, disabled) = extension_roots();
-    packs_of(enabled_extensions(&roots, &disabled))
+    let (folders, disabled) = extension_folders();
+    packs_of(enabled_extensions(folders, &disabled))
 }
 
 /// The queries of every enabled extension, bundled and installed.
 pub(crate) fn installed_extension_queries() -> Vec<ExtensionQuery> {
-    let (roots, disabled) = extension_roots();
-    queries_of(enabled_extensions(&roots, &disabled))
+    let (folders, disabled) = extension_folders();
+    queries_of(enabled_extensions(folders, &disabled))
 }
 
 /// Where the extensions that ship with Loom are kept: `extensions` beside the
@@ -883,25 +891,27 @@ fn packs_of(enabled: Enabled) -> Vec<PathBuf> {
     found
 }
 
-/// The extension packages under `roots` that are not disabled and whose manifest
-/// is valid, with their folders.
-fn enabled_extensions(roots: &[PathBuf], disabled: &BTreeSet<String>) -> Enabled {
-    let mut folders = Vec::new();
-    for root in roots {
-        let Ok(entries) = fs::read_dir(root) else {
-            continue;
-        };
-        let mut found: Vec<_> = entries
-            .flatten()
-            .filter(|entry| {
-                entry.file_type().is_ok_and(|kind| kind.is_dir())
-                    && !entry.file_name().to_string_lossy().starts_with('.')
-            })
-            .map(|entry| entry.path())
-            .collect();
-        found.sort();
-        folders.extend(found);
-    }
+/// The extension folders directly under `root`, which is where the ones that
+/// ship with Loom are (they have no version folder).
+pub(crate) fn bundled_folders(root: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut found: Vec<_> = entries
+        .flatten()
+        .filter(|entry| {
+            entry.file_type().is_ok_and(|kind| kind.is_dir())
+                && !entry.file_name().to_string_lossy().starts_with('.')
+        })
+        .map(|entry| entry.path())
+        .collect();
+    found.sort();
+    found
+}
+
+/// Of the extension `folders`, those that are not disabled and whose manifest
+/// is valid.
+fn enabled_extensions(folders: Vec<PathBuf>, disabled: &BTreeSet<String>) -> Enabled {
     folders
         .into_iter()
         .filter_map(|package| {

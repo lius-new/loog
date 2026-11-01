@@ -89,26 +89,26 @@ fn a_complete_package_is_installed_whole_and_remembers_where_it_came_from() {
     assert_eq!(imported.publisher, "Acme");
     assert_eq!(imported.replaced, None);
     assert!(!imported.needs_restart);
-    for file in [
-        "manifest.json",
-        "icon.svg",
-        "README.md",
-        "themes/dark.json",
-        SOURCE_FILE,
-    ] {
+    for file in ["manifest.json", "icon.svg", "README.md", "themes/dark.json"] {
         assert!(imported.directory.join(file).is_file(), "{file}");
     }
-    let source: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(imported.directory.join(SOURCE_FILE)).unwrap())
-            .unwrap();
-    assert_eq!(source["sha256"], imported.sha256.as_str());
+    let extensions = temp.0.join("extensions");
+    assert_eq!(imported.directory, extensions.join("acme.night/1.0.0"));
+    let state = crate::infrastructure::extensions::state::read(&extensions);
+    let entry = &state.extensions["acme.night"];
+    assert_eq!(entry.version, "1.0.0");
+    assert!(matches!(
+        &entry.source,
+        crate::infrastructure::extensions::state::Source::File { sha256, .. } if *sha256 == imported.sha256
+    ));
     assert_eq!(imported.sha256.len(), 64);
     // Nothing of the import is left beside the installed extensions.
-    let left: Vec<_> = fs::read_dir(temp.0.join("extensions"))
+    let mut left: Vec<_> = fs::read_dir(&extensions)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
-    assert_eq!(left, ["acme.night"]);
+    left.sort();
+    assert_eq!(left, ["acme.night", "extensions.json"]);
 }
 
 #[test]
@@ -119,6 +119,15 @@ fn importing_again_replaces_the_extension_and_a_failure_keeps_the_old_one() {
     assert_eq!(second.replaced.as_deref(), Some("1.0.0"));
     let installed = second.directory.join("CHANGELOG.md");
     assert_eq!(fs::read_to_string(&installed).unwrap(), "## 1.1.0");
+    // The version before stays beside it, and the record points at the new one.
+    let extensions = temp.0.join("extensions");
+    assert!(extensions.join("acme.night/1.0.0/manifest.json").is_file());
+    let entry =
+        &crate::infrastructure::extensions::state::read(&extensions).extensions["acme.night"];
+    assert_eq!(
+        (entry.version.as_str(), entry.previous.as_deref()),
+        ("1.1.0", Some("1.0.0"))
+    );
 
     let mut broken = files("1.2.0");
     broken.retain(|(name, _)| name != "README.md");

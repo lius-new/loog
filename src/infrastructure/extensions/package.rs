@@ -21,8 +21,6 @@ pub const MAX_ARCHIVE: u64 = 64 * 1024 * 1024;
 pub const MAX_UNPACKED: u64 = 128 * 1024 * 1024;
 const MAX_ENTRIES: usize = 2048;
 const MAX_MANIFEST: u64 = 1024 * 1024;
-/// Written into the installed folder: where it came from.
-pub const SOURCE_FILE: &str = ".loomext-source.json";
 
 /// What an import did.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -220,8 +218,9 @@ fn mark_executables(folder: &Path, executables: &[String]) -> Result<(), String>
     Ok(())
 }
 
-/// Install the package `archive` into `extensions` (the folder that holds one
-/// folder per extension). An installed extension with the same id is replaced.
+/// Install the package `archive` as `<extensions>/<id>/<version>` and make that
+/// version the one in use (see [`super::state`]). The same version installed
+/// again is replaced; the version in use before stays as the previous one.
 pub fn import(archive: &Path, extensions: &Path, loom_version: &str) -> Result<Imported, String> {
     let bytes = read_limited(archive, MAX_ARCHIVE)?;
     fs::create_dir_all(extensions).map_err(|e| e.to_string())?;
@@ -235,18 +234,9 @@ pub fn import(archive: &Path, extensions: &Path, loom_version: &str) -> Result<I
     let name = manifest.name.clone().unwrap_or_default();
     let publisher = manifest.publisher.clone().unwrap_or_default();
     let needs_restart = !manifest.contributes.languages.is_empty();
-    let source = serde_json::json!({
-        "sha256": digest,
-        "file": archive.file_name().map(|n| n.to_string_lossy().into_owned()),
-        "version": manifest.version,
-    });
-    fs::write(folder.join(SOURCE_FILE), source.to_string()).map_err(|e| e.to_string())?;
 
-    let target = extensions.join(&manifest.id);
-    let replaced = fs::read_to_string(target.join("manifest.json"))
-        .ok()
-        .and_then(|text| Manifest::parse(&text).ok())
-        .map(|old| old.version);
+    let target = super::state::version_dir(extensions, &manifest.id, &manifest.version);
+    fs::create_dir_all(target.parent().unwrap_or(extensions)).map_err(|e| e.to_string())?;
     if target.exists() {
         // Move the old folder aside first, so a failure puts it back.
         let aside = Scratch::new(extensions, "old")?;
@@ -261,6 +251,20 @@ pub fn import(archive: &Path, extensions: &Path, loom_version: &str) -> Result<I
         fs::rename(&folder, &target)
             .map_err(|e| format!("could not install the extension: {e}"))?;
     }
+    let replaced = super::state::record_install(
+        extensions,
+        &manifest.id,
+        &manifest.version,
+        super::state::Source::File {
+            sha256: digest.clone(),
+            file: archive
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned()),
+        },
+    )
+    .inspect_err(|_| {
+        let _ = fs::remove_dir_all(&target);
+    })?;
     Ok(Imported {
         id: manifest.id,
         name,

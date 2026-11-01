@@ -737,7 +737,7 @@ impl ExtensionHost {
         let Some(directory) = self.directory() else {
             return;
         };
-        let disabled = crate::infrastructure::extensions::disabled::read(directory);
+        let disabled = crate::infrastructure::extensions::state::disabled(directory);
         for id in disabled {
             let result = self.inner.service.lock().unwrap().disable(&id);
             if let Ok(effects) = result {
@@ -769,14 +769,9 @@ impl ExtensionHost {
             };
             self.inner.apply(app, effects);
             if let Some(directory) = self.directory() {
-                use crate::infrastructure::extensions::disabled;
-                let mut ids = disabled::read(directory);
-                if enabled {
-                    ids.remove(id);
-                } else {
-                    ids.insert(id.to_owned());
-                }
-                if let Err(error) = disabled::write(directory, &ids) {
+                if let Err(error) =
+                    crate::infrastructure::extensions::state::set_enabled(directory, id, enabled)
+                {
                     app.show_error(format!("Could not keep the choice for {name}: {error}"));
                 }
             }
@@ -799,29 +794,28 @@ impl ExtensionHost {
                 .name
                 .clone()
                 .unwrap_or_else(|| id.to_owned());
-            if package.dir.parent() != Some(directory.as_path()) {
+            if crate::infrastructure::extensions::state::installed_id(&directory, &package.dir)
+                .as_deref()
+                != Some(id)
+            {
                 let place = package.dir.display().to_string();
                 return app.show_error(format!(
                     "{name} was not installed by Loom; delete {place} yourself"
                 ));
             }
-            let (folder, effects) = match service.uninstall(id) {
-                Ok(removed) => removed,
+            let effects = match service.uninstall(id) {
+                Ok((_, effects)) => effects,
                 Err(error) => return app.show_error(format!("{id}: {error}")),
             };
             drop(service);
             self.inner.apply(app, effects);
-            let mut ids = crate::infrastructure::extensions::disabled::read(&directory);
-            if ids.remove(id) {
-                let _ = crate::infrastructure::extensions::disabled::write(&directory, &ids);
-            }
             if app.extensions_ui.selected.as_deref() == Some(id) {
                 app.extensions_ui.selected = None;
             }
-            if let Err(error) = std::fs::remove_dir_all(&folder) {
+            // Every installed version goes, and the record of it.
+            if let Err(error) = crate::infrastructure::extensions::state::remove(&directory, id) {
                 return app.show_error(format!(
-                    "Uninstalled {name} but could not delete {}: {error}",
-                    folder.display()
+                    "Uninstalled {name} but could not delete it: {error}"
                 ));
             }
         });

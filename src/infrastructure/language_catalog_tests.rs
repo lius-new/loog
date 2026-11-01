@@ -219,8 +219,14 @@ fn a_downloaded_language_becomes_an_extension_with_a_manifest_and_is_found_after
     ready(&source);
     assert!(source.language("json").is_ok());
 
-    let folder = root.0.join("extensions/loom.lang.json");
-    assert!(folder.join(".registry.json").is_file());
+    // Version 0.0.0 is what a release without a date gets.
+    let folder = root.0.join("extensions/loom.lang.json/0.0.0");
+    let recorded = &crate::infrastructure::extensions::state::read(&root.0.join("extensions"))
+        .extensions["loom.lang.json"];
+    assert!(matches!(
+        recorded.source,
+        crate::infrastructure::extensions::state::Source::Registry { .. }
+    ));
     let manifest = crate::features::extensions::manifest::Manifest::parse(
         &fs::read_to_string(folder.join("manifest.json")).unwrap(),
     )

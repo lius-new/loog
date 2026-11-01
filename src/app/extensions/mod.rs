@@ -119,17 +119,10 @@ pub(crate) fn start(
             problems.push(format!("{}: {error}", dir.display()));
         }
     }
-    if let Ok(entries) = std::fs::read_dir(&root) {
-        let mut dirs: Vec<_> = entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.join("manifest.json").is_file())
-            .collect();
-        dirs.sort();
-        for dir in dirs {
-            if let Err(error) = host.load_package(&dir) {
-                problems.push(format!("{}: {error}", dir.display()));
-            }
+    // The version in use of every installed extension; a turned-off one loads and is stopped below.
+    for dir in crate::infrastructure::extensions::state::folders(&root, false) {
+        if let Err(error) = host.load_package(&dir) {
+            problems.push(format!("{}: {error}", dir.display()));
         }
     }
     state.update(|app| {

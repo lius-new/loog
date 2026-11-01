@@ -523,7 +523,9 @@ impl Manifest {
             .iter()
             .find(|id| !valid_id(id) || **id == self.id)
         {
-            return bad(format!("`recommends` entry `{id}` is not another extension id"));
+            return bad(format!(
+                "`recommends` entry `{id}` is not another extension id"
+            ));
         }
         for path in &self.executables {
             check_package_path(path)?;
@@ -1031,7 +1033,8 @@ mod tests {
 
     #[test]
     fn requires_recommends_and_executables_are_checked() {
-        let with = |extra: &str| COMPLETE.replace("\"schema\": 1,", &format!("\"schema\": 1, {extra},"));
+        let with =
+            |extra: &str| COMPLETE.replace("\"schema\": 1,", &format!("\"schema\": 1, {extra},"));
         let manifest = Manifest::parse(&with(
             r#""requires": ["loom.runtime.node@^22"], "recommends": ["loom.lsp.pyright"], "executables": ["bin/server"]"#,
         ))

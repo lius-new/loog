@@ -364,7 +364,11 @@ fn a_language_pack_inside_an_extension_package_is_found_at_startup() {
     fs::write(temp.0.join("extensions/other/notes/readme.json"), "{}").unwrap();
     write_pack(&temp.0, "outside", "outside", "ou");
 
-    let found = extension_packs(&temp.0.join("extensions"));
+    let extensions = temp.0.join("extensions");
+    let found = packs_in(
+        ["other", "weave"].map(|name| extensions.join(name)).to_vec(),
+        &Default::default(),
+    );
     assert_eq!(
         found,
         [package.join("grammars/weave").canonicalize().unwrap()]
@@ -394,7 +398,7 @@ fn an_extension_pack_cannot_replace_a_bundled_collection_but_a_user_copy_replace
     write_pack(&bundled, "tree-sitter-weave", "weave", "wv");
     let package = extension_package(&temp, "weave", &["g/tree-sitter.json"]);
     write_pack(&package, "g", "weave", "weave2");
-    let found = extension_packs(&temp.0.join("extensions"));
+    let found = packs_in(vec![package.clone()], &Default::default());
 
     let source = Packages::discover_with(&bundled, &found, None);
     let registry = source.registry().unwrap();

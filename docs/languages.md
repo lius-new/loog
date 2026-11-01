@@ -163,8 +163,8 @@ files, duplicate paths and oversized payloads. The package's grammars and file
 associations must match the registry; only WebAssembly modules are accepted, and
 Loom compiles the module and the queries with its real loaders before it installs
 anything. The language is then installed as the extension `loom.lang.<name>`: a
-manifest is written beside the files, a `.registry.json` marker records that the
-registry installed it, and verified archives are kept in `extensions/.cache/` so a
+manifest is written beside the files, the folder is `extensions/loom.lang.<name>/<version>/`,
+`extensions/extensions.json` records that the registry installed it, and verified archives are kept in `extensions/.cache/` so a
 restart installs offline. An extension of the same name that you installed yourself
 is never replaced. The registry is a snapshot shipped with each release; Loom does
 not poll for a newer one.

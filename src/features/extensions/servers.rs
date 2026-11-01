@@ -86,7 +86,9 @@ pub fn resolve_command(
             .any(|part| part.is_empty() || part == "." || part == "..")
         || rest.contains(['\\', ':'])
     {
-        return Err(format!("`{command}` does not name a file inside the extension"));
+        return Err(format!(
+            "`{command}` does not name a file inside the extension"
+        ));
     }
     let mut path = base.join(rest);
     if windows && path.extension().is_none() {
@@ -158,10 +160,22 @@ mod tests {
             resolve("${runtime.node}/bin/node", false).unwrap(),
             Path::new("/rt/node").join("bin/node").to_string_lossy()
         );
-        assert!(resolve("${extension}/server", true).unwrap().ends_with("server.exe"));
-        assert!(resolve("${extension}/server.cmd", true).unwrap().ends_with("server.cmd"));
+        assert!(
+            resolve("${extension}/server", true)
+                .unwrap()
+                .ends_with("server.exe")
+        );
+        assert!(
+            resolve("${extension}/server.cmd", true)
+                .unwrap()
+                .ends_with("server.cmd")
+        );
         assert_eq!(resolve("rust-analyzer", true).unwrap(), "rust-analyzer");
-        assert!(resolve("${runtime.python}/bin/python", false).unwrap_err().contains("not installed"));
+        assert!(
+            resolve("${runtime.python}/bin/python", false)
+                .unwrap_err()
+                .contains("not installed")
+        );
         assert!(resolve("${extension}/../x", false).is_err());
     }
 

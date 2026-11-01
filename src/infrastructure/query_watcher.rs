@@ -32,12 +32,12 @@ impl Drop for DirWatcher {
 }
 
 /// Whether a change to `path` can alter the stacked queries: a query file, an
-/// extension's manifest, or the list of disabled extensions.
+/// extension's manifest, or the record of what is installed and turned off.
 pub fn relevant(path: &Path) -> bool {
     path.extension().is_some_and(|extension| extension == "scm")
         || path
             .file_name()
-            .is_some_and(|name| name == "manifest.json" || name == "disabled.json")
+            .is_some_and(|name| name == "manifest.json" || name == "extensions.json")
 }
 
 /// Call `reload` on a background thread whenever a file under `directory` that
@@ -88,8 +88,8 @@ mod tests {
     #[test]
     fn only_query_files_and_extension_manifests_matter() {
         assert!(relevant(Path::new("queries/rust/highlights.scm")));
-        assert!(relevant(Path::new("extensions/acme/manifest.json")));
-        assert!(relevant(Path::new("extensions/disabled.json")));
+        assert!(relevant(Path::new("extensions/acme/1.0.0/manifest.json")));
+        assert!(relevant(Path::new("extensions/extensions.json")));
         assert!(!relevant(Path::new("extensions/.cache/x.bin")));
         assert!(!relevant(Path::new("queries/rust/notes.txt")));
     }

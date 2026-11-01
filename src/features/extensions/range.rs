@@ -26,7 +26,9 @@ fn parse_partial(text: &str) -> Option<(Version, usize)> {
 
 /// A plain version such as `0.1.8`.
 pub fn parse_version(text: &str) -> Option<Version> {
-    parse_partial(text).filter(|(_, given)| *given == 3).map(|(v, _)| v)
+    parse_partial(text)
+        .filter(|(_, given)| *given == 3)
+        .map(|(v, _)| v)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
