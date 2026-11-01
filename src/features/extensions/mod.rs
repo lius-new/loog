@@ -8,6 +8,7 @@ pub mod lifecycle;
 pub mod manifest;
 pub mod providers;
 pub mod range;
+pub mod registry;
 pub mod savediff;
 pub mod servers;
 pub mod settings;

@@ -761,7 +761,7 @@ pub fn valid_domain(domain: &str) -> bool {
 }
 
 /// `vendor.name` style: two or more dot-separated lowercase segments.
-fn valid_id(id: &str) -> bool {
+pub fn valid_id(id: &str) -> bool {
     let segments: Vec<&str> = id.split('.').collect();
     segments.len() >= 2
         && segments.iter().all(|segment| {

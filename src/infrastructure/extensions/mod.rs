@@ -11,6 +11,9 @@ pub mod http;
 pub mod icon;
 pub mod package;
 pub mod ports;
+// Read by the extensions page and the installer, which are built on it next.
+#[allow(dead_code)]
+pub mod registry;
 pub mod tasks;
 pub mod trust_store;
 
