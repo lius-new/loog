@@ -84,6 +84,12 @@ pub fn render(
                 .blur(12.0),
         )
         .event_policy(EventPolicy::INTERACTIVE)
+        .position(lgui::core::Position::Layer {
+            horizontal: lgui::core::Align::Center,
+            vertical: lgui::core::Align::End,
+            offset: lgui::core::Point::new(0.0, -theme::STATUS_H - MARGIN),
+        })
+        .z_index(100)
         .cursor(CursorIcon::Pointer)
         .on_click(move |_cx: &mut UiEventContext| {
             dismiss(id);

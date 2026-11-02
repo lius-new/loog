@@ -90,6 +90,10 @@ impl Entry {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct VersionEntry {
     pub version: String,
+    /// Component ABI advertised by newly published packages. Retired declarative
+    /// language services have no ABI and cannot run in this host.
+    #[serde(default)]
+    pub api: Option<String>,
     #[serde(default)]
     pub engines: Option<super::manifest::Engines>,
     #[serde(default)]
@@ -297,6 +301,10 @@ impl Entry {
         self.versions
             .iter()
             .filter(|version| accept(version))
+            .filter(|version| {
+                self.language_service.is_none()
+                    || version.api.as_deref() == Some("loom:extension@0.1.0")
+            })
             .filter(|version| {
                 version.engines.as_ref().is_none_or(|engines| {
                     Range::parse(&engines.loom).is_some_and(|range| range.matches(loom))
@@ -612,6 +620,19 @@ mod tests {
         let node = index.entry("loom.runtime.node").unwrap();
         assert!(node.best_for("0.2.0", "windows-x86_64").is_some());
         assert!(node.best_for("0.2.0", "macos-aarch64").is_none());
+    }
+
+    #[test]
+    fn language_services_require_the_component_contract_per_version() {
+        let mut entry = index().extensions[0].clone();
+        entry.language_service = Some(ServiceInfo {
+            languages: vec!["rust".into()],
+        });
+        assert!(entry.best_for("0.2.0", "linux-x86_64").is_none());
+        for version in &mut entry.versions {
+            version.api = Some("loom:extension@0.1.0".into());
+        }
+        assert!(entry.best_for("0.2.0", "linux-x86_64").is_some());
     }
 
     #[test]

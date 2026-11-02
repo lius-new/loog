@@ -57,6 +57,10 @@ impl ExtensionService {
             for provider in &package.manifest.contributes.language_service.providers {
                 if provider.kind == DeclKind::SaveParticipant
                     && provider.selector.languages.contains(&language)
+                    && package
+                        .provider_configurations
+                        .get(&provider.id)
+                        .is_none_or(|c| c.enabled)
                 {
                     found.push((provider.id.clone(), owner.clone()));
                 }

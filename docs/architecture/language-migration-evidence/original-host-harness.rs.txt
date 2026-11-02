@@ -1,0 +1,89 @@
+//! Measurement harness added to the 5ff103ed source snapshot. Production client
+//! sources and behavior are unchanged. Use the same staged servers/projects as
+//! the extension-route harness, and the same Cargo profile on both routes.
+use super::manager::{Manager, Options, Snapshot, SnapshotDocument, Status, RequestSpec};
+use crate::features::language_service::{request::Feature, server_set::ServerSet, sync::Stamp};
+use crate::domain::language::Registry;
+use serde_json::json;
+use std::{path::{Path, PathBuf}, sync::Arc, time::{Duration, Instant}};
+#[path = "../../../../../tests/fixtures/language_migration_metrics.rs"]
+mod metrics;
+
+#[test]
+#[ignore = "requires staged official language servers"]
+fn original_host_language_migration_baseline() {
+    let loom = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();
+    let packages = loom.join(".tmp/loom-extensions/language-clients/.work/packages");
+    let fixture_bytes: usize = std::env::var("LOOM_MIGRATION_BYTES").ok().map(|value| value.parse().unwrap()).unwrap_or(0);
+    assert!([0, 1024 * 1024, 8 * 1024 * 1024].contains(&fixture_bytes));
+    for (language, filename, marker, extension) in [
+        ("rust", "src/main.rs", "Cargo.toml", "loom.lsp.rust-analyzer"),
+        ("go", "main.go", "go.mod", "loom.lsp.gopls"),
+        ("javascript", "main.js", "jsconfig.json", "loom.lsp.typescript-language-server"),
+        ("typescript", "main.ts", "tsconfig.json", "loom.lsp.typescript-language-server"),
+    ] {
+        if std::env::var("LOOM_MIGRATION_LANGUAGE").ok().is_some_and(|name| name != language) { continue; }
+        let root = loom.join("target/language-migration/projects").join(if fixture_bytes == 0 { language.to_owned() } else { format!("{language}-{fixture_bytes}") });
+        let _ = std::fs::remove_file(root.join("baseline-observed.json"));
+        let path = root.join(filename);
+        let text = Arc::new(std::fs::read_to_string(&path).unwrap());
+        let cursor = text.rfind("add(").unwrap() + 1;
+        let (program, args): (PathBuf, Vec<String>) = if extension.ends_with("typescript-language-server") {
+            (packages.join("loom.runtime.node/node.exe"), vec![packages.join(extension).join("node_modules/typescript-language-server/lib/cli.mjs").to_string_lossy().into_owned(), "--stdio".into()])
+        } else { (packages.join(extension).join(if language == "rust" { "rust-analyzer.exe" } else { "gopls.exe" }), vec![]) };
+        let definition = json!({"name":"migration-baseline","display_name":"Migration baseline","command":program,"args":args,"root":{"markers":[marker],"strategy":if language=="rust"{"outermost"}else{"nearest"},"fallback":"workspace"},"languages":[{"language":language,"language_id":language}]}).to_string();
+        let servers = Arc::new(ServerSet::from_sources(&[("migration-baseline", &definition)]).unwrap());
+        let (wake, changes) = std::sync::mpsc::channel();
+        let manager = Manager::start(Registry::builtin(), servers, Options::default(), move || { let _ = wake.send(()); });
+        let stamp = Stamp { incarnation: 1, version: 0 };
+        manager.update(Snapshot { documents: vec![SnapshotDocument { path: path.clone(), language: Registry::builtin().resolve_path(&path), stamp, text: text.clone() }], workspace_roots: vec![root.clone()], ..Default::default() });
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !manager.infos().iter().any(|info| info.status == Status::Ready) {
+            assert!(Instant::now() < deadline, "{language}: {:?}", manager.infos());
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let mut peak_memory = metrics::snapshot();
+        let mut ask = |feature| {
+            let start = Instant::now();
+            let handle = manager.request(RequestSpec::new(feature, path.clone(), stamp, cursor));
+            loop {
+                let progress = handle.poll();
+                if progress.finished {
+                    let value = progress.parts.first().map(|part| part.value.clone()).unwrap_or(serde_json::Value::Null);
+                    let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+                    metrics::sample(&mut peak_memory);
+                    return (value, elapsed, progress.failure);
+                }
+                assert!(start.elapsed() < Duration::from_secs(6), "{language} {feature:?} timed out");
+                let _ = changes.recv_timeout(Duration::from_secs(5));
+            }
+        };
+        let indexing = Instant::now() + Duration::from_secs(60);
+        let warm_started = Instant::now();
+        let mut stable_probes = 0;
+        loop {
+            let mut usable = false;
+            let (answer, _, _) = ask(Feature::Completion);
+            if answer.get("items").and_then(serde_json::Value::as_array).is_some_and(|items| !items.is_empty()) || answer.as_array().is_some_and(|items| !items.is_empty()) {
+                let (hover, _, _) = ask(Feature::Hover);
+                let (definition, _, _) = ask(Feature::Definition);
+                if !hover.is_null() && definition.as_array().is_some_and(|items| !items.is_empty()) { usable = true; }
+            }
+            stable_probes = if usable { stable_probes + 1 } else { 0 };
+            if stable_probes >= 10 && warm_started.elapsed() >= Duration::from_secs(2) { break; }
+            assert!(Instant::now() < indexing, "{language}: no completions after indexing");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let mut timings = serde_json::Map::new();
+        let idle_memory = metrics::snapshot();
+        for feature in [Feature::Completion, Feature::Hover, Feature::Definition] {
+            for _ in 0..10 { ask(feature); }
+            let mut samples = Vec::new();
+            for _ in 0..100 { let (value, elapsed, failure) = ask(feature); assert!(failure.is_none() && !value.is_null(), "{language}: measured request failed: {feature:?}: {failure:?}"); samples.push(elapsed); }
+            samples.sort_by(f64::total_cmp);
+            timings.insert(format!("{feature:?}"), json!({"count":samples.len(),"p50_ms":samples[49],"p95_ms":samples[94]}));
+        }
+        let stop_started = Instant::now(); drop(manager);
+        std::fs::write(root.join("baseline-observed.json"), serde_json::to_vec_pretty(&json!({"commit":"5ff103ed69dbded3df479cb0f17133ace8de0c1b","language":language,"document_bytes":text.len(),"profile":if cfg!(debug_assertions){"debug"}else{"release"},"small_document":timings,"idle_memory":idle_memory,"observed_peak_memory":peak_memory,"exit_ms":stop_started.elapsed().as_secs_f64()*1000.0})).unwrap()).unwrap();
+    }
+}

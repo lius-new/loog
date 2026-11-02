@@ -7,7 +7,7 @@ use crate::domain::identity::{PaneId, ViewId};
 use crate::features::language_service::reply;
 use crate::features::language_service::request::Feature;
 use crate::features::markdown::content::Markup;
-use crate::infrastructure::lsp::manager::{RequestHandle, RequestSpec};
+use crate::features::providers::{RequestHandle, RequestSpec};
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -171,7 +171,14 @@ pub fn pointer_over(app: &mut AppState, pane: PaneId, offset: Option<usize>) -> 
 /// Starts the timer that asks after the pointer has rested.
 pub fn arm(state: &AppContext, rest: Rest) {
     // How long the pointer rests on a word before the servers are asked.
-    let delay = Duration::from_millis(state.get().preferences.values().lsp.hover_delay_ms);
+    let delay = Duration::from_millis(
+        state
+            .get()
+            .preferences
+            .values()
+            .language_features
+            .hover_delay_ms,
+    );
     arm_for(state, rest, delay);
 }
 
@@ -198,7 +205,7 @@ pub fn fire(state: &AppContext, rest: &Rest) {
         return;
     }
     // Still moving over the word: the pointer has not rested, wait out the remainder.
-    let delay = Duration::from_millis(app.preferences.values().lsp.hover_delay_ms);
+    let delay = Duration::from_millis(app.preferences.values().language_features.hover_delay_ms);
     if let Some(left) = app
         .editor
         .language

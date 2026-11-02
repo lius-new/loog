@@ -74,27 +74,13 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             loading_state.clone(),
             loading_application.clone(),
         );
-        // Results from a server repaint the editor through the same revision the
-        // syntax worker uses.
-        let results_state = loading_state.clone();
-        let results_ready = crate::infrastructure::ui_dispatch::LatestNotification::new(
-            loading_application.clone(),
-            move |()| {
-                super::language_ui::tick(&results_state);
-            },
-        );
         if let Some(directory) =
             crate::infrastructure::language_packs::user_resource_directory("trust")
         {
             loading_runtime.trust().attach(directory.join("roots.json"));
         }
-        loading_runtime.install_language_services(
-            super::language_services::LanguageServices::with_start_gate(
-                crate::features::language_service::server_set::ServerSet::current(),
-                Some(loading_runtime.trust().start_gate()),
-                move || results_ready.send(()),
-            ),
-        );
+        loading_runtime
+            .install_language_services(super::language_services::LanguageServices::new());
         loading_runtime.install_markdown(super::markdown_service::MarkdownService::new(
             loading_state.clone(),
             loading_application.clone(),
@@ -1654,6 +1640,11 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             root = root.child(crate::ui::editing_menu::render(
                 vp,
                 anchor,
+                if ending {
+                    "statusbar.line-ending"
+                } else {
+                    "statusbar.indentation"
+                },
                 labels.into_iter().map(str::to_owned).collect(),
                 s.editor.editing.selected,
                 std::sync::Arc::new(move |event| super::editing::menu_event(&menu_state, event)),
@@ -1680,81 +1671,6 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         ));
     }
 
-    if s.chrome.language_details.is_some()
-        && let Some(frame) = super::chrome::language_details_frame(&state)
-    {
-        let details_state = state.clone();
-        use lgui::services::ServicesContextExt as _;
-        let clipboard = application_context.clipboard();
-        let status = super::chrome::status_binding(&state).frame();
-        root = root.child(crate::ui::language_details::render(
-            vp,
-            crate::ui::statusbar::language_action_anchor(statusbar_rect, &status),
-            &frame,
-            std::sync::Arc::new(move |event| match event {
-                crate::ui::language_details::Event::Close => {
-                    details_state.update(|app| app.chrome.language_details = None);
-                }
-                crate::ui::language_details::Event::Restart(instance) => {
-                    if let Some(services) =
-                        details_state.services().and_then(|r| r.language_services())
-                    {
-                        services.restart_instance(instance);
-                    }
-                }
-                crate::ui::language_details::Event::CopyLog => {
-                    if let Some(log) = super::chrome::language_details_log(&details_state) {
-                        match clipboard.write_text(&log) {
-                            Ok(()) => details_state.update(|app| app.show_success("Copied log.")),
-                            Err(error) => details_state
-                                .update(move |app| app.show_error(format!("Clipboard: {error}"))),
-                        }
-                    }
-                }
-            }),
-        ));
-    }
-    if s.chrome.language_panel {
-        let panel_state = state.clone();
-        let status = super::chrome::status_binding(&state).frame();
-        root = root.child(crate::ui::language_panel::render(
-            vp,
-            crate::ui::statusbar::language_anchor(statusbar_rect, &status),
-            &super::chrome::language_panel_frame(&state),
-            std::sync::Arc::new(move |event| match event {
-                crate::ui::language_panel::Event::Close => {
-                    panel_state.update(|app| app.chrome.language_panel = false);
-                }
-                crate::ui::language_panel::Event::Restart => {
-                    if let Some(services) =
-                        panel_state.services().and_then(|r| r.language_services())
-                    {
-                        services.restart();
-                    }
-                }
-                // The panel offers extensions of the registry to install.
-                crate::ui::language_panel::Event::Install(id) => {
-                    if let Some(host) = panel_state.services().and_then(|r| r.extensions()) {
-                        host.install(&panel_state, &id);
-                    }
-                }
-                crate::ui::language_panel::Event::CancelTask(target) => {
-                    if let Some(services) =
-                        panel_state.services().and_then(|r| r.language_services())
-                    {
-                        services.cancel_task(target.instance, target.run, target.task);
-                    }
-                }
-                crate::ui::language_panel::Event::RestartServer(instance) => {
-                    if let Some(services) =
-                        panel_state.services().and_then(|r| r.language_services())
-                    {
-                        services.restart_instance(instance);
-                    }
-                }
-            }),
-        ));
-    }
     if let Some(pos) = s.editor.menu {
         root = root.child(super::editor_view::menu(
             vp,
@@ -1926,13 +1842,16 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         );
     }
 
-    root.child(layout_map::render(
-        content_area,
-        state.clone(),
-        layout_map_store.clone(),
-        terminal_tabs.clone(),
-        terminal_focus.clone(),
-    ))
+    lgui::core::context_provider(
+        theme::widget_theme(),
+        root.child(layout_map::render(
+            content_area,
+            state.clone(),
+            layout_map_store.clone(),
+            terminal_tabs.clone(),
+            terminal_focus.clone(),
+        )),
+    )
 }
 
 /// The tab strip across the top of a pane.

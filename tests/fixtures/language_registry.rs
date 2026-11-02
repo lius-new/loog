@@ -1,5 +1,6 @@
 // Metadata-only fixtures for domain/protocol tests. No parser or query payload.
 pub(crate) static LANGUAGE_FILES: &[(&str,&str)] = &[
+    ("go", r#"{"name":"go","display_name":"Go","badge":"GO","aliases":["golang"],"comments":{"line":"//","block":["/*","*/"]},"variants":[{"id":"go"}],"files":[{"extensions":["go"],"variant":"go"}]}"#),
     ("csharp", r#"{"name":"csharp","display_name":"C#","badge":"C#","aliases":["cs"],"comments":{"line":"//","block":["/*","*/"]},"variants":[{"id":"csharp","grammar":"c_sharp"}],"files":[{"extensions":["cs"],"variant":"csharp"}]}"#),
     ("css", r#"{"name":"css","display_name":"CSS","badge":"CSS","comments":{"block":["/*","*/"]},"variants":[{"id":"css","grammar":"css"}],"files":[{"extensions":["css"],"variant":"css"}]}"#),
     ("html", r#"{"name":"html","display_name":"HTML","badge":"HTML","aliases":["htm"],"comments":{"block":["<!--","-->"]},"variants":[{"id":"html","grammar":"html"}],"files":[{"extensions":["html","htm","xhtml"],"variant":"html"}]}"#),

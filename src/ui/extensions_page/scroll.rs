@@ -35,9 +35,8 @@ pub(super) fn view(
     }
     let wheel = access.clone();
     let wheel_owner = owner.clone();
-    let mut area = panel(region, VisualStyle::default()).on_event(
-        UiEventKind::Wheel,
-        move |_cx, payload| {
+    let mut area =
+        panel(region, VisualStyle::default()).on_event(UiEventKind::Wheel, move |_cx, payload| {
             if let UiEventPayload::Wheel { delta } = payload {
                 let step = match delta.unit {
                     WheelUnit::Lines => delta.y * line * 3.0,
@@ -50,13 +49,12 @@ pub(super) fn view(
                     state.offset = (scroll - step).clamp(0.0, max_scroll);
                 });
             }
-        },
-    );
+        });
     area = area.child(clipped);
     if max_scroll > 0.0 {
         area = area.child(thumb(region, content_bottom, scroll, owner, access, pick));
     }
-    Element::from(area).key(key)
+    area.key(key)
 }
 
 fn thumb(

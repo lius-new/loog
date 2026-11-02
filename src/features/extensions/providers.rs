@@ -16,12 +16,11 @@ pub struct Reported {
     pub message: String,
     pub source: Option<String>,
     pub code: Option<String>,
+    pub documentation_url: Option<String>,
 }
 
-/// Most diagnostics one answer may carry; the rest are dropped and counted.
-pub const MAX_DIAGNOSTICS: usize = 1000;
-/// Longest message kept, in bytes (cut on a character boundary).
-pub const MAX_MESSAGE: usize = 2000;
+// The component host admits whole answers under its shared byte/queue budget.
+// Consumers validate positions without silently truncating accepted findings.
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Converted {
@@ -40,17 +39,6 @@ fn severity(number: u8) -> Severity {
     }
 }
 
-fn clipped(message: &str) -> String {
-    if message.len() <= MAX_MESSAGE {
-        return message.to_owned();
-    }
-    let mut end = MAX_MESSAGE;
-    while !message.is_char_boundary(end) {
-        end -= 1;
-    }
-    message[..end].to_owned()
-}
-
 /// Convert `reported` for `text`. `fallback_source` names the provider when the
 /// guest gave none, so every finding shows where it came from.
 pub fn convert(text: &str, reported: &[Reported], fallback_source: &str) -> Converted {
@@ -60,24 +48,37 @@ pub fn convert(text: &str, reported: &[Reported], fallback_source: &str) -> Conv
             && item.end <= text.len()
             && text.is_char_boundary(item.start)
             && text.is_char_boundary(item.end);
-        if !valid || out.diagnostics.len() >= MAX_DIAGNOSTICS {
+        if !valid {
             out.dropped += 1;
             continue;
         }
+        let (mut start, mut end) = (item.start, item.end);
+        if start == end {
+            if let Some(next) = text[end..]
+                .chars()
+                .next()
+                .filter(|c| !matches!(c, '\n' | '\r'))
+            {
+                end += next.len_utf8();
+            } else if let Some(previous) = text[..start]
+                .chars()
+                .next_back()
+                .filter(|c| !matches!(c, '\n' | '\r'))
+            {
+                start -= previous.len_utf8();
+            }
+        }
         out.diagnostics.push(Diagnostic {
-            range: Range {
-                start: item.start,
-                end: item.end,
-            },
+            range: Range { start, end },
             severity: severity(item.severity),
-            message: clipped(&item.message),
+            message: item.message.clone(),
             source: Some(
                 item.source
                     .clone()
                     .unwrap_or_else(|| fallback_source.to_owned()),
             ),
             code: item.code.clone(),
-            extra: Value::Null,
+            documentation_url: item.documentation_url.clone(),
         });
     }
     out.diagnostics
@@ -108,6 +109,7 @@ mod tests {
             message: "m".into(),
             source: None,
             code: None,
+            documentation_url: None,
         }
     }
 
@@ -124,6 +126,20 @@ mod tests {
     }
 
     #[test]
+    fn empty_findings_mark_whole_characters_and_keep_documentation_links() {
+        let mut finding = item(0, 0);
+        finding.documentation_url = Some("https://example.com/finding".into());
+        let out = convert("😀\r\n", &[finding, item(4, 4), item(6, 6)], "p");
+        assert_eq!(out.diagnostics[0].range, 0..4);
+        assert_eq!(out.diagnostics[1].range, 0..4);
+        assert_eq!(out.diagnostics[2].range, 6..6);
+        assert_eq!(
+            out.diagnostics[0].documentation_url.as_deref(),
+            Some("https://example.com/finding")
+        );
+    }
+
+    #[test]
     fn what_cannot_be_placed_in_the_text_is_dropped_and_counted() {
         let text = "中文";
         let out = convert(
@@ -136,24 +152,22 @@ mod tests {
     }
 
     #[test]
-    fn unknown_severities_become_errors_and_long_messages_are_cut_on_a_boundary() {
+    fn unknown_severities_become_errors_and_admitted_messages_remain_complete() {
         let mut long = item(0, 1);
         long.severity = 9;
         long.message = "中".repeat(1000);
         let out = convert("a", &[long], "p");
         assert_eq!(out.diagnostics[0].severity, Severity::Error);
-        assert!(out.diagnostics[0].message.len() <= MAX_MESSAGE);
+        assert_eq!(out.diagnostics[0].message, "中".repeat(1000));
         assert!(out.diagnostics[0].message.chars().all(|c| c == '中'));
     }
 
     #[test]
-    fn an_answer_is_bounded() {
-        let many: Vec<_> = (0..MAX_DIAGNOSTICS + 5)
-            .map(|i| item(i % 3, i % 3 + 1))
-            .collect();
+    fn admitted_findings_are_not_cut_at_the_old_entry_threshold() {
+        let many: Vec<_> = (0..1005).map(|i| item(i % 3, i % 3 + 1)).collect();
         let out = convert("abcd", &many, "p");
-        assert_eq!(out.diagnostics.len(), MAX_DIAGNOSTICS);
-        assert_eq!(out.dropped, 5);
+        assert_eq!(out.diagnostics.len(), 1005);
+        assert_eq!(out.dropped, 0);
     }
 
     #[test]
@@ -173,46 +187,76 @@ mod tests {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Offered {
     pub label: String,
+    pub label_detail: Option<String>,
+    pub label_description: Option<String>,
+    pub deprecated: Option<bool>,
+    pub preselect: Option<bool>,
+    pub insert_text_mode: Option<u8>,
     pub detail: Option<String>,
     pub documentation: Option<String>,
     pub kind: Option<u32>,
     pub insert_text: Option<String>,
+    pub text_edit: Option<(Range<usize>, String)>,
+    pub additional_text_edits: Vec<(Range<usize>, String)>,
+    pub insert_text_format: Option<u8>,
+    pub commit_characters: Vec<String>,
+    pub command: Option<(String, String)>,
     pub sort_text: Option<String>,
     pub filter_text: Option<String>,
     /// Opaque to the host; returned unchanged when the item is resolved.
     pub data: Option<String>,
 }
 
-/// Most items one answer may carry.
-pub const MAX_COMPLETIONS: usize = 500;
-const MAX_TEXT: usize = 4000;
-
-fn cut(text: &str) -> &str {
-    if text.len() <= MAX_TEXT {
-        return text;
-    }
-    let mut end = MAX_TEXT;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
-}
-
 /// The items as the JSON a completion list is read from. Each carries
 /// `x-loom` with its origin, so a later resolve goes back to the extension and
-/// provider that offered it and nowhere else. Empty labels and items past the
-/// limit are dropped; the count of dropped items is returned.
-pub fn completion_json(extension: &str, provider: &str, items: &[Offered]) -> (Vec<Value>, usize) {
+/// provider that offered it and nowhere else. The host import bounds the whole
+/// answer; conversion preserves accepted strings and candidates in full.
+pub fn completion_json(
+    extension: &str,
+    provider: &str,
+    text: &str,
+    items: &[Offered],
+) -> (Vec<Value>, usize) {
+    use crate::features::providers::position::LineIndex;
+    let index = LineIndex::new(text);
+    completion_json_indexed(extension, provider, text, items, &index)
+}
+
+pub fn completion_json_indexed(
+    extension: &str,
+    provider: &str,
+    text: &str,
+    items: &[Offered],
+    index: &crate::features::providers::position::LineIndex<'_>,
+) -> (Vec<Value>, usize) {
+    use crate::features::providers::PositionEncoding;
+    let edit_json = |(range, replacement): &(Range<usize>, String)| {
+        let valid = range.start <= range.end
+            && range.end <= text.len()
+            && text.is_char_boundary(range.start)
+            && text.is_char_boundary(range.end);
+        if !valid {
+            return None;
+        }
+        let start = index.position(range.start, PositionEncoding::Utf8);
+        let end = index.position(range.end, PositionEncoding::Utf8);
+        Some(serde_json::json!({"range": {
+            "start": {"line": start.line, "character": start.character},
+            "end": {"line": end.line, "character": end.character}
+        }, "newText": replacement}))
+    };
     let mut out = Vec::new();
     let mut dropped = 0;
     for item in items {
-        if item.label.trim().is_empty() || out.len() >= MAX_COMPLETIONS {
+        if item.label.trim().is_empty() {
             dropped += 1;
             continue;
         }
         let mut json = serde_json::json!({
-            "label": cut(&item.label),
-            "x-loom": { "extension": extension, "provider": provider, "data": item.data },
+            "label": item.label,
+            "x-loom": { "extension": extension, "provider": provider, "data": item.data,
+                "text-edit": item.text_edit.as_ref().map(|(r, t)| serde_json::json!({"start": r.start, "end": r.end, "text": t})),
+                "additional-text-edits": item.additional_text_edits.iter().map(|(r,t)| serde_json::json!({"start":r.start,"end":r.end,"text":t})).collect::<Vec<_>>() },
         });
         let object = json.as_object_mut().expect("an object");
         for (key, value) in [
@@ -223,11 +267,78 @@ pub fn completion_json(extension: &str, provider: &str, items: &[Offered]) -> (V
             ("filterText", item.filter_text.as_deref()),
         ] {
             if let Some(value) = value {
-                object.insert(key.to_owned(), Value::from(cut(value)));
+                object.insert(key.to_owned(), Value::from(value));
             }
         }
         if let Some(kind) = item.kind {
             object.insert("kind".to_owned(), Value::from(kind));
+        }
+        if item.label_detail.is_some() || item.label_description.is_some() {
+            object.insert("labelDetails".into(), serde_json::json!({"detail":item.label_detail,"description":item.label_description}));
+        }
+        if let Some(value) = item.deprecated {
+            object.insert("deprecated".into(), value.into());
+        }
+        if let Some(value) = item.preselect {
+            object.insert("preselect".into(), value.into());
+        }
+        if let Some(value) = item.insert_text_mode.filter(|value| matches!(value, 1 | 2)) {
+            object.insert("insertTextMode".into(), value.into());
+        }
+        let primary = item.text_edit.as_ref().map(&edit_json);
+        let additional = item
+            .additional_text_edits
+            .iter()
+            .map(&edit_json)
+            .collect::<Option<Vec<_>>>();
+        let valid_format = matches!(item.insert_text_format, None | Some(1 | 2));
+        let command = item.command.as_ref().map(|(name, args)| {
+            (args.len() <= 64 * 1024 && !name.is_empty()).then(|| serde_json::from_str::<Value>(args).ok()).flatten()
+                .filter(Value::is_array)
+                .map(|args| serde_json::json!({"title": item.label, "command": name, "arguments": args}))
+        });
+        let mut ranges = item
+            .text_edit
+            .iter()
+            .chain(item.additional_text_edits.iter())
+            .map(|(range, _)| range.clone())
+            .collect::<Vec<_>>();
+        ranges.sort_by_key(|range| (range.start, range.end));
+        let overlap = ranges.windows(2).any(|pair| {
+            pair[0].end > pair[1].start
+                || pair[0].is_empty() && pair[1].is_empty() && pair[0].start == pair[1].start
+        });
+        if primary.as_ref().is_some_and(Option::is_none)
+            || additional.is_none()
+            || !valid_format
+            || overlap
+            || command.as_ref().is_some_and(Option::is_none)
+        {
+            dropped += 1;
+            continue;
+        }
+        if let Some(Some(edit)) = primary {
+            object.insert("textEdit".into(), edit);
+        }
+        object.insert(
+            "additionalTextEdits".into(),
+            Value::Array(additional.unwrap()),
+        );
+        if let Some(format) = item.insert_text_format {
+            object.insert("insertTextFormat".into(), format.into());
+        }
+        object.insert(
+            "commitCharacters".into(),
+            Value::Array(
+                item.commit_characters
+                    .iter()
+                    .filter(|s| s.chars().count() == 1)
+                    .map(|s| Value::String(s.clone()))
+                    .collect(),
+            ),
+        );
+        if let Some(Some(command)) = command {
+            object.insert("command".into(), command);
         }
         out.push(json);
     }
@@ -239,6 +350,31 @@ mod completion_tests {
     use super::*;
 
     #[test]
+    fn edit_ranges_are_utf8_and_malformed_items_are_rejected_atomically() {
+        let item = Offered {
+            label: "hello".into(),
+            text_edit: Some((3..5, "hello(${1:x})$0".into())),
+            additional_text_edits: vec![(0..0, "import x;\n".into())],
+            insert_text_format: Some(2),
+            commit_characters: vec!["(".into()],
+            command: Some(("accepted".into(), "[42]".into())),
+            ..Default::default()
+        };
+        let (items, dropped) = completion_json("a.b", "a.b.c", "中lo", std::slice::from_ref(&item));
+        assert_eq!(dropped, 0);
+        assert_eq!(items[0]["textEdit"]["range"]["start"]["character"], 3);
+        assert_eq!(items[0]["insertTextFormat"], 2);
+        assert_eq!(items[0]["commitCharacters"][0], "(");
+        assert_eq!(items[0]["command"]["arguments"][0], 42);
+        let mut invalid = item.clone();
+        invalid.text_edit.as_mut().unwrap().0 = 1..5;
+        assert_eq!(completion_json("a.b", "a.b.c", "中lo", &[invalid]).1, 1);
+        let mut overlap = item;
+        overlap.additional_text_edits.push((4..5, "bad".into()));
+        assert_eq!(completion_json("a.b", "a.b.c", "中lo", &[overlap]).1, 1);
+    }
+
+    #[test]
     fn items_carry_their_origin_and_only_what_was_given() {
         let item = Offered {
             label: "loom_hello".into(),
@@ -247,7 +383,8 @@ mod completion_tests {
             data: Some("hello".into()),
             ..Offered::default()
         };
-        let (json, dropped) = completion_json("example.tools", "example.tools.complete", &[item]);
+        let (json, dropped) =
+            completion_json("example.tools", "example.tools.complete", "", &[item]);
         assert_eq!(dropped, 0);
         assert_eq!(json[0]["insertText"], "loom_hello()");
         assert_eq!(json[0]["x-loom"]["extension"], "example.tools");
@@ -256,8 +393,8 @@ mod completion_tests {
     }
 
     #[test]
-    fn empty_labels_and_overflow_are_dropped_and_counted() {
-        let mut items: Vec<Offered> = (0..MAX_COMPLETIONS + 2)
+    fn empty_labels_are_rejected_without_losing_candidates_after_the_old_500_item_cutoff() {
+        let mut items: Vec<Offered> = (0..1002)
             .map(|i| Offered {
                 label: format!("item{i}"),
                 ..Offered::default()
@@ -267,21 +404,24 @@ mod completion_tests {
             label: "  ".into(),
             ..Offered::default()
         });
-        let (json, dropped) = completion_json("a.b", "a.b.c", &items);
-        assert_eq!(json.len(), MAX_COMPLETIONS);
-        assert_eq!(dropped, 3);
+        let (json, dropped) = completion_json("a.b", "a.b.c", "", &items);
+        assert_eq!(json.len(), 1002);
+        assert_eq!(dropped, 1);
+        assert_eq!(json[1001]["label"], "item1001");
     }
 
     #[test]
-    fn long_text_is_cut_on_a_character_boundary() {
+    fn long_insertion_and_documentation_are_preserved_in_full() {
         let item = Offered {
             label: "x".into(),
             documentation: Some("中".repeat(3000)),
+            insert_text: Some("x".repeat(6000)),
             ..Offered::default()
         };
-        let (json, _) = completion_json("a.b", "a.b.c", &[item]);
+        let (json, _) = completion_json("a.b", "a.b.c", "", &[item]);
         let docs = json[0]["documentation"].as_str().unwrap();
-        assert!(docs.len() <= MAX_TEXT && docs.chars().all(|c| c == '中'));
+        assert_eq!(docs, "中".repeat(3000));
+        assert_eq!(json[0]["insertText"], "x".repeat(6000));
     }
 }
 
@@ -296,9 +436,7 @@ pub mod language {
     use serde_json::{Value, json};
     use std::path::Path;
 
-    /// Most entries one answer may carry; the rest are dropped.
-    pub const MAX_ENTRIES: usize = 2000;
-    const MAX_TEXT: usize = 8000;
+    // Admission budgets live at the host boundary; accepted text remains intact.
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct Hover {
@@ -341,17 +479,6 @@ pub mod language {
         pub tooltip: Option<String>,
     }
 
-    fn cut(text: &str) -> &str {
-        if text.len() <= MAX_TEXT {
-            return text;
-        }
-        let mut end = MAX_TEXT;
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        &text[..end]
-    }
-
     fn placed(text: &str, offset: usize) -> bool {
         offset <= text.len() && text.is_char_boundary(offset)
     }
@@ -368,12 +495,14 @@ pub mod language {
 
     /// `None` when there is nothing to show.
     pub fn hover(text: &str, hover: &Hover) -> Option<Value> {
+        hover_indexed(text, hover, &LineIndex::new(text))
+    }
+    pub fn hover_indexed(text: &str, hover: &Hover, index: &LineIndex<'_>) -> Option<Value> {
         if hover.contents.trim().is_empty() {
             return None;
         }
-        let index = LineIndex::new(text);
-        let mut out = json!({ "contents": { "kind": "markdown", "value": cut(&hover.contents) } });
-        if let Some(range) = hover.range.and_then(|range| span(text, &index, range)) {
+        let mut out = json!({ "contents": { "kind": "markdown", "value": hover.contents } });
+        if let Some(range) = hover.range.and_then(|range| span(text, index, range)) {
             out["range"] = range;
         }
         Some(out)
@@ -391,7 +520,7 @@ pub mod language {
             } else {
                 base.join(path)
             };
-            let Some(uri) = uri::file_uri(&full).filter(|_| out.len() < MAX_ENTRIES) else {
+            let Some(uri) = uri::file_uri(&full) else {
                 dropped += 1;
                 continue;
             };
@@ -404,36 +533,44 @@ pub mod language {
     /// An outline as nested document symbols. An entry whose range cannot be
     /// placed, or whose parent does not come before it or was dropped, is dropped.
     pub fn symbols(text: &str, symbols: &[Symbol]) -> (Value, usize) {
+        symbols_with_deprecated(text, symbols, &[])
+    }
+
+    pub fn symbols_with_deprecated(
+        text: &str,
+        symbols: &[Symbol],
+        deprecated: &[bool],
+    ) -> (Value, usize) {
         let index = LineIndex::new(text);
         let mut kept: Vec<Option<Value>> = vec![None; symbols.len()];
         let mut children: Vec<Vec<usize>> = vec![Vec::new(); symbols.len()];
         let mut roots = Vec::new();
+        let mut depths = vec![0usize; symbols.len()];
         let mut dropped = 0;
         for (at, symbol) in symbols.iter().enumerate() {
             let parent_ok = match symbol.parent {
                 None => true,
-                Some(parent) => parent < at && kept[parent].is_some(),
+                Some(parent) => parent < at && kept[parent].is_some() && depths[parent] < 128,
             };
             let ranges = span(text, &index, symbol.range).zip(span(text, &index, symbol.selection));
-            let (true, Some((range, selection)), false, true) = (
-                parent_ok,
-                ranges,
-                symbol.name.trim().is_empty(),
-                at < MAX_ENTRIES,
-            ) else {
+            let (true, Some((range, selection)), false) =
+                (parent_ok, ranges, symbol.name.trim().is_empty())
+            else {
                 dropped += 1;
                 continue;
             };
             let mut entry = json!({
-                "name": cut(&symbol.name),
+                "name": symbol.name,
                 "kind": symbol.kind,
                 "range": range,
                 "selectionRange": selection,
+                "deprecated": deprecated.get(at).copied().unwrap_or(false),
             });
             if let Some(detail) = &symbol.detail {
-                entry["detail"] = Value::from(cut(detail));
+                entry["detail"] = Value::from(detail.as_str());
             }
             kept[at] = Some(entry);
+            depths[at] = symbol.parent.map_or(1, |parent| depths[parent] + 1);
             match symbol.parent {
                 Some(parent) => children[parent].push(at),
                 None => roots.push(at),
@@ -464,18 +601,17 @@ pub mod language {
         let parameters: Vec<Value> = signature
             .parameters
             .iter()
-            .take(MAX_ENTRIES)
             .map(|(label, documentation)| {
-                let mut parameter = json!({ "label": cut(label) });
+                let mut parameter = json!({ "label": label });
                 if let Some(documentation) = documentation {
-                    parameter["documentation"] = Value::from(cut(documentation));
+                    parameter["documentation"] = Value::from(documentation.as_str());
                 }
                 parameter
             })
             .collect();
-        let mut entry = json!({ "label": cut(&signature.label), "parameters": parameters });
+        let mut entry = json!({ "label": signature.label, "parameters": parameters });
         if let Some(documentation) = &signature.documentation {
-            entry["documentation"] = Value::from(cut(documentation));
+            entry["documentation"] = Value::from(documentation.as_str());
         }
         let mut out = json!({ "signatures": [entry], "activeSignature": 0 });
         if let Some(active) = signature.active {
@@ -489,13 +625,13 @@ pub mod language {
         let mut out = Vec::new();
         let mut dropped = 0;
         for hint in hints {
-            if !placed(text, hint.offset) || hint.label.is_empty() || out.len() >= MAX_ENTRIES {
+            if !placed(text, hint.offset) || hint.label.is_empty() {
                 dropped += 1;
                 continue;
             }
             let mut entry = json!({
                 "position": position(&index, hint.offset),
-                "label": cut(&hint.label),
+                "label": hint.label,
                 "paddingLeft": hint.padding_left,
                 "paddingRight": hint.padding_right,
             });
@@ -503,7 +639,7 @@ pub mod language {
                 entry["kind"] = Value::from(kind);
             }
             if let Some(tooltip) = &hint.tooltip {
-                entry["tooltip"] = Value::from(cut(tooltip));
+                entry["tooltip"] = Value::from(tooltip.as_str());
             }
             out.push(entry);
         }
@@ -536,25 +672,24 @@ pub mod language {
                 .iter()
                 .map(|(start, end, new_text)| {
                     span(text, &index, (*start, *end))
-                        .map(|range| json!({ "range": range, "newText": cut(new_text) }))
+                        .map(|range| json!({ "range": range, "newText": new_text }))
                 })
                 .collect();
-            let (Some(changes), true, false, true) = (
+            let (Some(changes), true, false) = (
                 changes,
                 disjoint,
                 action.title.trim().is_empty() || action.edits.is_empty(),
-                out.len() < MAX_ENTRIES,
             ) else {
                 dropped += 1;
                 continue;
             };
             let mut entry = json!({
-                "title": cut(&action.title),
+                "title": action.title,
                 "isPreferred": action.preferred,
                 "edit": { "changes": { document_uri: changes } },
             });
             if let Some(kind) = &action.kind {
-                entry["kind"] = Value::from(cut(kind));
+                entry["kind"] = Value::from(kind.as_str());
             }
             out.push(entry);
         }

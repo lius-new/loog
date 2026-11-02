@@ -184,42 +184,18 @@ fn toolbar_row(rect: UiRect, frame: &Frame<'_>, commands: &Commands) -> Element 
         left += 26.0;
         let commands = commands.clone();
         row = row.child(
-            tool_button(slot, format!("outline-tool-{index}"), active)
-                .semantics(Semantics::new(SemanticRole::Button).name(label))
+            lgui::icon_button(slot, icon.to_owned(), label)
+                .key(format!("outline-tool-{index}"))
+                .semantics({
+                    let mut semantics = Semantics::new(SemanticRole::Button).name(label);
+                    semantics.state.selected = active;
+                    semantics
+                })
                 .cursor(CursorIcon::Pointer)
-                .on_click(move || commands.dispatch(command.clone()))
-                .child(crate::ui::drawer::drawer_icon(
-                    UiId::owned(format!("outline-tool-icon-{index}")),
-                    icon,
-                    theme::icon_rect(slot),
-                    if active {
-                        theme::c().accent
-                    } else {
-                        theme::c().text_dim
-                    },
-                )),
+                .on_click(move || commands.dispatch(command.clone())),
         );
     }
     row.child(crate::ui::components::divider::bottom(rect))
-}
-
-/// Transparent until hovered or pressed, filled while `active`.
-fn tool_button(rect: UiRect, key: String, active: bool) -> Element {
-    Element::new(move |cx| {
-        let flags = cx.context.interaction_flags(&cx.id);
-        let style = if active || flags.hovered || flags.pressed {
-            VisualStyle::filled(theme::c().surface).radius(3.0)
-        } else {
-            VisualStyle::default()
-        };
-        UiElement::panel(cx.id, rect, style).children(cx.children)
-    })
-    .key(key)
-    .event_policy(EventPolicy {
-        hover: true,
-        press: true,
-        focus: false,
-    })
 }
 
 #[allow(clippy::too_many_arguments)]

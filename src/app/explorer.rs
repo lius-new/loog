@@ -418,7 +418,7 @@ pub fn finish_rename(state: &AppContext) {
 
     tell_servers(
         state,
-        crate::infrastructure::lsp::manager::FileChange::Renamed {
+        crate::features::providers::FileChange::Renamed {
             from: request.path.clone(),
             to: target.clone(),
         },
@@ -427,7 +427,7 @@ pub fn finish_rename(state: &AppContext) {
 }
 
 /// Language servers that asked to hear about file changes are told.
-fn tell_servers(state: &AppContext, change: crate::infrastructure::lsp::manager::FileChange) {
+fn tell_servers(state: &AppContext, change: crate::features::providers::FileChange) {
     if let Some(services) = state.services().and_then(|r| r.language_services()) {
         services.files_changed(change);
     }
@@ -459,7 +459,7 @@ pub fn delete_item(state: &AppContext, path: PathBuf) {
         Ok(true) => {
             tell_servers(
                 state,
-                crate::infrastructure::lsp::manager::FileChange::Deleted(path.clone()),
+                crate::features::providers::FileChange::Deleted(path.clone()),
             );
             state.update(move |app| apply_deleted_path_state(app, &path))
         }
@@ -567,7 +567,7 @@ pub fn finish_create(state: &AppContext) {
 
     tell_servers(
         state,
-        crate::infrastructure::lsp::manager::FileChange::Created(target.clone()),
+        crate::features::providers::FileChange::Created(target.clone()),
     );
     state.update(move |app| {
         app.explorer

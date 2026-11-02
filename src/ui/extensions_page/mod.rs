@@ -14,7 +14,6 @@ use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel};
 use std::sync::Arc;
 
 use self::widgets::{Ids, Kind, Look, line};
-use crate::ui::components::scrollbar;
 use crate::ui::components::input::{self, AccessInputOptions, InputBinding, InputStyle};
 use crate::ui::extensions_binding::{
     Binding, Command, Entry, ExtensionsUiState, Frame, RegistryStatus,
@@ -64,45 +63,56 @@ pub fn render(
     let ui = state.ui.get();
     let query = ui.search.text().trim().to_owned();
     let c = theme::c();
-    let mut page = panel(rect, VisualStyle::filled(c.bg));
+    let page = panel(rect, VisualStyle::filled(c.bg));
 
     let list_w = (rect.width() * 0.32)
         .clamp(LIST_MIN_W, LIST_MAX_W)
         .min(rect.width());
-    let list = UiRect::new(rect.left, rect.top, rect.left + list_w, rect.bottom);
+    let default_ratio = list_w / (rect.width() - 4.0).max(1.0);
+    let reader = state.ui.clone();
+    let writer = state.ui.clone();
+    let ratio = lgui::WidgetValue::new(
+        move || reader.get().split_ratio.unwrap_or(default_ratio),
+        move |ratio| writer.update(|ui| ui.split_ratio = Some(ratio)),
+    );
     let entries = visible(&frame, &query);
     let selected = current(&entries, ui.selected.as_deref());
 
-    page = page.child(list_column(
-        list,
-        &ui,
-        &query,
-        &entries,
-        selected.map(|entry| entry.id.as_str()),
-        &frame.registry,
-        &state,
-        search_id,
-        search_focus,
+    let page = page.child(lgui::split(
+        rect,
+        lgui::core::Axis::Horizontal,
+        ratio,
+        (LIST_MIN_W, 300.0),
+        |list| {
+            list_column(
+                list,
+                &ui,
+                &query,
+                &entries,
+                selected.map(|entry| entry.id.as_str()),
+                &frame.registry,
+                &state,
+                search_id,
+                search_focus,
+            )
+        },
+        |detail_area| match selected {
+            Some(entry) => detail::render(
+                detail_area,
+                entry,
+                ui.tab,
+                detail::Context {
+                    registry: &frame.registry,
+                    asks: frame.asks.get(&entry.id).map(Vec::as_slice).unwrap_or(&[]),
+                    confirming: ui.confirming.as_deref() == Some(entry.id.as_str()),
+                },
+                &state,
+            ),
+            // Nothing installed and nothing searched for: the page invites finding something.
+            None if frame.installed.is_empty() && query.is_empty() => empty(detail_area, &state),
+            None => nothing_selected(detail_area),
+        },
     ));
-    let detail_area = UiRect::new(list.right, rect.top, rect.right, rect.bottom);
-    page = match selected {
-        Some(entry) => page.child(detail::render(
-            detail_area,
-            entry,
-            ui.tab,
-            detail::Context {
-                registry: &frame.registry,
-                asks: frame.asks.get(&entry.id).map(Vec::as_slice).unwrap_or(&[]),
-                confirming: ui.confirming.as_deref() == Some(entry.id.as_str()),
-            },
-            &state,
-        )),
-        // Nothing installed and nothing searched for: the page invites finding something.
-        None if frame.installed.is_empty() && query.is_empty() => {
-            page.child(empty(detail_area, &state))
-        }
-        None => page.child(nothing_selected(detail_area)),
-    };
     clip(rect, 0.0, 0.0).child(page)
 }
 
@@ -144,7 +154,12 @@ fn empty(rect: UiRect, state: &Binding) -> Element {
     root = root.child(widgets::button(
         &mut ids,
         "ext.empty.import".to_owned(),
-        UiRect::new(middle - import_w / 2.0, y, middle + import_w / 2.0, y + 28.0),
+        UiRect::new(
+            middle - import_w / 2.0,
+            y,
+            middle + import_w / 2.0,
+            y + 28.0,
+        ),
         import,
         None,
         Kind::Primary,
@@ -211,6 +226,25 @@ fn list_column(
             "Search extensions",
         ));
     let y = search.bottom + 8.0;
+    let ring = UiRect::new(
+        search.right - 22.0,
+        search.top + 6.0,
+        search.right - 6.0,
+        search.bottom - 6.0,
+    );
+    column = column.child(
+        lgui::presence(
+            ring,
+            registry.refreshing,
+            lgui::VisibilityTransition::from_theme(theme::widget_theme().tokens()),
+            lgui::progress_ring(
+                ring,
+                if registry.refreshing { None } else { Some(0.0) },
+                c.accent,
+            ),
+        )
+        .z_index(1),
+    );
 
     // Rows.
     let viewport = UiRect::new(area.left, y, area.right, area.bottom);
@@ -233,7 +267,7 @@ fn search_input(
     label: &'static str,
 ) -> Element {
     let cancel = state.clone();
-    input::render_access(
+    input::render_portable(
         rect,
         id,
         focus,
@@ -251,6 +285,7 @@ fn search_input(
             on_cancel: Some(Arc::new(move || cancel.run(Command::ClearSearch))),
             on_blur: None,
         },
+        false,
     )
 }
 
@@ -258,7 +293,7 @@ fn search_input(
 fn rows(
     ids: &mut Ids,
     viewport: UiRect,
-    ui: &ExtensionsUiState,
+    _ui: &ExtensionsUiState,
     query: &str,
     entries: &[&Entry],
     selected: Option<&str>,
@@ -268,38 +303,43 @@ fn rows(
     if entries.is_empty() {
         return message(ids, viewport, query, registry, state);
     }
-    let mut items: Vec<Element> = Vec::new();
-    let mut y = viewport.top;
-    for entry in entries {
-        // Gutter on the right, so a row never sits under the thumb.
-        let rect = UiRect::new(
-            viewport.left + 6.0,
-            y,
-            viewport.right - 6.0 - scrollbar::SIZE + 6.0,
-            y + ROW_H - 2.0,
-        );
-        items.push(row(
-            ids,
-            rect,
-            entry,
-            selected == Some(entry.id.as_str()),
-            !query.is_empty(),
-            state,
-        ));
-        y += ROW_H;
-    }
-    // The scroll starts over when the filter or the search shows another list.
-    scroll::view(
-        "ext.rows".to_owned(),
-        query.to_owned(),
+    let owner = query.to_owned();
+    let reader = state.ui.clone();
+    let writer = state.ui.clone();
+    let write_owner = owner.clone();
+    let offset = lgui::WidgetValue::new(
+        move || reader.get().list.at(&owner),
+        move |offset| {
+            writer.update(|ui| {
+                ui.list.owner = write_owner.clone();
+                ui.list.offset = offset;
+            })
+        },
+    );
+    lgui::virtual_list(
         viewport,
-        y + 8.0,
-        items,
-        &ui.list,
-        &state.ui,
-        |ui| &mut ui.list,
-        ROW_H,
+        Arc::new(lgui::RowHeights::uniform(entries.len(), ROW_H)),
+        offset,
+        |index, rect| {
+            let entry = entries[index];
+            let mut ids = Ids::new(format!("ext.row.{}", entry.id));
+            row(
+                &mut ids,
+                UiRect::new(
+                    rect.left + 6.0,
+                    rect.top,
+                    rect.right - 6.0,
+                    rect.bottom - 2.0,
+                ),
+                entry,
+                selected == Some(entry.id.as_str()),
+                !query.is_empty(),
+                state,
+            )
+            .key(&entry.id)
+        },
     )
+    .key("ext.rows")
 }
 
 /// What stands in for an empty list.
@@ -311,8 +351,7 @@ fn message(
     state: &Binding,
 ) -> Element {
     let c = theme::c();
-    let (title, body, action): (String, String, Option<(String, Command)>) = if query.is_empty()
-    {
+    let (title, body, action): (String, String, Option<(String, Command)>) = if query.is_empty() {
         (
             "Nothing installed".to_owned(),
             "Type above to search the extensions Loom offers.".to_owned(),
@@ -526,7 +565,11 @@ fn row(
         }
         None => {}
     }
-    let ink = if update.is_some() { c.accent } else { c.text_dim };
+    let ink = if update.is_some() {
+        c.accent
+    } else {
+        c.text_dim
+    };
     let meta = std::iter::once(entry.publisher.as_str())
         .chain(notes.iter().map(String::as_str))
         .collect::<Vec<_>>()

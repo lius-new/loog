@@ -6,7 +6,7 @@
 // The types come from wit/loom-extension/world.wit through the pinned jco
 // (tests/extensions/js-guest/package.json), so they cannot drift from the contract.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +54,12 @@ const result = spawnSync(
 if (result.status !== 0) {
   console.error('jco types failed');
   process.exit(result.status ?? 1);
+}
+
+// jco emits whitespace on empty documentation lines. Keep generated sources
+// deterministic and compatible with the repository's whitespace checks.
+for (const [name, source] of files(output)) {
+  writeFileSync(join(output, name), source.replace(/[\t ]+$/gm, ''));
 }
 
 if (check) {

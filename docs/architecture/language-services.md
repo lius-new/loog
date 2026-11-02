@@ -2,14 +2,15 @@
 
 This is the maintained architecture for shared document contracts, language
 identity and local syntax highlighting. It describes the implementation reviewed
-on 2026-10-25. Installation, manifest compatibility and resource paths are in
-[Language resources](../languages.md); server behavior is in [LSP](lsp.md).
+on 2026-10-25, with extension ownership updated on 2026-11-02. Installation,
+manifest compatibility and resource paths are in [Language resources](../languages.md);
+provider ownership is in [Language providers](lsp.md).
 Outstanding implementation and acceptance work is tracked in
 [Remaining work](../language-services-todo.md).
 
 ## Boundaries and ownership
 
-Local syntax and LSP are independent services. They share document identity,
+Local syntax and extension language providers are independent services. They share document identity,
 language resolution and byte ranges, but neither requires the other to run.
 Unavailable resources or servers must leave plain-text editing usable.
 

@@ -34,17 +34,23 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 pub(crate) mod bundled;
+mod documents;
 mod files;
 pub(crate) mod host;
+mod language;
+mod processes;
 mod save;
+mod ui;
+mod watches;
 
 const PROVIDER_DEADLINE_MS: u64 = 500;
 const FORMAT_DEADLINE_MS: u64 = 5_000;
 /// Requests one extension may have open at once, over all its providers and documents.
 const MAX_PROVIDER_CALLS: usize = 32;
+const MAX_BACKGROUND_CALLS: usize = 16;
 /// Extension candidates list after every language server's.
-const COMPLETION_RANK: usize = 1000;
-const EXTERNAL_SOURCE: u64 = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE;
+const COMPLETION_RANK: usize = crate::features::providers::EXTERNAL_RANK;
+const EXTERNAL_SOURCE: u64 = crate::features::providers::EXTERNAL_SOURCE;
 
 /// The state of a document a provider is asked about.
 struct Target {
@@ -71,6 +77,7 @@ struct TaskRecord {
     /// The number the guest knows it by.
     local: u64,
     root_id: u64,
+    cwd: PathBuf,
 }
 
 /// A provider request in flight, with the state it was asked about.
@@ -88,6 +95,7 @@ struct ProviderCall {
     word_start: usize,
     item_raw: Option<serde_json::Value>,
     job: ProviderJob,
+    rank: usize,
 }
 
 /// Start the extension subsystem and load the packages installed for this user.
@@ -141,15 +149,55 @@ const RECEIPTS: usize = 256;
 const PENDING_COMMANDS: usize = 16;
 
 /// What the caller must do after the service handled something.
+// Effects carry bounded jobs by value; avoid a second allocation for each dispatch.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Effect {
+    WorkspaceOperation {
+        id: String,
+        generation: u64,
+        operation: u64,
+        action: language::WorkspaceAction,
+    },
+    ClearUi {
+        session: u64,
+        owner: String,
+    },
+    StartWatch {
+        watch: u64,
+        spec: crate::infrastructure::extensions::watches::Spec,
+    },
+    StopWatch {
+        watch: u64,
+    },
+    StartProcess {
+        process: u64,
+        spec: crate::infrastructure::extensions::processes::Spec,
+    },
+    WriteProcess {
+        process: u64,
+        bytes: Vec<u8>,
+    },
+    CloseProcess {
+        process: u64,
+    },
+    KillProcess {
+        process: u64,
+    },
     Submit(Job),
     PublishDiagnostics {
         source: u64,
         path: PathBuf,
-        stamp: Stamp,
+        stamp: DocumentStamp,
         text: std::sync::Arc<String>,
         items: Vec<crate::features::language_service::diagnostics::Diagnostic>,
+    },
+    PublishHighlights {
+        source: u64,
+        path: PathBuf,
+        stamp: DocumentStamp,
+        length: usize,
+        items: Vec<crate::features::syntax::TokenSpan>,
     },
     ClearDiagnostics {
         source: u64,
@@ -160,7 +208,7 @@ pub enum Effect {
         ops: Vec<crate::infrastructure::extensions::fileops::Op>,
     },
     /// Files were created, renamed or deleted: the language servers are told.
-    FilesChanged(Vec<crate::infrastructure::lsp::manager::FileChange>),
+    FilesChanged(Vec<crate::features::providers::FileChange>),
     /// A save chain ended. `ok` means the files may be written now.
     SaveReady {
         chain: u64,
@@ -210,12 +258,13 @@ pub enum Effect {
 }
 
 /// What a provider said, as the reply a language server would give.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LanguageAnswer {
     /// The provider's source id (`EXTERNAL_SOURCE` set) and its declared id.
     pub source: u64,
     pub provider: String,
     pub value: serde_json::Value,
+    pub rank: usize,
 }
 
 /// A hover, definition, outline, signature or inlay request of the language UI.
@@ -227,6 +276,10 @@ pub struct LanguageAsk {
     /// Byte offsets of the state `stamp` names.
     pub start: usize,
     pub end: usize,
+    pub extra: serde_json::Value,
+    pub target: Option<u64>,
+    pub server: Option<String>,
+    pub timeout: Option<std::time::Duration>,
 }
 
 /// The kinds of provider that answer a language feature.
@@ -236,12 +289,37 @@ fn language_kinds(
     use crate::features::language_service::request::Feature;
     Some(match feature {
         Feature::Hover => (WireKind::Hover, DeclKind::Hover),
-        Feature::Definition => (WireKind::Definition, DeclKind::Definition),
+        Feature::Completion => (WireKind::Completion, DeclKind::Completion),
+        Feature::CompletionResolve => (WireKind::CompletionResolve, DeclKind::Completion),
+        Feature::Definition
+        | Feature::Declaration
+        | Feature::TypeDefinition
+        | Feature::Implementation => (WireKind::Definition, DeclKind::Definition),
         Feature::DocumentSymbol => (WireKind::DocumentSymbols, DeclKind::DocumentSymbols),
         Feature::SignatureHelp => (WireKind::SignatureHelp, DeclKind::SignatureHelp),
         Feature::InlayHint => (WireKind::InlayHints, DeclKind::InlayHints),
         Feature::CodeAction => (WireKind::CodeActions, DeclKind::CodeActions),
-        _ => return None,
+        Feature::CodeActionResolve => (WireKind::CodeActionResolve, DeclKind::CodeActions),
+        Feature::References => (WireKind::References, DeclKind::References),
+        Feature::WorkspaceSymbol => (WireKind::WorkspaceSymbols, DeclKind::WorkspaceSymbols),
+        Feature::DocumentHighlight => (WireKind::DocumentHighlights, DeclKind::DocumentHighlights),
+        Feature::PrepareRename => (WireKind::PrepareRename, DeclKind::Rename),
+        Feature::Rename => (WireKind::Rename, DeclKind::Rename),
+        Feature::FoldingRange => (WireKind::FoldingRanges, DeclKind::FoldingRanges),
+        Feature::SelectionRange => (WireKind::SelectionRanges, DeclKind::SelectionRanges),
+        Feature::PrepareCallHierarchy | Feature::IncomingCalls | Feature::OutgoingCalls => {
+            (WireKind::CallHierarchy, DeclKind::CallHierarchy)
+        }
+        Feature::PrepareTypeHierarchy | Feature::Supertypes | Feature::Subtypes => {
+            (WireKind::TypeHierarchy, DeclKind::TypeHierarchy)
+        }
+        Feature::CodeLens => (WireKind::CodeLens, DeclKind::CodeLens),
+        Feature::CodeLensResolve => (WireKind::CodeLensResolve, DeclKind::CodeLens),
+        Feature::Formatting | Feature::RangeFormatting => {
+            (WireKind::Formatting, DeclKind::Formatting)
+        }
+        Feature::OnTypeFormatting => (WireKind::FormatOnType, DeclKind::FormatOnType),
+        Feature::ExecuteCommand => (WireKind::ExecuteCommand, DeclKind::ExecuteCommand),
     })
 }
 
@@ -260,7 +338,11 @@ struct Feed {
     stream: DocumentStream,
     path: String,
     language: String,
+    variant: Option<String>,
+    language_generation: u64,
     version: u64,
+    incarnation: u64,
+    synchronized: bool,
 }
 
 /// Whether a manifest asks for the named event (design §6).
@@ -277,6 +359,20 @@ fn subscribed(manifest: &Manifest) -> bool {
             .any(|event| wants(manifest, event))
 }
 
+fn document_events_of(grants: &Grants, package: &Package) -> bool {
+    subscribed(&package.manifest)
+        && !matches!(
+            package.lifecycle.state(),
+            State::Stopped | State::Failed | State::Stopping
+        )
+        && package
+            .manifest
+            .capabilities
+            .iter()
+            .any(|cap| cap == "events")
+        && grants.authorize(&package.identity, "events", None).is_ok()
+}
+
 const FEED_MAX_EDITS: usize = 4096;
 const FEED_MAX_MESSAGES: usize = 64;
 
@@ -284,6 +380,7 @@ const FEED_MAX_MESSAGES: usize = 64;
 /// resource is dropped without touching the others or the behaviour (design §6.6).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Accepted {
+    pub languages: Vec<String>,
     pub themes: Vec<String>,
     pub highlight: Vec<String>,
     pub snippets: Vec<String>,
@@ -353,6 +450,12 @@ fn accept_resources(
             Err(reason) => accepted.rejected.push((resource.id.clone(), reason)),
         }
     }
+    for resource in &c.languages {
+        match crate::infrastructure::language_packs::check_extension_identity(dir, &resource.path) {
+            Ok(()) => accepted.languages.push(resource.id.clone()),
+            Err(reason) => accepted.rejected.push((resource.id.clone(), reason)),
+        }
+    }
     for resource in &c.highlight {
         // A highlight resource is a language pack; startup discovery loads it
         // (design §6.6.1), so it is held to the rules of a pack here.
@@ -378,6 +481,12 @@ pub struct Package {
     /// The accepted snippet files.
     snippets: Vec<PackageSnippets>,
     feeds: HashMap<u64, Feed>,
+    document_views: HashMap<u64, documents::ViewStamp>,
+    documents_initialized: bool,
+    provider_configurations: HashMap<String, loom_extension_host::ProviderConfiguration>,
+    provider_revision: u64,
+    pending_saved: HashMap<FileId, crate::domain::document::SaveSnapshot>,
+    pending_files: Vec<loom_extension_host::WorkspaceFileChange>,
     /// Resolved setting values (JSON text per key) and what could not be used.
     resolved: crate::features::extensions::settings::Resolved,
     pub dir: PathBuf,
@@ -411,21 +520,30 @@ pub struct ExtensionService {
     waiting_runs: HashMap<u64, Run>,
     /// Document identities handed to extensions, stable while the document lives.
     seen: HashMap<FileId, u64>,
+    document_languages: HashMap<PathBuf, String>,
+    language_preferences:
+        std::collections::BTreeMap<String, crate::features::settings::language::LanguageSetting>,
     next_document: u64,
     settings: SettingSources,
     provider_calls: HashMap<u64, ProviderCall>,
+    position_indices: crate::features::providers::position::IndexCache,
     /// Last document version each (extension, provider, document) was asked about.
-    provider_seen: HashMap<(String, String, u64), u64>,
+    provider_seen: HashMap<(String, String, u64), DocumentStamp>,
     /// Requests waiting for a cold activation to finish.
     queued: Vec<u64>,
     next_request: u64,
     sources: HashMap<(String, String), u64>,
-    next_source: u64,
     /// Folders extensions may name, by handle.
     roots: Vec<(u64, PathBuf)>,
     next_root: u64,
     tasks: HashMap<u64, TaskRecord>,
     next_task: u64,
+    processes: HashMap<u64, TaskRecord>,
+    next_process: u64,
+    watches: HashMap<u64, watches::WatchRecord>,
+    next_watch: u64,
+    ui_events: HashMap<String, (u64, crate::infrastructure::extensions::UiEvents)>,
+    ui_session: u64,
     file_jobs: HashMap<u64, files::FileJob>,
     next_file_job: u64,
     saves: HashMap<u64, save::Chain>,
@@ -526,6 +644,7 @@ fn digest(bytes: &[u8]) -> String {
 
 impl ExtensionService {
     pub fn new(cache: PathBuf) -> Self {
+        static UI_SESSIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let start = std::time::Instant::now();
         let storage_dir = cache.with_file_name("storage");
         Self {
@@ -540,18 +659,26 @@ impl ExtensionService {
             cache,
             waiting_runs: HashMap::new(),
             seen: HashMap::new(),
+            document_languages: HashMap::new(),
+            language_preferences: Default::default(),
             next_document: 0,
             settings: SettingSources::default(),
             provider_calls: HashMap::new(),
+            position_indices: Default::default(),
             provider_seen: HashMap::new(),
             queued: Vec::new(),
             next_request: 0,
             sources: HashMap::new(),
-            next_source: 0,
             roots: Vec::new(),
             next_root: 0,
             tasks: HashMap::new(),
             next_task: 0,
+            processes: HashMap::new(),
+            next_process: 0,
+            watches: HashMap::new(),
+            next_watch: 0,
+            ui_events: HashMap::new(),
+            ui_session: UI_SESSIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             file_jobs: HashMap::new(),
             next_file_job: 0,
             saves: HashMap::new(),
@@ -669,6 +796,12 @@ impl ExtensionService {
                 identity,
                 lifecycle,
                 feeds: HashMap::new(),
+                document_views: HashMap::new(),
+                documents_initialized: false,
+                provider_configurations: HashMap::new(),
+                provider_revision: 0,
+                pending_saved: HashMap::new(),
+                pending_files: Vec::new(),
                 resolved,
                 ledger: OperationLedger::new(RECEIPTS),
                 pending: PendingTriggers::new(PENDING_COMMANDS),
@@ -1081,16 +1214,145 @@ impl ExtensionService {
 
     pub fn handle_event(&mut self, app: &mut AppState, event: Event) -> Vec<Effect> {
         match event {
+            Event::WorkspaceOperation {
+                id,
+                generation,
+                operation,
+                request,
+            } => self.workspace_operation(app, &id, generation, operation, request),
+            Event::ProviderExpired {
+                id,
+                generation,
+                request,
+            } => {
+                let mut effects = Vec::new();
+                if self
+                    .provider_calls
+                    .get(&request)
+                    .is_some_and(|c| c.extension == id && c.generation == generation)
+                {
+                    self.cancel_provider(request, &mut effects);
+                }
+                effects
+            }
+            Event::ProvidersConfigured {
+                id,
+                generation,
+                configurations,
+            } => {
+                let mut changed = Vec::new();
+                let mut disabled = Vec::new();
+                let mut invalidate = Vec::new();
+                if let Some(package) = self
+                    .packages
+                    .get_mut(&id)
+                    .filter(|p| p.lifecycle.accepts(generation))
+                {
+                    for configuration in configurations {
+                        if package
+                            .manifest
+                            .contributes
+                            .language_service
+                            .providers
+                            .iter()
+                            .any(|p| p.id == configuration.provider)
+                        {
+                            if package
+                                .provider_configurations
+                                .get(&configuration.provider)
+                                .is_some_and(|before| {
+                                    language::same_configuration(before, &configuration)
+                                })
+                            {
+                                continue;
+                            }
+                            if package
+                                .provider_configurations
+                                .contains_key(&configuration.provider)
+                                || !configuration.enabled
+                            {
+                                invalidate.push(configuration.provider.clone());
+                            }
+                            changed.push(configuration.provider.clone());
+                            if !configuration.enabled {
+                                disabled.push(configuration.provider.clone());
+                            }
+                            package
+                                .provider_configurations
+                                .insert(configuration.provider.clone(), configuration);
+                            package.provider_revision += 1;
+                        } else {
+                            if package.logs.len() >= LOG_LIMIT {
+                                package.logs.remove(0);
+                            }
+                            package
+                                .logs
+                                .push((1, "undeclared provider configuration refused".into()));
+                        }
+                    }
+                    self.provider_seen.retain(|(owner, provider, _), _| {
+                        owner != &id || !changed.contains(provider)
+                    });
+                }
+                let mut effects = Vec::new();
+                let pending = self
+                    .provider_calls
+                    .iter()
+                    .filter(|(_, call)| call.extension == id && invalidate.contains(&call.provider))
+                    .map(|(request, _)| *request)
+                    .collect::<Vec<_>>();
+                for request in pending {
+                    self.cancel_provider(request, &mut effects);
+                }
+                for provider in disabled {
+                    if let Some(source) = self.sources.get(&(id.clone(), provider)) {
+                        effects.push(Effect::ClearDiagnostics { source: *source });
+                    }
+                }
+                effects.extend(self.observe(app));
+                effects
+            }
+            Event::UiChanged {
+                id,
+                generation,
+                snapshot,
+            } => {
+                let snapshot = snapshot.lock().unwrap().take();
+                match snapshot {
+                    Some(snapshot) => self.ui_changed(app, &id, generation, snapshot),
+                    None => vec![],
+                }
+            }
+            Event::WatchControls {
+                id,
+                generation,
+                controls,
+            } => self.watch_controls(&id, generation, controls),
+            Event::ProcessControls {
+                id,
+                generation,
+                controls,
+            } => self.process_controls(&id, generation, controls),
             Event::Loaded {
                 id,
                 generation,
                 result,
                 ..
             } => {
-                let mut effects = self.loaded(&id, generation, result);
-                // Documents that opened or changed while it started are delivered now.
-                effects.extend(self.observe(app));
-                effects
+                let effects = self.loaded(&id, generation, result);
+                let (mut setup, work): (Vec<_>, Vec<_>) = effects.into_iter().partition(|effect| {
+                    matches!(
+                        effect,
+                        Effect::Submit(Job::Settings { .. } | Job::Roots { .. })
+                    )
+                });
+                // Populate document views and deliver lifecycle boundaries before
+                // replaying commands/provider calls that waited for activation.
+                setup.extend(self.observe(app));
+                setup.extend(self.flush_saved(app, &id));
+                setup.extend(self.flush_files(&id));
+                setup.extend(work);
+                setup
             }
             Event::FileOpsRequested {
                 id,
@@ -1127,7 +1389,9 @@ impl ExtensionService {
                 generation,
                 error,
             } => self.failed(&id, generation, error),
-            Event::Log { id, level, text } => {
+            Event::Log {
+                id, level, text, ..
+            } => {
                 if let Some(package) = self.packages.get_mut(&id) {
                     if package.logs.len() >= LOG_LIMIT {
                         package.logs.remove(0);
@@ -1191,7 +1455,9 @@ impl ExtensionService {
                     .collect();
                 self.queued.retain(|request| !ready.contains(request));
                 for request in ready {
-                    let job = Box::new(self.provider_calls[&request].job.clone());
+                    let call = &self.provider_calls[&request];
+                    let mut job = Box::new(call.job.clone());
+                    job.timeout_ms = call.deadline.saturating_sub((self.clock)());
                     effects.push(Effect::Submit(Job::Provide {
                         id: id.to_owned(),
                         generation,
@@ -1208,7 +1474,9 @@ impl ExtensionService {
                     self.calls.remove(&pending.call);
                     self.waiting_runs.remove(&pending.call);
                 }
-                vec![Effect::Error(format!("{id}: could not start: {error}"))]
+                let mut effects = self.clear_sources(id);
+                effects.push(Effect::Error(format!("{id}: could not start: {error}")));
+                effects
             }
         }
     }
@@ -1351,17 +1619,53 @@ impl ExtensionService {
     /// rules live in `DocumentStream`: contiguous changes merge, gaps become
     /// a resync, and open/close are boundaries.
     pub fn observe(&mut self, app: &AppState) -> Vec<Effect> {
+        self.language_preferences = app.preferences.values().languages.clone();
+        self.position_indices.prune();
         let mut effects = self.sync_roots(app);
-        effects.extend(self.observe_documents(app));
+        let stale = self
+            .provider_calls
+            .iter()
+            .filter(|(_, call)| {
+                app.workspace.documents.get(&call.file).is_none_or(|d| {
+                    d.incarnation != call.stamp.incarnation
+                        || d.meta.language_generation != call.stamp.language_generation
+                        || (!matches!(
+                            call.job.kind,
+                            WireKind::Completion
+                                | WireKind::CompletionResolve
+                                | WireKind::Save
+                                | WireKind::ExecuteCommand
+                        ) && d.buffer.version() != call.stamp.version)
+                })
+            })
+            .map(|(request, _)| *request)
+            .collect::<Vec<_>>();
+        for request in stale {
+            self.cancel_provider(request, &mut effects);
+        }
+        let document_events = self.observe_documents(app);
+        effects.extend(self.sync_document_views(app));
+        effects.extend(document_events);
         effects
     }
 
     fn observe_documents(&mut self, app: &AppState) -> Vec<Effect> {
+        let grants = &self.grants;
         let has_providers = self.packages.values().any(|p| {
             p.manifest.has_behaviour()
                 && !p.manifest.contributes.language_service.providers.is_empty()
         });
-        if !has_providers && !self.packages.values().any(|p| subscribed(&p.manifest)) {
+        let has_readers = self
+            .packages
+            .values()
+            .any(|p| p.lifecycle.state() == State::Active && documents::allowed(&self.grants, p));
+        if !has_providers
+            && !has_readers
+            && !self
+                .packages
+                .values()
+                .any(|p| document_events_of(grants, p))
+        {
             return Vec::new();
         }
         let mut current = Vec::new();
@@ -1373,6 +1677,10 @@ impl ExtensionService {
                 document.buffer.version(),
             ));
         }
+        self.document_languages = current
+            .iter()
+            .map(|(_, path, language, _)| (PathBuf::from(path), language.clone()))
+            .collect();
         let mut ids = Vec::new();
         for (file, path, language, version) in &current {
             let id = match self.seen.get(file) {
@@ -1384,10 +1692,17 @@ impl ExtensionService {
                 }
             };
             ids.push(id);
+            let document = &app.workspace.documents[file];
+            let synchronized = document.buffer.len()
+                <= app
+                    .preferences
+                    .values()
+                    .language_features
+                    .max_document_bytes;
             for package in self
                 .packages
                 .values_mut()
-                .filter(|p| subscribed(&p.manifest))
+                .filter(|p| document_events_of(grants, p))
             {
                 let feed = package.feeds.entry(id).or_insert_with(|| {
                     let mut stream = DocumentStream::new(FEED_MAX_EDITS, FEED_MAX_MESSAGES);
@@ -1396,10 +1711,36 @@ impl ExtensionService {
                         stream,
                         path: path.clone(),
                         language: language.clone(),
+                        variant: Some(
+                            crate::domain::language::Registry::builtin()
+                                .variant_name(document.meta.lang)
+                                .to_owned(),
+                        ),
+                        language_generation: document.meta.language_generation,
                         version: *version,
+                        incarnation: document.incarnation,
+                        synchronized,
                     }
                 });
-                if feed.version != *version {
+                if feed.incarnation != document.incarnation
+                    || feed.path != *path
+                    || feed.language != *language
+                    || feed.language_generation != document.meta.language_generation
+                    || feed.synchronized != synchronized
+                {
+                    feed.stream.open(*version);
+                    feed.path.clone_from(path);
+                    feed.language.clone_from(language);
+                    feed.incarnation = document.incarnation;
+                    feed.synchronized = synchronized;
+                    feed.version = *version;
+                    feed.language_generation = document.meta.language_generation;
+                    feed.variant = Some(
+                        crate::domain::language::Registry::builtin()
+                            .variant_name(document.meta.lang)
+                            .to_owned(),
+                    );
+                } else if feed.version != *version {
                     feed.stream.changed(feed.version, *version, 1);
                     feed.version = *version;
                 }
@@ -1414,6 +1755,8 @@ impl ExtensionService {
             .map(|(_, id)| *id)
             .collect();
         self.seen.retain(|file, _| open_files.contains(file));
+        self.provider_seen
+            .retain(|(_, _, document), _| ids.contains(document));
         for id in closed {
             for package in self.packages.values_mut() {
                 if let Some(feed) = package.feeds.get_mut(&id) {
@@ -1426,7 +1769,7 @@ impl ExtensionService {
         for (name, package) in self
             .packages
             .iter_mut()
-            .filter(|(_, p)| subscribed(&p.manifest))
+            .filter(|(_, p)| document_events_of(grants, p))
         {
             let wants_open = wants(&package.manifest, "document.open");
             let wants_change = wants(&package.manifest, "document.change");
@@ -1440,6 +1783,7 @@ impl ExtensionService {
                 State::Active => {
                     let generation = package.lifecycle.generation();
                     let mut messages = Vec::new();
+                    let mut references = Vec::new();
                     let mut finished = Vec::new();
                     let mut keys: Vec<u64> = package.feeds.keys().copied().collect();
                     keys.sort_unstable();
@@ -1453,8 +1797,10 @@ impl ExtensionService {
                                 lifecycle,
                                 path: feed.path.clone(),
                                 language: feed.language.clone(),
+                                variant: feed.variant.clone(),
                                 version,
                             };
+                            references.push(reference(feed.stream.lifecycle(), feed.version));
                             messages.push(match delivery {
                                 Delivery::Opened { lifecycle, version } => {
                                     Inbound::DocumentOpened(reference(lifecycle, version))
@@ -1487,9 +1833,10 @@ impl ExtensionService {
                         package.feeds.remove(&key);
                     }
                     if !messages.is_empty() {
-                        effects.push(Effect::Submit(Job::Deliver {
+                        effects.push(Effect::Submit(Job::DocumentEvents {
                             id: name.clone(),
                             generation,
+                            references,
                             messages,
                         }));
                     }
@@ -1526,20 +1873,48 @@ impl ExtensionService {
     }
 
     fn source_for(&mut self, extension: &str, provider: &str) -> u64 {
+        static SOURCES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let key = (extension.to_owned(), provider.to_owned());
         if let Some(source) = self.sources.get(&key) {
             return *source;
         }
-        self.next_source += 1;
-        let source = EXTERNAL_SOURCE | self.next_source;
+        let source = EXTERNAL_SOURCE | SOURCES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.sources.insert(key, source);
         source
     }
 
     /// Withdraw what an extension published; its provider calls are void.
     fn clear_sources(&mut self, extension: &str) -> Vec<Effect> {
+        if let Some(package) = self.packages.get_mut(extension) {
+            package.document_views.clear();
+            package.feeds.clear();
+            package.documents_initialized = false;
+            package.provider_configurations.clear();
+            package.provider_revision += 1;
+            package.pending_saved.clear();
+            package.pending_files.clear();
+        }
         // Language requests waiting on this extension are told there is no answer.
-        let mut gone: Vec<Effect> = Vec::new();
+        let mut gone = vec![];
+        let chains = self
+            .save_calls
+            .iter()
+            .filter(|(request, _)| {
+                self.provider_calls
+                    .get(request)
+                    .is_some_and(|call| call.extension == extension)
+            })
+            .map(|(_, chain)| *chain)
+            .collect::<Vec<_>>();
+        for chain in chains {
+            self.fail(chain, format!("{extension} is not running"), &mut gone);
+        }
+        if self.ui_events.remove(extension).is_some() {
+            gone.push(Effect::ClearUi {
+                session: self.ui_session,
+                owner: extension.to_owned(),
+            });
+        }
         for (request, call) in &self.provider_calls {
             if call.extension == extension
                 && let Some(token) = self.language_calls.get(request)
@@ -1567,6 +1942,7 @@ impl ExtensionService {
                 .filter(|((owner, _), _)| owner == extension)
                 .map(|(_, source)| Effect::ClearDiagnostics { source: *source }),
         );
+        self.sources.retain(|(owner, _), _| owner != extension);
         gone
     }
 
@@ -1586,12 +1962,23 @@ impl ExtensionService {
             let allowed = ["documents.read", "languages"]
                 .iter()
                 .all(|c| self.authorize(package, c).is_ok());
+            let allowed = allowed
+                && (!matches!(
+                    feature,
+                    crate::features::language_service::request::Feature::Formatting
+                        | crate::features::language_service::request::Feature::RangeFormatting
+                        | crate::features::language_service::request::Feature::OnTypeFormatting
+                        | crate::features::language_service::request::Feature::Rename
+                ) || self.authorize(package, "workspace.edit").is_ok());
             if !allowed || !package.manifest.has_behaviour() {
                 continue;
             }
             for provider in &package.manifest.contributes.language_service.providers {
                 if provider.kind == declared
-                    && provider.selector.languages.iter().any(|l| l == language)
+                    && super::extensions::language::supports_mode(feature, package.provider_configurations.get(&provider.id))
+                    && (feature == crate::features::language_service::request::Feature::WorkspaceSymbol || provider.selector.languages.iter().any(|l| l == language))
+                    && !matches!(package.lifecycle.state(), State::Stopped | State::Failed)
+                    && package.provider_configurations.get(&provider.id).is_none_or(|c| c.enabled && (feature != crate::features::language_service::request::Feature::PrepareRename || c.prepare) && (!matches!(feature, crate::features::language_service::request::Feature::CodeActionResolve | crate::features::language_service::request::Feature::CodeLensResolve) || c.resolve))
                 {
                     found.push((owner.clone(), provider.id.clone()));
                 }
@@ -1599,6 +1986,45 @@ impl ExtensionService {
         }
         found.sort();
         found
+    }
+
+    pub(super) fn matching_language_providers(
+        &self,
+        feature: crate::features::language_service::request::Feature,
+        language: &str,
+        target: Option<u64>,
+        server: Option<&str>,
+    ) -> Vec<(String, String)> {
+        let mut providers = self.language_providers(feature, language).into_iter().filter(|(owner, provider)| {
+            target.is_none_or(|id| self.sources.iter().any(|((source_owner, source_provider), source)| *source == id && source_owner == owner && (source_provider == provider || feature == crate::features::language_service::request::Feature::ExecuteCommand))) && server.is_none_or(|name| name == owner || name == provider || self.packages[owner].provider_configurations.get(provider).is_some_and(|c|c.aliases.iter().any(|alias|alias == name)))
+        }).collect::<Vec<_>>();
+        if target.is_none()
+            && server.is_none()
+            && let Some((_, kind)) = language_kinds(feature)
+            && let Ok(serde_json::Value::String(key)) = serde_json::to_value(kind)
+            && let Some(order) = self
+                .language_preferences
+                .get(language)
+                .and_then(|s| s.providers.get(&key))
+            && !order.is_empty()
+        {
+            let mut arranged = Vec::new();
+            for wanted in order {
+                for candidate in &providers {
+                    let named = |id: &str| id == candidate.0 || id == candidate.1;
+                    if (named(wanted) || (wanted == "..." && !order.iter().any(|id| named(id))))
+                        && !arranged.contains(candidate)
+                    {
+                        arranged.push(candidate.clone());
+                    }
+                }
+            }
+            providers = arranged;
+        }
+        if feature.merge() == crate::features::language_service::request::Merge::Primary {
+            providers.truncate(1);
+        }
+        providers
     }
 
     /// Ask the providers for a language feature of one state of a document.
@@ -1622,6 +2048,15 @@ impl ExtensionService {
         let Some((file, document)) = found.map(|(file, d)| (*file, d)) else {
             return 0;
         };
+        if document.buffer.len()
+            > app
+                .preferences
+                .values()
+                .language_features
+                .max_document_bytes
+        {
+            return 0;
+        }
         // Only the state the request was made for; a document that moved on is not asked.
         let now = document.stamp(file);
         if (now.incarnation, now.version) != (ask.stamp.incarnation, ask.stamp.version) {
@@ -1639,14 +2074,19 @@ impl ExtensionService {
         let text = document.buffer.text_snapshot();
         let range = match ask.feature {
             crate::features::language_service::request::Feature::InlayHint
-            | crate::features::language_service::request::Feature::CodeAction => {
+            | crate::features::language_service::request::Feature::CodeAction
+            | crate::features::language_service::request::Feature::RangeFormatting => {
                 let (start, end) = (ask.start.min(text.len()), ask.end.min(text.len()));
                 Some(start.min(end)..start.max(end))
             }
             _ => None,
         };
         let mut asked = 0;
-        for (owner, provider) in self.language_providers(ask.feature, &language) {
+        for (rank, (owner, provider)) in self
+            .matching_language_providers(ask.feature, &language, ask.target, ask.server.as_deref())
+            .into_iter()
+            .enumerate()
+        {
             let target = Target {
                 file,
                 stamp: document.stamp(file),
@@ -1655,15 +2095,42 @@ impl ExtensionService {
                 doc_id,
                 version: document.buffer.version(),
                 range: range.clone(),
-                word_start: 0,
+                word_start: crate::features::language_service::completion::word_start(
+                    &text,
+                    ask.start.min(text.len()),
+                ),
                 cursor: Some(ask.start),
-                trigger: None,
-                item: None,
-                item_raw: None,
+                trigger: ask
+                    .extra
+                    .get("ch")
+                    .or_else(|| ask.extra.pointer("/context/triggerCharacter"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned),
+                item: (ask.feature
+                    == crate::features::language_service::request::Feature::CompletionResolve)
+                    .then(|| language::completion_item(&ask.extra))
+                    .flatten(),
+                item_raw: (ask.feature
+                    == crate::features::language_service::request::Feature::CompletionResolve)
+                    .then(|| ask.extra.clone()),
             };
             let request = self.next_request + 1;
-            self.issue(&owner, &provider, kind, target, effects);
+            self.issue_context(
+                &owner,
+                &provider,
+                kind,
+                target,
+                Some(language::context(ask, &text)),
+                Some(
+                    ask.timeout
+                        .unwrap_or(crate::features::providers::DEFAULT_TIMEOUT)
+                        .as_millis()
+                        .min(u64::MAX as u128) as u64,
+                ),
+                effects,
+            );
             if self.provider_calls.contains_key(&request) {
+                self.provider_calls.get_mut(&request).unwrap().rank = COMPLETION_RANK + rank;
                 self.language_calls.insert(request, token);
                 asked += 1;
             }
@@ -1686,13 +2153,61 @@ impl ExtensionService {
             .documents
             .get(&call.file)
             .map(|d| d.stamp(call.file));
-        if (self.clock)() > call.deadline || current != Some(call.stamp) {
+        let completion = matches!(
+            call.job.kind,
+            WireKind::Completion | WireKind::CompletionResolve
+        );
+        let compatible = if matches!(call.job.kind, WireKind::ExecuteCommand) {
+            current.is_some_and(|stamp| {
+                stamp.incarnation == call.stamp.incarnation
+                    && stamp.language_generation == call.stamp.language_generation
+            })
+        } else if completion {
+            current.is_some_and(|stamp| stamp.incarnation == call.stamp.incarnation)
+        } else {
+            current == Some(call.stamp)
+        };
+        if (self.clock)() > call.deadline || !compatible {
             return None;
         }
         let text = call.text.as_str();
         let (value, dropped) = match answer {
+            Provided::Completions {
+                items, incomplete, ..
+            } => {
+                let index = self.position_indices.index(&call.text);
+                let (items, dropped) =
+                    language::completions(&call.extension, &call.provider, text, &index, items);
+                (
+                    if matches!(call.job.kind, WireKind::CompletionResolve) {
+                        items.into_iter().next()?
+                    } else {
+                        let mut list = serde_json::Map::with_capacity(2);
+                        list.insert("isIncomplete".into(), incomplete.into());
+                        list.insert("items".into(), serde_json::Value::Array(items));
+                        serde_json::Value::Object(list)
+                    },
+                    dropped,
+                )
+            }
+            Provided::Language { answer, .. } => {
+                self.validate_language_answer(app, self.packages.get(id)?, &answer)
+                    .ok()?;
+                (
+                    language::answer(text, answer, call.job.context.as_ref())?,
+                    0,
+                )
+            }
+            Provided::Edits { mut edits, .. } => {
+                if let Some(range) = &call.range {
+                    edits.retain(|e| {
+                        e.range.start >= range.start as u64 && e.range.end <= range.end as u64
+                    });
+                }
+                (language::edits(text, edits)?, 0)
+            }
             Provided::Hover { answer, .. } => (
-                lang::hover(
+                lang::hover_indexed(
                     text,
                     &lang::Hover {
                         contents: answer.as_ref()?.contents.clone(),
@@ -1701,6 +2216,7 @@ impl ExtensionService {
                             .range
                             .map(|r| (r.start as usize, r.end as usize)),
                     },
+                    &self.position_indices.index(&call.text),
                 )?,
                 0,
             ),
@@ -1717,6 +2233,10 @@ impl ExtensionService {
                 lang::locations(&base, &places)
             }
             Provided::Symbols { items, .. } => {
+                let deprecated = items
+                    .iter()
+                    .map(|item| item.deprecated.unwrap_or(false))
+                    .collect::<Vec<_>>();
                 let symbols: Vec<lang::Symbol> = items
                     .into_iter()
                     .map(|s| lang::Symbol {
@@ -1728,7 +2248,7 @@ impl ExtensionService {
                         parent: s.parent.map(|p| p as usize),
                     })
                     .collect();
-                lang::symbols(text, &symbols)
+                lang::symbols_with_deprecated(text, &symbols, &deprecated)
             }
             Provided::Signature { answer, .. } => {
                 let answer = answer?;
@@ -1797,6 +2317,7 @@ impl ExtensionService {
             source,
             provider: call.provider.clone(),
             value,
+            rank: call.rank,
         })
     }
 
@@ -1811,15 +2332,52 @@ impl ExtensionService {
         target: Target,
         effects: &mut Vec<Effect>,
     ) {
+        self.issue_context(owner, provider, kind, target, None, None, effects);
+    }
+
+    fn issue_context(
+        &mut self,
+        owner: &str,
+        provider: &str,
+        kind: WireKind,
+        target: Target,
+        context: Option<loom_extension_host::ProviderContext>,
+        timeout_ms: Option<u64>,
+        effects: &mut Vec<Effect>,
+    ) {
         self.next_request += 1;
         self.next_token += 1;
         let (request, token) = (self.next_request, self.next_token);
-        self.provider_calls.retain(|_, call| {
-            !(call.extension == owner
-                && call.provider == provider
-                && call.file == target.file
-                && std::mem::discriminant(&call.job.kind) == std::mem::discriminant(&kind))
-        });
+        let replaces = matches!(
+            kind,
+            WireKind::Diagnostics
+                | WireKind::Highlights
+                | WireKind::Completion
+                | WireKind::Hover
+                | WireKind::SignatureHelp
+                | WireKind::DocumentHighlights
+                | WireKind::CodeActions
+                | WireKind::InlayHints
+                | WireKind::FoldingRanges
+                | WireKind::CodeLens
+                | WireKind::DocumentSymbols
+                | WireKind::PrepareRename
+        );
+        let superseded = self
+            .provider_calls
+            .iter()
+            .filter(|(_, call)| {
+                replaces
+                    && call.extension == owner
+                    && call.provider == provider
+                    && call.file == target.file
+                    && std::mem::discriminant(&call.job.kind) == std::mem::discriminant(&kind)
+            })
+            .map(|(request, _)| *request)
+            .collect::<Vec<_>>();
+        for request in superseded {
+            self.cancel_provider(request, effects);
+        }
         self.queued
             .retain(|queued| self.provider_calls.contains_key(queued));
         // One extension never has more than this many requests open at once; the
@@ -1839,14 +2397,26 @@ impl ExtensionService {
             return;
         }
         let now = (self.clock)();
-        let limit = if matches!(kind, WireKind::Formatting) {
-            FORMAT_DEADLINE_MS
-        } else {
-            PROVIDER_DEADLINE_MS
-        };
+        let limit = timeout_ms.unwrap_or(
+            if matches!(
+                kind,
+                WireKind::Formatting | WireKind::Save | WireKind::Highlights
+            ) {
+                FORMAT_DEADLINE_MS
+            } else {
+                PROVIDER_DEADLINE_MS
+            },
+        );
         let Some(package) = self.packages.get_mut(owner) else {
             return;
         };
+        if package
+            .provider_configurations
+            .get(provider)
+            .is_some_and(|c| !c.enabled)
+        {
+            return;
+        }
         let generation = package.lifecycle.generation();
         let job = ProviderJob {
             request,
@@ -1860,6 +2430,8 @@ impl ExtensionService {
             cursor: target.cursor,
             trigger: target.trigger.clone(),
             item: target.item.clone(),
+            context,
+            timeout_ms: limit,
         };
         let mut load = None;
         match package.lifecycle.state() {
@@ -1903,6 +2475,7 @@ impl ExtensionService {
                 word_start: target.word_start,
                 item_raw: target.item_raw,
                 job,
+                rank: COMPLETION_RANK,
             },
         );
     }
@@ -1910,6 +2483,7 @@ impl ExtensionService {
     /// Ask every completion provider registered for the active document's
     /// language. Returns the requests that were actually issued; the answers
     /// arrive as [`Effect::OfferCompletion`].
+    #[cfg(test)]
     pub fn request_completion(
         &mut self,
         app: &AppState,
@@ -2028,9 +2602,49 @@ impl ExtensionService {
             .collect()
     }
 
+    /// Execute an accepted item's command only in its owning provider instance.
+    pub fn execute_provider_command(&self, source: u64, raw: &serde_json::Value) -> Vec<Effect> {
+        let origin = &raw["x-loom"];
+        let (Some(extension), Some(provider), Some(name)) = (
+            origin["extension"].as_str(),
+            origin["provider"].as_str(),
+            raw["command"]["command"].as_str(),
+        ) else {
+            return vec![];
+        };
+        if self
+            .sources
+            .get(&(extension.to_owned(), provider.to_owned()))
+            != Some(&source)
+        {
+            return vec![];
+        }
+        let Some(package) = self
+            .packages
+            .get(extension)
+            .filter(|package| package.lifecycle.accepts(package.lifecycle.generation()))
+        else {
+            return vec![];
+        };
+        vec![Effect::Submit(Job::Deliver {
+            id: extension.to_owned(),
+            generation: package.lifecycle.generation(),
+            messages: vec![Inbound::ProviderCommand(
+                loom_extension_host::ProviderCommandCall {
+                    provider: provider.to_owned(),
+                    command: loom_extension_host::ProviderCommand {
+                        name: name.to_owned(),
+                        arguments: raw["command"]["arguments"].to_string(),
+                    },
+                },
+            )],
+        })]
+    }
+
     /// Ask the extension that offered a completion item to complete it. The
     /// `raw` JSON carries the origin; an item whose origin does not match
     /// the source it is filed under is not resolved.
+    #[cfg(test)]
     pub fn request_completion_resolve(
         &mut self,
         app: &AppState,
@@ -2058,12 +2672,56 @@ impl ExtensionService {
             return effects;
         };
         let text_of = |key: &str| raw[key].as_str().map(str::to_owned);
+        let edit_of = |value: &serde_json::Value| {
+            Some(loom_extension_host::TextEdit {
+                range: loom_extension_host::ByteRange {
+                    start: value["start"].as_u64()?,
+                    end: value["end"].as_u64()?,
+                },
+                text: value["text"].as_str()?.to_owned(),
+            })
+        };
         let item = loom_extension_host::WireCompletionItem {
+            label_detail: raw
+                .pointer("/labelDetails/detail")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            label_description: raw
+                .pointer("/labelDetails/description")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            deprecated: raw["deprecated"].as_bool(),
+            preselect: raw["preselect"].as_bool(),
+            insert_text_mode: raw["insertTextMode"]
+                .as_u64()
+                .and_then(|value| u8::try_from(value).ok()),
             label: text_of("label").unwrap_or_default(),
             detail: text_of("detail"),
             documentation: text_of("documentation"),
             kind: raw["kind"].as_u64().map(|k| k as u32),
             insert_text: text_of("insertText"),
+            text_edit: edit_of(&origin["text-edit"]),
+            additional_text_edits: origin["additional-text-edits"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(&edit_of)
+                .collect(),
+            insert_text_format: raw["insertTextFormat"]
+                .as_u64()
+                .and_then(|v| u8::try_from(v).ok()),
+            commit_characters: raw["commitCharacters"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|s| s.as_str().map(str::to_owned))
+                .collect(),
+            command: raw.get("command").and_then(|c| {
+                Some(loom_extension_host::ProviderCommand {
+                    name: c["command"].as_str()?.to_owned(),
+                    arguments: c["arguments"].to_string(),
+                })
+            }),
             sort_text: text_of("sortText"),
             filter_text: text_of("filterText"),
             data: origin["data"].as_str().map(str::to_owned),
@@ -2097,6 +2755,7 @@ impl ExtensionService {
     /// if one is registered for its language. The extension provider wins over
     /// the language server for that language (one provider, never several).
     /// \`None\` means no extension provider applies.
+    #[cfg(test)]
     pub fn request_format(&mut self, app: &AppState, selection_only: bool) -> Option<Vec<Effect>> {
         let file = app.workspace.active_document()?;
         let editor = app.workspace.active_editor()?;
@@ -2197,12 +2856,16 @@ impl ExtensionService {
             let fits = matches!(
                 (&call.job.kind, &answer),
                 (WireKind::Hover, Provided::Hover { .. })
+                    | (
+                        WireKind::Completion | WireKind::CompletionResolve,
+                        Provided::Completions { .. }
+                    )
                     | (WireKind::Definition, Provided::Locations { .. })
                     | (WireKind::DocumentSymbols, Provided::Symbols { .. })
                     | (WireKind::SignatureHelp, Provided::Signature { .. })
                     | (WireKind::InlayHints, Provided::InlayHints { .. })
                     | (WireKind::CodeActions, Provided::CodeActions { .. })
-            );
+            ) || language::fits(&call.job.kind, &answer);
             let answer = if fits {
                 self.language_reply(app, id, &call, answer)
             } else {
@@ -2258,17 +2921,45 @@ impl ExtensionService {
                         .into_iter()
                         .map(|i| providers::Offered {
                             label: i.label,
+                            label_detail: i.label_detail,
+                            label_description: i.label_description,
+                            deprecated: i.deprecated,
+                            preselect: i.preselect,
+                            insert_text_mode: i.insert_text_mode,
                             detail: i.detail,
                             documentation: i.documentation,
                             kind: i.kind,
                             insert_text: i.insert_text,
+                            text_edit: i.text_edit.map(|edit| {
+                                (
+                                    edit.range.start as usize..edit.range.end as usize,
+                                    edit.text,
+                                )
+                            }),
+                            additional_text_edits: i
+                                .additional_text_edits
+                                .into_iter()
+                                .map(|edit| {
+                                    (
+                                        edit.range.start as usize..edit.range.end as usize,
+                                        edit.text,
+                                    )
+                                })
+                                .collect(),
+                            insert_text_format: i.insert_text_format,
+                            commit_characters: i.commit_characters,
+                            command: i.command.map(|command| (command.name, command.arguments)),
                             sort_text: i.sort_text,
                             filter_text: i.filter_text,
                             data: i.data,
                         })
                         .collect();
-                    let (json, dropped) =
-                        providers::completion_json(&call.extension, &call.provider, &offered);
+                    let (json, dropped) = providers::completion_json(
+                        &call.extension,
+                        &call.provider,
+                        &call.text,
+                        &offered,
+                    );
                     if dropped > 0
                         && let Some(package) = self.packages.get_mut(id)
                     {
@@ -2317,7 +3008,7 @@ impl ExtensionService {
                 let version = document.buffer.version();
                 self.provider_seen.insert(
                     (call.extension.clone(), call.provider.clone(), call.doc_id),
-                    version,
+                    document.stamp(call.file),
                 );
                 let target = Target {
                     file: call.file,
@@ -2336,7 +3027,7 @@ impl ExtensionService {
                 self.issue(
                     &call.extension,
                     &call.provider,
-                    WireKind::Diagnostics,
+                    call.job.kind,
                     target,
                     &mut effects,
                 );
@@ -2344,6 +3035,46 @@ impl ExtensionService {
             return effects;
         }
         match answer {
+            Provided::Language {
+                answer: loom_extension_host::WireLanguageAnswer::Highlights(items),
+                ..
+            } if matches!(call.job.kind, WireKind::Highlights) => {
+                let mut spans = items
+                    .into_iter()
+                    .filter_map(|item| {
+                        let start = usize::try_from(item.range.start).ok()?;
+                        let end = usize::try_from(item.range.end).ok()?;
+                        if start >= end
+                            || end > call.text.len()
+                            || !call.text.is_char_boundary(start)
+                            || !call.text.is_char_boundary(end)
+                        {
+                            return None;
+                        }
+                        Some(crate::features::syntax::TokenSpan {
+                            range: start..end,
+                            class: Some(crate::features::highlighting::HighlightId::from_name(
+                                &item.theme,
+                            )?),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                spans.sort_by_key(|s| (s.range.start, s.range.end));
+                if spans
+                    .windows(2)
+                    .any(|pair| pair[0].range.end > pair[1].range.start)
+                {
+                    return vec![Effect::Error(format!("{id}: overlapping highlight ranges"))];
+                }
+                let source = self.source_for(&call.extension, &call.provider);
+                vec![Effect::PublishHighlights {
+                    source,
+                    path: call.path,
+                    stamp: call.stamp,
+                    length: call.text.len(),
+                    items: spans,
+                }]
+            }
             Provided::Diagnostics { items, .. } if !formatting => {
                 let reported: Vec<Reported> = items
                     .into_iter()
@@ -2354,6 +3085,7 @@ impl ExtensionService {
                         message: d.message,
                         source: d.source,
                         code: d.code,
+                        documentation_url: d.documentation_url,
                     })
                     .collect();
                 let converted = providers::convert(&call.text, &reported, &call.provider);
@@ -2361,10 +3093,7 @@ impl ExtensionService {
                 let mut effects = vec![Effect::PublishDiagnostics {
                     source,
                     path: call.path.clone(),
-                    stamp: Stamp {
-                        incarnation: call.stamp.incarnation,
-                        version: call.stamp.version,
-                    },
+                    stamp: call.stamp,
                     text: call.text.clone(),
                     items: converted.diagnostics,
                 }];
@@ -2419,11 +3148,14 @@ impl ExtensionService {
         current: &[(FileId, String, String, u64)],
         effects: &mut Vec<Effect>,
     ) {
-        let owners: Vec<(String, String, Vec<String>)> = self
+        let owners: Vec<(String, String, Vec<String>, DeclKind)> = self
             .packages
             .iter()
             .filter(|(_, p)| {
-                ["documents.read", "languages"]
+                !matches!(
+                    p.lifecycle.state(),
+                    State::Stopped | State::Failed | State::Stopping
+                ) && ["documents.read", "languages"]
                     .iter()
                     .all(|c| self.authorize(p, c).is_ok())
             })
@@ -2433,24 +3165,66 @@ impl ExtensionService {
                     .language_service
                     .providers
                     .iter()
-                    .filter(|d| d.kind == DeclKind::Diagnostics)
-                    .map(move |d| (owner.clone(), d.id.clone(), d.selector.languages.clone()))
+                    .filter(|d| {
+                        matches!(d.kind, DeclKind::Diagnostics | DeclKind::Highlights)
+                            && p.provider_configurations
+                                .get(&d.id)
+                                .is_none_or(|c| c.enabled)
+                    })
+                    .map(move |d| {
+                        (
+                            owner.clone(),
+                            d.id.clone(),
+                            d.selector.languages.clone(),
+                            d.kind,
+                        )
+                    })
             })
             .collect();
         for (file, path, language, version) in current {
+            if app.workspace.documents[file].buffer.len()
+                > app
+                    .preferences
+                    .values()
+                    .language_features
+                    .max_document_bytes
+            {
+                continue;
+            }
             let Some(doc_id) = self.seen.get(file).copied() else {
                 continue;
             };
-            for (owner, provider, languages) in &owners {
+            for (owner, provider, languages, kind) in &owners {
                 if !languages.contains(language) {
                     continue;
                 }
-                let key = (owner.clone(), provider.clone(), doc_id);
-                if self.provider_seen.get(&key) == Some(version) {
+                if self
+                    .provider_calls
+                    .values()
+                    .filter(|call| &call.extension == owner)
+                    .count()
+                    >= MAX_PROVIDER_CALLS
+                    || self
+                        .provider_calls
+                        .values()
+                        .filter(|call| {
+                            &call.extension == owner
+                                && matches!(
+                                    call.job.kind,
+                                    WireKind::Diagnostics | WireKind::Highlights
+                                )
+                        })
+                        .count()
+                        >= MAX_BACKGROUND_CALLS
+                {
                     continue;
                 }
-                self.provider_seen.insert(key, *version);
+                let key = (owner.clone(), provider.clone(), doc_id);
                 let document = &app.workspace.documents[file];
+                let stamp = document.stamp(*file);
+                if self.provider_seen.get(&key) == Some(&stamp) {
+                    continue;
+                }
                 let target = Target {
                     file: *file,
                     stamp: document.stamp(*file),
@@ -2465,7 +3239,20 @@ impl ExtensionService {
                     item: None,
                     item_raw: None,
                 };
-                self.issue(owner, provider, WireKind::Diagnostics, target, effects);
+                self.issue(
+                    owner,
+                    provider,
+                    if *kind == DeclKind::Highlights {
+                        WireKind::Highlights
+                    } else {
+                        WireKind::Diagnostics
+                    },
+                    target,
+                    effects,
+                );
+                if self.provider_calls.contains_key(&self.next_request) {
+                    self.provider_seen.insert(key, stamp);
+                }
             }
         }
     }
@@ -2494,119 +3281,30 @@ impl ExtensionService {
         themes
     }
 
-    /// The language servers loaded packages declare, each with the open folders
-    /// it may run in. All three layers have to allow a folder: the package's
-    /// grant, the folder's trust and the folder's tool grant (design §9.1). A
-    /// declaration is data, so it is listed even when nothing allows it; the
-    /// language service then shows it as not started, with the reason.
-    pub fn language_servers(&self) -> Vec<crate::infrastructure::lsp::manager::Contributed> {
-        let mut servers = Vec::new();
-        for package in self.packages.values() {
-            if package.lifecycle.state() == State::Stopped {
-                continue;
-            }
-            for declaration in &package.manifest.contributes.language_service.servers {
-                let (name, mut definition) =
-                    crate::features::extensions::servers::definition(declaration);
-                // `${extension}/…` and `${runtime.<name>}/…` name files of this package
-                // or of the runtime extension it requires.
-                let command = declaration.command.as_str();
-                let mut unresolved = None;
-                let runtime = |id: &str| self.packages.get(id).map(|runtime| runtime.dir.clone());
-                match crate::features::extensions::servers::resolve_command(
-                    command,
-                    &package.dir,
-                    runtime,
-                    cfg!(windows),
-                ) {
-                    Ok(resolved) => definition["command"] = resolved.into(),
-                    Err(error) => unresolved = Some(error),
-                }
-                // So are the arguments that name a file: a script for the runtime to run.
-                let mut arguments = Vec::new();
-                for argument in &declaration.args {
-                    match crate::features::extensions::servers::resolve_argument(
-                        argument,
-                        &package.dir,
-                        runtime,
-                    ) {
-                        Ok(resolved) => arguments.push(resolved),
-                        Err(error) => {
-                            unresolved.get_or_insert(error);
-                        }
-                    }
-                }
-                definition["args"] = arguments.into();
-                // A path with a separator that is not absolute starts inside the package.
-                if unresolved.is_none()
-                    && command.contains(['/', '\\'])
-                    && !command.starts_with("${")
-                    && Path::new(command).is_relative()
-                {
-                    definition["command"] = package
-                        .dir
-                        .join(command)
-                        .to_string_lossy()
-                        .into_owned()
-                        .into();
-                }
-                let mut allowed = Vec::new();
-                let mut denial = Denial::NoTargetRoot;
-                for (index, (_, root)) in self.roots.iter().enumerate() {
-                    let trust = match &self.trust {
-                        Some(trust) if trust.is_trusted(root) => RootTrust::Trusted,
-                        _ => RootTrust::Untrusted,
-                    };
-                    match self.grants.authorize(
-                        &package.identity,
-                        "process.execute-local",
-                        Some((&Self::root_key(root), trust)),
-                    ) {
-                        Ok(()) => allowed.push(root.clone()),
-                        Err(reason) if index == 0 || allowed.is_empty() => denial = reason,
-                        Err(_) => {}
-                    }
-                }
-                // Without a grant of its own, say that first: it holds in every folder.
-                if self
-                    .grants
-                    .authorize(&package.identity, "process.execute-local", None)
-                    .is_err_and(|reason| reason == Denial::PackageNotGranted)
-                {
-                    denial = Denial::PackageNotGranted;
-                }
-                let refusal = match &unresolved {
-                    Some(error) => {
-                        allowed.clear();
-                        format!("{}: {error}", declaration.id)
-                    }
-                    None => format!("{}: {}", declaration.id, execution_denial(denial)),
-                };
-                servers.push(crate::infrastructure::lsp::manager::Contributed {
-                    name,
-                    definition,
-                    allowed_roots: allowed,
-                    refusal,
-                });
-            }
-        }
-        servers.sort_by(|a, b| a.name.cmp(&b.name));
-        servers
-    }
-
-    /// Whether a running extension declares a language server for the language `name`.
+    /// Whether an execution-capable extension supplies providers for `name`.
     pub fn serves_language(&self, name: &str) -> bool {
-        self.packages
-            .values()
-            .filter(|package| package.lifecycle.state() != State::Stopped)
-            .flat_map(|package| &package.manifest.contributes.language_service.servers)
-            .any(|server| {
-                server.languages.iter().any(|language| language == name)
-                    || server
-                        .bindings
-                        .iter()
-                        .any(|binding| binding.language == name)
-            })
+        self.packages.values().any(|package| {
+            !matches!(package.lifecycle.state(), State::Stopped | State::Failed)
+                && package.manifest.has_behaviour()
+                && package
+                    .manifest
+                    .capabilities
+                    .iter()
+                    .any(|cap| cap == "process.execute-local")
+                && package
+                    .manifest
+                    .contributes
+                    .language_service
+                    .providers
+                    .iter()
+                    .any(|provider| {
+                        provider
+                            .selector
+                            .languages
+                            .iter()
+                            .any(|language| language == name)
+                    })
+        })
     }
 
     /// Stop what extensions already run in `root`, for when its trust is taken away.
@@ -2618,19 +3316,45 @@ impl ExtensionService {
             .filter(|(_, path)| path.starts_with(root))
             .map(|(id, _)| *id)
             .collect();
-        self.tasks
+        let mut effects: Vec<_> = self
+            .tasks
             .iter()
-            .filter(|(_, record)| handles.contains(&record.root_id))
+            .filter(|(_, record)| handles.contains(&record.root_id) || record.cwd.starts_with(root))
             .map(|(task, _)| Effect::CancelTask { task: *task })
-            .collect()
+            .collect();
+        effects.extend(
+            self.processes
+                .iter()
+                .filter(|(_, record)| {
+                    handles.contains(&record.root_id) || record.cwd.starts_with(root)
+                })
+                .map(|(process, _)| Effect::KillProcess { process: *process }),
+        );
+        effects
     }
 
-    fn cancel_tasks_of(&self, extension: &str) -> Vec<Effect> {
-        self.tasks
+    fn cancel_tasks_of(&mut self, extension: &str) -> Vec<Effect> {
+        let mut effects: Vec<_> = self
+            .tasks
             .iter()
             .filter(|(_, record)| record.extension == extension)
             .map(|(task, _)| Effect::CancelTask { task: *task })
-            .collect()
+            .collect();
+        effects.extend(
+            self.processes
+                .iter()
+                .filter(|(_, record)| record.extension == extension)
+                .map(|(process, _)| Effect::KillProcess { process: *process }),
+        );
+        effects.extend(
+            self.watches
+                .iter()
+                .filter(|(_, record)| record.extension == extension)
+                .map(|(watch, _)| Effect::StopWatch { watch: *watch }),
+        );
+        self.watches
+            .retain(|_, record| record.extension != extension);
+        effects
     }
 
     fn root_refs(&self) -> Vec<loom_extension_host::RootRef> {
@@ -2638,6 +3362,7 @@ impl ExtensionService {
             .iter()
             .map(|(id, path)| loom_extension_host::RootRef {
                 id: *id,
+                path: path.to_string_lossy().into_owned(),
                 name: path
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
@@ -2686,11 +3411,51 @@ impl ExtensionService {
             .filter(|(_, path)| !current.contains(path))
             .map(|(id, _)| *id)
             .collect();
+        let gone_paths: Vec<_> = self
+            .roots
+            .iter()
+            .filter(|(id, _)| gone.contains(id))
+            .map(|(_, path)| path.clone())
+            .collect();
         for (task, record) in &self.tasks {
-            if gone.contains(&record.root_id) {
+            if gone.contains(&record.root_id)
+                || gone_paths.iter().any(|path| record.cwd.starts_with(path))
+            {
                 effects.push(Effect::CancelTask { task: *task });
             }
         }
+        let removed_watches: Vec<_> = self
+            .watches
+            .iter()
+            .filter(|(_, record)| gone.contains(&record.root))
+            .map(|(watch, _)| *watch)
+            .collect();
+        for watch in removed_watches {
+            if let Some(record) = self.watches.remove(&watch) {
+                effects.push(Effect::Submit(Job::Watch {
+                    id: record.extension,
+                    generation: record.generation,
+                    credit: None,
+                    message: Inbound::WatchFailed(loom_extension_host::WatchFailure {
+                        watch: record.local,
+                        error: crate::infrastructure::extensions::wire_error(&ExtensionError::new(
+                            ErrorKind::ExpiredHandle,
+                            "the watched folder is no longer open",
+                        )),
+                    }),
+                }));
+            }
+            effects.push(Effect::StopWatch { watch });
+        }
+        effects.extend(
+            self.processes
+                .iter()
+                .filter(|(_, record)| {
+                    gone.contains(&record.root_id)
+                        || gone_paths.iter().any(|path| record.cwd.starts_with(path))
+                })
+                .map(|(process, _)| Effect::KillProcess { process: *process }),
+        );
         // Something an extension left half-done in a folder that was opened since is reported once.
         for path in current
             .iter()
@@ -2813,6 +3578,20 @@ impl ExtensionService {
                 joined
             }
         };
+        // Preserve the workspace's spelling after resolving links. On Windows
+        // canonicalize adds a verbatim prefix, which is not necessarily how the
+        // same root is stored by the workspace/trust service.
+        let cwd = root.join(cwd.strip_prefix(&base).expect("cwd was confined to root"));
+        if !self
+            .trust
+            .as_ref()
+            .is_some_and(|trust| trust.is_trusted(&cwd))
+        {
+            return deny(
+                ErrorKind::PermissionDenied,
+                "the working directory is in an untrusted folder",
+            );
+        }
         // A relative path with a separator means "from the working directory";
         // a bare name is looked up on PATH by the operating system.
         let program = if program.contains(['/', '\\']) && Path::new(program).is_relative() {
@@ -2874,6 +3653,7 @@ impl ExtensionService {
                         generation,
                         local,
                         root_id,
+                        cwd: spec.cwd.clone(),
                     },
                 );
                 vec![Effect::StartTask { task: global, spec }]
@@ -2962,6 +3742,10 @@ impl ExtensionService {
         let allowed = self.packages.get(id).is_some_and(|package| {
             package.lifecycle.accepts(generation)
                 && self.authorize(package, "documents.read").is_ok()
+                && package
+                    .provider_configurations
+                    .get(&published.provider)
+                    .is_none_or(|c| c.enabled)
         });
         // A source name must be the extension's own, so it cannot speak as another.
         if !allowed || !published.provider.starts_with(&format!("{id}.")) {
@@ -2986,6 +3770,7 @@ impl ExtensionService {
                 message: d.message,
                 source: d.source,
                 code: d.code,
+                documentation_url: d.documentation_url,
             })
             .collect();
         let converted = providers::convert(&text, &reported, &published.provider);
@@ -2994,10 +3779,7 @@ impl ExtensionService {
         vec![Effect::PublishDiagnostics {
             source,
             path: document.meta.path.clone(),
-            stamp: Stamp {
-                incarnation: stamp.incarnation,
-                version: stamp.version,
-            },
+            stamp,
             text,
             items: converted.diagnostics,
         }]

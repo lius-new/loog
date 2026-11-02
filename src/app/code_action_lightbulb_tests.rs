@@ -30,12 +30,7 @@ impl Case {
             log.to_str().unwrap(),
         ];
         args.extend_from_slice(extra);
-        let mut h = LanguageHarness::configured("fn alpha() {}\n", &args, |app| {
-            app.preferences.values_mut().language_servers[0]
-                .args
-                .as_mut()
-                .unwrap()[1] = "object".into();
-        });
+        let mut h = LanguageHarness::new("fn alpha() {}\n", &args);
         h.until_ready();
         if extra.contains(&"--diagnostics") && !extra.contains(&"--diag-defer-until-save") {
             // Pointer hover only starts a diagnostic card for known diagnostics.
@@ -49,7 +44,7 @@ impl Case {
                     .unwrap()
                     .results(&doc.meta.path, &doc.stamp(id))
                     .diagnostics
-                    .is_some()
+                    .is_some_and(|found| !found.is_empty())
             });
             // Findings may have arrived after the last render in until().
             h.render();
@@ -126,7 +121,8 @@ fn saved(h: &LanguageHarness) {
     let path = app.workspace.active_path().unwrap().to_path_buf();
     let id = app.workspace.active_document().unwrap();
     let text = app.workspace.documents[&id].buffer.text_snapshot();
-    h.runtime.language_services().unwrap().saved(path, text);
+    drop(app);
+    crate::app::test_support::language::saved(&h.state, path, text);
 }
 
 #[test]
@@ -150,7 +146,7 @@ fn code_action_lightbulb_refreshes_on_diagnostics_without_a_caret_or_text_change
             .unwrap()
             .results(&doc.meta.path, &doc.stamp(id))
             .diagnostics
-            .is_some()
+            .is_some_and(|found| !found.is_empty())
     });
     assert!(!open(&c.h, old));
     assert_ne!(c.wait_bulb(), old);
@@ -176,29 +172,43 @@ fn code_action_lightbulb_invalidates_same_id_registration_replacements_and_serve
         {"step":2,"id":8202,"method":"client/registerCapability","params":{"registrations":[{"id":"actions","method":"textDocument/codeAction","registerOptions":{"resolveProvider":true,"documentSelector":[{"language":"plaintext"}]}}]}}
     ]).to_string()).unwrap();
     let mut c = Case::new(&["--registration-script", script.to_str().unwrap()]);
-    for expected in [1, 2] {
+    for _ in [1, 2] {
         let old = c.wait_bulb();
+        let revision =
+            c.h.runtime
+                .language_services()
+                .unwrap()
+                .capability_sources(None)
+                .into_iter()
+                .map(|i| i.revision)
+                .max()
+                .unwrap();
         saved(&c.h);
         c.h.until("committed dynamic registration", |h| {
             h.runtime
                 .language_services()
                 .unwrap()
-                .infos()
+                .capability_sources(None)
                 .iter()
-                .any(|i| i.registration_revision == expected)
+                .any(|i| i.revision > revision)
         });
         assert!(!open(&c.h, old));
     }
     let old = c.wait_bulb();
-    let run = c.h.runtime.language_services().unwrap().infos()[0].run;
-    c.h.runtime.language_services().unwrap().restart();
+    let run =
+        c.h.runtime
+            .language_services()
+            .unwrap()
+            .capability_sources(None)[0]
+            .run;
+    c.h.runtime.extensions().unwrap().reload_all(&c.h.state);
     c.h.until("restarted server", |h| {
         h.runtime
             .language_services()
             .unwrap()
-            .infos()
+            .capability_sources(None)
             .iter()
-            .any(|i| i.run > run && i.status == crate::infrastructure::lsp::manager::Status::Ready)
+            .any(|i| i.run > run && i.providers.code_action.is_some())
     });
     assert!(!open(&c.h, old));
     assert_ne!(c.wait_bulb(), old);

@@ -1,0 +1,104 @@
+{
+  "language": "javascript",
+  "document_bytes": 1048576,
+  "route": "native-executor-wasm-provider-consumer",
+  "indexing_probes": 12,
+  "profile": "release",
+  "small_document": {
+    "Completion": {
+      "count": 100,
+      "p50_ms": 18.7905,
+      "p95_ms": 21.2478
+    },
+    "Hover": {
+      "count": 100,
+      "p50_ms": 1.3167,
+      "p95_ms": 1.7853999999999999
+    },
+    "Definition": {
+      "count": 100,
+      "p50_ms": 1.0956,
+      "p95_ms": 1.2843
+    }
+  },
+  "guest_cpu": [
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.353,
+      "p95_ms": 0.5512
+    },
+    {
+      "name": "rpc:textDocument/completion",
+      "count": 100,
+      "p50_ms": 8.6224,
+      "p95_ms": 11.1713
+    },
+    {
+      "name": "convert:completion",
+      "count": 100,
+      "p50_ms": 4.6979,
+      "p95_ms": 6.233200000000001
+    },
+    {
+      "name": "sdk-completion-encode",
+      "count": 100,
+      "p50_ms": 1.3631,
+      "p95_ms": 1.7218
+    },
+    {
+      "name": "sdk-completion-submit",
+      "count": 100,
+      "p50_ms": 0.8609,
+      "p95_ms": 1.1009
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.3498,
+      "p95_ms": 0.5912
+    },
+    {
+      "name": "rpc:textDocument/hover",
+      "count": 100,
+      "p50_ms": 0.9649,
+      "p95_ms": 2.1444
+    },
+    {
+      "name": "convert:hover",
+      "count": 100,
+      "p50_ms": 0.0206,
+      "p95_ms": 0.0398
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0222,
+      "p95_ms": 0.0315
+    },
+    {
+      "name": "rpc:textDocument/definition",
+      "count": 100,
+      "p50_ms": 0.7138,
+      "p95_ms": 1.2889
+    },
+    {
+      "name": "convert:definition",
+      "count": 100,
+      "p50_ms": 0.0323,
+      "p95_ms": 0.0589
+    }
+  ],
+  "idle_memory": {
+    "resident_bytes": 76464128,
+    "private_bytes": 109252608,
+    "process_peak_resident_bytes": 93483008
+  },
+  "observed_peak_memory": {
+    "resident_bytes": 112644096,
+    "private_bytes": 154066944,
+    "process_peak_resident_bytes": 115200000
+  },
+  "restart_ms": 1818.4668,
+  "exit_ms": 13.9343
+}

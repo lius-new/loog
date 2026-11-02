@@ -1,6 +1,7 @@
 # Language services: remaining work
 
-Reviewed on 2026-10-25 against the source at `d8d2569`. This list replaces the
+Reviewed on 2026-10-25 against the source at `d8d2569`, with ownership references
+updated after the 2026-11-02 extension migration. This list replaces the
 open migration checklists in the root language/syntax and LSP drafts. Maintained
 architecture is in [Language services](architecture/language-services.md) and
 [LSP](architecture/lsp.md). Historical plans, measurements and repair logs remain
@@ -15,7 +16,7 @@ platform/toolchain, command, inputs and results when closing an item.
 
 | ID | Remaining behavior | Current evidence and completion condition |
 | --- | --- | --- |
-| LS-02 | Semantic token viewport coverage | `infrastructure/lsp/manager.rs` requests a stamped whole-document range when the server lacks full tokens. Add bounded viewport-range coverage, invalidation and cancellation without coloring uncovered/stale regions as fresh. |
+| LS-02 | Semantic token viewport coverage | The private extension client requests a stamped whole-document range when the server lacks full tokens. Add bounded viewport-range coverage, invalidation and cancellation without coloring uncovered/stale regions as fresh. |
 | LS-03 | Complete snippet compatibility | `features/language_service/snippet/transform.rs` uses bounded `fancy_regex` substitutions. Common transforms, choices and mirrors exist; audit full ECMAScript/UTF-16 behavior, remaining variable sources and complex nested deletion/undo against explicit fixtures before claiming compatibility. |
 | LS-04 | Rich inlay hints | `app/language_ui/inlay.rs` converts hints into text/offsets. Preserve label-part locations, commands and resolve data through rendering; validate actions against the original hint, instance and document. |
 | LS-05 | Inline code lens | `app/language_ui/lists.rs` offers lens commands and resolve in a list. Add above-line lens layout, hit testing and invalidation; list availability does not complete inline rendering. |
@@ -31,7 +32,7 @@ platform/toolchain, command, inputs and results when closing an item.
 | --- | --- | --- |
 | LV-01 | Syntax performance baseline | Existing fixtures and `app/editor_baseline_tests.rs` provide starting points. Record reproducible multi-sample p50/p95 with machine, profile, fixture hash, cold/warm state, cache/eviction behavior, visible typing and 8 MiB/64 MiB/very-long-line fallback cases. Do not revive removed lexer output as a correctness oracle. |
 | LV-02 | Platform/resource lifecycle matrix | CI already runs host tests, source-independent host validation and installed WASM tests. Map actual successful runs to native/WASM loading, user overrides, lazy loading, remove/restart, incremental edits, macOS signing/JIT and cold loading. Preserve untested cases rather than repeating the old blanket claim that no Linux/macOS build ran. |
-| LV-03 | Real server and managed-pack matrix | Real Rust/TypeScript interactions and shared Node have opt-in tests in `app/real_language_server_tests.rs`; installation probes live in `infrastructure/lsp_install_tests.rs`. Record exact pack versions, OS and results for remaining server combinations, offline discovery, cancellation and restart. |
+| LV-03 | Real server and managed-pack matrix | The extension migration record and `app/extensions/tests.rs` retain Windows Rust/Go/JS/TS component acceptance with pinned servers. Other languages and Linux/macOS execution need their own evidence. |
 | LV-04 | Watchers, roots and process ownership | Windows Job Object and Unix process-group cleanup are implemented; registration leases and watched-file support exist. Collect real platform results for child-tree shutdown, unopened-file changes, project-manifest reload, branch switching, root changes and stale callbacks. |
 | LV-05 | Completion and editing combinations | Verify real multi-server/late completion, incomplete lists, resolve/additional edits, signature and snippet interaction, rename/format/actions and resource-operation combinations, including late failure, state rollback and cross-document text undo. Existing fake-server coverage does not replace those real-server scenarios. |
 | LV-06 | End-to-end interaction and latency | Old logs measured warm command-to-layout samples. Record cold/load combinations and automatic-trigger input-to-display latency with explicit budgets; inspect popup clipping, pointer hit targets, focus/IME, scrolling, installation notifications and narrow windows on real desktops. Offscreen UI tests do not establish compositor or accessibility acceptance. |

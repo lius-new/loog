@@ -1,11 +1,12 @@
 //! Persisted workspace trust (design §9.1).
 //!
 //! The store is shared between the UI (trust and revoke actions) and the
-//! language server manager, which asks before starting a process.
+//! extension process service, which checks this store before every launch.
 use crate::features::extensions::trust::{Decision, TrustedRoots};
-use crate::infrastructure::lsp::manager::StartGate;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+#[cfg(test)]
+use std::sync::Arc;
+use std::sync::Mutex;
 
 #[derive(Default)]
 pub struct TrustStore {
@@ -116,21 +117,6 @@ impl TrustStore {
         std::fs::write(&partial, inner.roots.to_json())?;
         std::fs::rename(&partial, &file)
     }
-
-    /// The gate the language server manager consults before starting a process.
-    pub fn start_gate(self: &Arc<Self>) -> StartGate {
-        let store = self.clone();
-        StartGate(Arc::new(move |root| {
-            if store.is_trusted(root) {
-                Ok(())
-            } else {
-                Err(format!(
-                    "{} is not trusted, so language servers are not started; run `workspace::TrustWorkspace` to allow them",
-                    root.display()
-                ))
-            }
-        }))
-    }
 }
 
 #[cfg(test)]
@@ -151,11 +137,10 @@ mod tests {
         let root = std::env::temp_dir().join("trust-project");
         let store = Arc::new(TrustStore::default());
         store.attach(path.clone());
-        let gate = store.start_gate();
-        assert!((gate.0)(&root).unwrap_err().contains("not trusted"));
+        assert!(!store.is_trusted(&root));
 
         store.trust(&root).unwrap();
-        assert!((gate.0)(&root.join("src")).is_ok());
+        assert!(store.is_trusted(&root.join("src")));
 
         // A new process reads the same decision back.
         let again = TrustStore::default();
@@ -172,10 +157,9 @@ mod tests {
         store.attach(path.clone());
         store.set_workspace(std::slice::from_ref(&root));
         store.trust(&root).unwrap();
-        let gate = store.start_gate();
-        assert!((gate.0)(&root).is_ok());
+        assert!(store.is_trusted(&root));
         store.decline(&root).unwrap();
-        assert!((gate.0)(&root).is_err());
+        assert!(!store.is_trusted(&root));
         let again = TrustStore::default();
         again.attach(path);
         again.set_workspace(std::slice::from_ref(&root));
@@ -208,19 +192,14 @@ mod tests {
         let inner = outer.join("app");
         let store = Arc::new(TrustStore::default());
         store.trust(&outer).unwrap();
-        let gate = store.start_gate();
         // Before the folders are known the plain rule holds.
-        assert!((gate.0)(&inner).is_ok());
+        assert!(store.is_trusted(&inner));
 
         store.set_workspace(&[outer.clone(), inner.clone()]);
-        assert!((gate.0)(&outer.join("src")).is_ok());
-        assert!(
-            (gate.0)(&inner.join("src"))
-                .unwrap_err()
-                .contains("not trusted")
-        );
+        assert!(store.is_trusted(&outer.join("src")));
+        assert!(!store.is_trusted(&inner.join("src")));
         store.trust(&inner).unwrap();
-        assert!((gate.0)(&inner.join("src")).is_ok());
+        assert!(store.is_trusted(&inner.join("src")));
     }
 
     #[test]

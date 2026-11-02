@@ -7,6 +7,8 @@ use crate::infrastructure::extensions::{Event, Executor};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+#[path = "../../../tests/fixtures/language_migration_metrics.rs"]
+mod migration_metrics;
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
@@ -79,8 +81,15 @@ pub(crate) fn package_dir_with(name: &str, manifest: &str) -> PathBuf {
 type OfferedList = (u64, Option<(Vec<serde_json::Value>, bool)>);
 
 struct Fixture {
+    event_timeout: Duration,
+    wake: Receiver<()>,
+    trace: std::collections::VecDeque<String>,
     runner: tasks::Runner,
     task_events: Receiver<tasks::TaskEvent>,
+    processes: crate::infrastructure::extensions::processes::Runner,
+    process_events: Receiver<crate::infrastructure::extensions::processes::ProcessEvent>,
+    watches: crate::infrastructure::extensions::watches::Runner,
+    watch_events: Receiver<crate::infrastructure::extensions::watches::WatchEvent>,
     service: ExtensionService,
     executor: Executor,
     events: Receiver<Event>,
@@ -105,20 +114,33 @@ fn fixture(name: &str, text: &str, select: std::ops::Range<usize>) -> Fixture {
 }
 
 fn fixture_with(name: &str, text: &str, select: std::ops::Range<usize>, manifest: &str) -> Fixture {
+    fixture_package(name, text, select, &package_dir_with(name, manifest), None)
+}
+
+fn fixture_package(
+    name: &str,
+    text: &str,
+    select: std::ops::Range<usize>,
+    package: &Path,
+    cache: Option<PathBuf>,
+) -> Fixture {
+    let event_timeout = Duration::from_secs(if cache.is_some() { 600 } else { 60 });
+    let (wake_sender, wake) = channel();
+    let executor_wake = wake_sender.clone();
     let (sender, events) = channel();
     let sender = Mutex::new(sender);
     let executor = Executor::spawn(Box::new(move |event| {
         let _ = sender.lock().unwrap().send(event);
+        let _ = executor_wake.send(());
     }))
     .unwrap();
-    let mut service = ExtensionService::new(
-        std::env::temp_dir().join(format!("loom-ext-cache-{}", std::process::id())),
-    );
-    let id = service
-        .load_package(&package_dir_with(name, manifest))
-        .unwrap();
+    let mut service = ExtensionService::new(cache.unwrap_or_else(|| {
+        std::env::temp_dir().join(format!("loom-ext-cache-{}", std::process::id()))
+    }));
+    let id = service.load_package(package).unwrap();
     service.grant_declared(&id);
     let mut app = AppState::new();
+    app.extension_widgets.begin_session(service.ui_session);
     let path = std::env::temp_dir().join(format!("loom-ext-doc-{}-{name}.txt", std::process::id()));
     app.workspace.open_path(path.clone(), text.into());
     {
@@ -131,10 +153,30 @@ fn fixture_with(name: &str, text: &str, select: std::ops::Range<usize>, manifest
     }
     let (task_sender, task_events) = channel();
     let task_sender = Mutex::new(task_sender);
+    let task_wake = wake_sender.clone();
     let runner = tasks::Runner::new(move |event| {
         let _ = task_sender.lock().unwrap().send(event);
+        let _ = task_wake.send(());
+    });
+    let (process_sender, process_events) = channel();
+    let process_wake = wake_sender.clone();
+    let processes = crate::infrastructure::extensions::processes::Runner::new(move |event| {
+        let _ = process_sender.send(event);
+        let _ = process_wake.send(());
+    });
+    let (watch_sender, watch_events) = channel();
+    let watches = crate::infrastructure::extensions::watches::Runner::new(move |event| {
+        let _ = watch_sender.send(event);
+        let _ = wake_sender.send(());
     });
     Fixture {
+        event_timeout,
+        wake,
+        trace: Default::default(),
+        watches,
+        watch_events,
+        processes,
+        process_events,
         runner,
         task_events,
         service,
@@ -157,19 +199,44 @@ impl Fixture {
     /// The next executor event; task output and exits are handled on the way,
     /// as the UI thread would.
     fn recv(&mut self) -> Event {
-        let limit = std::time::Instant::now() + Duration::from_secs(60);
+        let limit = std::time::Instant::now() + self.event_timeout;
         loop {
+            while let Ok(event) = self.watch_events.try_recv() {
+                let effects = self.service.handle_watch_event(event);
+                self.apply(effects);
+            }
+            while let Ok(event) = self.process_events.try_recv() {
+                if std::env::var_os("LOOM_MIGRATION_TRACE").is_some() {
+                    if let crate::infrastructure::extensions::processes::ProcessEvent::Output {
+                        bytes,
+                        ..
+                    } = &event
+                    {
+                        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) {
+                            self.trace.push_back(format!("in: {value}"));
+                        }
+                    }
+                    while self.trace.len() > 12 {
+                        self.trace.pop_front();
+                    }
+                }
+                let effects = self.service.handle_process_event(event);
+                self.apply(effects);
+            }
             while let Ok(event) = self.task_events.try_recv() {
                 let effects = self.service.handle_task_event(event);
                 self.apply(effects);
             }
-            if let Ok(event) = self.events.recv_timeout(Duration::from_millis(10)) {
+            if let Ok(event) = self.events.try_recv() {
                 return event;
             }
             assert!(
                 std::time::Instant::now() < limit,
                 "the executor produced no event"
             );
+            let _ = self
+                .wake
+                .recv_timeout(limit.saturating_duration_since(std::time::Instant::now()));
         }
     }
 
@@ -183,6 +250,74 @@ impl Fixture {
         let mut messages = Vec::new();
         for effect in effects {
             match effect {
+                Effect::WorkspaceOperation {
+                    id,
+                    generation,
+                    operation,
+                    action,
+                } => {
+                    let super::language::WorkspaceAction::Edit {
+                        title,
+                        edit,
+                        stamps,
+                    } = action
+                    else {
+                        panic!("native navigation is checked through its typed effect");
+                    };
+                    let loaded = crate::app::language_ui::edit::unopened(&self.app, &edit)
+                        .unwrap()
+                        .into_iter()
+                        .map(|path| {
+                            let text = std::fs::read_to_string(&path).unwrap();
+                            (path, text)
+                        })
+                        .collect();
+                    let request = crate::app::language_ui::edit::Request {
+                        title,
+                        edit,
+                        stamps,
+                        rect: Default::default(),
+                        reply: None,
+                    };
+                    let result =
+                        crate::app::language_ui::edit::apply_now(&mut self.app, &request, loaded);
+                    self.executor.submit(Job::Complete {
+                        id,
+                        generation,
+                        operation,
+                        outcome: match result {
+                            Ok(_) => Outcome::Committed {
+                                transaction: 0,
+                                version: 0,
+                            },
+                            Err(message) => Outcome::Failed(ExtensionError::new(
+                                ErrorKind::InvalidEdit,
+                                message,
+                            )),
+                        },
+                    });
+                }
+                Effect::ClearUi { session, owner } => {
+                    self.app.extension_widgets.remove(session, &owner)
+                }
+                Effect::StartWatch { watch, spec } => self.watches.start(watch, spec),
+                Effect::StopWatch { watch } => self.watches.stop(watch),
+                Effect::StartProcess { process, spec } => self.processes.start(process, spec),
+                Effect::WriteProcess { process, bytes } => {
+                    if std::env::var_os("LOOM_MIGRATION_TRACE").is_some() {
+                        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                            self.trace.push_back(format!("out: {value}"));
+                        }
+                        while self.trace.len() > 12 {
+                            self.trace.pop_front();
+                        }
+                    }
+                    self.processes.write(process, bytes).unwrap();
+                }
+                Effect::CloseProcess { process } => {
+                    self.processes.close_stdin(process).unwrap();
+                }
+                Effect::KillProcess { process } => self.processes.kill(process),
                 Effect::Submit(job) => {
                     if matches!(job, Job::EndSave { .. }) {
                         self.submitted.push(Job::Shutdown);
@@ -190,6 +325,7 @@ impl Fixture {
                     assert!(self.executor.submit(job));
                 }
                 Effect::Toast(m) | Effect::Error(m) => messages.push(m),
+                Effect::PublishHighlights { .. } => {}
                 Effect::PublishDiagnostics { source, items, .. } => {
                     self.published.push((source, items))
                 }
@@ -533,7 +669,11 @@ fn document_events_wake_a_dormant_extension_and_arrive_in_order_with_a_baseline_
     f.observe();
     f.wait_for_log("x");
     let logs = f.service.package("example.tools").unwrap().logs.clone();
-    let texts: Vec<_> = logs.iter().map(|(_, t)| t.as_str()).collect();
+    let texts: Vec<_> = logs
+        .iter()
+        .map(|(_, t)| t.as_str())
+        .filter(|text| !text.starts_with("roots changed"))
+        .collect();
     assert!(texts[0].starts_with("opened 1"), "{texts:?}");
     assert!(
         texts.iter().any(|t| t.starts_with("changed 1")),
@@ -727,7 +867,7 @@ fn package_snippets_are_offered_for_their_language_only_and_a_bad_file_is_reject
     assert_eq!(effects.len(), 1, "only the file for this language");
     f.apply(effects);
     let (source, items) = f.offered.last().cloned().unwrap();
-    assert!(source & crate::infrastructure::lsp::manager::EXTERNAL_SOURCE != 0);
+    assert!(source & crate::features::providers::EXTERNAL_SOURCE != 0);
     let (items, incomplete) = items.unwrap();
     assert!(!incomplete);
     assert_eq!(items[0]["label"], "hello");
@@ -873,7 +1013,7 @@ fn a_diagnostics_provider_is_woken_by_a_matching_document_and_its_findings_are_p
     );
     f.pump_until(|f| !f.published.is_empty());
     let (source, items) = &f.published[0];
-    assert!(source & crate::infrastructure::lsp::manager::EXTERNAL_SOURCE != 0);
+    assert!(source & crate::features::providers::EXTERNAL_SOURCE != 0);
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].range, 5..9);
     assert_eq!(items[0].source.as_deref(), Some("example.tools.todo"));
@@ -987,7 +1127,7 @@ fn a_completion_provider_answers_with_items_that_carry_their_origin_and_resolve_
     f.apply(effects);
     f.pump_until(|f| !f.offered.is_empty());
     let (source, items) = f.offered[0].clone();
-    assert!(source & crate::infrastructure::lsp::manager::EXTERNAL_SOURCE != 0);
+    assert!(source & crate::features::providers::EXTERNAL_SOURCE != 0);
     let (items, incomplete) = items.expect("an answer in time");
     assert!(!incomplete);
     let labels: Vec<_> = items.iter().map(|i| i["label"].as_str().unwrap()).collect();
@@ -1046,6 +1186,10 @@ fn language_providers_answer_with_the_replies_a_server_would_give_and_only_for_t
                 feature,
                 start,
                 end,
+                extra: serde_json::Value::Null,
+                target: None,
+                server: None,
+                timeout: None,
             },
             token,
             &mut effects,
@@ -1055,7 +1199,7 @@ fn language_providers_answer_with_the_replies_a_server_would_give_and_only_for_t
         f.pump_until(|f| f.language.iter().any(|(t, _)| *t == token));
         let (_, answer) = f.language.iter().find(|(t, _)| *t == token).unwrap();
         let answer = answer.as_ref().expect("an answer in time");
-        assert!(answer.source & crate::infrastructure::lsp::manager::EXTERNAL_SOURCE != 0);
+        assert!(answer.source & crate::features::providers::EXTERNAL_SOURCE != 0);
         answer.value.clone()
     };
 
@@ -1104,6 +1248,10 @@ fn language_providers_answer_with_the_replies_a_server_would_give_and_only_for_t
         stamp,
         start: 0,
         end: 0,
+        extra: serde_json::Value::Null,
+        target: None,
+        server: None,
+        timeout: None,
     };
     stale.stamp.version += 1;
     let mut effects = Vec::new();
@@ -1150,6 +1298,10 @@ fn one_extension_cannot_hold_more_requests_open_than_the_cap_allows() {
             },
             start: 0,
             end: 0,
+            extra: serde_json::Value::Null,
+            target: None,
+            server: None,
+            timeout: None,
         };
         let mut effects = Vec::new();
         asked += f.service.request_language(&f.app, &ask, 1, &mut effects);
@@ -1169,7 +1321,7 @@ fn an_item_filed_under_another_source_is_never_sent_for_resolving() {
     let item = items.unwrap().0[0].clone();
     assert!(
         f.service
-            .request_completion_resolve(&f.app, source | 0x40, &item)
+            .request_completion_resolve(&f.app, source ^ 0x40, &item)
             .is_empty()
     );
     let mut forged = item.clone();
@@ -1286,58 +1438,13 @@ impl Fixture {
 }
 
 #[test]
-fn a_declared_language_server_may_run_only_in_a_trusted_folder() {
+fn retired_server_declarations_cannot_register_a_host_process() {
     let manifest = TASK_MANIFEST.replace(
         "\"settings\": [",
         "\"language_service\": { \"servers\": [{ \"id\": \"example.tools.lsp\", \"languages\": [\"rust\"], \
          \"command\": \"tools/lsp\", \"root_markers\": [\"Cargo.toml\"] }] }, \"settings\": [",
     );
-    let refusal = |trusted, name: &str| {
-        let (f, folder) = Fixture::tasks_with(&manifest, name, String::new(), trusted);
-        let mut f = f;
-        let effects = f.service.observe(&f.app);
-        f.apply(effects);
-        let servers = f.service.language_servers();
-        assert_eq!(servers.len(), 1);
-        let server = servers.into_iter().next().unwrap();
-        assert_eq!(server.name, "example-tools-lsp");
-        // A path with a separator starts inside the package, not in the project.
-        let command = server.definition["command"].as_str().unwrap().to_owned();
-        let package_dir = f.service.package("example.tools").unwrap().dir.clone();
-        assert!(
-            std::path::Path::new(&command).starts_with(&package_dir),
-            "{command}"
-        );
-        (server, folder)
-    };
-    let (untrusted, _) = refusal(false, "lsp-untrusted");
-    assert!(untrusted.allowed_roots.is_empty());
-    assert!(
-        untrusted.refusal.contains("not trusted"),
-        "{}",
-        untrusted.refusal
-    );
-
-    // Trust is the only per-folder check: nothing else has to be allowed.
-    let (allowed, folder) = refusal(true, "lsp-allowed");
-    assert_eq!(allowed.allowed_roots, vec![folder]);
-}
-
-#[test]
-fn stopping_an_extension_withdraws_the_servers_it_declares_until_it_is_loaded_again() {
-    let manifest = TASK_MANIFEST.replace(
-        "\"settings\": [",
-        "\"language_service\": { \"servers\": [{ \"id\": \"example.tools.lsp\", \"languages\": [\"rust\"], \
-         \"command\": \"lsp\", \"root_markers\": [\"Cargo.toml\"] }] }, \"settings\": [",
-    );
-    let (mut f, _) = Fixture::tasks_with(&manifest, "lsp-stop", String::new(), true);
-    assert_eq!(f.service.language_servers().len(), 1);
-    let effects = f.service.stop("example.tools");
-    f.apply(effects);
-    assert!(
-        f.service.language_servers().is_empty(),
-        "a stopped extension declares nothing"
-    );
+    assert!(crate::features::extensions::manifest::Manifest::parse(&manifest).is_err());
 }
 
 #[test]
@@ -1356,6 +1463,181 @@ fn without_trust_a_task_is_refused_before_anything_starts() {
         .collect();
     assert!(logs.iter().any(|l| l.contains("not trusted")), "{logs:?}");
     assert_eq!(f.runner.running(), 0);
+}
+
+#[test]
+fn a_persistent_process_round_trips_binary_frames_through_the_real_guest() {
+    let manifest = TASK_MANIFEST.replace("example.tools.run", "example.tools.stream");
+    for framed in [false, true] {
+        let spec = serde_json::json!({"program":"node", "args":["-e", "process.stdin.pipe(process.stdout)"], "framed":framed}).to_string();
+        let (mut f, _) = Fixture::tasks_with(
+            &manifest,
+            if framed {
+                "framed-process"
+            } else {
+                "raw-process"
+            },
+            spec,
+            true,
+        );
+        f.start_with_roots();
+        f.run("example.tools.stream");
+        f.wait_for_log("process exited 1 code Some(0)");
+        let logs = &f.service.package("example.tools").unwrap().logs;
+        assert!(
+            logs.iter()
+                .any(|(_, text)| text.contains("process output 1 [0, 255, 1]")),
+            "{logs:?}"
+        );
+        assert!(
+            logs.iter()
+                .any(|(_, text)| text.contains("process writable 1 3"))
+        );
+        assert_eq!(
+            logs.iter()
+                .filter(|(_, text)| text.contains("process exited 1"))
+                .count(),
+            1
+        );
+        assert!(f.service.processes.is_empty());
+    }
+}
+
+#[test]
+fn a_guest_exchanges_length_framed_messages_with_the_fake_language_server() {
+    let binary = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples")
+        .join(if cfg!(windows) {
+            "fake_lsp.exe"
+        } else {
+            "fake_lsp"
+        });
+    assert!(
+        binary.exists(),
+        "build the fixture with cargo build --example fake_lsp"
+    );
+    let input = vec![
+        serde_json::json!({"jsonrpc":"2.0", "id":1, "method":"initialize", "params":{"capabilities":{}}}).to_string(),
+        serde_json::json!({"jsonrpc":"2.0", "id":2, "method":"shutdown", "params":null}).to_string(),
+        serde_json::json!({"jsonrpc":"2.0", "method":"exit", "params":null}).to_string(),
+    ];
+    let spec =
+        serde_json::json!({"program":binary, "args":["--chunk","3"], "framed":true, "input":input})
+            .to_string();
+    let manifest = TASK_MANIFEST.replace("example.tools.run", "example.tools.stream");
+    let (mut f, _) = Fixture::tasks_with(&manifest, "fake-process", spec, true);
+    f.start_with_roots();
+    f.run("example.tools.stream");
+    f.wait_for_log("process exited 1 code Some(0)");
+    let logs = &f.service.package("example.tools").unwrap().logs;
+    for id in [1, 2] {
+        assert!(
+            logs.iter()
+                .any(|(_, text)| text == &format!("process message {id}")),
+            "{logs:?}"
+        );
+    }
+}
+
+#[test]
+fn persistent_processes_share_trust_and_are_reclaimed_on_revoke_and_root_removal() {
+    let manifest = TASK_MANIFEST.replace("example.tools.run", "example.tools.stream");
+    let spec = serde_json::json!({"program":"node", "args":["-e", "process.stdin.resume();setInterval(()=>{},1000)"], "persistent":true}).to_string();
+    let (mut denied, _) = Fixture::tasks_with(&manifest, "process-denied", spec.clone(), false);
+    denied.start_with_roots();
+    denied.run("example.tools.stream");
+    denied.wait_for_log("process exited 1");
+    assert!(denied.service.processes.is_empty());
+    assert!(
+        denied
+            .service
+            .package("example.tools")
+            .unwrap()
+            .logs
+            .iter()
+            .any(|(_, text)| text.contains("trust"))
+    );
+    for revoke in [false, true] {
+        let (mut f, folder) = Fixture::tasks_with(
+            &manifest,
+            if revoke {
+                "process-revoke"
+            } else {
+                "process-remove"
+            },
+            spec.clone(),
+            true,
+        );
+        f.start_with_roots();
+        f.run("example.tools.stream");
+        f.pump_until(|f| !f.service.processes.is_empty());
+        let effects = if revoke {
+            f.service.stop_tools_in(&folder)
+        } else {
+            f.app.explorer.model.remove_root(&folder);
+            f.service.observe(&f.app)
+        };
+        f.apply(effects);
+        f.wait_for_log("killed true");
+        assert!(f.service.processes.is_empty());
+        if !revoke {
+            assert!(
+                f.service
+                    .package("example.tools")
+                    .unwrap()
+                    .logs
+                    .iter()
+                    .any(|(_, text)| text == "roots changed 0")
+            );
+        }
+    }
+}
+
+#[test]
+fn a_task_cannot_enter_an_untrusted_nested_workspace_folder() {
+    let (mut f, folder) = Fixture::tasks("nested-cwd", task_json("echo x", "echo x"), true);
+    let nested = folder.join("sub");
+    f.app.explorer.model.add_root(
+        &crate::infrastructure::explorer_filesystem::ExplorerFilesystem,
+        nested.clone(),
+    );
+    f.service
+        .trust
+        .as_ref()
+        .unwrap()
+        .set_workspace(&[folder.clone(), nested.clone()]);
+    let effects = f.service.sync_roots(&f.app);
+    f.apply(effects);
+    let root = f
+        .service
+        .roots
+        .iter()
+        .find(|(_, path)| path == &folder)
+        .unwrap()
+        .0;
+    let request = loom_extension_host::TaskRequest {
+        call: 0,
+        root,
+        program: "node".into(),
+        args: vec![],
+        cwd: Some("sub".into()),
+        env: vec![],
+        timeout_ms: None,
+    };
+    assert!(
+        f.service
+            .plan_task("example.tools", &request)
+            .unwrap_err()
+            .message
+            .contains("untrusted")
+    );
+    f.service.trust.as_ref().unwrap().trust(&nested).unwrap();
+    assert!(f.service.plan_task("example.tools", &request).is_ok());
 }
 
 #[test]
@@ -1452,7 +1734,7 @@ fn a_checker_publishes_findings_for_the_state_it_checked_and_not_for_a_changed_o
     f.run("example.tools.check");
     f.pump_until(|f| !f.published.is_empty());
     let (source, items) = &f.published[0];
-    assert!(source & crate::infrastructure::lsp::manager::EXTERNAL_SOURCE != 0);
+    assert!(source & crate::features::providers::EXTERNAL_SOURCE != 0);
     assert_eq!(items[0].range, 0..4);
     assert_eq!(items[0].source.as_deref(), Some("example.tools.checker"));
 
@@ -2071,12 +2353,948 @@ impl Fixture {
             .unwrap()
             .logs
             .iter()
+            .filter(|(_, text)| !text.starts_with("roots changed"))
             .map(|l| l.1.clone())
             .collect()
     }
 }
 
 const WRITER: &str = r#"["documents.read", "workspace.edit", "workspace.files.write"]"#;
+
+/// Run after `node .tmp/loom-extensions/language-clients/stage.mjs`.
+/// This uses the real executor, owner grants/trust, frame transport, WASM SDK and
+/// native result conversion. Slow component compilation is excluded from warmed
+/// request measurements and retained in a persistent local cache.
+#[test]
+#[ignore = "requires locally built official plugins and real language servers"]
+fn official_language_components_reach_native_consumers_without_host_servers() {
+    use crate::features::language_service::request::Feature;
+    use std::time::Instant;
+    let packages = repo().join(".tmp/loom-extensions/language-clients/.work/packages");
+    let fixture_bytes: usize = std::env::var("LOOM_MIGRATION_BYTES")
+        .ok()
+        .map(|value| value.parse().unwrap())
+        .unwrap_or(0);
+    assert!([0, 1024 * 1024, 8 * 1024 * 1024].contains(&fixture_bytes));
+    let mut exceeded = Vec::new();
+    let cases = [
+        (
+            "rust",
+            "loom.lsp.rust-analyzer",
+            "src/main.rs",
+            "Cargo.toml",
+            "[workspace]\n[package]\nname=\"loom_native\"\nversion=\"0.1.0\"\nedition=\"2021\"\n",
+            "fn add(a: i32, b: i32) -> i32 { a + b }\nfn main() { let value = add(1, 2); println!(\"{}\", value); }\n",
+        ),
+        (
+            "go",
+            "loom.lsp.gopls",
+            "main.go",
+            "go.mod",
+            "module example.com/loomnative\n\ngo 1.26\n",
+            "package main\nimport \"fmt\"\nfunc add(a int, b int) int { return a+b }\nfunc main() { value := add(1,2); fmt.Println(value) }\n",
+        ),
+        (
+            "javascript",
+            "loom.lsp.typescript-language-server",
+            "main.js",
+            "jsconfig.json",
+            "{\"compilerOptions\":{\"checkJs\":true,\"target\":\"ES2022\"}}",
+            "/** @param {number} a @param {number} b */\nfunction add(a, b) { return a+b; }\nconst value = add(1,2);\nconsole.log(value);\n",
+        ),
+        (
+            "typescript",
+            "loom.lsp.typescript-language-server",
+            "main.ts",
+            "tsconfig.json",
+            "{\"compilerOptions\":{\"strict\":true,\"target\":\"ES2022\"}}",
+            "function add(a: number, b: number): number { return a+b; }\nconst value = add(1,2);\nconsole.log(value);\n",
+        ),
+    ];
+    for (language, extension, filename, marker, project, text) in cases {
+        if std::env::var("LOOM_MIGRATION_LANGUAGE")
+            .ok()
+            .is_some_and(|name| name != language)
+        {
+            continue;
+        }
+        let mut content = text.to_owned();
+        if fixture_bytes > 0 {
+            content.push_str("/*");
+            let padding = "中😀\r\n";
+            content.push_str(&padding.repeat((fixture_bytes - content.len() - 2) / padding.len()));
+            content.push_str(&"x".repeat(fixture_bytes - content.len() - 2));
+            content.push_str("*/");
+            assert_eq!(content.len(), fixture_bytes);
+        }
+        let text = content.as_str();
+        let package = packages.join(extension);
+        assert!(
+            package.join("extension.wasm").is_file(),
+            "build/stage {extension} first"
+        );
+        let root = repo()
+            .join("target/language-migration/projects")
+            .join(if fixture_bytes == 0 {
+                language.to_owned()
+            } else {
+                format!("{language}-{fixture_bytes}")
+            });
+        let _ = std::fs::remove_file(root.join("native-observed.json"));
+        let path = root.join(filename);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(root.join(marker), project).unwrap();
+        std::fs::write(&path, text).unwrap();
+        let mut f = fixture_package(
+            &format!("official-{language}"),
+            text,
+            0..0,
+            &package,
+            Some(repo().join("target/language-migration/cache")),
+        );
+        f.app.workspace = AppState::new().workspace;
+        f.path = path.clone();
+        f.app.workspace.open_path(path.clone(), text.into());
+        assert_eq!(
+            f.app.workspace.documents[&f.app.workspace.active_document().unwrap()]
+                .meta
+                .lang
+                .definition()
+                .name
+                .as_ref(),
+            language,
+            "acceptance metadata must recognize {filename}"
+        );
+        f.app.explorer.model.add_root(
+            &crate::infrastructure::explorer_filesystem::ExplorerFilesystem,
+            root.clone(),
+        );
+        let trust = std::sync::Arc::new(
+            crate::infrastructure::extensions::trust_store::TrustStore::default(),
+        );
+        trust.set_workspace(std::slice::from_ref(&root));
+        trust.trust(&root).unwrap();
+        f.service.set_trust(trust);
+        f.service.set_clock(|| 0);
+        let effects = f.service.set_setting_sources(
+            serde_json::json!({format!("{extension}.performance"): true}),
+            None,
+            false,
+        );
+        f.apply(effects);
+        if extension.ends_with("typescript-language-server") {
+            f.service
+                .load_package(&packages.join("loom.runtime.node"))
+                .unwrap();
+        }
+        eprintln!("official {language}: loading component and starting server");
+        f.observe();
+        let ready = format!("{extension}.completion");
+        f.pump_until(|f| {
+            let package = f.service.package(extension).unwrap();
+            package.lifecycle.state() == State::Failed
+                || package.logs.iter().any(|(level, _)| *level >= 2)
+                || package
+                    .provider_configurations
+                    .get(&ready)
+                    .is_some_and(|configuration| configuration.enabled)
+        });
+        assert_eq!(
+            f.service.package(extension).unwrap().lifecycle.state(),
+            State::Active,
+            "{:?}",
+            f.service.package(extension).unwrap().logs
+        );
+        assert!(
+            f.service
+                .package(extension)
+                .unwrap()
+                .provider_configurations
+                .get(&ready)
+                .is_some_and(|configuration| configuration.enabled),
+            "{language}: server failed to initialize: {:?}",
+            f.service.package(extension).unwrap().logs
+        );
+        let cursor = text.rfind("add(").unwrap() + 1;
+        let mut token = 1000;
+        let mut peak_memory = migration_metrics::snapshot();
+        let mut ask = |f: &mut Fixture, feature, extra| {
+            token += 1;
+            let file = f.app.workspace.active_document().unwrap();
+            let document = &f.app.workspace.documents[&file];
+            let ask = LanguageAsk {
+                feature,
+                path: path.clone(),
+                stamp: Stamp {
+                    incarnation: document.incarnation,
+                    version: document.buffer.version(),
+                },
+                start: cursor,
+                end: cursor,
+                extra,
+                target: None,
+                server: None,
+                timeout: Some(Duration::from_secs(5)),
+            };
+            let mut effects = Vec::new();
+            assert_eq!(
+                f.service
+                    .request_language(&f.app, &ask, token, &mut effects),
+                1,
+                "{language}: {feature:?}; state: {:?}; error: {:?}; logs: {:?}",
+                f.service.package(extension).unwrap().lifecycle.state(),
+                f.service.package(extension).unwrap().last_error,
+                f.service.package(extension).unwrap().logs
+            );
+            let started = Instant::now();
+            f.apply(effects);
+            f.pump_until(|f| f.language.iter().any(|(asked, _)| *asked == token));
+            let at = f
+                .language
+                .iter()
+                .position(|(asked, _)| *asked == token)
+                .unwrap();
+            let answer = f
+                .language
+                .remove(at)
+                .1
+                .map(|answer| answer.value)
+                .unwrap_or(serde_json::Value::Null);
+            let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+            migration_metrics::sample(&mut peak_memory);
+            (answer, elapsed)
+        };
+        // Indexing may still be active after initialize. Warm-up has its own
+        // deadline and is never silently counted as a successful request sample.
+        let indexing = Instant::now() + Duration::from_secs(60);
+        let mut warm_attempts = 0;
+        let warm_started = Instant::now();
+        let mut stable_probes = 0;
+        loop {
+            warm_attempts += 1;
+            let (completion, _) = ask(
+                &mut f,
+                Feature::Completion,
+                serde_json::json!({"context":{"triggerKind":1}}),
+            );
+            let has_completion = completion
+                .get("items")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|items| !items.is_empty())
+                || completion.as_array().is_some_and(|items| !items.is_empty());
+            let mut usable = false;
+            if has_completion {
+                let (hover, _) = ask(&mut f, Feature::Hover, serde_json::Value::Null);
+                let (definition, _) = ask(&mut f, Feature::Definition, serde_json::Value::Null);
+                if !hover.is_null() && definition.as_array().is_some_and(|items| !items.is_empty())
+                {
+                    usable = true;
+                }
+            }
+            stable_probes = if usable { stable_probes + 1 } else { 0 };
+            if stable_probes >= 10 && warm_started.elapsed() >= Duration::from_secs(2) {
+                break;
+            }
+            assert!(
+                Instant::now() < indexing,
+                "{language}: indexing produced no completions"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        eprintln!("official {language}: ready after {warm_attempts} indexing probes");
+        let idle_memory = migration_metrics::snapshot();
+        let (hover, _) = ask(&mut f, Feature::Hover, serde_json::Value::Null);
+        assert!(!hover.is_null(), "{language}: hover");
+        let (definition, _) = ask(&mut f, Feature::Definition, serde_json::Value::Null);
+        assert!(
+            !definition.as_array().unwrap().is_empty(),
+            "{language}: definition"
+        );
+        let (rename, _) = ask(
+            &mut f,
+            Feature::Rename,
+            serde_json::json!({"newName":"sum"}),
+        );
+        assert!(
+            rename.get("documentChanges").is_some() || rename.get("changes").is_some(),
+            "{language}: rename"
+        );
+        let mut timings = serde_json::Map::new();
+        for feature in [Feature::Completion, Feature::Hover, Feature::Definition] {
+            for _ in 0..10 {
+                ask(&mut f, feature, serde_json::Value::Null);
+            }
+            let mut samples = Vec::new();
+            for _ in 0..100 {
+                let (answer, elapsed) = ask(&mut f, feature, serde_json::Value::Null);
+                assert!(
+                    !answer.is_null(),
+                    "{language}: measured request failed at sample {}: {feature:?}; state: {:?}; error: {:?}; logs: {:?}; trace: {:?}",
+                    samples.len(),
+                    f.service.package(extension).unwrap().lifecycle.state(),
+                    f.service.package(extension).unwrap().last_error,
+                    f.service.package(extension).unwrap().logs,
+                    f.trace
+                );
+                samples.push(elapsed);
+            }
+            samples.sort_by(f64::total_cmp);
+            timings.insert(format!("{feature:?}"), serde_json::json!({"count":samples.len(),"p50_ms":samples[49],"p95_ms":samples[94]}));
+        }
+        let cpu: Vec<_> = f
+            .service
+            .package(extension)
+            .unwrap()
+            .logs
+            .iter()
+            .filter_map(|(_, text)| {
+                text.strip_prefix("language-metrics ")
+                    .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+            })
+            .collect();
+        let restart_started = Instant::now();
+        let old_process = *f.service.processes.keys().next().unwrap();
+        f.processes.kill(old_process);
+        f.pump_until(|f| {
+            !f.service.processes.is_empty()
+                && !f.service.processes.contains_key(&old_process)
+                && f.service
+                    .package(extension)
+                    .unwrap()
+                    .provider_configurations
+                    .get(&ready)
+                    .is_some_and(|c| c.enabled)
+        });
+        loop {
+            if !ask(&mut f, Feature::Hover, serde_json::Value::Null)
+                .0
+                .is_null()
+            {
+                break;
+            }
+            assert!(
+                restart_started.elapsed() < Duration::from_secs(30),
+                "{language}: restart failed"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let restart_ms = restart_started.elapsed().as_secs_f64() * 1000.0;
+        let stop_started = Instant::now();
+        let effects = f.service.stop(extension);
+        f.apply(effects);
+        let stopped = Instant::now() + Duration::from_secs(5);
+        while !f.service.processes.is_empty() && Instant::now() < stopped {
+            while let Ok(event) = f.process_events.try_recv() {
+                let effects = f.service.handle_process_event(event);
+                f.apply(effects);
+            }
+            while let Ok(event) = f.events.try_recv() {
+                let effects = f.service.handle_event(&mut f.app, event);
+                f.apply(effects);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(
+            f.service.processes.is_empty(),
+            "{language}: processes reclaimed"
+        );
+        std::fs::write(root.join("native-observed.json"), serde_json::to_vec_pretty(&serde_json::json!({"language":language,"document_bytes":text.len(),"route":"native-executor-wasm-provider-consumer","indexing_probes":warm_attempts,"profile":if cfg!(debug_assertions){"debug"}else{"release"},"small_document":timings,"guest_cpu":cpu,"idle_memory":idle_memory,"observed_peak_memory":peak_memory,"restart_ms":restart_ms,"exit_ms":stop_started.elapsed().as_secs_f64()*1000.0})).unwrap()).unwrap();
+        if std::env::var_os("LOOM_MIGRATION_COMPARE").is_some() {
+            let baseline: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(root.join("baseline-observed.json"))
+                    .expect("collect the matching original-host baseline first"),
+            )
+            .unwrap();
+            for operation in ["Completion", "Hover", "Definition"] {
+                let reference = baseline["small_document"][operation]["p95_ms"]
+                    .as_f64()
+                    .unwrap();
+                let measured = timings[operation]["p95_ms"].as_f64().unwrap();
+                let budget = reference + 10.0f64.max(reference * 0.2);
+                if measured > budget {
+                    exceeded.push(format!(
+                        "{language} {operation}: {measured:.3} ms > {budget:.3} ms"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        exceeded.is_empty(),
+        "performance budgets exceeded: {exceeded:?}"
+    );
+}
+
+#[test]
+fn a_guest_captures_current_document_text_without_a_provider_request() {
+    let (mut f, _) = Fixture::ops(
+        "capture-document",
+        r#"["documents.read", "workspace.edit"]"#,
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"capture"})),
+        "captured 1 v0 \"text\""
+    );
+    f.app
+        .workspace
+        .active_editor_mut()
+        .unwrap()
+        .replace_selection("中😀", crate::model::text::EditKind::Typing)
+        .unwrap();
+    let captured = f.op(serde_json::json!({"op":"capture"}));
+    assert!(
+        captured.starts_with("captured 1 v1") && captured.contains("中😀"),
+        "{captured}"
+    );
+    f.app
+        .preferences
+        .values_mut()
+        .language_features
+        .max_document_bytes = 3;
+    assert!(
+        f.op(serde_json::json!({"op":"capture"}))
+            .contains("synchronization limit")
+    );
+    let file = f.app.workspace.active_document().unwrap();
+    f.app.workspace.close(file);
+    f.app
+        .workspace
+        .open_path(f.path.with_extension("other.txt"), "other".into());
+    assert!(
+        f.op(serde_json::json!({"op":"capture"}))
+            .contains("no longer open")
+    );
+}
+
+#[test]
+fn a_saved_event_wakes_the_guest_with_the_saved_version_even_after_more_typing() {
+    let manifest = EVENT_MANIFEST
+        .replace("\"document.close\"", "\"document.save\"")
+        .replace("[\"events\"]", "[\"events\",\"documents.read\"]");
+    let mut f = fixture_with("saved-snapshot", "old", 0..0, &manifest);
+    let file = f.app.workspace.active_document().unwrap();
+    let saved = f.app.workspace.shared_save_snapshot(file).unwrap();
+    f.app.workspace.active_editor_mut().unwrap().set_cursor(3);
+    f.app
+        .workspace
+        .active_editor_mut()
+        .unwrap()
+        .replace_selection("new", crate::model::text::EditKind::Typing)
+        .unwrap();
+    let effects = f.service.document_saved(&f.app, saved);
+    f.apply(effects);
+    f.wait_for_log("saved 1 v0 \"old\"");
+    assert_eq!(f.text(), "oldnew");
+}
+
+#[test]
+fn provider_preferences_filter_by_kind_and_targeted_resolve_keeps_its_owner() {
+    use crate::features::providers::Feature;
+    let mut f = Fixture::provider_fixture("provider-preferences", "hello");
+    f.observe();
+    f.pump_until(|f| !f.published.is_empty());
+    let language = language_of(&f.path);
+    let choice = crate::features::settings::language::LanguageSetting {
+        providers: [("formatting".into(), vec!["uninstalled.provider".into()])].into(),
+        ..Default::default()
+    };
+    f.app
+        .preferences
+        .values_mut()
+        .languages
+        .insert(language.clone(), choice);
+    f.observe();
+    assert!(
+        f.service
+            .matching_language_providers(Feature::Formatting, &language, None, None)
+            .is_empty()
+    );
+    assert!(
+        !f.service
+            .matching_language_providers(Feature::Completion, &language, None, None)
+            .is_empty()
+    );
+    assert_eq!(
+        f.service
+            .matching_language_providers(
+                Feature::Formatting,
+                &language,
+                None,
+                Some("example.tools.trim")
+            )
+            .len(),
+        1
+    );
+    f.app
+        .preferences
+        .values_mut()
+        .languages
+        .get_mut(&language)
+        .unwrap()
+        .providers
+        .get_mut("formatting")
+        .unwrap()
+        .push("...".into());
+    f.observe();
+    assert_eq!(
+        f.service
+            .matching_language_providers(Feature::Formatting, &language, None, None)
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn negotiated_provider_changes_disable_work_and_named_formatters_and_noops_are_stable() {
+    use crate::features::language_service::request::Feature;
+    let mut f = Fixture::provider_fixture("provider-config", "hello");
+    f.service.set_clock(|| 0);
+    f.observe();
+    f.pump_until(|f| !f.published.is_empty());
+    let language = language_of(&f.path);
+    let generation = f
+        .service
+        .package("example.tools")
+        .unwrap()
+        .lifecycle
+        .generation();
+    let configuration = |provider: &str, enabled| loom_extension_host::ProviderConfiguration {
+        provider: provider.into(),
+        enabled,
+        modes: None,
+        revision: None,
+        resolve: true,
+        prepare: true,
+        triggers: vec![".".into()],
+        retriggers: vec![],
+        commands: vec![],
+        aliases: vec!["named-formatter".into()],
+    };
+    let effects = f.service.handle_event(
+        &mut f.app,
+        Event::ProvidersConfigured {
+            id: "example.tools".into(),
+            generation,
+            configurations: vec![
+                configuration("example.tools.complete", false),
+                configuration("example.tools.trim", true),
+            ],
+        },
+    );
+    f.apply(effects);
+    assert!(
+        f.service
+            .language_providers(Feature::Completion, &language)
+            .is_empty()
+    );
+    assert_eq!(
+        f.service
+            .matching_language_providers(
+                Feature::Formatting,
+                &language,
+                None,
+                Some("named-formatter")
+            )
+            .len(),
+        1
+    );
+    let revision = f
+        .service
+        .package("example.tools")
+        .unwrap()
+        .provider_revision;
+    let effects = f.service.handle_event(
+        &mut f.app,
+        Event::ProvidersConfigured {
+            id: "example.tools".into(),
+            generation,
+            configurations: vec![configuration("example.tools.trim", true)],
+        },
+    );
+    f.apply(effects);
+    assert_eq!(
+        f.service
+            .package("example.tools")
+            .unwrap()
+            .provider_revision,
+        revision
+    );
+    let mut range_only = configuration("example.tools.trim", true);
+    range_only.modes = Some(vec![loom_extension_host::ProviderMode::Range]);
+    let effects = f.service.handle_event(
+        &mut f.app,
+        Event::ProvidersConfigured {
+            id: "example.tools".into(),
+            generation,
+            configurations: vec![range_only],
+        },
+    );
+    f.apply(effects);
+    assert!(
+        f.service
+            .language_providers(Feature::Formatting, &language)
+            .is_empty()
+    );
+    assert_eq!(
+        f.service
+            .language_providers(Feature::RangeFormatting, &language)
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn application_file_notifications_wake_only_authorized_subscribers() {
+    use crate::features::providers::FileChange;
+    let (mut f, folder) = Fixture::ops(
+        "workspace-events",
+        r#"["documents.read","workspace.edit","workspace.files.read","events"]"#,
+    );
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .manifest
+        .activation
+        .push(crate::features::extensions::manifest::Activation::Event {
+            name: "workspace.files".into(),
+        });
+    let effects = f.service.workspace_files_changed(
+        &f.app,
+        FileChange::Renamed {
+            from: folder.join("a"),
+            to: folder.join("b"),
+        },
+    );
+    assert!(!effects.is_empty());
+    f.apply(effects);
+    f.wait_for_log("workspace files");
+    assert!(
+        f.service
+            .package("example.tools")
+            .unwrap()
+            .logs
+            .iter()
+            .any(|(_, text)| text.contains("Renamed") && text.contains("a") && text.contains("b"))
+    );
+    assert!(
+        f.service
+            .workspace_files_changed(
+                &f.app,
+                FileChange::Created(std::env::temp_dir().join("outside-workspace"))
+            )
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_guest_applies_utf16_multi_file_edits_as_one_undoable_transaction_and_cannot_leave_the_workspace()
+ {
+    let (mut f, folder) = Fixture::ops("workspace-edit", r#"["documents.read","workspace.edit"]"#);
+    let current = f.app.workspace.active_document().unwrap();
+    f.app
+        .workspace
+        .documents
+        .get_mut(&current)
+        .unwrap()
+        .buffer
+        .reload("a😀b".into());
+    let other = folder.join("other.txt");
+    std::fs::write(&other, "a😀b").unwrap();
+    let first = f.path.clone();
+    assert_eq!(
+        f.op(serde_json::json!({"op":"workspace-edit","paths":[first,other]})),
+        "workspace edit accepted 1"
+    );
+    f.wait_for_log("operation 1 committed");
+    let second = f.app.workspace.file_id_for_path(&other).unwrap();
+    assert_eq!(f.text(), "a中b");
+    assert_eq!(f.app.workspace.documents[&second].buffer.text(), "a中b");
+    crate::app::language_ui::edit::undo_redo(&mut f.app, true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(f.text(), "a😀b");
+    assert_eq!(f.app.workspace.documents[&second].buffer.text(), "a😀b");
+    let outside = folder.parent().unwrap().join("outside.txt");
+    std::fs::write(&outside, "a😀b").unwrap();
+    assert_eq!(
+        f.op(serde_json::json!({"op":"workspace-edit","paths":[outside]})),
+        "workspace edit accepted 2"
+    );
+    f.wait_for_log("operation 2 failed");
+    assert_eq!(std::fs::read_to_string(outside).unwrap(), "a😀b");
+}
+
+#[test]
+fn typed_providers_cover_navigation_rename_hierarchies_lenses_and_their_origin_routing() {
+    use crate::features::language_service::{
+        capabilities::PositionEncoding, reply, request::Feature as F,
+    };
+    let language = language_of(&std::env::temp_dir().join("typed-provider.txt"));
+    let kinds = [
+        "references",
+        "workspace-symbols",
+        "document-highlights",
+        "rename",
+        "folding-ranges",
+        "selection-ranges",
+        "call-hierarchy",
+        "type-hierarchy",
+        "code-lens",
+        "format-on-type",
+        "execute-command",
+        "code-actions",
+    ];
+    let entries = kinds.iter().enumerate().map(|(i,kind)|format!(r#"{{"id":"example.tools.p{i}","kind":"{kind}","selector":{{"languages":["{language}"]}}}},"#)).collect::<String>();
+    let manifest = provider_manifest(&language)
+        .replace("\"providers\": [", &format!("\"providers\": [{entries}"));
+    let mut f = fixture_with("typed-provider", "hello world\nline2\n", 0..0, &manifest);
+    f.service.set_clock(|| 0);
+    let ask = |f: &mut Fixture, token, feature, extra, target| {
+        let file = f.app.workspace.active_document().unwrap();
+        let d = &f.app.workspace.documents[&file];
+        let request = LanguageAsk {
+            feature,
+            path: d.meta.path.clone(),
+            stamp: Stamp {
+                incarnation: d.incarnation,
+                version: d.buffer.version(),
+            },
+            start: 0,
+            end: 5,
+            extra,
+            target,
+            server: None,
+            timeout: None,
+        };
+        let mut effects = Vec::new();
+        assert_eq!(
+            f.service
+                .request_language(&f.app, &request, token, &mut effects),
+            1,
+            "{feature:?}"
+        );
+        f.apply(effects);
+        f.pump_until(|f| f.language.iter().any(|(t, _)| *t == token));
+        f.language
+            .iter()
+            .find(|(t, _)| *t == token)
+            .unwrap()
+            .1
+            .clone()
+            .expect("typed answer")
+    };
+    let references = ask(&mut f, 101, F::References, serde_json::Value::Null, None);
+    assert_eq!(
+        reply::locations(&references.value, PositionEncoding::Utf8).len(),
+        1
+    );
+    let symbols = ask(
+        &mut f,
+        102,
+        F::WorkspaceSymbol,
+        serde_json::json!({"query":"needle"}),
+        None,
+    );
+    assert_eq!(symbols.value[0]["name"], "needle");
+    let highlights = ask(
+        &mut f,
+        103,
+        F::DocumentHighlight,
+        serde_json::Value::Null,
+        None,
+    );
+    assert_eq!(highlights.value[0]["kind"], 2);
+    let prepared = ask(&mut f, 104, F::PrepareRename, serde_json::Value::Null, None);
+    assert_eq!(
+        reply::prepare_rename(&prepared.value, PositionEncoding::Utf8)
+            .unwrap()
+            .placeholder
+            .as_deref(),
+        Some("hello")
+    );
+    let folds = ask(&mut f, 105, F::FoldingRange, serde_json::Value::Null, None);
+    assert_eq!(reply::folding_ranges(&folds.value).len(), 1);
+    let selections = ask(
+        &mut f,
+        106,
+        F::SelectionRange,
+        serde_json::Value::Null,
+        None,
+    );
+    assert!(selections.value[0]["parent"].is_object());
+    let calls = ask(
+        &mut f,
+        107,
+        F::PrepareCallHierarchy,
+        serde_json::Value::Null,
+        None,
+    );
+    assert_eq!(calls.value[0]["data"], "owned-data");
+    let incoming = ask(
+        &mut f,
+        108,
+        F::IncomingCalls,
+        calls.value[0].clone(),
+        Some(calls.source),
+    );
+    assert_eq!(
+        reply::calls(&incoming.value, "from", PositionEncoding::Utf8).len(),
+        1
+    );
+    let types = ask(
+        &mut f,
+        109,
+        F::PrepareTypeHierarchy,
+        serde_json::Value::Null,
+        None,
+    );
+    let supers = ask(
+        &mut f,
+        110,
+        F::Supertypes,
+        types.value[0].clone(),
+        Some(types.source),
+    );
+    assert_eq!(
+        reply::hierarchy_items(&supers.value, PositionEncoding::Utf8).len(),
+        1
+    );
+    let lenses = ask(&mut f, 111, F::CodeLens, serde_json::Value::Null, None);
+    assert_eq!(lenses.value[0]["data"], "lens-data");
+    let lens = ask(
+        &mut f,
+        112,
+        F::CodeLensResolve,
+        lenses.value[0].clone(),
+        Some(lenses.source),
+    );
+    assert_eq!(lens.value["command"]["command"], "run");
+    let command = ask(
+        &mut f,
+        113,
+        F::ExecuteCommand,
+        serde_json::json!({"command":"run","arguments":[7]}),
+        Some(lenses.source),
+    );
+    assert!(command.value.is_null());
+    let actions = ask(&mut f, 114, F::CodeAction, serde_json::Value::Null, None);
+    let action = ask(
+        &mut f,
+        115,
+        F::CodeActionResolve,
+        serde_json::json!({"data":"owned"}),
+        Some(actions.source),
+    );
+    assert_eq!(action.value["command"]["command"], "run");
+    assert!(action.value.get("disabled").is_none());
+    let renamed = ask(
+        &mut f,
+        116,
+        F::Rename,
+        serde_json::json!({"newName":"中文"}),
+        Some(prepared.source),
+    );
+    let edit = reply::workspace_edit(&renamed.value, PositionEncoding::Utf8).unwrap();
+    let request = crate::app::language_ui::edit::Request {
+        title: "Rename".into(),
+        edit,
+        stamps: crate::app::language_ui::edit::stamps(&f.app),
+        rect: Default::default(),
+        reply: None,
+    };
+    crate::app::language_ui::edit::apply_now(&mut f.app, &request, HashMap::new()).unwrap();
+    assert_eq!(f.text(), "中文 world\nline2\n");
+    f.app.workspace.active_editor_mut().unwrap().undo();
+    assert_eq!(f.text(), "hello world\nline2\n");
+}
+
+#[test]
+fn a_guest_creates_updates_and_removes_its_own_colored_widget_and_receives_events() {
+    use crate::features::extensions::ui::Payload;
+    let (mut f, _) = Fixture::ops("widgets", r#"["documents.read", "workspace.edit"]"#);
+    assert_eq!(
+        f.op(serde_json::json!({"op":"ui-create", "text":"Starting", "color":0x334455})),
+        "ui created 1"
+    );
+    f.pump_until(|f| !f.app.extension_widgets.roots().is_empty());
+    let root = f.app.extension_widgets.roots()[0].clone();
+    assert_eq!(root.properties.background, Some(0x334455));
+    let effects = f
+        .service
+        .ui_event(&f.app, root.origin.clone(), Payload::Click);
+    f.apply(effects);
+    f.wait_for_log("Click");
+    assert_eq!(
+        f.op(serde_json::json!({"op":"ui-update", "text":"Ready", "color":0x228844})),
+        "ui updated"
+    );
+    f.pump_until(|f| {
+        f.app.extension_widgets.roots()[0]
+            .properties
+            .text
+            .as_deref()
+            == Some("Ready")
+    });
+    assert_eq!(
+        f.app.extension_widgets.roots()[0].properties.background,
+        Some(0x228844)
+    );
+    assert_eq!(f.op(serde_json::json!({"op":"ui-remove"})), "ui removed");
+    f.pump_until(|f| f.app.extension_widgets.roots().is_empty());
+    assert!(
+        f.service
+            .ui_event(&f.app, root.origin.clone(), Payload::Click)
+            .is_empty()
+    );
+    assert_eq!(f.op(serde_json::json!({"op":"ui-create"})), "ui created 2");
+    f.pump_until(|f| !f.app.extension_widgets.roots().is_empty());
+    let effects = f.service.set_setting_sources(
+        serde_json::json!({"example.tools.spec": serde_json::json!({"op":"ui-trap"}).to_string()}),
+        None,
+        false,
+    );
+    f.apply(effects);
+    f.run("example.tools.op");
+    f.pump_until(|f| {
+        f.service
+            .package("example.tools")
+            .unwrap()
+            .lifecycle
+            .state()
+            == State::Failed
+    });
+    assert!(
+        f.app.extension_widgets.roots().is_empty(),
+        "a failed owner cannot leave widgets behind"
+    );
+}
+
+#[test]
+fn disk_watch_events_reach_the_guest_and_unwatch_releases_the_subscription() {
+    let (mut f, folder) = Fixture::ops(
+        "watch-files",
+        r#"["documents.read", "workspace.edit", "workspace.files.read"]"#,
+    );
+    assert_eq!(
+        f.op(serde_json::json!({"op":"watch", "pattern":"**/*.txt"})),
+        "watch started 1"
+    );
+    f.wait_for_log("watch ready 1");
+    std::fs::write(folder.join("watched.txt"), "hello").unwrap();
+    f.wait_for_log("files changed 1");
+    assert!(
+        f.service
+            .package("example.tools")
+            .unwrap()
+            .logs
+            .iter()
+            .any(|(_, text)| text.contains("watched.txt"))
+    );
+    assert_eq!(f.op(serde_json::json!({"op":"unwatch"})), "watch stopped");
+    f.pump_until(|f| f.service.watches.is_empty());
+    assert!(f.service.watches.is_empty());
+}
 
 #[test]
 fn files_are_created_renamed_and_deleted_in_order_and_the_guest_hears_the_outcome() {

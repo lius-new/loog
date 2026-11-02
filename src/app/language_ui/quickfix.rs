@@ -4,7 +4,7 @@ use crate::{
     app::ui_timer,
     domain::{document::DocumentStamp, identity::PaneId},
     features::language_service::{reply, reply::CodeAction, request::Feature},
-    infrastructure::lsp::manager::{CodeActionContext, RequestHandle, RequestSpec},
+    features::providers::{CodeActionContext, RequestHandle, RequestSpec},
 };
 use std::{ops::Range, sync::Arc, time::Duration};
 

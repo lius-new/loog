@@ -1,8 +1,8 @@
-//! What servers answer to interactive requests, as plain values.
+//! Native presentation values used after typed provider conversion.
 //!
-//! Every parser is lenient about what a server may leave out and strict about
+//! Every adapter is lenient about optional presentation fields and strict about
 //! what would make a result unusable: an item that cannot be read is dropped, and
-//! the rest of the answer survives. Positions stay as the server sent them,
+//! the rest of the answer survives. Unopened-file positions retain their units,
 //! together with the encoding they count in; a caller with the text of the
 //! document turns them into byte offsets with [`Span::bytes`].
 use super::capabilities::PositionEncoding;
@@ -55,6 +55,11 @@ pub fn position(value: &Value) -> Option<Position> {
 }
 
 pub fn span(value: &Value, encoding: PositionEncoding) -> Option<Span> {
+    let encoding = match value.get("x-loom-column-unit").and_then(Value::as_str) {
+        Some("utf8") => PositionEncoding::Utf8,
+        Some("utf16") => PositionEncoding::Utf16,
+        _ => encoding,
+    };
     Some(Span {
         start: position(value.get("start")?)?,
         end: position(value.get("end")?)?,

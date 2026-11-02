@@ -74,8 +74,8 @@ export const guest = {
           const request = message.val;
           if (request.kind === 'completion') {
             host.provideCompletions(request.request, [
-              { label: 'loom_hello', detail: 'from the extension', kind: 3, insertText: 'loom_hello()', data: 'hello' },
-              { label: 'loom_world', kind: 3, data: 'world' },
+              { label: 'loom_hello', detail: 'from the extension', kind: 3, insertText: 'loom_hello()', data: 'hello', additionalTextEdits: [], commitCharacters: [] },
+              { label: 'loom_world', kind: 3, data: 'world', additionalTextEdits: [], commitCharacters: [] },
             ], false);
             break;
           }

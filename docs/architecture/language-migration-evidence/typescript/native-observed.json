@@ -1,0 +1,104 @@
+{
+  "language": "typescript",
+  "document_bytes": 103,
+  "route": "native-executor-wasm-provider-consumer",
+  "indexing_probes": 12,
+  "profile": "release",
+  "small_document": {
+    "Completion": {
+      "count": 100,
+      "p50_ms": 17.8467,
+      "p95_ms": 20.031899999999997
+    },
+    "Hover": {
+      "count": 100,
+      "p50_ms": 1.2442,
+      "p95_ms": 1.8056999999999999
+    },
+    "Definition": {
+      "count": 100,
+      "p50_ms": 1.0562,
+      "p95_ms": 1.4463
+    }
+  },
+  "guest_cpu": [
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.3586,
+      "p95_ms": 0.6414
+    },
+    {
+      "name": "rpc:textDocument/completion",
+      "count": 100,
+      "p50_ms": 8.5666,
+      "p95_ms": 11.3653
+    },
+    {
+      "name": "convert:completion",
+      "count": 100,
+      "p50_ms": 4.495999999999999,
+      "p95_ms": 6.2146
+    },
+    {
+      "name": "sdk-completion-encode",
+      "count": 100,
+      "p50_ms": 1.3336,
+      "p95_ms": 1.8205
+    },
+    {
+      "name": "sdk-completion-submit",
+      "count": 100,
+      "p50_ms": 0.7661,
+      "p95_ms": 1.0628
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.3555,
+      "p95_ms": 0.588
+    },
+    {
+      "name": "rpc:textDocument/hover",
+      "count": 100,
+      "p50_ms": 0.8695,
+      "p95_ms": 2.0011
+    },
+    {
+      "name": "convert:hover",
+      "count": 100,
+      "p50_ms": 0.02,
+      "p95_ms": 0.0323
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0239,
+      "p95_ms": 0.0419
+    },
+    {
+      "name": "rpc:textDocument/definition",
+      "count": 100,
+      "p50_ms": 0.683,
+      "p95_ms": 1.014
+    },
+    {
+      "name": "convert:definition",
+      "count": 100,
+      "p50_ms": 0.0316,
+      "p95_ms": 0.0562
+    }
+  ],
+  "idle_memory": {
+    "resident_bytes": 78696448,
+    "private_bytes": 48513024,
+    "process_peak_resident_bytes": 349241344
+  },
+  "observed_peak_memory": {
+    "resident_bytes": 115871744,
+    "private_bytes": 84860928,
+    "process_peak_resident_bytes": 349241344
+  },
+  "restart_ms": 1713.4374,
+  "exit_ms": 11.810899999999998
+}

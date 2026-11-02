@@ -4,6 +4,73 @@ use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static RUN: AtomicUsize = AtomicUsize::new(0);
+
+#[test]
+fn language_identities_work_without_syntax_and_keep_independent_parser_bindings() {
+    let temp = Temp::new();
+    let identity = temp.0.join("identity.json");
+    fs::write(&identity, json!({"name":"sample","display_name":"Sample","badge":"S","variants":[{"id":"sample"}],"files":[{"extensions":["identity"],"variant":"sample"}]}).to_string()).unwrap();
+    let mut service_only = Packages::empty();
+    service_only.add_identity_files(vec![identity.clone()]);
+    let language = service_only
+        .registry()
+        .unwrap()
+        .resolve_path(Path::new("a.identity"));
+    assert!(language.grammar.is_none());
+    assert_eq!(
+        service_only
+            .registry()
+            .unwrap()
+            .definition_of(language)
+            .name
+            .as_ref(),
+        "sample"
+    );
+    assert!(service_only.grammar_names().is_empty());
+
+    write_sample(&temp);
+    let mut with_syntax = Packages::discover(&temp.0, None);
+    with_syntax.add_identity_files(vec![identity]);
+    let registry = with_syntax.registry().unwrap();
+    for path in ["a.sample", "a.identity"] {
+        let language = registry.resolve_path(Path::new(path));
+        assert_eq!(registry.definition_of(language).name.as_ref(), "sample");
+        assert!(language.grammar.is_some());
+    }
+    assert!(
+        with_syntax.activity().language_loads == 0,
+        "metadata discovery does not load a parser"
+    );
+}
+
+#[test]
+fn identity_metadata_rejects_parser_bindings_and_preserves_a_previous_valid_identity() {
+    let temp = Temp::new();
+    let identity = temp.0.join("identity.json");
+    let value = json!({"name":"sample","display_name":"Sample","badge":"S","variants":[{"id":"sample"}],"files":[{"extensions":["sample"],"variant":"sample"}]});
+    fs::write(&identity, value.to_string()).unwrap();
+    let mut source = Packages::empty();
+    source.add_identity_files(vec![identity.clone()]);
+    let mut invalid = value;
+    invalid["variants"][0]["grammar"] = json!("uninstalled");
+    fs::write(&identity, invalid.to_string()).unwrap();
+    source.add_identity_files(vec![identity]);
+    assert_eq!(
+        source
+            .registry()
+            .unwrap()
+            .definition_of(
+                source
+                    .registry()
+                    .unwrap()
+                    .resolve_path(Path::new("a.sample"))
+            )
+            .name
+            .as_ref(),
+        "sample"
+    );
+    assert!(!source.activity().errors.is_empty());
+}
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {

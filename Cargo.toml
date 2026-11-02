@@ -11,7 +11,7 @@ readme = "README.md"
 [workspace]
 members = ["crates/editor-core", "crates/extension-api", "crates/extension-host", "crates/workspace-tests", "crates/markdown-tests"]
 default-members = [".", "crates/editor-core"]
-exclude = ["vendor/vt100"]
+exclude = ["vendor/vt100", ".tmp/lgui"]
 resolver = "3"
 
 [patch.crates-io]
@@ -56,7 +56,7 @@ loom-editor-core = { path = "crates/editor-core", features = ["diagnostics"] }
 
 [dependencies.lgui]
 git = "https://github.com/lius-new/lgui.git"
-rev = "bb7489f7f6d95c25e8d1e6347109fe0b8fad145a"
+rev = "5ba703140407b6f6741c212d4c9d62aa976cdae7"
 default-features = false
 features = ["renderer-skia-software", "widgets", "dialogs", "clipboard"]
 

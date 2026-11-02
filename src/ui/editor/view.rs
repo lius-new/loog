@@ -1700,10 +1700,7 @@ fn info_card_actions(
                     body.right.max(after),
                     origin_top + CARD_ROW,
                 );
-                let href = found[index]
-                    .extra
-                    .pointer("/codeDescription/href")
-                    .and_then(serde_json::Value::as_str);
+                let href = found[index].documentation_url.as_deref();
                 if let Some(href) =
                     href.filter(|u| u.starts_with("https://") || u.starts_with("http://"))
                     && let Some(binding) = binding.as_ref()

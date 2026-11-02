@@ -5,7 +5,7 @@ use crate::domain::{
     identity::{FileId, ViewId},
 };
 use crate::features::language_service::{reply, request::Feature};
-use crate::infrastructure::lsp::manager::{RequestHandle, RequestSpec};
+use crate::features::providers::{RequestHandle, RequestSpec};
 use loom_editor_core::text::TextBuffer;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -486,13 +486,10 @@ pub fn reveal(app: &mut AppState) {
 fn providers(ctx: &AppContext, path: &std::path::Path) -> Providers {
     let mut keys = super::language_ui::services(ctx)
         .map(|s| {
-            s.infos()
+            s.capability_sources(Some(path))
                 .into_iter()
-                .filter(|i| {
-                    path.starts_with(&i.root)
-                        && i.providers.as_ref().is_some_and(|p| p.folding_range)
-                })
-                .map(|i| (i.id, i.run, i.registration_revision))
+                .filter(|i| i.providers.folding_range)
+                .map(|i| (i.id, i.run, i.revision))
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();

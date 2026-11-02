@@ -12,25 +12,25 @@ export interface TextEdit {
 }
 /**
  * # Variants
- * 
+ *
  * ## `"unsupported-api"`
- * 
+ *
  * ## `"permission-denied"`
- * 
+ *
  * ## `"stale-snapshot"`
- * 
+ *
  * ## `"expired-handle"`
- * 
+ *
  * ## `"cancelled"`
- * 
+ *
  * ## `"deadline-exceeded"`
- * 
+ *
  * ## `"limit-exceeded"`
- * 
+ *
  * ## `"conflict"`
- * 
+ *
  * ## `"invalid-edit"`
- * 
+ *
  * ## `"extension-failed"`
  */
 export type ErrorKind = "unsupported-api" | "permission-denied" | "stale-snapshot" | "expired-handle" | "cancelled" | "deadline-exceeded" | "limit-exceeded" | "conflict" | "invalid-edit" | "extension-failed";
@@ -108,7 +108,13 @@ export interface DocumentRef {
   lifecycle: bigint,
   path: string,
   language: string,
+  variant?: string,
   version: bigint,
+}
+export interface DocumentSnapshot {
+  snapshot: SnapshotToken,
+  document: DocumentRef,
+  length: bigint,
 }
 /**
  * Contiguous change summary; the text is read through a snapshot on demand.
@@ -122,43 +128,294 @@ export interface DocumentChange {
 }
 /**
  * # Variants
- * 
+ *
  * ## `"diagnostics"`
- * 
+ *
  * ## `"formatting"`
- * 
+ *
  * ## `"completion"`
- * 
+ *
  * ## `"completion-resolve"`
- * 
+ *
  * Complete one item of an earlier completion answer (documentation, detail).
  * ## `"save"`
- * 
+ *
  * Change a file before it is saved. The snapshot is a temporary copy that
  * earlier participants already changed; answer with `provide-edits`. While
  * the request is open, calls with side effects fail with permission-denied.
  * ## `"hover"`
- * 
+ *
  * Describe the symbol at `cursor`; answer with `provide-hover`.
  * ## `"definition"`
- * 
+ *
  * Where the symbol at `cursor` is defined; answer with `provide-locations`.
  * ## `"document-symbols"`
- * 
+ *
  * The outline of the document; answer with `provide-symbols`.
  * ## `"signature-help"`
- * 
+ *
  * The signature being called at `cursor`; answer with `provide-signature`.
  * ## `"inlay-hints"`
- * 
+ *
  * Inline hints inside `range` (the whole text when absent); answer with
  * `provide-inlay-hints`.
  * ## `"code-actions"`
- * 
+ *
  * Actions offered for `range` (the caret when empty); answer with
  * `provide-code-actions`.
+ * ## `"code-action-resolve"`
+ *
+ * ## `"references"`
+ *
+ * ## `"workspace-symbols"`
+ *
+ * ## `"document-highlights"`
+ *
+ * ## `"rename"`
+ *
+ * ## `"prepare-rename"`
+ *
+ * ## `"folding-ranges"`
+ *
+ * ## `"selection-ranges"`
+ *
+ * ## `"call-hierarchy"`
+ *
+ * ## `"type-hierarchy"`
+ *
+ * ## `"code-lens"`
+ *
+ * ## `"code-lens-resolve"`
+ *
+ * ## `"format-on-type"`
+ *
+ * ## `"execute-command"`
+ *
+ * ## `"highlights"`
  */
-export type ProviderKind = "diagnostics" | "formatting" | "completion" | "completion-resolve" | "save" | "hover" | "definition" | "document-symbols" | "signature-help" | "inlay-hints" | "code-actions";
+export type ProviderKind = "diagnostics" | "formatting" | "completion" | "completion-resolve" | "save" | "hover" | "definition" | "document-symbols" | "signature-help" | "inlay-hints" | "code-actions" | "code-action-resolve" | "references" | "workspace-symbols" | "document-highlights" | "rename" | "prepare-rename" | "folding-ranges" | "selection-ranges" | "call-hierarchy" | "type-hierarchy" | "code-lens" | "code-lens-resolve" | "format-on-type" | "execute-command" | "highlights";
+/**
+ * Variants of one capability; these are editor concepts, independent of transport.
+ * # Variants
+ *
+ * ## `"definition"`
+ *
+ * ## `"declaration"`
+ *
+ * ## `"type-definition"`
+ *
+ * ## `"implementation"`
+ *
+ * ## `"prepare"`
+ *
+ * ## `"incoming"`
+ *
+ * ## `"outgoing"`
+ *
+ * ## `"supertypes"`
+ *
+ * ## `"subtypes"`
+ *
+ * ## `"range"`
+ *
+ * ## `"full"`
+ *
+ * ## `"resolve"`
+ */
+export type ProviderMode = "definition" | "declaration" | "type-definition" | "implementation" | "prepare" | "incoming" | "outgoing" | "supertypes" | "subtypes" | "range" | "full" | "resolve";
+export interface ProviderContext {
+  mode?: ProviderMode,
+  name?: string,
+  query?: string,
+  includeDeclaration: boolean,
+  tabSize: number,
+  insertSpaces: boolean,
+  actionKinds: Array<string>,
+  triggerKind: number,
+  retrigger: boolean,
+  activeSignature?: number,
+  activeParameter?: number,
+  /**
+   * The originating provider's opaque data for resolve/hierarchy/commands.
+   */
+  data?: string,
+}
+export interface ProviderConfiguration {
+  provider: string,
+  enabled: boolean,
+  /**
+   * Absent retains the provider's default modes; present restricts them.
+   */
+  modes?: Array<ProviderMode>,
+  /**
+   * Increment to invalidate cached answers after an external source refresh.
+   */
+  revision?: bigint,
+  resolve: boolean,
+  prepare: boolean,
+  triggers: Array<string>,
+  retriggers: Array<string>,
+  commands: Array<string>,
+  aliases: Array<string>,
+}
+/**
+ * A position in an unopened file can be measured in bytes or UTF-16 units.
+ * # Variants
+ *
+ * ## `"utf8"`
+ *
+ * ## `"utf16"`
+ */
+export type ColumnUnit = "utf8" | "utf16";
+export interface TextPosition {
+  line: number,
+  column: number,
+}
+export interface FileRange {
+  start: TextPosition,
+  end: TextPosition,
+  unit: ColumnUnit,
+}
+export interface FileLocation {
+  path: string,
+  range: FileRange,
+}
+export interface FileTextEdit {
+  range: FileRange,
+  text: string,
+}
+export interface FileEdits {
+  path: string,
+  version?: bigint,
+  edits: Array<FileTextEdit>,
+}
+/**
+ * Create an empty file. Supply its contents with a following text change.
+ */
+export interface WorkspaceCreate {
+  path: string,
+  overwrite: boolean,
+  ignoreIfExists: boolean,
+}
+export interface WorkspaceRename {
+  source: string,
+  target: string,
+  overwrite: boolean,
+  ignoreIfExists: boolean,
+}
+export interface WorkspaceDelete {
+  path: string,
+  recursive: boolean,
+  ignoreIfNotExists: boolean,
+}
+export type WorkspaceChange = WorkspaceChangeText | WorkspaceChangeCreate | WorkspaceChangeRename | WorkspaceChangeDelete;
+export interface WorkspaceChangeText {
+  tag: 'text',
+  val: FileEdits,
+}
+export interface WorkspaceChangeCreate {
+  tag: 'create',
+  val: WorkspaceCreate,
+}
+export interface WorkspaceChangeRename {
+  tag: 'rename',
+  val: WorkspaceRename,
+}
+export interface WorkspaceChangeDelete {
+  tag: 'delete',
+  val: WorkspaceDelete,
+}
+export interface WorkspaceEdit {
+  changes: Array<WorkspaceChange>,
+}
+export interface WorkspaceEditRequest {
+  title: string,
+  edit: WorkspaceEdit,
+}
+export type WorkspaceOperation = WorkspaceOperationEdit | WorkspaceOperationShowDocument;
+export interface WorkspaceOperationEdit {
+  tag: 'edit',
+  val: WorkspaceEditRequest,
+}
+export interface WorkspaceOperationShowDocument {
+  tag: 'show-document',
+  val: FileLocation,
+}
+export interface SignatureParameter {
+  label: string,
+  documentation?: string,
+  range?: ByteRange,
+}
+export interface SignatureEntry {
+  label: string,
+  documentation?: string,
+  parameters: Array<SignatureParameter>,
+  activeParameter?: number,
+}
+export interface SignatureSet {
+  signatures: Array<SignatureEntry>,
+  activeSignature: number,
+  activeParameter?: number,
+}
+export type WorkspaceFileChange = WorkspaceFileChangeCreated | WorkspaceFileChangeRenamed | WorkspaceFileChangeDeleted | WorkspaceFileChangeRescan;
+export interface WorkspaceFileChangeCreated {
+  tag: 'created',
+  val: string,
+}
+export interface WorkspaceFileChangeRenamed {
+  tag: 'renamed',
+  val: [string, string],
+}
+export interface WorkspaceFileChangeDeleted {
+  tag: 'deleted',
+  val: string,
+}
+export interface WorkspaceFileChangeRescan {
+  tag: 'rescan',
+}
+export interface RangeKind {
+  range: ByteRange,
+  kind: number,
+}
+export interface WorkspaceSymbol {
+  name: string,
+  kind: number,
+  container?: string,
+  location: FileLocation,
+}
+export interface RenameTarget {
+  range?: ByteRange,
+  placeholder?: string,
+  defaultBehavior: boolean,
+}
+export interface FoldRange {
+  start: number,
+  end: number,
+  startColumn?: number,
+  endColumn?: number,
+  kind?: string,
+  label?: string,
+}
+export interface SelectionRange {
+  range: ByteRange,
+  parent?: number,
+}
+export interface HierarchyItem {
+  name: string,
+  kind: number,
+  detail?: string,
+  location: FileLocation,
+  selection: FileRange,
+  data?: string,
+}
+export interface HierarchyEdge {
+  item: HierarchyItem,
+  sites: Array<FileRange>,
+}
+export interface Highlight {
+  range: ByteRange,
+  theme: string,
+}
 /**
  * An action offered for a range. Choosing it applies `edits` to the
  * requested snapshot as one change.
@@ -197,6 +454,7 @@ export interface Location {
 export interface DocumentSymbol {
   name: string,
   detail?: string,
+  deprecated?: boolean,
   /**
    * LSP symbol kind number.
    */
@@ -236,11 +494,99 @@ export interface InlayHint {
   tooltip?: string,
 }
 /**
+ * A provider-owned command. Arguments are an opaque JSON array; only the
+ * originating provider interprets their meaning.
+ */
+export interface ProviderCommand {
+  name: string,
+  arguments: string,
+}
+export interface ProviderAction {
+  title: string,
+  kind?: string,
+  preferred: boolean,
+  disabled?: string,
+  edit?: WorkspaceEdit,
+  command?: ProviderCommand,
+  data?: string,
+}
+export interface CodeLens {
+  range: ByteRange,
+  title?: string,
+  command?: ProviderCommand,
+  data?: string,
+}
+export type LanguageAnswer = LanguageAnswerPlaces | LanguageAnswerWorkspaceSymbols | LanguageAnswerDocumentHighlights | LanguageAnswerRenameTarget | LanguageAnswerWorkspaceEdit | LanguageAnswerFolds | LanguageAnswerSelections | LanguageAnswerHierarchy | LanguageAnswerCalls | LanguageAnswerLenses | LanguageAnswerHighlights | LanguageAnswerActions | LanguageAnswerSignatures | LanguageAnswerCompleted;
+export interface LanguageAnswerPlaces {
+  tag: 'places',
+  val: Array<FileLocation>,
+}
+export interface LanguageAnswerWorkspaceSymbols {
+  tag: 'workspace-symbols',
+  val: Array<WorkspaceSymbol>,
+}
+export interface LanguageAnswerDocumentHighlights {
+  tag: 'document-highlights',
+  val: Array<RangeKind>,
+}
+export interface LanguageAnswerRenameTarget {
+  tag: 'rename-target',
+  val: RenameTarget | undefined,
+}
+export interface LanguageAnswerWorkspaceEdit {
+  tag: 'workspace-edit',
+  val: WorkspaceEdit,
+}
+export interface LanguageAnswerFolds {
+  tag: 'folds',
+  val: Array<FoldRange>,
+}
+export interface LanguageAnswerSelections {
+  tag: 'selections',
+  val: Array<SelectionRange>,
+}
+export interface LanguageAnswerHierarchy {
+  tag: 'hierarchy',
+  val: Array<HierarchyItem>,
+}
+export interface LanguageAnswerCalls {
+  tag: 'calls',
+  val: Array<HierarchyEdge>,
+}
+export interface LanguageAnswerLenses {
+  tag: 'lenses',
+  val: Array<CodeLens>,
+}
+export interface LanguageAnswerHighlights {
+  tag: 'highlights',
+  val: Array<Highlight>,
+}
+export interface LanguageAnswerActions {
+  tag: 'actions',
+  val: Array<ProviderAction>,
+}
+export interface LanguageAnswerSignatures {
+  tag: 'signatures',
+  val: SignatureSet,
+}
+export interface LanguageAnswerCompleted {
+  tag: 'completed',
+}
+export interface ProviderCommandCall {
+  provider: string,
+  command: ProviderCommand,
+}
+/**
  * One completion candidate. `data` is opaque to the host and comes back
  * unchanged in a resolve request, so the answer is routed to its origin.
  */
 export interface CompletionItem {
   label: string,
+  labelDetail?: string,
+  labelDescription?: string,
+  deprecated?: boolean,
+  preselect?: boolean,
+  insertTextMode?: number,
   detail?: string,
   documentation?: string,
   /**
@@ -248,6 +594,20 @@ export interface CompletionItem {
    */
   kind?: number,
   insertText?: string,
+  /**
+   * All edit ranges refer to the requested snapshot, in UTF-8 bytes.
+   */
+  textEdit?: TextEdit,
+  additionalTextEdits: Array<TextEdit>,
+  /**
+   * 1 plain text (default), 2 snippet.
+   */
+  insertTextFormat?: number,
+  commitCharacters: Array<string>,
+  /**
+   * Delivered to the origin only after all accepted edits succeed.
+   */
+  command?: ProviderCommand,
   sortText?: string,
   filterText?: string,
   data?: string,
@@ -283,6 +643,7 @@ export interface ProviderRequest {
    * Completion resolve: the item to complete.
    */
   item?: CompletionItem,
+  context?: ProviderContext,
 }
 export interface Diagnostic {
   range: ByteRange,
@@ -293,6 +654,10 @@ export interface Diagnostic {
   message: string,
   source?: string,
   code?: string,
+  /**
+   * Documentation for this finding; the native UI admits HTTP(S) links.
+   */
+  documentationUrl?: string,
 }
 /**
  * A workspace folder as the extension may name it. Handles change when a
@@ -301,6 +666,10 @@ export interface Diagnostic {
 export interface RootRef {
   id: bigint,
   name: string,
+  /**
+   * Absolute native path for tools and URI construction.
+   */
+  path: string,
 }
 export type TaskId = bigint;
 /**
@@ -392,9 +761,9 @@ export interface TaskRequest {
 }
 /**
  * # Variants
- * 
+ *
  * ## `"stdout"`
- * 
+ *
  * ## `"stderr"`
  */
 export type OutputChannel = "stdout" | "stderr";
@@ -422,9 +791,186 @@ export interface TaskExit {
   error?: HostError,
 }
 /**
+ * # Variants
+ *
+ * ## `"raw"`
+ *
+ * ## `"content-length"`
+ *
+ * ## `"content-length-text"`
+ */
+export type ProcessFraming = "raw" | "content-length" | "content-length-text";
+export interface ProcessRequest {
+  /**
+   * Absent only when a single open workspace root can be inferred.
+   */
+  root?: bigint,
+  program: string,
+  args: Array<string>,
+  cwd?: string,
+  env: Array<[string, string]>,
+  framing: ProcessFraming,
+}
+/**
+ * Text framing delivers validated UTF-8 in text and leaves bytes empty.
+ * Other modes preserve arbitrary bytes and leave text absent.
+ */
+export interface ProcessOutput {
+  process: bigint,
+  channel: OutputChannel,
+  bytes: Uint8Array,
+  text?: string,
+}
+export interface ProcessWritable {
+  process: bigint,
+  bytes: number,
+}
+export interface ProcessExit {
+  process: bigint,
+  code?: number,
+  killed: boolean,
+  error?: HostError,
+}
+export interface WatchRequest {
+  root: bigint,
+  patterns: Array<string>,
+}
+/**
+ * # Variants
+ *
+ * ## `"create"`
+ *
+ * ## `"change"`
+ *
+ * ## `"delete"`
+ *
+ * ## `"rescan"`
+ */
+export type FileChangeKind = "create" | "change" | "delete" | "rescan";
+export interface FileChange {
+  path: string,
+  kind: FileChangeKind,
+}
+export interface FileChanged {
+  watch: bigint,
+  root: bigint,
+  changes: Array<FileChange>,
+}
+export interface WatchFailure {
+  watch: bigint,
+  error: HostError,
+}
+/**
+ * # Variants
+ *
+ * ## `"block"`
+ *
+ * ## `"text"`
+ *
+ * ## `"icon"`
+ *
+ * ## `"button"`
+ *
+ * ## `"row"`
+ *
+ * ## `"column"`
+ *
+ * ## `"text-input"`
+ */
+export type UiKind = "block" | "text" | "icon" | "button" | "row" | "column" | "text-input";
+export type UiParent = UiParentMount | UiParentNode;
+export interface UiParentMount {
+  tag: 'mount',
+  val: string,
+}
+export interface UiParentNode {
+  tag: 'node',
+  val: bigint,
+}
+export interface UiDescription {
+  id: string,
+  kind: UiKind,
+  text?: string,
+  icon?: string,
+  foreground?: number,
+  background?: number,
+  width?: number,
+  height?: number,
+  padding: number,
+  gap: number,
+  visible: boolean,
+  label?: string,
+}
+export interface UiNode {
+  node: bigint,
+  parent: UiParent,
+  description: UiDescription,
+}
+export type UiEventPayload = UiEventPayloadClick | UiEventPayloadInput | UiEventPayloadSelection | UiEventPayloadVisibility | UiEventPayloadFocus;
+export interface UiEventPayloadClick {
+  tag: 'click',
+}
+export interface UiEventPayloadInput {
+  tag: 'input',
+  val: string,
+}
+export interface UiEventPayloadSelection {
+  tag: 'selection',
+  val: ByteRange,
+}
+export interface UiEventPayloadVisibility {
+  tag: 'visibility',
+  val: boolean,
+}
+export interface UiEventPayloadFocus {
+  tag: 'focus',
+  val: boolean,
+}
+export interface UiEvent {
+  node: bigint,
+  id: string,
+  payload: UiEventPayload,
+}
+/**
  * Message pushed by the host into the guest.
  */
-export type Inbound = InboundTaskOutput | InboundTaskExited | InboundProviderRequest | InboundRunCommand | InboundDocumentOpened | InboundDocumentChanged | InboundDocumentResync | InboundDocumentClosed | InboundSettingsChanged | InboundOperationComplete | InboundCancel | InboundShutdown;
+export type Inbound = InboundProviderCommand | InboundRootsChanged | InboundProcessOutput | InboundProcessWritable | InboundProcessExited | InboundFileChanged | InboundWatchFailed | InboundWatchReady | InboundUiEvent | InboundTaskOutput | InboundTaskExited | InboundProviderRequest | InboundProviderCancelled | InboundRunCommand | InboundDocumentOpened | InboundDocumentChanged | InboundDocumentResync | InboundDocumentClosed | InboundDocumentSaved | InboundWorkspaceFilesChanged | InboundSettingsChanged | InboundTimerElapsed | InboundOperationComplete | InboundCancel | InboundShutdown;
+export interface InboundProviderCommand {
+  tag: 'provider-command',
+  val: ProviderCommandCall,
+}
+export interface InboundRootsChanged {
+  tag: 'roots-changed',
+  val: Array<RootRef>,
+}
+export interface InboundProcessOutput {
+  tag: 'process-output',
+  val: ProcessOutput,
+}
+export interface InboundProcessWritable {
+  tag: 'process-writable',
+  val: ProcessWritable,
+}
+export interface InboundProcessExited {
+  tag: 'process-exited',
+  val: ProcessExit,
+}
+export interface InboundFileChanged {
+  tag: 'file-changed',
+  val: FileChanged,
+}
+export interface InboundWatchFailed {
+  tag: 'watch-failed',
+  val: WatchFailure,
+}
+export interface InboundWatchReady {
+  tag: 'watch-ready',
+  val: bigint,
+}
+export interface InboundUiEvent {
+  tag: 'ui-event',
+  val: UiEvent,
+}
 export interface InboundTaskOutput {
   tag: 'task-output',
   val: TaskOutput,
@@ -436,6 +982,10 @@ export interface InboundTaskExited {
 export interface InboundProviderRequest {
   tag: 'provider-request',
   val: ProviderRequest,
+}
+export interface InboundProviderCancelled {
+  tag: 'provider-cancelled',
+  val: bigint,
 }
 export interface InboundRunCommand {
   tag: 'run-command',
@@ -460,12 +1010,24 @@ export interface InboundDocumentClosed {
   tag: 'document-closed',
   val: DocumentRef,
 }
+export interface InboundDocumentSaved {
+  tag: 'document-saved',
+  val: DocumentSnapshot,
+}
+export interface InboundWorkspaceFilesChanged {
+  tag: 'workspace-files-changed',
+  val: Array<WorkspaceFileChange>,
+}
 /**
  * Resolved values of these setting keys changed; read them with `get-setting`.
  */
 export interface InboundSettingsChanged {
   tag: 'settings-changed',
   val: Array<string>,
+}
+export interface InboundTimerElapsed {
+  tag: 'timer-elapsed',
+  val: bigint,
 }
 export interface InboundOperationComplete {
   tag: 'operation-complete',
@@ -481,15 +1043,15 @@ export interface InboundShutdown {
 /**
  * Result of one scheduling round.
  * # Variants
- * 
+ *
  * ## `"idle"`
- * 
+ *
  * No runnable work; callbacks may still be pending on host operations.
  * ## `"pending"`
- * 
+ *
  * Pending callbacks wait for host completions.
  * ## `"runnable"`
- * 
+ *
  * More work is runnable; the host should schedule another round soon.
  */
 export type RoundStatus = "idle" | "pending" | "runnable";

@@ -6,10 +6,12 @@ use crate::app::state::AppState;
 use crate::domain::identity::FileId;
 use crate::domain::language::Registry;
 use crate::features::language_service::capabilities::PositionEncoding;
+use crate::features::providers::{Cancellation, Part, PartSink, RequestSpec};
+use crate::infrastructure::extensions::processes;
 use crate::infrastructure::extensions::tasks;
 use crate::infrastructure::extensions::trust_store::TrustStore;
-use crate::infrastructure::extensions::{Event, Executor};
-use crate::infrastructure::lsp::manager::{EXTERNAL_RANK, Part, PartSink, RequestSpec};
+use crate::infrastructure::extensions::watches;
+use crate::infrastructure::extensions::{Event, Executor, Job, Outcome};
 use lgui::ApplicationHandle;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -19,6 +21,8 @@ struct Inner {
     service: Mutex<ExtensionService>,
     executor: OnceLock<Executor>,
     runner: OnceLock<tasks::Runner>,
+    processes: OnceLock<processes::Runner>,
+    watches: OnceLock<watches::Runner>,
     /// The host's own handle, so background work can come back to it.
     self_ref: OnceLock<std::sync::Weak<Inner>>,
     trust: Arc<TrustStore>,
@@ -27,8 +31,6 @@ struct Inner {
     application: ApplicationHandle,
     /// What to do when a save chain ends, by chain number.
     saves: Mutex<std::collections::HashMap<u64, SaveContinuation>>,
-    /// The language servers last handed to the language service.
-    published_servers: Mutex<Vec<crate::infrastructure::lsp::manager::Contributed>>,
     /// Where the answers of a language request go, with how many are still owed.
     language_sinks: Mutex<std::collections::HashMap<u64, (PartSink, usize)>>,
     next_language: std::sync::atomic::AtomicU64,
@@ -51,6 +53,12 @@ fn read_json(path: &Path) -> Option<serde_json::Value> {
 
 impl Drop for Inner {
     fn drop(&mut self) {
+        if let Some(runner) = self.watches.get() {
+            runner.cancel_all();
+        }
+        if let Some(runner) = self.processes.get() {
+            runner.cancel_all();
+        }
         if let Some(runner) = self.runner.get() {
             runner.cancel_all();
         }
@@ -61,6 +69,156 @@ impl Inner {
     fn apply(&self, app: &mut AppState, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
+                Effect::ClearUi { session, owner } => app.extension_widgets.remove(session, &owner),
+                Effect::StartWatch { watch, spec } => {
+                    if let Some(runner) = self.watches.get() {
+                        runner.start(watch, spec);
+                    }
+                }
+                Effect::StopWatch { watch } => {
+                    if let Some(runner) = self.watches.get() {
+                        runner.stop(watch);
+                    }
+                }
+                Effect::StartProcess { process, spec } => {
+                    if let Some(runner) = self.processes.get() {
+                        runner.start(process, spec);
+                    }
+                }
+                Effect::WriteProcess { process, bytes } => {
+                    if let Some(runner) = self.processes.get() {
+                        let length = bytes.len();
+                        match runner.write(process, bytes) {
+                            Ok(accepted) if accepted == length => {}
+                            Ok(_) => {
+                                runner.fail(process, "process input admission was exhausted".into())
+                            }
+                            Err(error) => runner.fail(process, error),
+                        }
+                    }
+                }
+                Effect::CloseProcess { process } => {
+                    if let Some(runner) = self.processes.get()
+                        && let Err(error) = runner.close_stdin(process)
+                    {
+                        runner.fail(process, error);
+                    }
+                }
+                Effect::KillProcess { process } => {
+                    if let Some(runner) = self.processes.get() {
+                        runner.kill(process);
+                    }
+                }
+                Effect::WorkspaceOperation {
+                    id,
+                    generation,
+                    operation,
+                    action,
+                } => {
+                    let Some(weak) = self.self_ref.get().cloned() else {
+                        continue;
+                    };
+                    let context = self.context.clone();
+                    self.application.post(move || {
+                        let Some(inner) = weak.upgrade() else {
+                            return;
+                        };
+                        if !inner
+                            .service
+                            .lock()
+                            .unwrap()
+                            .package(&id)
+                            .is_some_and(|p| p.lifecycle.accepts(generation))
+                        {
+                            return;
+                        }
+                        let completion = {
+                            let weak = Arc::downgrade(&inner);
+                            let id = id.clone();
+                            Arc::new(move |result: Result<usize, String>| {
+                                let Some(inner) = weak.upgrade() else {
+                                    return;
+                                };
+                                if !inner
+                                    .service
+                                    .lock()
+                                    .unwrap()
+                                    .package(&id)
+                                    .is_some_and(|p| p.lifecycle.accepts(generation))
+                                {
+                                    return;
+                                }
+                                if let Some(executor) = inner.executor.get() {
+                                    executor.submit(Job::Complete {
+                                        id: id.clone(),
+                                        generation,
+                                        operation,
+                                        outcome: match result {
+                                            Ok(changed) => {
+                                                let app = inner.context.get();
+                                                let transaction = if changed == 0 {
+                                                    0
+                                                } else {
+                                                    app.editor.language.next_transaction
+                                                };
+                                                let version = app
+                                                    .editor
+                                                    .language
+                                                    .transactions
+                                                    .get(&transaction)
+                                                    .filter(|documents| documents.len() == 1)
+                                                    .and_then(|documents| {
+                                                        app.workspace.documents.get(&documents[0])
+                                                    })
+                                                    .map_or(0, |document| {
+                                                        document.buffer.version()
+                                                    });
+                                                Outcome::Committed {
+                                                    transaction,
+                                                    version,
+                                                }
+                                            }
+                                            Err(message) => Outcome::Failed(
+                                                loom_extension_api::ExtensionError::new(
+                                                    loom_extension_api::ErrorKind::InvalidEdit,
+                                                    message,
+                                                ),
+                                            ),
+                                        },
+                                    });
+                                }
+                            })
+                        };
+                        let rect = context.get().editor.language.rect.unwrap_or_default();
+                        match action {
+                            super::language::WorkspaceAction::Edit {
+                                title,
+                                edit,
+                                stamps,
+                            } => crate::app::language_ui::edit::apply(
+                                &context,
+                                crate::app::language_ui::edit::Request {
+                                    title,
+                                    edit,
+                                    stamps,
+                                    rect,
+                                    reply: Some(crate::app::language_ui::edit::Reply::Native(
+                                        completion,
+                                    )),
+                                },
+                            ),
+                            super::language::WorkspaceAction::Show { path, span } => {
+                                crate::app::language_ui::navigate::go(
+                                    &context,
+                                    crate::app::language_ui::navigate::Place::span(path, span),
+                                    rect,
+                                    true,
+                                );
+                                completion(Ok(0));
+                            }
+                        }
+                    });
+                }
                 Effect::Submit(job) => {
                     if let Some(executor) = self.executor.get() {
                         executor.submit(job);
@@ -88,6 +246,21 @@ impl Inner {
                         .and_then(|runtime| runtime.language_services())
                     {
                         services.clear_external(source);
+                    }
+                }
+                Effect::PublishHighlights {
+                    source,
+                    path,
+                    stamp,
+                    length,
+                    items,
+                } => {
+                    if let Some(services) = self
+                        .context
+                        .services()
+                        .and_then(|runtime| runtime.language_services())
+                    {
+                        services.publish_highlights(source, path, stamp, length, items);
                     }
                 }
                 Effect::OfferCompletion {
@@ -186,7 +359,7 @@ impl Inner {
                         sink.deliver(answer.map(|answer| Part {
                             instance: answer.source,
                             server: answer.provider.into(),
-                            rank: EXTERNAL_RANK,
+                            rank: answer.rank,
                             encoding: PositionEncoding::Utf8,
                             value: answer.value,
                         }));
@@ -210,40 +383,108 @@ struct LanguageHook {
 }
 
 impl ExternalAnswers for LanguageHook {
+    fn document_languages(&self, languages: Vec<(PathBuf, String)>) {
+        if let Some(inner) = self.inner.upgrade() {
+            inner.service.lock().unwrap().document_languages = languages.into_iter().collect();
+        }
+    }
+    fn files_changed(&self, change: crate::features::providers::FileChange) {
+        let Some(inner) = self.inner.upgrade() else {
+            return;
+        };
+        let context = inner.context.clone();
+        let weak = self.inner.clone();
+        inner.application.clone().post(move || {
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
+            context.update(|app| {
+                let effects = inner
+                    .service
+                    .lock()
+                    .unwrap()
+                    .workspace_files_changed(app, change);
+                inner.apply(app, effects);
+            });
+        });
+    }
+    fn saved(&self, saved: crate::domain::document::SaveSnapshot) {
+        let Some(inner) = self.inner.upgrade() else {
+            return;
+        };
+        let context = inner.context.clone();
+        let weak = self.inner.clone();
+        inner.application.clone().post(move || {
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
+            context.update(|app| {
+                let effects = inner.service.lock().unwrap().document_saved(app, saved);
+                inner.apply(app, effects);
+            });
+        });
+    }
+    fn capabilities(
+        &self,
+        path: Option<&Path>,
+    ) -> Vec<crate::app::language_services::CapabilitySource> {
+        let Some(inner) = self.inner.upgrade() else {
+            return Vec::new();
+        };
+        inner.service.lock().unwrap().capability_sources(path)
+    }
     fn expected(&self, spec: &RequestSpec) -> usize {
         let Some(inner) = self.inner.upgrade() else {
             return 0;
         };
         let registry = Registry::builtin();
-        let language = registry
-            .definition_of(registry.resolve_path(&spec.path))
-            .name
-            .to_string();
-        inner
-            .service
-            .lock()
-            .unwrap()
-            .language_providers(spec.feature, &language)
+        let service = inner.service.lock().unwrap();
+        let language = service
+            .document_languages
+            .get(&spec.path)
+            .cloned()
+            .unwrap_or_else(|| {
+                registry
+                    .definition_of(registry.resolve_path(&spec.path))
+                    .name
+                    .to_string()
+            });
+        service
+            .matching_language_providers(
+                spec.feature,
+                &language,
+                spec.target,
+                spec.server.as_deref(),
+            )
             .len()
     }
 
-    fn ask(&self, spec: RequestSpec, expected: usize, sink: PartSink) {
-        let Some(inner) = self.inner.upgrade() else {
-            return;
-        };
+    fn ask(&self, spec: RequestSpec, expected: usize, sink: PartSink) -> Option<Cancellation> {
+        let inner = self.inner.upgrade()?;
+        let token = inner.next_language.fetch_add(1, Ordering::Relaxed);
         // The request is made on the UI thread, possibly inside an update; the
         // providers are asked from the next turn of the application.
         let application = inner.application.clone();
+        let requested = self.inner.clone();
         application.post(move || {
+            if !sink.is_live() {
+                return;
+            }
+            let Some(inner) = requested.upgrade() else {
+                return;
+            };
             let context = inner.context.clone();
             context.update(|app| {
-                let token = inner.next_language.fetch_add(1, Ordering::Relaxed);
                 let ask = LanguageAsk {
                     feature: spec.feature,
                     path: spec.path.clone(),
                     stamp: spec.stamp,
                     start: spec.start,
                     end: spec.end,
+                    extra: spec.extra.clone(),
+                    target: spec.target,
+                    server: spec.server.clone(),
+                    timeout: spec.timeout,
                 };
                 let mut effects = Vec::new();
                 let asked =
@@ -265,13 +506,55 @@ impl ExternalAnswers for LanguageHook {
                 }
                 inner.apply(app, effects);
             });
+            crate::app::language_ui::tick(&context);
         });
+        let cancelled = self.inner.clone();
+        Some(Arc::new(move || {
+            let cancelled = cancelled.clone();
+            application.post(move || {
+                let Some(inner) = cancelled.upgrade() else {
+                    return;
+                };
+                let context = inner.context.clone();
+                context.update(|app| {
+                    let mut effects = Vec::new();
+                    {
+                        let mut service = inner.service.lock().unwrap();
+                        let requests = service
+                            .language_calls
+                            .iter()
+                            .filter(|(_, t)| **t == token)
+                            .map(|(request, _)| *request)
+                            .collect::<Vec<_>>();
+                        for request in requests {
+                            service.cancel_provider(request, &mut effects);
+                        }
+                    }
+                    inner.apply(app, effects);
+                    inner.language_sinks.lock().unwrap().remove(&token);
+                });
+            });
+        }))
     }
 }
 
 /// The running extension subsystem of one mounted application.
 pub(crate) struct ExtensionHost {
     inner: Arc<Inner>,
+}
+
+impl Drop for ExtensionHost {
+    fn drop(&mut self) {
+        let session = self.inner.service.lock().unwrap().ui_session;
+        let context = self.inner.context.clone();
+        let saves = std::mem::take(&mut *self.inner.saves.lock().unwrap());
+        self.inner.application.post(move || {
+            context.update(|app| app.extension_widgets.end_session(session));
+            for then in saves.into_values() {
+                then(&context, false);
+            }
+        });
+    }
 }
 
 impl ExtensionHost {
@@ -287,13 +570,14 @@ impl ExtensionHost {
             service: Mutex::new(ExtensionService::new(cache)),
             executor: OnceLock::new(),
             runner: OnceLock::new(),
+            processes: OnceLock::new(),
+            watches: OnceLock::new(),
             self_ref: OnceLock::new(),
             trust,
             user_settings,
             context: context.clone(),
             application: application.clone(),
             saves: Mutex::new(std::collections::HashMap::new()),
-            published_servers: Mutex::new(Vec::new()),
             language_sinks: Mutex::new(std::collections::HashMap::new()),
             next_language: std::sync::atomic::AtomicU64::new(1),
             hooked: std::sync::atomic::AtomicBool::new(false),
@@ -301,31 +585,87 @@ impl ExtensionHost {
             registry: Mutex::new(registry::State::default()),
         });
         let _ = inner.self_ref.set(Arc::downgrade(&inner));
+        let session = inner.service.lock().unwrap().ui_session;
+        let ui_context = context.clone();
+        application
+            .post(move || ui_context.update(|app| app.extension_widgets.begin_session(session)));
         inner.service.lock().unwrap().set_trust(inner.trust.clone());
+        let watch_inner = Arc::downgrade(&inner);
+        let watch_context = context.clone();
+        let watch_application = application.clone();
+        let _ = inner.watches.set(watches::Runner::new(move |event| {
+            let inner = watch_inner.clone();
+            let context = watch_context.clone();
+            watch_application.post(move || {
+                let Some(inner) = inner.upgrade() else {
+                    return;
+                };
+                context.update(|app| {
+                    let effects = inner.service.lock().unwrap().handle_watch_event(event);
+                    inner.apply(app, effects);
+                })
+            });
+        }));
+        let process_inner = Arc::downgrade(&inner);
+        let process_context = context.clone();
+        let process_application = application.clone();
+        let _ = inner.processes.set(processes::Runner::new(move |event| {
+            let inner = process_inner.clone();
+            let context = process_context.clone();
+            process_application.post(move || {
+                let Some(inner) = inner.upgrade() else {
+                    return;
+                };
+                context.update(|app| {
+                    let effects = inner.service.lock().unwrap().handle_process_event(event);
+                    inner.apply(app, effects);
+                })
+            });
+        }));
         // Output and exits of tasks reach their guest through the UI thread, where
         // the service knows which extension and generation a task belongs to.
-        let task_inner = inner.clone();
+        let task_inner = Arc::downgrade(&inner);
         let task_context = context.clone();
         let task_application = application.clone();
         let _ = inner.runner.set(tasks::Runner::new(move |event| {
             let inner = task_inner.clone();
             let context = task_context.clone();
             task_application.post(move || {
+                let Some(inner) = inner.upgrade() else {
+                    return;
+                };
                 context.update(|app| {
                     let effects = inner.service.lock().unwrap().handle_task_event(event);
                     inner.apply(app, effects);
                 });
             });
         }));
-        let sink_inner = inner.clone();
+        // The subsystem owns these sinks. Weak captures let unloading reclaim
+        // the executor, processes and watches even with queued UI callbacks.
+        let sink_inner = Arc::downgrade(&inner);
         let executor = Executor::spawn(Box::new(move |event: Event| {
             let inner = sink_inner.clone();
             let context = context.clone();
             application.post(move || {
+                let Some(inner) = inner.upgrade() else {
+                    return;
+                };
+                let language_changed = matches!(
+                    &event,
+                    Event::Provided { .. }
+                        | Event::ProviderExpired { .. }
+                        | Event::ProvidersConfigured { .. }
+                        | Event::DiagnosticsPublished { .. }
+                        | Event::Failed { .. }
+                        | Event::Loaded { .. }
+                );
                 context.update(|app| {
                     let effects = inner.service.lock().unwrap().handle_event(app, event);
                     inner.apply(app, effects);
                 });
+                if language_changed {
+                    crate::app::language_ui::tick(&context);
+                }
             });
         }))?;
         let _ = inner.executor.set(executor);
@@ -425,24 +765,19 @@ impl ExtensionHost {
         self.inner.service.lock().unwrap()
     }
 
-    /// Ask the extensions' completion providers about the word being typed.
-    /// Returns how many were asked; their answers reach the open completion
-    /// session through [`Effect::OfferCompletion`].
-    pub(crate) fn request_completion(
+    pub(crate) fn ui_event(
         &self,
         app: &AppState,
-        word_start: usize,
-        cursor: usize,
-        trigger: Option<char>,
-    ) -> usize {
-        let (asked, effects) = self
+        origin: crate::features::extensions::ui::Origin,
+        payload: crate::features::extensions::ui::Payload,
+    ) {
+        let effects = self
             .inner
             .service
             .lock()
             .unwrap()
-            .request_completion(app, word_start, cursor, trigger);
+            .ui_event(app, origin, payload);
         self.submit(effects);
-        asked
     }
 
     /// Add the snippets packages contribute for this language to the open
@@ -457,19 +792,13 @@ impl ExtensionHost {
         self.inner.apply(app, effects);
     }
 
-    /// Ask the extension that offered a completion item to complete it.
-    pub(crate) fn request_completion_resolve(
-        &self,
-        app: &AppState,
-        source: u64,
-        raw: &serde_json::Value,
-    ) {
+    pub(crate) fn execute_provider_command(&self, source: u64, raw: &serde_json::Value) {
         let effects = self
             .inner
             .service
             .lock()
             .unwrap()
-            .request_completion_resolve(app, source, raw);
+            .execute_provider_command(source, raw);
         self.submit(effects);
     }
 
@@ -484,13 +813,13 @@ impl ExtensionHost {
     /// Tell subscribed extensions about document changes this update made.
     pub(crate) fn observe(&self, app: &AppState) {
         self.attach_language_hook();
-        let (effects, servers, themes) = {
+        let (effects, themes) = {
             let mut service = self.inner.service.lock().unwrap();
             let effects = service.observe(app);
             let revision = service.themes_revision();
             let themes = (self.inner.themes_seen.swap(revision, Ordering::Relaxed) != revision)
                 .then(|| service.themes());
-            (effects, service.language_servers(), themes)
+            (effects, themes)
         };
         if let Some(themes) = themes {
             self.publish_themes(themes);
@@ -500,7 +829,6 @@ impl ExtensionHost {
                 executor.submit(job);
             }
         }
-        self.publish_language_servers(servers);
     }
 
     /// Make the packages' themes available for choosing. A theme that settings
@@ -520,39 +848,75 @@ impl ExtensionHost {
         }
     }
 
-    /// Hand the language service the servers packages declare when they, or the
-    /// folders and permissions they run under, changed since the last time.
-    fn publish_language_servers(
-        &self,
-        servers: Vec<crate::infrastructure::lsp::manager::Contributed>,
-    ) {
-        let mut last = self.inner.published_servers.lock().unwrap();
-        if *last == servers {
-            return;
-        }
-        // Without a language service nothing is recorded, so the list is offered again.
-        if let Some(services) = self
-            .inner
-            .context
-            .services()
-            .and_then(|runtime| runtime.language_services())
-        {
-            last.clone_from(&servers);
-            services.set_contributed(servers);
-        }
-    }
-
     /// Whether an extension declares a language server for the language `name`.
     pub(crate) fn serves_language(&self, name: &str) -> bool {
         self.inner.service.lock().unwrap().serves_language(name)
+    }
+
+    /// Retry process-capable language owners only for documents inside a newly
+    /// trusted folder. Every process launch still checks the persisted trust store.
+    pub(crate) fn resume_tools_in(&self, context: &AppContext, root: &Path) {
+        context.update(|app| {
+            let mut service = self.inner.service.lock().unwrap();
+            let languages = app
+                .workspace
+                .documents
+                .values()
+                .filter(|d| d.is_text() && d.meta.path.starts_with(root))
+                .map(|d| d.meta.lang.definition().name.as_ref())
+                .collect::<Vec<_>>();
+            let ids = service
+                .packages()
+                .filter(|p| {
+                    !matches!(
+                        p.lifecycle.state(),
+                        crate::features::extensions::lifecycle::State::Stopped
+                            | crate::features::extensions::lifecycle::State::Stopping
+                    ) && p
+                        .manifest
+                        .capabilities
+                        .iter()
+                        .any(|c| c == "process.execute-local")
+                        && p.manifest
+                            .contributes
+                            .language_service
+                            .providers
+                            .iter()
+                            .any(|provider| {
+                                provider
+                                    .selector
+                                    .languages
+                                    .iter()
+                                    .any(|lang| languages.contains(&lang.as_str()))
+                            })
+                })
+                .map(|p| p.manifest.id.clone())
+                .collect::<Vec<_>>();
+            for id in ids {
+                match service.reload(&id) {
+                    Ok(effects) => self.inner.apply(app, effects),
+                    Err(error) => app.show_error(format!("{id}: {error}")),
+                }
+            }
+        });
     }
 
     /// A folder lost its trust: what runs there stops.
     pub(crate) fn stop_tools_in(&self, root: &Path) {
         let effects = self.inner.service.lock().unwrap().stop_tools_in(root);
         for effect in effects {
-            if let (Effect::CancelTask { task }, Some(runner)) = (effect, self.inner.runner.get()) {
-                runner.cancel(task);
+            match effect {
+                Effect::CancelTask { task } => {
+                    if let Some(runner) = self.inner.runner.get() {
+                        runner.cancel(task);
+                    }
+                }
+                Effect::KillProcess { process } => {
+                    if let Some(runner) = self.inner.processes.get() {
+                        runner.kill(process);
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -595,7 +959,7 @@ impl ExtensionHost {
             }
             self.inner.apply(app, effects);
             // A participant that never answers is cut off by the chain deadline.
-            let inner = self.inner.clone();
+            let inner = Arc::downgrade(&self.inner);
             let context = self.inner.context.clone();
             let application = self.inner.application.clone();
             std::thread::spawn(move || {
@@ -603,6 +967,9 @@ impl ExtensionHost {
                     super::save::SAVE_DEADLINE_MS + 100,
                 ));
                 application.post(move || {
+                    let Some(inner) = inner.upgrade() else {
+                        return;
+                    };
                     context.update(|app| {
                         let effects = inner.service.lock().unwrap().expire_save(chain);
                         inner.apply(app, effects);
@@ -610,25 +977,6 @@ impl ExtensionHost {
                 });
             });
         });
-    }
-
-    /// Format the active document with an extension provider if one is
-    /// registered for its language. Returns whether a provider took the request.
-    pub(crate) fn format(&self, context: &AppContext, selection_only: bool) -> bool {
-        let mut handled = false;
-        context.update(|app| {
-            let request = self
-                .inner
-                .service
-                .lock()
-                .unwrap()
-                .request_format(app, selection_only);
-            if let Some(effects) = request {
-                handled = true;
-                self.inner.apply(app, effects);
-            }
-        });
-        handled
     }
 
     /// Reload every package from disk; failures are shown, nothing is replayed.
@@ -883,5 +1231,147 @@ impl ExtensionHost {
 
     pub(crate) fn retry(&self, id: &str) -> Result<(), String> {
         self.inner.service.lock().unwrap().retry(id)
+    }
+}
+
+#[cfg(test)]
+mod lifetime_tests {
+    use super::*;
+    #[test]
+    fn an_extension_completion_and_its_resolve_reach_the_native_ui_without_a_host_server() {
+        let mut app = AppState::new();
+        let path =
+            std::env::temp_dir().join(format!("loom-provider-native-{}.txt", std::process::id()));
+        let file = app.workspace.open_path(path.clone(), "lo".into());
+        app.workspace.active_editor_mut().unwrap().set_cursor(2);
+        app.preferences.values_mut().file_associations.push(
+            crate::features::settings::rules::FileAssociation {
+                pattern: path.file_name().unwrap().to_string_lossy().into_owned(),
+                language: "rust".into(),
+            },
+        );
+        app.refresh_language_rules();
+        assert_eq!(
+            app.workspace.documents[&file]
+                .meta
+                .lang
+                .definition()
+                .name
+                .as_ref(),
+            "rust"
+        );
+        let language = app
+            .workspace
+            .documents
+            .values()
+            .next()
+            .unwrap()
+            .meta
+            .lang
+            .definition()
+            .name
+            .to_string();
+        let ui = crate::app::test_support::SavingUi::new(app);
+        ui.runtime
+            .install_language_services(crate::app::language_services::LanguageServices::new());
+        let host = ExtensionHost::start(
+            ui.state.clone(),
+            ui.tasks.application(),
+            std::env::temp_dir().join("loom-native-provider-cache"),
+            Arc::new(TrustStore::default()),
+            None,
+        )
+        .unwrap();
+        let manifest = serde_json::json!({"schema":1,"id":"example.tools","version":"0.1.0","api":"loom:extension@0.1.0","component":"extension.wasm","activation":[],"capabilities":["documents.read","languages"],"contributes":{"language_service":{"providers":[{"id":"example.tools.complete","kind":"completion","selector":{"languages":[language]}}]}}}).to_string();
+        host.load_package(&super::super::tests::package_dir_with(
+            "native-completion",
+            &manifest,
+        ))
+        .unwrap();
+        host.inner.service.lock().unwrap().set_clock(|| 0);
+        ui.runtime.install_extensions(host);
+        ui.state
+            .update(|app| crate::app::language_ui::completion::request(&ui.state, app, true, None));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        while ui
+            .state
+            .get()
+            .editor
+            .language
+            .completion
+            .as_ref()
+            .is_none_or(|s| s.data.entries.is_empty())
+        {
+            ui.tasks.run_all();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "completion did not reach the UI"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        ui.state.update(|app| {
+            let session = app.editor.language.completion.as_mut().unwrap();
+            let index = session
+                .shown
+                .iter()
+                .position(|shown| session.data.entries[shown.entry].item.label == "loom_world")
+                .unwrap();
+            session.set_selected(index);
+            crate::app::language_ui::completion::resolve_selected(&ui.state, app);
+        });
+        while !ui
+            .state
+            .get()
+            .editor
+            .language
+            .completion
+            .as_ref()
+            .unwrap()
+            .data
+            .entries
+            .iter()
+            .any(|e| {
+                e.item
+                    .documentation
+                    .as_ref()
+                    .is_some_and(|doc| doc.contains("world"))
+            })
+        {
+            ui.tasks.run_all();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "resolve did not return to its originating provider"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(
+            !ui.runtime
+                .language_services()
+                .unwrap()
+                .capability_sources(None)
+                .is_empty()
+        );
+        ui.runtime.clear_extensions();
+        ui.runtime.clear_language_services();
+    }
+    #[test]
+    fn unloading_the_host_releases_its_runners_and_executor() {
+        let queue = crate::app::test_support::UiTasks::default();
+        let state = crate::app::test_support::live(AppState::new());
+        let host = ExtensionHost::start(
+            state,
+            queue.application(),
+            std::env::temp_dir().join("loom-host-lifetime-cache"),
+            Arc::new(TrustStore::default()),
+            None,
+        )
+        .unwrap();
+        let observed = Arc::downgrade(&host.inner);
+        drop(host);
+        assert!(
+            observed.upgrade().is_none(),
+            "background sinks must not retain the owning host"
+        );
+        queue.run_all();
     }
 }

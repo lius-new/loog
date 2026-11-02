@@ -95,11 +95,11 @@ pub fn render(
         // Until the document is ready the card stays empty. A parse usually takes a
         // frame or two, and a notice that appears and goes at once reads as a flash.
         let Some(port) = document.port.clone() else {
-            return panel(rect, VisualStyle::default()).into();
+            return panel(rect, VisualStyle::default());
         };
         let frame = match (port.resolve)(rect.width(), rect.height()) {
             Ok(Some(frame)) => frame,
-            Ok(None) => return panel(rect, VisualStyle::default()).into(),
+            Ok(None) => return panel(rect, VisualStyle::default()),
             Err(error) => return text(rect, error, theme::sans(theme::c().warning, 12.0)).into(),
         };
         let read = frame.reader.clone();

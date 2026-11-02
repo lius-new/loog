@@ -7,7 +7,7 @@ use super::widgets::{self, Ids, Kind, Tone, blend, line, paragraph};
 use crate::ui::extensions_binding::{
     Binding, Block, Command, Contribution, DetailTab, Entry, Notice, Table, ThemeCard,
 };
-use crate::ui::tabs::{ellipsize, ellipsize_sans, icon, measure, measure_sans};
+use crate::ui::tabs::{ellipsize, icon, measure, measure_sans};
 use crate::ui::theme;
 
 const PAD_X: f32 = 32.0;
@@ -24,7 +24,7 @@ const PREVIEW_H: f32 = 92.0;
 const THEME_NAME_H: f32 = 30.0;
 const THEME_GAP: f32 = 12.0;
 /// Column starts and widths of a contribution table, as fractions of its width.
-const COLUMNS: [(f32, f32); 3] = [(0.0, 0.34), (0.34, 0.40), (0.74, 0.26)];
+const COLUMNS: [f32; 3] = [0.34, 0.40, 0.26];
 
 pub(super) struct Body<'a> {
     pub entry: &'a Entry,
@@ -54,6 +54,14 @@ impl Flow {
 
     fn push(&mut self, element: Element) {
         self.items.push(element);
+    }
+
+    fn take_block(&mut self, top: f32) -> (f32, UiRect, Vec<Element>) {
+        (
+            (self.y - top).max(1.0),
+            UiRect::new(self.x, top, self.x + self.width, self.y.max(top + 1.0)),
+            std::mem::take(&mut self.items),
+        )
     }
 
     fn rect(&self, left: f32, height: f32) -> UiRect {
@@ -222,37 +230,28 @@ impl Flow {
     fn table(&mut self, ids: &mut Ids, table: &Table) {
         let c = theme::c();
         self.caption(ids, table.icon, table.title, table.total);
-        let cell = |top: f32, column: usize| {
-            let (start, span) = COLUMNS[column];
-            UiRect::new(
-                self.x + self.width * start,
-                top,
-                self.x + self.width * (start + span) - 10.0,
-                top + ROW_H,
-            )
-        };
+        let cell = || UiRect::new(0.0, 0.0, 0.0, ROW_H);
         let heading = theme::mono(c.text_dim, theme::SMALL).tracking(0.8);
         let mut cells = Vec::new();
         for (column, title) in table.head.iter().enumerate() {
-            cells.push(line(cell(self.y, column), title.to_uppercase(), heading));
+            cells.push(
+                line(cell(), title.to_uppercase(), heading)
+                    .grid_cell(lgui::core::GridCell::at(column, 0))
+                    .overflow(lgui::core::Overflow::Ellipsis),
+            );
         }
         let rule_at =
             |top: f32| widgets::rule(UiRect::new(self.x, top - 1.0, self.x + self.width, top));
-        cells.push(rule_at(self.y + ROW_H));
+        self.items.push(rule_at(self.y + ROW_H));
         let mut top = self.y + ROW_H;
-        for row in &table.rows {
+        for (row_index, row) in table.rows.iter().enumerate() {
             for (column, value) in row.iter().enumerate() {
-                let rect = cell(top, column);
+                let rect = cell();
                 let first = column == 0;
                 let size = if table.mono[column] {
                     theme::SMALL + 1.0
                 } else {
                     theme::UI_SIZE
-                };
-                let shown = if table.mono[column] {
-                    ellipsize(value, rect.width(), size, 400)
-                } else {
-                    ellipsize_sans(value, rect.width(), size, 400)
                 };
                 let ink = if first { c.text } else { c.text_muted };
                 let style = if table.mono[column] {
@@ -260,12 +259,27 @@ impl Flow {
                 } else {
                     theme::sans(ink, size)
                 };
-                cells.push(line(rect, shown, style));
+                cells.push(
+                    line(rect, value.clone(), style)
+                        .grid_cell(lgui::core::GridCell::at(column, row_index + 1))
+                        .overflow(lgui::core::Overflow::Ellipsis),
+                );
             }
-            cells.push(rule_at(top + ROW_H));
+            self.items.push(rule_at(top + ROW_H));
             top += ROW_H;
         }
-        self.items.extend(cells);
+        let mut grid =
+            lgui::core::GridLayout::new(COLUMNS.map(lgui::core::GridTrack::Fraction).to_vec())
+                .rows(vec![
+                    lgui::core::GridTrack::Points(ROW_H);
+                    table.rows.len() + 1
+                ]);
+        grid.gap = lgui::core::Size::new(10.0, 0.0);
+        self.items.push(
+            lgui::core::group(UiRect::new(self.x, self.y, self.x + self.width, top))
+                .layout(lgui::core::LayoutSpec::Grid(grid))
+                .children(cells),
+        );
         self.y = top;
         if table.more > 0 {
             let rect = self.rect(self.x, 24.0);
@@ -545,16 +559,19 @@ pub(super) fn render(region: UiRect, ids: &mut Ids, body: Body<'_>) -> Element {
         }
         return root;
     }
+    let mut blocks = vec![main.take_block(region.top)];
     let muted = theme::sans(c.text_muted, theme::UI_SIZE);
     match body.tab {
         DetailTab::Details => {
             for block in &entry.readme {
+                let top = main.y;
                 match block {
                     Block::Heading(value) => main.heading(value),
                     Block::Paragraph(value) => main.paragraph(value, muted),
                     Block::Bullets(values) => main.bullets(values),
                     Block::Code(lines) => main.code(lines),
                 }
+                blocks.push(main.take_block(top));
             }
         }
         DetailTab::Contributions => {
@@ -562,39 +579,135 @@ pub(super) fn render(region: UiRect, ids: &mut Ids, body: Body<'_>) -> Element {
                 main.paragraph("This extension adds nothing yet.", muted);
             }
             for contribution in &entry.contributions {
+                let top = main.y;
                 match contribution {
                     Contribution::Table(table) => main.table(ids, table),
                     Contribution::Themes(themes) => main.themes(ids, themes),
                 }
+                blocks.push(main.take_block(top));
             }
         }
         DetailTab::Changelog => {
             for release in &entry.changelog {
+                let top = main.y;
                 main.release(&release.version, &release.date, &release.notes);
+                blocks.push(main.take_block(top));
             }
         }
     }
 
-    let mut height = main.y;
-    let mut items = std::mem::take(&mut main.items);
-    if side {
+    let mut navigation = None;
+    if side && body.tab == DetailTab::Contributions {
+        let nodes = entry
+            .contributions
+            .iter()
+            .enumerate()
+            .map(|(index, contribution)| {
+                let id = format!("{}.contribution.{index}", entry.id);
+                match contribution {
+                    Contribution::Table(table) => table.rows.iter().enumerate().fold(
+                        lgui::TreeNode::new(id.clone(), table.title),
+                        |node, (i, row)| {
+                            node.child(lgui::TreeNode::new(format!("{id}.{i}"), row[0].clone()))
+                        },
+                    ),
+                    Contribution::Themes(themes) => themes.iter().enumerate().fold(
+                        lgui::TreeNode::new(id.clone(), "Color themes"),
+                        |node, (i, theme)| {
+                            node.child(lgui::TreeNode::new(format!("{id}.{i}"), theme.name.clone()))
+                        },
+                    ),
+                }
+            })
+            .collect::<Vec<_>>();
+        let read = body.state.ui.clone();
+        let write = body.state.ui.clone();
+        let expanded = lgui::WidgetValue::new(
+            move || read.get().contribution_expanded,
+            move |value| write.update(|ui| ui.contribution_expanded = value),
+        );
+        let read = body.state.ui.clone();
+        let write = body.state.ui.clone();
+        let selected = lgui::WidgetValue::new(
+            move || read.get().contribution_selected,
+            move |value| write.update(|ui| ui.contribution_selected = value),
+        );
+        let read = body.state.ui.clone();
+        let write = body.state.ui.clone();
+        let offset = lgui::WidgetValue::new(
+            move || read.get().contribution_scroll,
+            move |value| write.update(|ui| ui.contribution_scroll = value),
+        );
+        let x = left + main_w + SIDE_GAP;
+        navigation = Some(lgui::tree_view(
+            UiRect::new(x, region.top + PAD_TOP, region.right - 8.0, region.bottom),
+            nodes.into(),
+            expanded,
+            selected,
+            offset,
+        ));
+    }
+    if !main.items.is_empty() {
+        let top = blocks
+            .last()
+            .map_or(region.top, |(_, source, _)| source.bottom);
+        blocks.push(main.take_block(top));
+    }
+    let mut aside_view = None;
+    if side && navigation.is_none() {
         let mut aside = Flow::new(left + main_w + SIDE_GAP, region.top + PAD_TOP, SIDE_W);
         facts(&mut aside, entry);
-        height = height.max(aside.y);
-        items.append(&mut aside.items);
+        aside_view = Some(super::scroll::view(
+            "ext.aside".to_owned(),
+            entry.id.clone(),
+            UiRect::new(aside.x, region.top, region.right, region.bottom),
+            aside.y + 40.0,
+            aside.items,
+            &body.state.ui.get().aside,
+            &body.state.ui,
+            |ui| &mut ui.aside,
+            ROW_LINE,
+        ));
     }
     let owner = format!("{}.{:?}", entry.id, body.tab);
-    super::scroll::view(
-        format!("ext.body.{owner}"),
-        owner,
-        region,
-        height + 40.0,
-        items,
-        &body.state.ui.get().detail,
-        &body.state.ui,
-        |ui| &mut ui.detail,
-        ROW_LINE,
-    )
+    let reader = body.state.ui.clone();
+    let writer = body.state.ui.clone();
+    let write_owner = owner.clone();
+    let offset = lgui::WidgetValue::new(
+        move || reader.get().detail.at(&owner),
+        move |offset| {
+            writer.update(|ui| {
+                ui.detail.owner = write_owner.clone();
+                ui.detail.offset = offset;
+            })
+        },
+    );
+    let heights = std::sync::Arc::new(lgui::RowHeights::variable(
+        blocks.iter().map(|(height, _, _)| *height),
+    ));
+    let blocks = std::cell::RefCell::new(
+        blocks
+            .into_iter()
+            .map(|(_, rect, items)| Some((rect, items)))
+            .collect::<Vec<_>>(),
+    );
+    let viewport = UiRect::new(left, region.top, left + main_w, region.bottom);
+    let content = lgui::virtual_list(viewport, heights, offset, |index, row| {
+        let (source, items) = blocks.borrow_mut()[index]
+            .take()
+            .expect("visible block constructed once");
+        lgui::core::group(source)
+            .children(items)
+            .position(lgui::core::Position::Absolute(lgui::core::Point::new(
+                row.left - viewport.left,
+                row.top - viewport.top,
+            )))
+    });
+    let mut root = lgui::core::group(region).child(content);
+    if let Some(view) = navigation.or(aside_view) {
+        root = root.child(view);
+    }
+    root
 }
 
 /// How far one wheel notch of lines scrolls the detail, per line.
@@ -724,19 +837,33 @@ fn facts(aside: &mut Flow, entry: &Entry) {
     aside.push(line(rect, "CATEGORIES", heading));
     aside.y += 26.0;
     let style = theme::sans(c.text_muted, theme::SMALL + 1.0);
-    let mut left = aside.x;
-    for category in &entry.categories {
-        let width = measure_sans(category, theme::SMALL + 1.0, 400) + 20.0;
-        if left > aside.x && left + width > aside.x + aside.width {
-            left = aside.x;
-            aside.y += 26.0;
-        }
-        aside.push(widgets::chip(
-            UiRect::new(left, aside.y, left + width, aside.y + 20.0),
-            category,
-            style,
-        ));
-        left += width + 6.0;
-    }
-    aside.y += 26.0;
+    let sizes = entry
+        .categories
+        .iter()
+        .map(|label| {
+            lgui::core::Size::new(measure_sans(label, theme::SMALL + 1.0, 400) + 20.0, 20.0)
+        })
+        .collect::<Vec<_>>();
+    let layout = lgui::core::FlexLayout {
+        wrap: true,
+        gap: 6.0,
+        ..Default::default()
+    };
+    let height = layout
+        .measure(lgui::core::Size::new(aside.width, 0.0), &sizes)
+        .height;
+    let children = entry.categories.iter().zip(sizes).map(|(label, size)| {
+        widgets::chip(UiRect::new(0.0, 0.0, size.width, size.height), label, style)
+    });
+    aside.push(
+        lgui::core::group(UiRect::new(
+            aside.x,
+            aside.y,
+            aside.x + aside.width,
+            aside.y + height,
+        ))
+        .layout(lgui::core::LayoutSpec::Flex(layout))
+        .children(children),
+    );
+    aside.y += height + 6.0;
 }

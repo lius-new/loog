@@ -10,7 +10,7 @@ use crate::features::language_service::reply::{
 };
 use crate::features::language_service::request::Feature;
 use crate::features::language_service::uri;
-use crate::infrastructure::lsp::manager::{Failure, RequestHandle, RequestSpec};
+use crate::features::providers::{Failure, RequestHandle, RequestSpec};
 use lgui::prelude::UiRect;
 use serde_json::json;
 use std::path::PathBuf;
@@ -78,6 +78,7 @@ fn start(
     let Some(services) = services(state) else {
         return;
     };
+    services.sync(&app);
     let mut spec = RequestSpec::new(feature, target.path.clone(), target.lsp_stamp(), range.0)
         .range(range.1)
         .extra(extra);
@@ -113,8 +114,8 @@ pub fn begin_rename(state: &AppContext, rect: UiRect) {
     drop(app);
     let (can_rename, can_prepare) = services(state)
         .map(|s| {
-            let infos = s.infos();
-            let providers = || infos.iter().filter_map(|i| i.providers.as_ref());
+            let infos = s.capability_sources(Some(&t.path));
+            let providers = || infos.iter().map(|i| &i.providers);
             (
                 providers().any(|p| p.rename.is_some()),
                 providers().any(|p| p.rename == Some(true)),
@@ -263,13 +264,6 @@ pub fn execute(state: &AppContext, instance: u64, command: Command, rect: UiRect
 // ---- formatting ------------------------------------------------------------
 
 pub fn format(state: &AppContext, rect: UiRect, selection_only: bool) {
-    // An extension provider registered for the language formats instead of the
-    // language server: one provider, never several.
-    if let Some(host) = state.services().and_then(|runtime| runtime.extensions()) {
-        if host.format(state, selection_only) {
-            return;
-        }
-    }
     let app = state.get();
     let pane = app.workspace.active_pane();
     let Some(t) = target(&app, pane) else { return };
@@ -302,14 +296,19 @@ pub fn on_type(ctx: &AppContext, app: &mut AppState, typed: char) {
     let Some(services) = services(ctx) else {
         return;
     };
-    let wanted = services.infos().iter().any(|info| {
-        info.providers
-            .as_ref()
-            .and_then(|p| p.on_type_formatting.as_ref())
-            .is_some_and(|f| {
+    let wanted = services
+        .capability_sources(
+            app.workspace
+                .active_document()
+                .and_then(|id| app.workspace.documents.get(&id))
+                .map(|d| d.meta.path.as_path()),
+        )
+        .iter()
+        .any(|info| {
+            info.providers.on_type_formatting.as_ref().is_some_and(|f| {
                 f.first.chars().eq([typed]) || f.more.iter().any(|m| m.chars().eq([typed]))
             })
-    });
+        });
     if !wanted {
         return;
     }

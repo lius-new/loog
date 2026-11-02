@@ -84,6 +84,7 @@ pub struct AppState {
     pub highlight_menu: crate::app::highlight_menu::HighlightMenuState,
     /// Search, source, selection and tab of the Extensions page.
     pub extensions_ui: crate::ui::extensions_binding::ExtensionsUiState,
+    pub extension_widgets: crate::features::extensions::ui::Model,
     /// Release checks and the title bar update button.
     pub update: crate::features::update::Model,
 }
@@ -110,9 +111,8 @@ impl AppState {
                     editor: Default::default(),
                     editor_languages: Default::default(),
                     encoding: Default::default(),
-                    language_servers: Vec::new(),
                     languages: Default::default(),
-                    lsp: Default::default(),
+                    language_features: Default::default(),
                     project_settings: Vec::new(),
                 },
             ),
@@ -134,6 +134,7 @@ impl AppState {
             palette: Default::default(),
             highlight_menu: Default::default(),
             extensions_ui: Default::default(),
+            extension_widgets: Default::default(),
             update: Default::default(),
         }
     }
@@ -192,9 +193,8 @@ impl AppState {
             editor_font: self.preferences.values().editor_font.clone(),
             terminal_font: self.preferences.values().terminal_font.clone(),
             file_associations: self.preferences.values().file_associations.clone(),
-            language_servers: self.preferences.values().language_servers.clone(),
             languages: self.preferences.values().languages.clone(),
-            lsp: self.preferences.values().lsp.clone(),
+            language_features: self.preferences.values().language_features.clone(),
         }
     }
 
@@ -225,9 +225,8 @@ impl AppState {
         self.preferences.values_mut().explorer_auto_reveal = settings.explorer_auto_reveal;
         self.preferences.values_mut().check_for_updates = settings.check_for_updates;
         self.preferences.values_mut().file_associations = settings.file_associations;
-        self.preferences.values_mut().language_servers = settings.language_servers;
         self.preferences.values_mut().languages = settings.languages;
-        self.preferences.values_mut().lsp = settings.lsp;
+        self.preferences.values_mut().language_features = settings.language_features;
         self.git.ui.inline_blame = settings.git_inline_blame;
         self.git.ui.split_diff = settings.git_split_diff;
         self.git.ui.tree_view = settings.git_tree_view;

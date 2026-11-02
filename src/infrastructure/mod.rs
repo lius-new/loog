@@ -15,7 +15,7 @@ pub(crate) mod terminal;
 pub(crate) mod render_cache_policy;
 
 pub mod config_watcher;
-pub mod lsp;
+pub(crate) mod process_job;
 pub mod project_settings;
 pub mod settings_filesystem;
 
@@ -25,7 +25,6 @@ pub mod file_loader;
 pub(crate) mod file_saver;
 
 pub mod file_watcher;
-pub(crate) mod lsp_watch;
 
 pub mod document_filesystem;
 pub mod file_dialogs;

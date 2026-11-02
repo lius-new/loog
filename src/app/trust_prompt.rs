@@ -125,11 +125,12 @@ pub(crate) fn decide(state: &AppContext, root: &Path, trust: bool) {
     } else {
         runtime.trust().decline(root)
     };
-    if let Some(services) = runtime.language_services() {
-        services.restart();
-    }
-    if !trust && let Some(host) = runtime.extensions() {
-        host.stop_tools_in(root);
+    if let Some(host) = runtime.extensions() {
+        if trust {
+            host.resume_tools_in(state, root);
+        } else {
+            host.stop_tools_in(root);
+        }
     }
     // Nothing is announced on success: the question simply ends. Only a failure to
     // save is reported. The update is also what lets the next folder be asked about.

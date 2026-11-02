@@ -18,6 +18,11 @@ export const commands = runtime.commands;
 export const providers = runtime.providers;
 export const workspace = runtime.workspace;
 export const tasks = runtime.tasks;
+export const timers = runtime.timers;
+export const clock = runtime.clock;
+export const onTiming = runtime.onTiming;
+export const processes = runtime.processes;
+export const ui = runtime.ui;
 export const onMessage = runtime.onMessage;
 export const guest = runtime.guest;
 
@@ -27,12 +32,15 @@ export function log(level: number, message: string): void {
 }
 
 export { byteOffset, byteRange, bounds, slice, stringIndex, utf8Length } from './text.ts';
+export type { Ui, UiNode, UiOptions } from './ui.ts';
 export type {
   CommandCall,
   CommandHandler,
   EditRequest,
   ProviderCall,
   ProviderResults,
+  CompletionAnswer,
+  Process,
   Snapshot,
 } from './runtime.ts';
 export type {
@@ -44,6 +52,41 @@ export type {
   InlayHint,
   Location,
   ProviderKind,
+  ProviderCommand,
+  ProviderCommandCall,
+  ProviderContext,
+  ProviderConfiguration,
+  LanguageAnswer,
+  FileLocation,
+  FileRange,
+  TextPosition,
+  ColumnUnit,
+  WorkspaceEdit,
+  WorkspaceEditRequest,
+  WorkspaceChange,
+  WorkspaceCreate,
+  WorkspaceRename,
+  WorkspaceDelete,
+  WorkspaceFileChange,
+  ProviderAction,
+  CodeLens,
+  HierarchyItem,
+  ProcessRequest,
+  ProcessOutput,
+  ProcessExit,
+  WatchRequest,
+  FileChanged,
+  FileChange,
+  FileChangeKind,
+  RootRef,
+  DocumentRef,
+  UiDescription,
+  UiKind,
+  UiEvent,
+  UiEventPayload,
   SignatureAnswer,
+  SignatureSet,
+  SignatureEntry,
+  SignatureParameter,
   TextEdit,
 } from '../generated/interfaces/loom-extension-types.js';

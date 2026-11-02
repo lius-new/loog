@@ -1,0 +1,98 @@
+{
+  "language": "go",
+  "document_bytes": 122,
+  "route": "native-executor-wasm-provider-consumer",
+  "indexing_probes": 10,
+  "profile": "release",
+  "small_document": {
+    "Completion": {
+      "count": 100,
+      "p50_ms": 15.698799999999999,
+      "p95_ms": 19.0052
+    },
+    "Hover": {
+      "count": 100,
+      "p50_ms": 0.8036,
+      "p95_ms": 1.0327
+    },
+    "Definition": {
+      "count": 100,
+      "p50_ms": 0.7789999999999999,
+      "p95_ms": 0.9510000000000001
+    }
+  },
+  "guest_cpu": [
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0653,
+      "p95_ms": 0.1032
+    },
+    {
+      "name": "rpc:textDocument/completion",
+      "count": 100,
+      "p50_ms": 14.2473,
+      "p95_ms": 48.0189
+    },
+    {
+      "name": "convert:completion",
+      "count": 100,
+      "p50_ms": 0.1391,
+      "p95_ms": 0.2012
+    },
+    {
+      "name": "sdk-completion-submit",
+      "count": 100,
+      "p50_ms": 0.5364,
+      "p95_ms": 0.7122
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0643,
+      "p95_ms": 0.0949
+    },
+    {
+      "name": "rpc:textDocument/hover",
+      "count": 100,
+      "p50_ms": 0.4452,
+      "p95_ms": 0.6417
+    },
+    {
+      "name": "convert:hover",
+      "count": 100,
+      "p50_ms": 0.019,
+      "p95_ms": 0.0353
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0158,
+      "p95_ms": 0.0219
+    },
+    {
+      "name": "rpc:textDocument/definition",
+      "count": 100,
+      "p50_ms": 0.405,
+      "p95_ms": 0.5874
+    },
+    {
+      "name": "convert:definition",
+      "count": 100,
+      "p50_ms": 0.0314,
+      "p95_ms": 0.0493
+    }
+  ],
+  "idle_memory": {
+    "resident_bytes": 93786112,
+    "private_bytes": 75468800,
+    "process_peak_resident_bytes": 348856320
+  },
+  "observed_peak_memory": {
+    "resident_bytes": 94830592,
+    "private_bytes": 76521472,
+    "process_peak_resident_bytes": 348856320
+  },
+  "restart_ms": 1783.7522999999999,
+  "exit_ms": 13.8551
+}

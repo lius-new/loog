@@ -11,9 +11,9 @@ use crate::app::state::AppState;
 use crate::features::extensions::registry::{
     Entry as IndexEntry, Installed, VersionEntry, current_platform, plan_install, updates,
 };
+use crate::features::markdown::content::Markup;
 use crate::infrastructure::extensions::registry::{self as fetch, Loaded};
 use crate::infrastructure::extensions::{install, package::Imported};
-use crate::features::markdown::content::Markup;
 use crate::infrastructure::image_filesystem;
 use crate::ui::extensions_binding::{
     Contribution, Documentation, Entry, Frame, IconImage, RegistryStatus, Table, Update,
@@ -308,10 +308,7 @@ impl ExtensionHost {
             state.previews = (loaded.index.sequence, BTreeMap::new());
         }
         let previews = &mut state.previews.1;
-        let preview_base = self
-            .root()
-            .unwrap_or_default()
-            .join("registry-preview");
+        let preview_base = self.root().unwrap_or_default().join("registry-preview");
         // An expired index offers nothing new.
         let Some(platform) = current_platform().filter(|_| !loaded.expired) else {
             return;
@@ -721,6 +718,7 @@ mod tests {
 
     fn version(capabilities: &[&str], requires: &[&str]) -> VersionEntry {
         VersionEntry {
+            api: None,
             version: "1.0.0".into(),
             engines: None,
             capabilities: capabilities.iter().map(|c| (*c).to_owned()).collect(),

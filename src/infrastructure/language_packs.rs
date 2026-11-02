@@ -78,6 +78,13 @@ struct Installed {
 }
 
 fn registry(packages: &BTreeMap<String, Installed>) -> Result<Registry, String> {
+    registry_with_identities(packages, &BTreeMap::new())
+}
+
+fn registry_with_identities(
+    packages: &BTreeMap<String, Installed>,
+    identities: &BTreeMap<String, Value>,
+) -> Result<Registry, String> {
     let mut languages = BTreeMap::from([("plaintext".to_owned(), PLAIN.to_owned())]);
     let mut grammars = BTreeSet::new();
     for package in packages.values() {
@@ -97,6 +104,38 @@ fn registry(packages: &BTreeMap<String, Installed>) -> Result<Registry, String> 
             {
                 return Err(format!("descriptor {key} is defined by multiple packages"));
             }
+        }
+    }
+    for (name, identity) in identities {
+        if let Some(existing) = languages.get_mut(name) {
+            let mut description: Value =
+                serde_json::from_str(existing).map_err(|error| format!("{error}"))?;
+            for field in ["aliases", "files", "variants"] {
+                let incoming = identity
+                    .get(field)
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                if description.get(field).is_none() {
+                    description[field] = Value::Array(Vec::new());
+                }
+                let values = description[field]
+                    .as_array_mut()
+                    .ok_or_else(|| format!("invalid language {field}"))?;
+                for value in incoming {
+                    let present = if field == "variants" {
+                        values.iter().any(|old| old["id"] == value["id"])
+                    } else {
+                        values.contains(&value)
+                    };
+                    if !present {
+                        values.push(value);
+                    }
+                }
+            }
+            *existing = description.to_string();
+        } else {
+            languages.insert(name.clone(), identity.to_string());
         }
     }
     if grammars.len() > 128 || languages.len() > 129 {
@@ -201,6 +240,7 @@ struct Layering {
 
 pub(crate) struct Packages {
     packages: BTreeMap<String, Installed>,
+    identities: BTreeMap<String, Value>,
     loaded: Mutex<Loaded>,
     layering: Layering,
 }
@@ -230,6 +270,7 @@ impl Packages {
     fn empty() -> Self {
         Self {
             packages: BTreeMap::new(),
+            identities: BTreeMap::new(),
             loaded: Mutex::default(),
             layering: Layering::default(),
         }
@@ -322,7 +363,28 @@ impl Packages {
     }
 
     pub(crate) fn registry(&self) -> Result<Registry, String> {
-        registry(&self.packages)
+        registry_with_identities(&self.packages, &self.identities)
+    }
+
+    /// Identity metadata never loads a parser or starts a process. When a syntax
+    /// package describes the same language, its grammar bindings stay intact.
+    pub(crate) fn add_identity_files(&mut self, files: Vec<PathBuf>) {
+        for file in files.into_iter().take(MAX_PACKAGES) {
+            let result = (|| {
+                let (name, value) = read_identity(&file)?;
+                let mut candidate = self.identities.clone();
+                if candidate.get(&name).is_some_and(|old| old != &value) {
+                    return Err(format!("conflicting language identity {name}"));
+                }
+                candidate.insert(name, value);
+                registry_with_identities(&self.packages, &candidate)?;
+                self.identities = candidate;
+                Ok(())
+            })();
+            if let Err(error) = result {
+                self.report(&format!("{}: {error}", file.display()));
+            }
+        }
     }
     fn available(&self, grammar: &str) -> Result<(Installed, Module), String> {
         self.grammar(grammar)
@@ -713,6 +775,22 @@ pub(crate) fn installed_extension_queries() -> Vec<ExtensionQuery> {
     queries_of(enabled_extensions(folders, &disabled))
 }
 
+fn installed_language_identities() -> Vec<PathBuf> {
+    let (folders, disabled) = extension_folders();
+    let mut found = Vec::new();
+    for (package, manifest) in enabled_extensions(folders, &disabled) {
+        for resource in &manifest.contributes.languages {
+            if let Some(directory) = pack_directory(&package, &resource.path) {
+                found.push(directory.join("language.json"));
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    found.truncate(MAX_PACKAGES);
+    found
+}
+
 /// Where the extensions that ship with Loom are kept: `extensions` beside the
 /// executable (in the bundle's `Resources` on macOS). Tests use copies of them in
 /// `tests/fixtures/extensions`.
@@ -833,6 +911,39 @@ pub(crate) fn check_extension_pack(package: &Path, path: &str) -> Result<(), Str
     read_pack(&directory).map(|_| ())
 }
 
+fn read_identity(file: &Path) -> Result<(String, Value), String> {
+    let value: Value =
+        serde_json::from_str(&read_text(file, MAX_MANIFEST)?).map_err(|error| error.to_string())?;
+    let name = value["name"]
+        .as_str()
+        .filter(|name| *name != "plaintext")
+        .ok_or("invalid language identity name")?
+        .to_string();
+    if value["variants"].as_array().is_some_and(|variants| {
+        variants
+            .iter()
+            .any(|variant| variant.get("grammar").is_some())
+    }) {
+        return Err("language identities do not include parser bindings".to_string());
+    }
+    let serialized = value.to_string();
+    Registry::from_sources(&[("plaintext", PLAIN), (&name, &serialized)], &[])
+        .map_err(|error| error.to_string())?;
+    Ok((name, value))
+}
+
+pub(crate) fn check_extension_identity(package: &Path, path: &str) -> Result<(), String> {
+    if Path::new(path)
+        .file_name()
+        .is_none_or(|name| name != "language.json")
+    {
+        return Err("a language identity must name language.json".into());
+    }
+    let directory =
+        pack_directory(package, path).ok_or("language identity must stay inside the package")?;
+    read_identity(&directory.join("language.json")).map(|_| ())
+}
+
 /// Where the application keeps its bundled resource directory `name`: beside the
 /// executable, or in the bundle's `Resources` on macOS.
 pub(crate) fn bundled_directory(executable: &Path, name: &str) -> PathBuf {
@@ -899,7 +1010,8 @@ pub(crate) fn resources() -> Arc<Packages> {
             {
                 // Grammars come from extensions: the ones that ship with Loom and
                 // the ones installed. One added later is seen after a restart.
-                let source = Packages::from_directories(installed_extension_packs());
+                let mut source = Packages::from_directories(installed_extension_packs());
+                source.add_identity_files(installed_language_identities());
                 source.set_query_sources(
                     user_resource_directory("queries"),
                     installed_extension_queries(),

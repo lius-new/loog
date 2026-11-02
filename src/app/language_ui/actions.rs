@@ -6,7 +6,7 @@ use super::{AppContext, AppState, Target, services, target};
 use crate::features::language_service::reply::{self, Location, Symbol};
 use crate::features::language_service::request::Feature;
 use crate::features::language_service::uri;
-use crate::infrastructure::lsp::manager::{Failure, RequestHandle, RequestSpec};
+use crate::features::providers::{Failure, RequestHandle, RequestSpec};
 use lgui::prelude::UiRect;
 use serde_json::json;
 use std::sync::Arc;
@@ -81,7 +81,7 @@ pub fn begin(state: &AppContext, wanted: Wanted, rect: UiRect, query: Option<Str
 
 /// Where `parts` say to go, without repeats.
 pub(super) fn locations(
-    parts: &[Arc<crate::infrastructure::lsp::manager::Part>],
+    parts: &[Arc<crate::features::providers::Part>],
     feature: Feature,
 ) -> Vec<Place> {
     distinct(parts, feature)
@@ -95,10 +95,7 @@ fn place_of(location: &Location) -> Option<Place> {
 }
 
 /// Locations without repeats, in the order the servers gave them.
-fn distinct(
-    parts: &[Arc<crate::infrastructure::lsp::manager::Part>],
-    feature: Feature,
-) -> Vec<Location> {
+fn distinct(parts: &[Arc<crate::features::providers::Part>], feature: Feature) -> Vec<Location> {
     let mut seen = std::collections::HashSet::new();
     let mut all = Vec::new();
     for part in parts {
@@ -419,12 +416,12 @@ mod tests {
 
     fn at(start: usize) -> Diagnostic {
         Diagnostic {
+            documentation_url: None,
             range: start..start + 1,
             severity: Severity::Error,
             message: String::new(),
             source: None,
             code: None,
-            extra: serde_json::Value::Null,
         }
     }
 

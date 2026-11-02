@@ -1,0 +1,122 @@
+{
+  "language": "rust",
+  "document_bytes": 1048576,
+  "route": "native-executor-wasm-provider-consumer",
+  "indexing_probes": 19,
+  "profile": "release",
+  "small_document": {
+    "Completion": {
+      "count": 100,
+      "p50_ms": 9.3109,
+      "p95_ms": 11.2177
+    },
+    "Hover": {
+      "count": 100,
+      "p50_ms": 0.7628,
+      "p95_ms": 0.9
+    },
+    "Definition": {
+      "count": 100,
+      "p50_ms": 0.7739999999999999,
+      "p95_ms": 0.9268
+    }
+  },
+  "guest_cpu": [
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0133,
+      "p95_ms": 0.039
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0133,
+      "p95_ms": 0.0258
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0289,
+      "p95_ms": 0.3945
+    },
+    {
+      "name": "rpc:textDocument/completion",
+      "count": 100,
+      "p50_ms": 6.2423,
+      "p95_ms": 7.8472
+    },
+    {
+      "name": "convert:completion",
+      "count": 100,
+      "p50_ms": 1.0228,
+      "p95_ms": 1.2362
+    },
+    {
+      "name": "sdk-completion-submit",
+      "count": 100,
+      "p50_ms": 0.2499,
+      "p95_ms": 0.3722
+    },
+    {
+      "name": "sdk-completion-encode",
+      "count": 100,
+      "p50_ms": 0.4306,
+      "p95_ms": 0.6955
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.3213,
+      "p95_ms": 0.4656
+    },
+    {
+      "name": "rpc:textDocument/hover",
+      "count": 100,
+      "p50_ms": 0.4106,
+      "p95_ms": 0.5829
+    },
+    {
+      "name": "convert:hover",
+      "count": 100,
+      "p50_ms": 0.0189,
+      "p95_ms": 0.0266
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0213,
+      "p95_ms": 0.0296
+    },
+    {
+      "name": "rpc:textDocument/definition",
+      "count": 100,
+      "p50_ms": 0.3886,
+      "p95_ms": 0.4558
+    },
+    {
+      "name": "convert:definition",
+      "count": 100,
+      "p50_ms": 0.0296,
+      "p95_ms": 0.0379
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0201,
+      "p95_ms": 0.0276
+    }
+  ],
+  "idle_memory": {
+    "resident_bytes": 72388608,
+    "private_bytes": 108498944,
+    "process_peak_resident_bytes": 72876032
+  },
+  "observed_peak_memory": {
+    "resident_bytes": 90992640,
+    "private_bytes": 126988288,
+    "process_peak_resident_bytes": 93483008
+  },
+  "restart_ms": 1888.7754,
+  "exit_ms": 21.3453
+}

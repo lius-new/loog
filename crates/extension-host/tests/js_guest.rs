@@ -36,7 +36,12 @@ fn guest_component() -> &'static [u8] {
 
 fn runtime() -> (Runtime, Component) {
     let runtime = Runtime::new().unwrap();
-    let component = runtime.compile(guest_component()).unwrap();
+    let (component, _) = runtime
+        .compile_cached(
+            guest_component(),
+            &repo().join("target/test-js-guest-cache"),
+        )
+        .unwrap();
     (runtime, component)
 }
 
@@ -257,6 +262,7 @@ fn provider_request(kind: ProviderKind, text: &str) -> Inbound {
         cursor: None,
         trigger: None,
         item: None,
+        context: None,
     })
 }
 

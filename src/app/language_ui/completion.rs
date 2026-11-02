@@ -10,7 +10,7 @@ use crate::features::language_service::completion::{
 use crate::features::language_service::reply;
 use crate::features::language_service::request::Feature;
 use crate::features::language_service::snippet;
-use crate::infrastructure::lsp::manager::{RequestHandle, RequestSpec};
+use crate::features::providers::{RequestHandle, RequestSpec};
 use crate::model::text::{Assoc, Edit, EditKind, Selection};
 use serde_json::json;
 use std::sync::Arc;
@@ -26,6 +26,7 @@ pub struct Session {
     pub view: ViewId,
     pub input_generation: u64,
     pub incarnation: u64,
+    pub language_generation: u64,
     /// The text the servers were asked about, to read their ranges in.
     pub requested: Arc<String>,
     local_identity: Option<usize>,
@@ -88,6 +89,7 @@ pub fn note_typed(app: &mut AppState, input: &str) {
 /// follows or ends a completion accordingly. Runs after every state update, so
 /// it is cheap when nothing relevant changed.
 pub fn observe(ctx: &AppContext, app: &mut AppState, typed: Option<char>) {
+    flush_commands(ctx, app);
     if crate::app::editor_vim::is_active(app) && !app.editor.vim.is_inserting() {
         close(app);
         app.editor.language.completion_timer = None;
@@ -111,72 +113,118 @@ pub fn observe(ctx: &AppContext, app: &mut AppState, typed: Option<char>) {
         // typed identifier schedules a fresh, debounced request below.
         close_words(&mut app.editor.language);
     }
+    let committing = typed.filter(|c| {
+        app.editor
+            .language
+            .completion
+            .as_ref()
+            .is_some_and(|session| {
+                session.last_version.checked_add(1) == Some(t.stamp.version)
+                    && session.last_cursor.checked_add(c.len_utf8()) == Some(t.cursor)
+                    && t.text
+                        .get(session.last_cursor..t.cursor)
+                        .is_some_and(|text| text.chars().eq([*c]))
+                    && session
+                        .selected_entry()
+                        .is_some_and(|entry| commits(entry, *c))
+            })
+    });
     let mut ended = false;
+    let mut refresh_incomplete = false;
     if let Some(session) = &app.editor.language.completion {
         if session.document != t.document
             || session.view != t.view
             || session.input_generation != t.input_generation
             || session.incarnation != t.stamp.incarnation
+            || session.language_generation != t.stamp.language_generation
         {
             ended = true;
         } else if session.last_version != t.stamp.version || session.last_cursor != t.cursor {
-            ended = !follow(app, &t);
+            refresh_incomplete = typed.is_none() && session.data.incomplete;
+            let mut followed = t.clone();
+            if let Some(c) = committing {
+                followed.cursor -= c.len_utf8();
+            }
+            ended = !follow(app, &followed);
         }
     }
     if ended {
         app.editor.language.completion = None;
+    } else if refresh_incomplete {
+        // Deleting a prefix or moving left may reveal candidates omitted from
+        // an incomplete response, including a manual list with an empty prefix.
+        schedule(ctx, app, None);
     }
     let Some(c) = typed else { return };
     super::refactor::on_type(ctx, app, c);
     // A commit character accepts the highlighted item and is then kept.
-    let commit = app
-        .editor
-        .language
-        .completion
-        .as_ref()
-        .and_then(|s| s.selected_entry())
-        .is_some_and(|entry| commits(entry, c));
+    let commit = committing.is_some() && app.editor.language.completion.is_some();
     if commit {
         accept(app, Some(c));
+        flush_commands(ctx, app);
         return;
     }
     if !is_word(c) && app.editor.language.completion.is_some() {
         app.editor.language.completion = None;
     }
-    let triggers = trigger_characters(ctx);
+    let triggers = trigger_characters(ctx, app);
     let is_trigger = triggers.iter().any(|trigger| trigger.chars().eq([c]));
-    if (is_word(c) || is_trigger) && app.preferences.values().lsp.completion.auto {
+    if (is_word(c) || is_trigger) && app.preferences.values().language_features.completion.auto {
         schedule(ctx, app, is_trigger.then_some(c));
     }
 }
 
+fn flush_commands(ctx: &AppContext, app: &mut AppState) {
+    let commands = std::mem::take(&mut app.editor.language.completion_commands);
+    if let Some(host) = ctx.services().and_then(|runtime| runtime.extensions()) {
+        for (source, item) in commands {
+            host.execute_provider_command(source, &item);
+        }
+    }
+}
+
 /// The characters any running server wants completion after.
-fn trigger_characters(ctx: &AppContext) -> Vec<String> {
+fn trigger_characters(ctx: &AppContext, app: &AppState) -> Vec<String> {
     services(ctx)
         .map(|s| {
-            s.infos()
-                .iter()
-                .filter_map(|info| info.providers.as_ref()?.completion.as_ref())
-                .flat_map(|options| options.trigger_characters.clone())
-                .collect()
+            s.capability_sources(
+                app.workspace
+                    .active_document()
+                    .and_then(|id| app.workspace.documents.get(&id))
+                    .map(|d| d.meta.path.as_path()),
+            )
+            .iter()
+            .filter_map(|info| info.providers.completion.as_ref())
+            .flat_map(|options| options.trigger_characters.clone())
+            .collect()
         })
         .unwrap_or_default()
 }
 
-fn offers_completion(ctx: &AppContext) -> bool {
+fn offers_completion(ctx: &AppContext, app: &AppState) -> bool {
     services(ctx).is_some_and(|s| {
-        s.infos().iter().any(|info| {
-            info.providers
-                .as_ref()
-                .is_some_and(|p| p.completion.is_some())
-        })
+        s.capability_sources(
+            app.workspace
+                .active_document()
+                .and_then(|id| app.workspace.documents.get(&id))
+                .map(|d| d.meta.path.as_path()),
+        )
+        .iter()
+        .any(|info| info.providers.completion.is_some())
     })
 }
 
 /// Asks for completions soon, unless more typing comes first.
 fn schedule(ctx: &AppContext, app: &mut AppState, trigger: Option<char>) {
-    if !offers_completion(ctx) {
-        if app.preferences.values().lsp.completion.words_fallback && trigger.is_none() {
+    if !offers_completion(ctx, app) {
+        if app
+            .preferences
+            .values()
+            .language_features
+            .completion
+            .words_fallback
+            && trigger.is_none()
+        {
             if app
                 .editor
                 .language
@@ -411,6 +459,7 @@ fn publish_words(
         view: t.view,
         input_generation: t.input_generation,
         incarnation: t.stamp.incarnation,
+        language_generation: t.stamp.language_generation,
         requested: Arc::default(),
         local_identity: Some(t.stamp.snapshot_identity),
         manual: false,
@@ -465,15 +514,21 @@ pub fn request(ctx: &AppContext, app: &mut AppState, manual: bool, trigger: Opti
     }
     let pane = app.workspace.active_pane();
     let Some(t) = target(app, pane) else { return };
-    if !offers_completion(ctx) && app.preferences.values().lsp.completion.words_fallback {
-        schedule_words(ctx, app);
-        return;
-    }
     let Some(services) = services(ctx) else {
         return;
     };
-    // The servers must have the text this question is about.
     services.sync(app);
+    if !offers_completion(ctx, app)
+        && app
+            .preferences
+            .values()
+            .language_features
+            .completion
+            .words_fallback
+    {
+        schedule_words(ctx, app);
+        return;
+    }
     let start = if trigger.is_some() {
         t.cursor
     } else {
@@ -513,6 +568,7 @@ pub fn request(ctx: &AppContext, app: &mut AppState, manual: bool, trigger: Opti
         view: t.view,
         input_generation: t.input_generation,
         incarnation: t.stamp.incarnation,
+        language_generation: t.stamp.language_generation,
         requested: t.text.clone(),
         local_identity: None,
         manual,
@@ -790,19 +846,6 @@ pub fn resolve_selected(ctx: &AppContext, app: &mut AppState) {
     if entry.resolved || entry.item.documentation.is_some() {
         return;
     }
-    if entry.instance & crate::infrastructure::lsp::manager::EXTERNAL_SOURCE != 0 {
-        // Offered by an extension: only that extension can complete it.
-        let (source, raw) = (entry.instance, entry.item.raw.clone());
-        let key = (source, raw.to_string());
-        if session.resolve_asked.contains(&key) {
-            return;
-        }
-        session.resolve_asked.push(key);
-        if let Some(host) = ctx.services().and_then(|runtime| runtime.extensions()) {
-            host.request_completion_resolve(app, source, &raw);
-        }
-        return;
-    }
     let Some(services) = services(ctx) else {
         return;
     };
@@ -828,10 +871,7 @@ fn ask_extensions(
     let Some(host) = ctx.services().and_then(|runtime| runtime.extensions()) else {
         return;
     };
-    let asked = host.request_completion(app, start, cursor, trigger);
-    if let Some(session) = app.editor.language.completion.as_mut() {
-        session.external_pending = asked;
-    }
+    let _ = (cursor, trigger); // Provider answers travel through the common request handle.
     // Snippets of packages need no waiting: they join the list at once.
     host.offer_snippets(app, start);
 }
@@ -916,7 +956,7 @@ fn offer(
                 .filter_map(|item| {
                     reply::completion_item(
                         item,
-                        crate::features::language_service::capabilities::PositionEncoding::Utf16,
+                        crate::features::language_service::capabilities::PositionEncoding::Utf8,
                     )
                 })
                 .collect(),
@@ -951,7 +991,7 @@ pub fn offer_resolved(
     };
     let Some(mut resolved) = reply::completion_item(
         item,
-        crate::features::language_service::capabilities::PositionEncoding::Utf16,
+        crate::features::language_service::capabilities::PositionEncoding::Utf8,
     ) else {
         return;
     };
@@ -1121,10 +1161,15 @@ pub fn accept(app: &mut AppState, then: Option<char>) -> bool {
     };
     let mut origin = 0;
     let applied = editor.edit(EditKind::Other, edits, |changes, _| {
-        origin = changes.map(start, Assoc::Before);
+        origin = changes
+            .changes()
+            .iter()
+            .find(|change| change.old == plan.range)
+            .map(|change| change.new_start)
+            .unwrap_or_else(|| changes.map(start, Assoc::After));
         let end = origin + text.len();
         Selection::caret(if then.is_some() {
-            changes.map(cursor, Assoc::After) + 1
+            changes.map(t.cursor, Assoc::Before)
         } else {
             end
         })
@@ -1136,6 +1181,14 @@ pub fn accept(app: &mut AppState, then: Option<char>) -> bool {
     drop(editor);
     if let Some(snippet) = snippet.take() {
         snippet_session::begin(app, pane, origin, &snippet, version);
+    }
+    if let Some(command) = entry.item.command {
+        let mut raw = entry.item.raw;
+        raw["command"] = json!({"title": command.title, "command": command.command, "arguments": command.arguments});
+        app.editor
+            .language
+            .completion_commands
+            .push((entry.instance, raw));
     }
     true
 }
@@ -1260,30 +1313,180 @@ mod tests {
 
     /// A live session on a document: returns the app and the session's identity.
     fn app_with_session() -> (AppState, FileId, u64, usize) {
+        app_with_text_session("lo", 2)
+    }
+
+    fn app_with_text_session(text: &str, cursor: usize) -> (AppState, FileId, u64, usize) {
         let mut app = AppState::new();
         app.workspace.open_path(
             std::env::temp_dir().join("completion-external.rs"),
-            "lo".into(),
+            text.into(),
         );
-        app.workspace.active_editor_mut().unwrap().set_cursor(2);
+        app.workspace
+            .active_editor_mut()
+            .unwrap()
+            .set_cursor(cursor);
         let mut session = word_session();
         let file = app.workspace.active_document().unwrap();
+        let t = target(&app, app.workspace.active_pane()).unwrap();
+        session.pane = t.pane;
+        session.view = t.view;
+        session.input_generation = t.input_generation;
+        session.requested = t.text.clone();
+        session.last_cursor = t.cursor;
+        session.last_version = t.stamp.version;
+        session.local_identity = None;
         session.document = file;
         session.incarnation = app.workspace.documents[&file].stamp(file).incarnation;
         session.data = Completion {
-            word_start: 0,
-            cursor: 2,
+            word_start: word_start(text, cursor),
+            cursor,
             ..Completion::default()
         };
         session.external_pending = 1;
         let incarnation = session.incarnation;
         app.editor.language.completion = Some(session);
-        (app, file, incarnation, 0)
+        (app, file, incarnation, word_start(text, cursor))
+    }
+
+    #[test]
+    fn deleting_to_an_empty_manual_prefix_requeries_an_incomplete_provider_list() {
+        use crate::app::language_services::{CapabilitySource, ExternalAnswers, LanguageServices};
+        use crate::features::providers::{Cancellation, PartSink};
+        use std::sync::Mutex;
+        struct Source(Arc<Mutex<Vec<usize>>>);
+        impl ExternalAnswers for Source {
+            fn capabilities(&self, _: Option<&std::path::Path>) -> Vec<CapabilitySource> {
+                vec![CapabilitySource {
+                    id: crate::features::providers::EXTERNAL_SOURCE | 1,
+                    run: 1,
+                    revision: 1,
+                    providers: crate::features::language_service::providers::Providers {
+                        completion: Some(Default::default()),
+                        ..Default::default()
+                    },
+                }]
+            }
+            fn expected(&self, _: &RequestSpec) -> usize {
+                1
+            }
+            fn ask(&self, spec: RequestSpec, _: usize, sink: PartSink) -> Option<Cancellation> {
+                self.0.lock().unwrap().push(spec.start);
+                sink.deliver(None);
+                None
+            }
+        }
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let services = LanguageServices::new();
+        services.set_external(Arc::new(Source(asked.clone())));
+        let queue = crate::app::test_support::UiTasks::default();
+        let runtime = Arc::new(crate::app::runtime::AppRuntime::default());
+        runtime.set_application(queue.application());
+        runtime.install_language_services(services);
+        let (mut app, _, _, _) = app_with_text_session("a", 1);
+        let session = app.editor.language.completion.as_mut().unwrap();
+        session.manual = true;
+        session.data.incomplete = true;
+        app.workspace
+            .active_editor_mut()
+            .unwrap()
+            .select_range(0..1);
+        app.workspace
+            .active_editor_mut()
+            .unwrap()
+            .replace_selection("", EditKind::Typing)
+            .unwrap();
+        let state = crate::app::test_support::live(app).with_runtime(&runtime);
+        state.update(|app| observe(&state, app, None));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while asked.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+            queue.run_all();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(*asked.lock().unwrap(), vec![0]);
+    }
+
+    #[test]
+    fn typed_commit_characters_accept_utf8_edits_and_leave_the_caret_before_trailing_text() {
+        use crate::features::extensions::providers::{Offered, completion_json};
+        for c in ['.', '中'] {
+            let original = "中 lo rest";
+            let (mut app, file, incarnation, start) =
+                app_with_text_session(original, "中 lo".len());
+            let source = crate::features::providers::EXTERNAL_SOURCE | 1;
+            let item = Offered {
+                label: "loom".into(),
+                text_edit: Some((start.."中 lo".len(), "loom".into())),
+                additional_text_edits: vec![(0..0, "import x;\n".into())],
+                insert_text_format: Some(1),
+                commit_characters: vec![c.to_string()],
+                command: Some(("accepted".into(), "[]".into())),
+                ..Default::default()
+            };
+            let (items, dropped) =
+                completion_json("example.tools", "example.tools.complete", original, &[item]);
+            assert_eq!(dropped, 0);
+            offer_external(
+                &mut app,
+                file,
+                incarnation,
+                start,
+                source,
+                1000,
+                Some((items, false)),
+            );
+            app.workspace
+                .active_editor_mut()
+                .unwrap()
+                .replace_selection(&c.to_string(), EditKind::Typing)
+                .unwrap();
+            let context = crate::app::test_support::live(app.clone());
+            observe(&context, &mut app, Some(c));
+            let expected = format!("import x;\n中 loom{c} rest");
+            let editor = app.workspace.active_editor().unwrap();
+            assert_eq!(editor.text_snapshot().as_str(), expected);
+            assert_eq!(editor.cursor(), expected.find(" rest").unwrap());
+        }
+    }
+
+    #[test]
+    fn an_import_at_the_primary_edits_start_keeps_snippet_stops_on_the_completion() {
+        use crate::features::extensions::providers::{Offered, completion_json};
+        let original = "lo tail";
+        let (mut app, file, incarnation, start) = app_with_text_session(original, 2);
+        let source = crate::features::providers::EXTERNAL_SOURCE | 1;
+        let item = Offered {
+            label: "loom".into(),
+            text_edit: Some((0..2, "loom(${1:x})$0".into())),
+            additional_text_edits: vec![(0..0, "import x;\n".into())],
+            insert_text_format: Some(2),
+            ..Default::default()
+        };
+        let (items, dropped) =
+            completion_json("example.tools", "example.tools.complete", original, &[item]);
+        assert_eq!(dropped, 0);
+        offer_external(
+            &mut app,
+            file,
+            incarnation,
+            start,
+            source,
+            1000,
+            Some((items, false)),
+        );
+        assert!(accept(&mut app, None));
+        let editor = app.workspace.active_editor().unwrap();
+        assert_eq!(editor.text_snapshot().as_str(), "import x;\nloom(x) tail");
+        let selection = editor.selection().unwrap();
+        assert_eq!(
+            selection,
+            "import x;\nloom(".len().."import x;\nloom(x".len()
+        );
     }
 
     #[test]
     fn an_extensions_items_join_the_list_filter_with_typing_and_keep_their_origin() {
-        let source = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE | 1;
+        let source = crate::features::providers::EXTERNAL_SOURCE | 1;
         let (mut app, file, incarnation, word_start) = app_with_session();
         offer_external(
             &mut app,
@@ -1320,7 +1523,7 @@ mod tests {
 
     #[test]
     fn an_answer_for_another_word_or_document_life_is_ignored() {
-        let source = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE | 1;
+        let source = crate::features::providers::EXTERNAL_SOURCE | 1;
         let (mut app, file, incarnation, _) = app_with_session();
         for (inc, start) in [(incarnation + 1, 0), (incarnation, 5)] {
             offer_external(
@@ -1343,7 +1546,7 @@ mod tests {
 
     #[test]
     fn a_session_with_nothing_to_show_closes_only_after_every_extension_answered() {
-        let source = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE | 1;
+        let source = crate::features::providers::EXTERNAL_SOURCE | 1;
         let (mut app, file, incarnation, word_start) = app_with_session();
         app.editor
             .language
@@ -1378,7 +1581,7 @@ mod tests {
 
     #[test]
     fn a_new_answer_from_a_source_replaces_its_earlier_items_and_survives_server_merges() {
-        let source = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE | 1;
+        let source = crate::features::providers::EXTERNAL_SOURCE | 1;
         let (mut app, file, incarnation, word_start) = app_with_session();
         offer_external(
             &mut app,
@@ -1412,7 +1615,7 @@ mod tests {
 
     #[test]
     fn a_resolved_item_updates_only_the_entry_that_matches_its_origin() {
-        let source = crate::infrastructure::lsp::manager::EXTERNAL_SOURCE | 1;
+        let source = crate::features::providers::EXTERNAL_SOURCE | 1;
         let (mut app, file, incarnation, word_start) = app_with_session();
         let offered = extension_item("loom_hello", "h");
         offer_external(
@@ -1466,6 +1669,7 @@ mod tests {
         let queue = UiTasks::default();
         let runtime = Arc::new(AppRuntime::default());
         runtime.set_application(queue.application());
+        runtime.install_language_services(crate::app::language_services::LanguageServices::new());
         let mut app = AppState::new();
         app.workspace.open_path(path.clone(), "lo".into());
         app.workspace.active_editor_mut().unwrap().set_cursor(2);
@@ -1505,8 +1709,8 @@ mod tests {
         .unwrap();
         runtime.install_extensions(host);
 
-        state.update(|app| ask_extensions(&state, app, 0, 2, None));
-        assert_eq!(
+        state.update(|app| request(&state, app, true, None));
+        assert!(
             state
                 .get()
                 .editor
@@ -1514,8 +1718,8 @@ mod tests {
                 .completion
                 .as_ref()
                 .unwrap()
-                .external_pending,
-            1
+                .handle
+                .is_some()
         );
 
         let limit = Instant::now() + Duration::from_secs(60);
@@ -1562,6 +1766,74 @@ mod tests {
                 break;
             }
             assert!(Instant::now() < limit, "the resolve never came back");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        state.update(|app| request(&state, app, true, Some('!')));
+        let limit = Instant::now() + Duration::from_secs(60);
+        loop {
+            queue.run_all();
+            let ready = state
+                .get()
+                .editor
+                .language
+                .completion
+                .as_ref()
+                .is_some_and(|session| session.data.entries.iter().any(|entry| entry.item.snippet));
+            if ready {
+                break;
+            }
+            assert!(
+                Instant::now() < limit,
+                "the edit-bearing completion never arrived"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        {
+            let app = state.get();
+            let entry = app
+                .editor
+                .language
+                .completion
+                .as_ref()
+                .unwrap()
+                .selected_entry()
+                .unwrap();
+            assert!(commits(entry, '('));
+            assert!(entry.item.command.is_some());
+        }
+        state.update(|app| assert!(accept(app, None)));
+        assert_eq!(
+            state
+                .get()
+                .workspace
+                .active_editor()
+                .unwrap()
+                .text_snapshot()
+                .as_str(),
+            "loom_hello(x)\n// imported"
+        );
+        assert!(state.get().editor.language.snippet.is_some());
+        let limit = Instant::now() + Duration::from_secs(60);
+        loop {
+            queue.run_all();
+            if runtime
+                .extensions()
+                .unwrap()
+                .service()
+                .package("example.tools")
+                .unwrap()
+                .logs
+                .iter()
+                .any(|(_, text)| {
+                    text.contains("provider command example.tools.complete accepted [42]")
+                })
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < limit,
+                "the accepted-item command did not reach its origin"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
         runtime.clear_extensions();
@@ -1611,7 +1883,11 @@ mod tests {
                 });
             } else if change == 2 {
                 state.update(|app| {
-                    app.preferences.values_mut().lsp.completion.words_fallback = false;
+                    app.preferences
+                        .values_mut()
+                        .language_features
+                        .completion
+                        .words_fallback = false;
                     request(&state, app, true, None);
                 });
             } else {

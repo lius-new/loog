@@ -6,7 +6,7 @@
 // The toolchain is the pinned one of tests/extensions/js-guest.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -14,7 +14,7 @@ const root = join(here, '..', '..');
 const tools = join(root, 'tests', 'extensions', 'js-guest', 'node_modules');
 const entry = resolve(process.argv[2] ?? join(here, 'example', 'src', 'main.ts'));
 const out = resolve(process.argv[3] ?? join(root, 'target', 'extension-guest', 'ts_guest.wasm'));
-const bundle = join(root, 'target', 'extension-guest', 'ts_guest.js');
+const bundle = join(dirname(out), basename(out, '.wasm') + '.js');
 
 function run(label, command, args) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit' });

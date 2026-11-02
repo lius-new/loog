@@ -181,7 +181,12 @@ fn ellipsize_with(value: &str, max_width: f32, measure: impl Fn(&str) -> f32) ->
 }
 
 /// A color-tinted, resolution-independent SVG icon (rasterized at physical pixels).
-pub(crate) fn icon(id: UiId, key: &'static str, rect: UiRect, color: Color) -> Element {
+pub(crate) fn icon(
+    id: UiId,
+    key: impl Into<std::sync::Arc<str>>,
+    rect: UiRect,
+    color: Color,
+) -> Element {
     precompiled(UiElement::icon(id, rect, key).icon_style(IconStyle::new(color)))
 }
 

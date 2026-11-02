@@ -5,7 +5,7 @@
 //! granted root, and is owned by a kill-on-close job so that cancelling,
 //! timing out or closing Loom ends the whole process tree. This is not an
 //! operating system sandbox: the program can still touch whatever the user can.
-use crate::infrastructure::lsp::job::Job;
+use crate::infrastructure::process_job::Job;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
@@ -162,7 +162,7 @@ impl Runner {
     }
 }
 
-fn command(spec: &Spec) -> Command {
+pub(super) fn command(spec: &Spec) -> Command {
     let mut command = Command::new(&spec.program);
     command
         .args(&spec.args)
@@ -252,7 +252,7 @@ fn run(task: u64, spec: &Spec, cancel: &Arc<AtomicBool>, sink: &Sink) -> TaskEve
         Ok(child) => child,
         Err(error) => return failed(format!("{}: {error}", spec.program)),
     };
-    let tree = Job::adopt(&child);
+    let mut tree = Job::adopt(&child);
     let readers: Vec<_> = [child.stdout.take().map(|pipe| (Channel::Stdout, pipe))]
         .into_iter()
         .flatten()
@@ -282,12 +282,14 @@ fn run(task: u64, spec: &Spec, cancel: &Arc<AtomicBool>, sink: &Sink) -> TaskEve
         if cancelled || timed_out {
             // Closing the job ends the whole tree; the direct kill covers a refused job.
             let _ = child.kill();
-            drop(tree);
+            drop(tree.take());
             let _ = child.wait();
             break None;
         }
         std::thread::sleep(POLL);
     };
+    // Helpers may inherit pipe handles and outlive a normally exiting parent.
+    drop(tree);
     // Join every reader (no short circuit) so none outlives the task.
     let truncated: Vec<bool> = readers
         .into_iter()
@@ -502,10 +504,23 @@ mod tests {
 
     #[test]
     fn a_multibyte_character_split_across_reads_is_not_corrupted() {
-        let (runner, events) = runner();
-        runner.start(7, shell("echo 中文测试"));
-        let seen = until_exit(&events);
-        let text = output(&seen, Channel::Stdout);
-        assert!(!text.contains('\u{fffd}'), "{text:?}");
+        // Shell output uses the machine's code page on Windows. Feed actual
+        // UTF-8 bytes one at a time so this tests the promised split-read case.
+        struct Bytes(std::io::Cursor<Vec<u8>>);
+        impl Read for Bytes {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                self.0.read(&mut buffer[..1])
+            }
+        }
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink_seen = seen.clone();
+        let sink: Sink = Arc::new(move |event| sink_seen.lock().unwrap().push(event));
+        assert!(!pump(
+            7,
+            Channel::Stdout,
+            Bytes(std::io::Cursor::new("中文测试".as_bytes().to_vec())),
+            &sink
+        ));
+        assert_eq!(output(&seen.lock().unwrap(), Channel::Stdout), "中文测试");
     }
 }

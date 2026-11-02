@@ -6,7 +6,7 @@ use crate::domain::document::DocumentStamp;
 use crate::domain::identity::PaneId;
 use crate::features::language_service::reply;
 use crate::features::language_service::request::Feature;
-use crate::infrastructure::lsp::manager::{RequestHandle, RequestSpec};
+use crate::features::providers::{RequestHandle, RequestSpec};
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;

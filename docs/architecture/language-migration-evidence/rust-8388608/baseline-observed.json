@@ -1,0 +1,34 @@
+{
+  "commit": "5ff103ed69dbded3df479cb0f17133ace8de0c1b",
+  "language": "rust",
+  "document_bytes": 8388608,
+  "profile": "release",
+  "small_document": {
+    "Completion": {
+      "count": 100,
+      "p50_ms": 14.2132,
+      "p95_ms": 15.7473
+    },
+    "Hover": {
+      "count": 100,
+      "p50_ms": 6.2767,
+      "p95_ms": 7.3555
+    },
+    "Definition": {
+      "count": 100,
+      "p50_ms": 6.0463000000000005,
+      "p95_ms": 6.7616000000000005
+    }
+  },
+  "idle_memory": {
+    "resident_bytes": 24895488,
+    "private_bytes": 12664832,
+    "process_peak_resident_bytes": 58859520
+  },
+  "observed_peak_memory": {
+    "resident_bytes": 45826048,
+    "private_bytes": 37036032,
+    "process_peak_resident_bytes": 58859520
+  },
+  "exit_ms": 113.9093
+}

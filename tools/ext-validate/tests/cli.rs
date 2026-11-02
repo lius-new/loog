@@ -183,3 +183,25 @@ fn missing_manifest_and_invalid_arguments_fail() {
         .unwrap();
     rejected(&output, "usage:");
 }
+
+#[test]
+fn language_identity_uses_the_host_loader_without_requiring_a_grammar() {
+    let fixture = Fixture::new();
+    let folder = fixture.0.join("loom.lsp.demo");
+    fs::create_dir_all(folder.join("languages")).unwrap();
+    fs::write(folder.join("manifest.json"), r#"{
+        "schema":1, "id":"loom.lsp.demo", "name":"Demo", "version":"0.1.0",
+        "contributes":{"languages":[{"id":"loom.lsp.demo.language","path":"languages/language.json"}]}
+    }"#).unwrap();
+    let language = folder.join("languages/language.json");
+    fs::write(&language, r#"{"name":"demo","display_name":"Demo","badge":"D","variants":[{"id":"demo"}],"files":[{"extensions":["demo"],"variant":"demo"}]}"#).unwrap();
+    succeeded(&validate(&folder, None));
+    fs::write(
+        &language,
+        r#"{"name":"demo","variants":[{"id":"demo","grammar":"demo"}]}"#,
+    )
+    .unwrap();
+    rejected(&validate(&folder, None), "parser");
+    fs::write(&language, "{").unwrap();
+    rejected(&validate(&folder, None), "loom.lsp.demo.language");
+}

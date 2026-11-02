@@ -46,10 +46,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub(crate) fn svg_icons() -> SvgIconRegistry {
-    let rings = ui::components::progress_ring::icons()
-        .fold(SvgIconRegistry::new(), |registry, (key, svg)| {
-            registry.with_icon(key, svg)
-        });
+    let rings = SvgIconRegistry::new();
     file_icons::register(
         // Codicons are drawn on a 16px grid; render them at theme::ICON_SIZE
         // so their 1px strokes land on whole pixels.

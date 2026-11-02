@@ -8,7 +8,7 @@ use crate::features::language_service::capabilities::PositionEncoding;
 use crate::features::language_service::position::Position;
 use crate::features::language_service::reply::Span;
 use crate::features::language_service::request::Feature;
-use crate::infrastructure::lsp::manager::{RequestHandle, RequestSpec};
+use crate::features::providers::{RequestHandle, RequestSpec};
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;

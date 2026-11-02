@@ -5,7 +5,7 @@ use crate::domain::identity::{FileId, PaneId, ViewId};
 use crate::features::language_service::reply::{self, SignatureHelp};
 use crate::features::language_service::request::Feature;
 use crate::features::markdown::content::Markup;
-use crate::infrastructure::lsp::manager::{RequestHandle, RequestSpec};
+use crate::features::providers::{RequestHandle, RequestSpec};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
@@ -135,16 +135,12 @@ pub fn view(session: &Session) -> Option<View> {
 }
 
 /// Which brackets trigger signature help, from the servers that offer it.
-fn triggers(ctx: &AppContext) -> (Vec<String>, Vec<String>) {
+fn triggers(ctx: &AppContext, path: &std::path::Path) -> (Vec<String>, Vec<String>) {
     let mut open = Vec::new();
     let mut again = Vec::new();
     if let Some(services) = services(ctx) {
-        for info in services.infos() {
-            if let Some(options) = info
-                .providers
-                .as_ref()
-                .and_then(|p| p.signature_help.as_ref())
-            {
+        for info in services.capability_sources(Some(path)) {
+            if let Some(options) = info.providers.signature_help.as_ref() {
                 open.extend(options.trigger_characters.clone());
                 again.extend(options.retrigger_characters.clone());
             }
@@ -185,7 +181,7 @@ pub fn observe(ctx: &AppContext, app: &mut AppState, typed: Option<char>) {
     if !keep {
         close(app);
     }
-    let (open, again) = triggers(ctx);
+    let (open, again) = triggers(ctx, &t.path);
     let opens = typed.is_some_and(|c| open.iter().any(|s| s.chars().eq([c])));
     let refresh = app.editor.language.signature.is_some()
         && typed.is_some_and(|c| again.iter().any(|s| s.chars().eq([c])));

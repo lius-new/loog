@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+pub(crate) mod language;
+
 type Task = Box<dyn FnOnce() + Send + 'static>;
 
 #[derive(Clone, Default)]

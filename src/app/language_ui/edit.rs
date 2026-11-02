@@ -36,7 +36,12 @@ pub struct Request {
     /// What the edit was for, for messages ("Rename", "Quick fix").
     pub title: String,
     /// A server waiting to hear whether the edit was made.
-    pub reply: Option<crate::infrastructure::lsp::manager::Reply>,
+    pub reply: Option<Reply>,
+}
+
+#[derive(Clone)]
+pub enum Reply {
+    Native(std::sync::Arc<dyn Fn(Result<usize, String>) + Send + Sync>),
 }
 
 /// The stamps of every open text document now.
@@ -86,7 +91,7 @@ fn path_of(link: &str) -> Result<PathBuf, String> {
 }
 
 /// Which files must be read from disk before the edit can be planned.
-pub(super) fn unopened(app: &AppState, edit: &WorkspaceEdit) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn unopened(app: &AppState, edit: &WorkspaceEdit) -> Result<Vec<PathBuf>, String> {
     let mut paths = Vec::new();
     for (at, change) in edit.changes.iter().enumerate() {
         if let Change::Edit(DocumentEdit { uri, .. }) = change {
@@ -260,10 +265,9 @@ fn complete(
 fn report(state: &AppContext, request: &Request, result: Result<usize, String>) {
     super::flush_files(state);
     if let Some(reply) = &request.reply {
-        reply.send(Ok(match &result {
-            Ok(_) => serde_json::json!({ "applied": true }),
-            Err(error) => serde_json::json!({ "applied": false, "failureReason": error }),
-        }));
+        match reply {
+            Reply::Native(reply) => reply(result.clone()),
+        }
     }
     let title = request.title.as_str();
     state.update(|app| match result {
@@ -356,9 +360,10 @@ fn apply_steps(
                             .reload(String::new());
                     }
                     changed += 1;
-                    app.editor.language.file_changes.push(
-                        crate::infrastructure::lsp::manager::FileChange::Created(path),
-                    );
+                    app.editor
+                        .language
+                        .file_changes
+                        .push(crate::features::providers::FileChange::Created(path));
                 }
             }
             Step::Rename {
@@ -374,9 +379,10 @@ fn apply_steps(
                     app.workspace.close_paths_under(&to);
                     app.workspace.move_open_path(&from, to.clone());
                     changed += 1;
-                    app.editor.language.file_changes.push(
-                        crate::infrastructure::lsp::manager::FileChange::Renamed { from, to },
-                    );
+                    app.editor
+                        .language
+                        .file_changes
+                        .push(crate::features::providers::FileChange::Renamed { from, to });
                 }
             }
             Step::Delete {
@@ -390,9 +396,10 @@ fn apply_steps(
                 {
                     app.workspace.close_paths_under(&path);
                     changed += 1;
-                    app.editor.language.file_changes.push(
-                        crate::infrastructure::lsp::manager::FileChange::Deleted(path),
-                    );
+                    app.editor
+                        .language
+                        .file_changes
+                        .push(crate::features::providers::FileChange::Deleted(path));
                 }
             }
         }

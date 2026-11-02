@@ -16,6 +16,11 @@ pub enum DetailTab {
 
 #[derive(Clone, Default)]
 pub struct ExtensionsUiState {
+    /// User-selected fraction of the extension page reserved for the list.
+    pub split_ratio: Option<f32>,
+    pub contribution_expanded: std::collections::BTreeSet<Arc<str>>,
+    pub contribution_selected: Option<Arc<str>>,
+    pub contribution_scroll: f32,
     pub search: InputState,
     pub selected: Option<String>,
     pub tab: DetailTab,
@@ -40,7 +45,11 @@ pub struct ScrollState {
 
 impl ScrollState {
     pub fn at(&self, owner: &str) -> f32 {
-        if self.owner == owner { self.offset } else { 0.0 }
+        if self.owner == owner {
+            self.offset
+        } else {
+            0.0
+        }
     }
 }
 

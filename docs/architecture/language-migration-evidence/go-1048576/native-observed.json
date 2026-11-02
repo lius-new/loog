@@ -1,0 +1,98 @@
+{
+  "language": "go",
+  "document_bytes": 1048576,
+  "route": "native-executor-wasm-provider-consumer",
+  "indexing_probes": 10,
+  "profile": "release",
+  "small_document": {
+    "Completion": {
+      "count": 100,
+      "p50_ms": 15.9638,
+      "p95_ms": 22.793999999999997
+    },
+    "Hover": {
+      "count": 100,
+      "p50_ms": 0.933,
+      "p95_ms": 1.3457000000000001
+    },
+    "Definition": {
+      "count": 100,
+      "p50_ms": 1.891,
+      "p95_ms": 2.9868
+    }
+  },
+  "guest_cpu": [
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0652,
+      "p95_ms": 0.1048
+    },
+    {
+      "name": "rpc:textDocument/completion",
+      "count": 100,
+      "p50_ms": 14.7217,
+      "p95_ms": 22.9831
+    },
+    {
+      "name": "convert:completion",
+      "count": 100,
+      "p50_ms": 0.1434,
+      "p95_ms": 0.2071
+    },
+    {
+      "name": "sdk-completion-submit",
+      "count": 100,
+      "p50_ms": 0.5513,
+      "p95_ms": 0.8163
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0627,
+      "p95_ms": 0.1007
+    },
+    {
+      "name": "rpc:textDocument/hover",
+      "count": 100,
+      "p50_ms": 0.5152,
+      "p95_ms": 0.8691
+    },
+    {
+      "name": "convert:hover",
+      "count": 100,
+      "p50_ms": 0.0225,
+      "p95_ms": 0.0375
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0187,
+      "p95_ms": 0.0334
+    },
+    {
+      "name": "rpc:textDocument/definition",
+      "count": 100,
+      "p50_ms": 1.3106,
+      "p95_ms": 2.2001
+    },
+    {
+      "name": "convert:definition",
+      "count": 100,
+      "p50_ms": 0.0414,
+      "p95_ms": 0.0795
+    }
+  ],
+  "idle_memory": {
+    "resident_bytes": 71860224,
+    "private_bytes": 109469696,
+    "process_peak_resident_bytes": 93483008
+  },
+  "observed_peak_memory": {
+    "resident_bytes": 75567104,
+    "private_bytes": 111505408,
+    "process_peak_resident_bytes": 93483008
+  },
+  "restart_ms": 1943.0564000000002,
+  "exit_ms": 20.3536
+}

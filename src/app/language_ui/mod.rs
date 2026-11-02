@@ -37,7 +37,7 @@ use std::sync::Arc;
 pub struct LanguageUi {
     /// Ownership of transient source interactions; document services remain shared.
     interaction_view: Option<(ViewId, u64)>,
-    pub file_changes: Vec<crate::infrastructure::lsp::manager::FileChange>,
+    pub file_changes: Vec<crate::features::providers::FileChange>,
     pub peek: Option<peek::Peek>,
     pub peek_revision: u64,
     pub hover: hover::Hover,
@@ -73,6 +73,7 @@ pub struct LanguageUi {
     pub refactor: Option<refactor::Pending>,
     /// The completion list, once asked for.
     pub completion: Option<completion::Session>,
+    pub completion_commands: Vec<(u64, serde_json::Value)>,
     pub words_request: Option<Arc<()>>,
     pub completion_timer: Option<Arc<crate::app::ui_timer::Timer>>,
     /// The last character typed into the document, until the next update looks.
@@ -446,65 +447,6 @@ pub(crate) fn popup_event(
     }
 }
 
-/// Does what a server asked of the application.
-fn server_action(state: &AppContext, action: crate::infrastructure::lsp::manager::ServerAction) {
-    use crate::infrastructure::lsp::manager::ServerAction;
-    let mut rect = lgui::prelude::UiRect::new(0.0, 0.0, 800.0, 600.0);
-    let mut stamps = Vec::new();
-    state.try_update(|app| {
-        rect = app.editor.language.rect.unwrap_or(rect);
-        stamps = edit::stamps(app);
-        false
-    });
-    match action {
-        ServerAction::ApplyEdit {
-            label,
-            edit,
-            reply,
-            expected,
-        } => {
-            let app = state.get();
-            let valid = expected.iter().all(|(path, expected)| {
-                app.workspace
-                    .file_id_for_path(path)
-                    .and_then(|id| app.workspace.documents.get(&id))
-                    .is_some_and(|d| {
-                        d.incarnation == expected.incarnation
-                            && d.buffer.version() == expected.version
-                    })
-            });
-            if !valid {
-                reply.send(Ok(serde_json::json!({"applied":false,"failureReason":"a document changed while the edit was queued"})));
-                return;
-            }
-            edit::apply(
-                state,
-                edit::Request {
-                    edit,
-                    stamps,
-                    rect,
-                    title: label.unwrap_or_else(|| "Language server edit".to_owned()),
-                    reply: Some(reply),
-                },
-            )
-        }
-        ServerAction::ShowDocument {
-            uri,
-            selection,
-            reply,
-        } => {
-            let ok = crate::features::language_service::uri::file_path(&uri).map(|path| {
-                let target = match selection {
-                    Some(span) => navigate::Place::span(path, span),
-                    None => navigate::Place::bytes(path, 0..0),
-                };
-                navigate::go(state, target, rect, true);
-            });
-            reply.send(Ok(serde_json::json!({ "success": ok.is_some() })));
-        }
-    }
-}
-
 /// Does what a popup row that is not a place stands for.
 pub(crate) fn run_payload(
     state: &AppContext,
@@ -551,11 +493,6 @@ pub(crate) fn tick(state: &AppContext) {
         true
     });
     flush_files(state);
-    if let Some(services) = services(state) {
-        for action in services.take_actions() {
-            server_action(state, action);
-        }
-    }
     if let Some(then) = proceed {
         then(state);
     }

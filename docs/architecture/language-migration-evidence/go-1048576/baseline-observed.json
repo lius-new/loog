@@ -1,0 +1,34 @@
+{
+  "commit": "5ff103ed69dbded3df479cb0f17133ace8de0c1b",
+  "language": "go",
+  "document_bytes": 1048576,
+  "profile": "release",
+  "small_document": {
+    "Completion": {
+      "count": 100,
+      "p50_ms": 15.207999999999998,
+      "p95_ms": 18.8511
+    },
+    "Hover": {
+      "count": 100,
+      "p50_ms": 0.9573,
+      "p95_ms": 1.0896000000000001
+    },
+    "Definition": {
+      "count": 100,
+      "p50_ms": 1.6811,
+      "p95_ms": 2.4055999999999997
+    }
+  },
+  "idle_memory": {
+    "resident_bytes": 19054592,
+    "private_bytes": 6418432,
+    "process_peak_resident_bytes": 23113728
+  },
+  "observed_peak_memory": {
+    "resident_bytes": 19116032,
+    "private_bytes": 6582272,
+    "process_peak_resident_bytes": 23113728
+  },
+  "exit_ms": 32.3214
+}

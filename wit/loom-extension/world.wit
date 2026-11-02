@@ -88,7 +88,13 @@ interface types {
         lifecycle: u64,
         path: string,
         language: string,
+        %variant: option<string>,
         version: u64,
+    }
+    record document-snapshot {
+        snapshot: snapshot-token,
+        document: document-ref,
+        length: u64,
     }
 
     /// Contiguous change summary; the text is read through a snapshot on demand.
@@ -124,6 +130,99 @@ interface types {
         /// Actions offered for `range` (the caret when empty); answer with
         /// `provide-code-actions`.
         code-actions,
+        code-action-resolve,
+        references,
+        workspace-symbols,
+        document-highlights,
+        rename,
+        prepare-rename,
+        folding-ranges,
+        selection-ranges,
+        call-hierarchy,
+        type-hierarchy,
+        code-lens,
+        code-lens-resolve,
+        format-on-type,
+        execute-command,
+        highlights,
+    }
+
+    /// Variants of one capability; these are editor concepts, independent of transport.
+    enum provider-mode { definition, declaration, type-definition, implementation, prepare, incoming, outgoing, supertypes, subtypes, range, full, resolve }
+    record provider-context {
+        mode: option<provider-mode>,
+        name: option<string>,
+        query: option<string>,
+        include-declaration: bool,
+        tab-size: u32,
+        insert-spaces: bool,
+        action-kinds: list<string>,
+        trigger-kind: u8,
+        retrigger: bool,
+        active-signature: option<u32>,
+        active-parameter: option<u32>,
+        /// The originating provider's opaque data for resolve/hierarchy/commands.
+        data: option<string>,
+    }
+    record provider-configuration {
+        provider: string,
+        enabled: bool,
+        /// Absent retains the provider's default modes; present restricts them.
+        modes: option<list<provider-mode>>,
+        /// Increment to invalidate cached answers after an external source refresh.
+        revision: option<u64>,
+        resolve: bool,
+        prepare: bool,
+        triggers: list<string>,
+        retriggers: list<string>,
+        commands: list<string>,
+        aliases: list<string>,
+    }
+
+    /// A position in an unopened file can be measured in bytes or UTF-16 units.
+    enum column-unit { utf8, utf16 }
+    record text-position { line: u32, column: u32 }
+    record file-range { start: text-position, end: text-position, unit: column-unit }
+    record file-location { path: string, range: file-range }
+    record file-text-edit { range: file-range, text: string }
+    record file-edits { path: string, version: option<u64>, edits: list<file-text-edit> }
+    /// Create an empty file. Supply its contents with a following text change.
+    record workspace-create { path: string, overwrite: bool, ignore-if-exists: bool }
+    record workspace-rename { source: string, target: string, overwrite: bool, ignore-if-exists: bool }
+    record workspace-delete { path: string, recursive: bool, ignore-if-not-exists: bool }
+    variant workspace-change { text(file-edits), create(workspace-create), rename(workspace-rename), delete(workspace-delete) }
+    record workspace-edit { changes: list<workspace-change> }
+    record workspace-edit-request { title: string, edit: workspace-edit }
+    variant workspace-operation { edit(workspace-edit-request), show-document(file-location) }
+    record provider-action { title: string, kind: option<string>, preferred: bool, disabled: option<string>, edit: option<workspace-edit>, command: option<provider-command>, data: option<string> }
+    record signature-parameter { label: string, documentation: option<string>, range: option<byte-range> }
+    record signature-entry { label: string, documentation: option<string>, parameters: list<signature-parameter>, active-parameter: option<u32> }
+    record signature-set { signatures: list<signature-entry>, active-signature: u32, active-parameter: option<u32> }
+    variant workspace-file-change { created(string), renamed(tuple<string,string>), deleted(string), rescan }
+    record range-kind { range: byte-range, kind: u32 }
+    record workspace-symbol { name: string, kind: u32, container: option<string>, location: file-location }
+    record rename-target { range: option<byte-range>, placeholder: option<string>, default-behavior: bool }
+    record fold-range { start: u32, end: u32, start-column: option<u32>, end-column: option<u32>, kind: option<string>, label: option<string> }
+    record selection-range { range: byte-range, parent: option<u32> }
+    record hierarchy-item { name: string, kind: u32, detail: option<string>, location: file-location, selection: file-range, data: option<string> }
+    record hierarchy-edge { item: hierarchy-item, sites: list<file-range> }
+    record code-lens { range: byte-range, title: option<string>, command: option<provider-command>, data: option<string> }
+    record highlight { range: byte-range, theme: string }
+    variant language-answer {
+        places(list<file-location>),
+        workspace-symbols(list<workspace-symbol>),
+        document-highlights(list<range-kind>),
+        rename-target(option<rename-target>),
+        workspace-edit(workspace-edit),
+        folds(list<fold-range>),
+        selections(list<selection-range>),
+        hierarchy(list<hierarchy-item>),
+        calls(list<hierarchy-edge>),
+        lenses(list<code-lens>),
+        highlights(list<highlight>),
+        actions(list<provider-action>),
+        signatures(signature-set),
+        completed,
     }
 
     /// An action offered for a range. Choosing it applies `edits` to the
@@ -155,6 +254,7 @@ interface types {
     record document-symbol {
         name: string,
         detail: option<string>,
+        deprecated: option<bool>,
         /// LSP symbol kind number.
         kind: u32,
         /// The whole declaration, and the part to select when it is chosen.
@@ -187,15 +287,40 @@ interface types {
         tooltip: option<string>,
     }
 
+    /// A provider-owned command. Arguments are an opaque JSON array; only the
+    /// originating provider interprets their meaning.
+    record provider-command {
+        name: string,
+        arguments: string,
+    }
+
+    record provider-command-call {
+        provider: string,
+        command: provider-command,
+    }
+
     /// One completion candidate. `data` is opaque to the host and comes back
     /// unchanged in a resolve request, so the answer is routed to its origin.
     record completion-item {
         label: string,
+        label-detail: option<string>,
+        label-description: option<string>,
+        deprecated: option<bool>,
+        preselect: option<bool>,
+        insert-text-mode: option<u8>,
         detail: option<string>,
         documentation: option<string>,
         /// LSP completion item kind number.
         kind: option<u32>,
         insert-text: option<string>,
+        /// All edit ranges refer to the requested snapshot, in UTF-8 bytes.
+        text-edit: option<text-edit>,
+        additional-text-edits: list<text-edit>,
+        /// 1 plain text (default), 2 snippet.
+        insert-text-format: option<u8>,
+        commit-characters: list<string>,
+        /// Delivered to the origin only after all accepted edits succeed.
+        command: option<provider-command>,
         sort-text: option<string>,
         filter-text: option<string>,
         data: option<string>,
@@ -220,6 +345,7 @@ interface types {
         trigger: option<string>,
         /// Completion resolve: the item to complete.
         item: option<completion-item>,
+        context: option<provider-context>,
     }
 
     record diagnostic {
@@ -229,6 +355,8 @@ interface types {
         message: string,
         source: option<string>,
         code: option<string>,
+        /// Documentation for this finding; the native UI admits HTTP(S) links.
+        documentation-url: option<string>,
     }
 
     /// A workspace folder as the extension may name it. Handles change when a
@@ -236,6 +364,8 @@ interface types {
     record root-ref {
         id: u64,
         name: string,
+        /// Absolute native path for tools and URI construction.
+        path: string,
     }
 
     type task-id = u64;
@@ -332,19 +462,72 @@ interface types {
         error: option<host-error>,
     }
 
+    enum process-framing { raw, content-length, content-length-text }
+    record process-request {
+        /// Absent only when a single open workspace root can be inferred.
+        root: option<u64>,
+        program: string,
+        args: list<string>,
+        cwd: option<string>,
+        env: list<tuple<string, string>>,
+        framing: process-framing,
+    }
+    /// Text framing delivers validated UTF-8 in text and leaves bytes empty.
+    /// Other modes preserve arbitrary bytes and leave text absent.
+    record process-output { process: u64, channel: output-channel, bytes: list<u8>, text: option<string> }
+    record process-writable { process: u64, bytes: u32 }
+    record process-exit { process: u64, code: option<s32>, killed: bool, error: option<host-error> }
+    record watch-request { root: u64, patterns: list<string> }
+    enum file-change-kind { create, change, delete, rescan }
+    record file-change { path: string, kind: file-change-kind }
+    record file-changed { watch: u64, root: u64, changes: list<file-change> }
+    record watch-failure { watch: u64, error: host-error }
+    enum ui-kind { block, text, icon, button, row, column, text-input }
+    variant ui-parent { mount(string), node(u64) }
+    record ui-description {
+        id: string,
+        kind: ui-kind,
+        text: option<string>,
+        icon: option<string>,
+        foreground: option<u32>,
+        background: option<u32>,
+        width: option<f32>,
+        height: option<f32>,
+        padding: f32,
+        gap: f32,
+        visible: bool,
+        label: option<string>,
+    }
+    record ui-node { node: u64, parent: ui-parent, description: ui-description }
+    variant ui-event-payload { click, input(string), selection(byte-range), visibility(bool), focus(bool) }
+    record ui-event { node: u64, id: string, payload: ui-event-payload }
+
     /// Message pushed by the host into the guest.
     variant inbound {
+        provider-command(provider-command-call),
+        roots-changed(list<root-ref>),
+        process-output(process-output),
+        process-writable(process-writable),
+        process-exited(process-exit),
+        file-changed(file-changed),
+        watch-failed(watch-failure),
+        watch-ready(u64),
+        ui-event(ui-event),
         task-output(task-output),
         task-exited(task-exit),
         provider-request(provider-request),
+        provider-cancelled(u64),
         run-command(command-context),
         document-opened(document-ref),
         document-changed(document-change),
         /// The incremental stream has a gap; read a new snapshot and rebuild the baseline.
         document-resync(document-ref),
         document-closed(document-ref),
+        document-saved(document-snapshot),
+        workspace-files-changed(list<workspace-file-change>),
         /// Resolved values of these setting keys changed; read them with `get-setting`.
         settings-changed(list<string>),
+        timer-elapsed(u64),
         operation-complete(tuple<operation-id, completion>),
         cancel(call-id),
         shutdown,
@@ -362,15 +545,21 @@ interface types {
 }
 
 interface host {
-    use types.{apply-edit-request, code-action, completion-item, diagnostic, document-symbol, file-content, file-ops-request, hover-answer, host-error, http-response, inlay-hint, location, root-ref, signature-answer, storage-scope, task-id, task-request, operation-id, snapshot-token, byte-range, text-edit};
+    use types.{apply-edit-request, code-action, completion-item, diagnostic, document-symbol, file-content, file-ops-request, hover-answer, host-error, http-response, inlay-hint, location, root-ref, signature-answer, storage-scope, task-id, task-request, operation-id, snapshot-token, byte-range, text-edit, process-request, watch-request, ui-description, ui-parent, document-snapshot, language-answer, provider-configuration, workspace-operation};
 
     /// Read a bounded range of a captured snapshot. Fast, never blocks on the UI.
     read-range: func(snapshot: snapshot-token, range: byte-range) -> result<string, host-error>;
     release-snapshot: func(snapshot: snapshot-token);
+    /// Read an advertised open document without waiting for a provider request.
+    /// The immutable snapshot remains readable until released; closed handles
+    /// and documents beyond the host's synchronization policy are refused.
+    capture-document: func(document: u64) -> result<document-snapshot, host-error>;
 
     /// Accept an edit for scheduling. Returning only means "accepted"; the
     /// outcome arrives later as an `operation-complete` message.
     apply-edit: func(request: apply-edit-request) -> result<operation-id, host-error>;
+    /// Multi-file/versioned edits or navigation, with the result after application.
+    perform-workspace-operation: func(request: workspace-operation) -> result<operation-id, host-error>;
 
     cancel: func(operation: operation-id);
 
@@ -408,6 +597,29 @@ interface host {
     /// Stop a task and everything it started. The exit is still delivered once.
     task-cancel: func(task: task-id);
 
+    /// Persistent binary process; spawn failure arrives as process-exited.
+    process-spawn: func(request: process-request) -> result<u64, host-error>;
+    /// Whole-message admission. Zero means retry after process-writable.
+    /// In content-length mode bytes are one body and the host adds the header.
+    process-write: func(process: u64, bytes: list<u8>) -> result<u32, host-error>;
+    /// UTF-8 convenience with identical admission, limits and write receipts.
+    process-write-text: func(process: u64, text: string) -> result<u32, host-error>;
+    process-close-stdin: func(process: u64) -> result<_, host-error>;
+    process-kill: func(process: u64);
+    /// One-shot monotonic timers, at most 64 live per instance and 24 hours each.
+    timer-start: func(milliseconds: u32) -> result<u64, host-error>;
+    timer-cancel: func(timer: u64);
+    /// Monotonic elapsed nanoseconds for this instance; unrelated to wall time.
+    monotonic-nanoseconds: func() -> u64;
+    /// Root-relative globs, with recursive disk events. Requires file read access.
+    watch-files: func(request: watch-request) -> result<u64, host-error>;
+    unwatch-files: func(watch: u64);
+    /// Only declared mounts and this instance's own nodes are accepted.
+    ui-create: func(parent: ui-parent, description: ui-description) -> result<u64, host-error>;
+    /// Atomic property replacement; identity and parent stay fixed.
+    ui-update: func(node: u64, description: ui-description) -> result<_, host-error>;
+    ui-remove: func(node: u64) -> result<_, host-error>;
+
     /// Show findings for one state of an open file (for example from a checker).
     /// Findings for a state that is no longer current are discarded.
     publish-diagnostics: func(provider: string, path: string, version: u64, items: list<diagnostic>) -> result<_, host-error>;
@@ -422,6 +634,10 @@ interface host {
     /// Answer a completion request (several items) or a resolve request (the
     /// one completed item). `incomplete` asks to be asked again as typing continues.
     provide-completions: func(request: u64, items: list<completion-item>, incomplete: bool) -> result<_, host-error>;
+    /// Bulk encoding of the same completion-item records, using their SDK
+    /// camelCase field names. Byte offsets are lossless decimal strings.
+    /// Closed, validated schema; 32 MiB maximum. This is not a server message.
+    provide-completion-batch: func(request: u64, items: list<u8>, incomplete: bool) -> result<_, host-error>;
 
     /// Answer a formatting request with edits against the requested snapshot.
     provide-edits: func(request: u64, edits: list<text-edit>) -> result<_, host-error>;
@@ -443,6 +659,11 @@ interface host {
 
     /// Answer a code action request; the edits are against the requested snapshot.
     provide-code-actions: func(request: u64, items: list<code-action>) -> result<_, host-error>;
+
+    /// Typed answers for navigation, rename, hierarchies, folding, lenses and highlights.
+    provide-language: func(request: u64, answer: language-answer) -> result<_, host-error>;
+    /// Update negotiated capabilities; only declared provider IDs are accepted by the app.
+    configure-provider: func(configuration: provider-configuration) -> result<_, host-error>;
 
     log: func(level: u8, message: string);
 }

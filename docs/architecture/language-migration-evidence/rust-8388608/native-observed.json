@@ -1,0 +1,116 @@
+{
+  "language": "rust",
+  "document_bytes": 8388608,
+  "route": "native-executor-wasm-provider-consumer",
+  "indexing_probes": 10,
+  "profile": "release",
+  "small_document": {
+    "Completion": {
+      "count": 100,
+      "p50_ms": 9.1836,
+      "p95_ms": 10.676100000000002
+    },
+    "Hover": {
+      "count": 100,
+      "p50_ms": 0.7852,
+      "p95_ms": 0.9675
+    },
+    "Definition": {
+      "count": 100,
+      "p50_ms": 0.7728,
+      "p95_ms": 0.8775000000000001
+    }
+  },
+  "guest_cpu": [
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0246,
+      "p95_ms": 0.0374
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0135,
+      "p95_ms": 0.0396
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.3179,
+      "p95_ms": 0.4382
+    },
+    {
+      "name": "rpc:textDocument/completion",
+      "count": 100,
+      "p50_ms": 6.3606,
+      "p95_ms": 7.7076
+    },
+    {
+      "name": "convert:completion",
+      "count": 100,
+      "p50_ms": 1.0372,
+      "p95_ms": 1.2297999999999998
+    },
+    {
+      "name": "sdk-completion-encode",
+      "count": 100,
+      "p50_ms": 0.4355,
+      "p95_ms": 0.6621
+    },
+    {
+      "name": "sdk-completion-submit",
+      "count": 100,
+      "p50_ms": 0.2269,
+      "p95_ms": 0.3336
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.3152,
+      "p95_ms": 0.4146
+    },
+    {
+      "name": "rpc:textDocument/hover",
+      "count": 100,
+      "p50_ms": 0.4237,
+      "p95_ms": 0.559
+    },
+    {
+      "name": "convert:hover",
+      "count": 100,
+      "p50_ms": 0.0191,
+      "p95_ms": 0.035
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0218,
+      "p95_ms": 0.0312
+    },
+    {
+      "name": "rpc:textDocument/definition",
+      "count": 100,
+      "p50_ms": 0.3847,
+      "p95_ms": 0.4722
+    },
+    {
+      "name": "convert:definition",
+      "count": 100,
+      "p50_ms": 0.0301,
+      "p95_ms": 0.0465
+    }
+  ],
+  "idle_memory": {
+    "resident_bytes": 175722496,
+    "private_bytes": 197304320,
+    "process_peak_resident_bytes": 185884672
+  },
+  "observed_peak_memory": {
+    "resident_bytes": 205430784,
+    "private_bytes": 230645760,
+    "process_peak_resident_bytes": 225923072
+  },
+  "restart_ms": 1882.8727000000001,
+  "exit_ms": 25.3176
+}

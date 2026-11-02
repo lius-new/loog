@@ -94,7 +94,11 @@ export function allowed(file, dependency) {
   if(own==='domain')return root==='domain'||(['src/domain/encoding.rs','src/domain/workspace_session.rs','src/domain/window_geometry.rs','src/domain/language/descriptor.rs'].includes(file)&&['serde','serde_json'].includes(root));
   if(file==='src/features/markdown.rs'||file.startsWith('src/features/markdown/'))return ['features','domain','unicode_segmentation'].includes(root)||(file==='src/features/markdown/parser.rs'&&root==='pulldown_cmark');
   if(file.startsWith('src/features/keymap/'))return ['features','domain','serde_json','input','Movement'].includes(root);
-  if(file.startsWith('src/infrastructure/lsp/'))return ['infrastructure','features','domain','serde_json','std::process','std::thread','requests'].includes(root)||((file==='src/infrastructure/lsp/client_tests.rs'||file==='src/infrastructure/lsp/manager_tests.rs')&&['std::fs','ring','tar','flate2'].includes(root))||(file==='src/infrastructure/lsp/job.rs'&&['windows_sys','libc'].includes(root));
+  if(file.startsWith('src/infrastructure/lsp/'))return false;
+  if(file==='src/infrastructure/process_job.rs')return ['infrastructure','windows_sys','libc','std::process','std::thread'].includes(root);
+  if(file==='src/infrastructure/extensions/watches.rs'&&root==='notify')return true;
+  if(file==='src/features/providers/mod.rs'&&['feature','request','results','position'].includes(root))return true;
+  if(file.startsWith('src/features/providers/'))return ['features','domain','serde_json'].includes(root);
   if(file==='src/infrastructure/window_geometry.rs')return ['infrastructure','domain','lgui','windows_sys','std::process'].includes(root);
   if(file==='src/infrastructure/document_filesystem.rs')return ['infrastructure','features','domain','std::fs','std::process','windows_sys'].includes(root);
   if(file.startsWith('src/features/encoding/'))return ['features','domain','encoding_rs','chardetng'].includes(root);
@@ -102,8 +106,6 @@ export function allowed(file, dependency) {
   if(file==='src/infrastructure/edit_journal.rs')return ['infrastructure','std::fs','std::process'].includes(root);
   if(file==='src/infrastructure/file_watcher.rs')return ['infrastructure','notify','std::fs','std::thread'].includes(root);
   if(file==='src/infrastructure/query_watcher.rs')return ['infrastructure','notify','std::fs','std::thread'].includes(root);
-  if(file==='src/infrastructure/lsp_watch.rs')return ['infrastructure','features','serde_json','std::fs','std::thread'].includes(root);
-  if(file==='src/features/language_service/watch.rs'&&root==='regex')return true;
   if(file==='src/ui/theme_package.rs'&&root==='serde_json')return true;
   if(file==='src/features/language_service/snippet/transform.rs'&&root==='fancy_regex')return true;
   if(file==='src/infrastructure/file_drop.rs')return ['infrastructure','domain','lgui','windows_sys'].includes(root);

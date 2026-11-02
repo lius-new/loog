@@ -7,7 +7,7 @@ use crate::domain::document::DocumentStamp;
 use crate::features::language_service::reply;
 use crate::features::language_service::request::Feature;
 use crate::features::outline::{self, Outline};
-use crate::infrastructure::lsp::manager::{Failure, RequestHandle, RequestSpec};
+use crate::features::providers::{Failure, RequestHandle, RequestSpec};
 use crate::ui::drawer::DrawerMode;
 use std::collections::HashSet;
 use std::path::PathBuf;

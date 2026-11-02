@@ -1,0 +1,98 @@
+{
+  "language": "go",
+  "document_bytes": 8388608,
+  "route": "native-executor-wasm-provider-consumer",
+  "indexing_probes": 10,
+  "profile": "release",
+  "small_document": {
+    "Completion": {
+      "count": 100,
+      "p50_ms": 15.5915,
+      "p95_ms": 18.4823
+    },
+    "Hover": {
+      "count": 100,
+      "p50_ms": 0.8043,
+      "p95_ms": 1.0756
+    },
+    "Definition": {
+      "count": 100,
+      "p50_ms": 6.324800000000001,
+      "p95_ms": 8.1721
+    }
+  },
+  "guest_cpu": [
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.065,
+      "p95_ms": 0.105
+    },
+    {
+      "name": "rpc:textDocument/completion",
+      "count": 100,
+      "p50_ms": 14.5263,
+      "p95_ms": 50.4212
+    },
+    {
+      "name": "convert:completion",
+      "count": 100,
+      "p50_ms": 0.1384,
+      "p95_ms": 0.1973
+    },
+    {
+      "name": "sdk-completion-submit",
+      "count": 100,
+      "p50_ms": 0.5335,
+      "p95_ms": 0.8375
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0615,
+      "p95_ms": 0.0882
+    },
+    {
+      "name": "rpc:textDocument/hover",
+      "count": 100,
+      "p50_ms": 0.4466,
+      "p95_ms": 0.697
+    },
+    {
+      "name": "convert:hover",
+      "count": 100,
+      "p50_ms": 0.0195,
+      "p95_ms": 0.0423
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0186,
+      "p95_ms": 0.032
+    },
+    {
+      "name": "rpc:textDocument/definition",
+      "count": 100,
+      "p50_ms": 5.9209,
+      "p95_ms": 8.9862
+    },
+    {
+      "name": "convert:definition",
+      "count": 100,
+      "p50_ms": 0.0493,
+      "p95_ms": 0.091
+    }
+  ],
+  "idle_memory": {
+    "resident_bytes": 175992832,
+    "private_bytes": 199438336,
+    "process_peak_resident_bytes": 225923072
+  },
+  "observed_peak_memory": {
+    "resident_bytes": 189882368,
+    "private_bytes": 222752768,
+    "process_peak_resident_bytes": 225923072
+  },
+  "restart_ms": 1965.3606,
+  "exit_ms": 18.094099999999997
+}

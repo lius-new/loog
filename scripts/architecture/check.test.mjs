@@ -401,17 +401,13 @@ test('no syntax file may name grammar crates and only the engine files use the r
     ['src/features/syntax/queries.rs','use streaming_iterator::StreamingIterator;'],
   ])assert.ok(violations({[file]:source},policy()).some(e=>e.includes('unregistered dependency')),`${file}: ${source}`);
 });
-test('the language protocol core is pure and the client may start processes',()=>{
-  assert.deepEqual(violations({'src/features/language_service/message.rs':'use serde_json::Value;'},policy()),[]);
-  for(const source of ['use lgui::prelude::*;','use std::fs;','use std::process::Command;','use std::thread;','use crate::infrastructure::lsp::client::Client;'])assert.ok(violations({'src/features/language_service/session.rs':source},policy()).length>0,source);
+test('provider models stay pure and generic process ownership stays in infrastructure',()=>{
+  assert.deepEqual(violations({'src/features/providers/request.rs':'use serde_json::Value;'},policy()),[]);
+  for(const source of ['use lgui::prelude::*;','use std::fs;','use std::process::Command;','use std::thread;','use crate::infrastructure::extensions::Executor;'])assert.ok(violations({'src/features/providers/request.rs':source},policy()).length>0,source);
   assert.ok(violations({'src/features/search/new.rs':'use serde_json::Value;'},policy()).length>0,'serde_json stays out of other features');
-  assert.deepEqual(violations({'src/infrastructure/lsp/client.rs':'use std::process::Command;\nuse std::thread;\nuse serde_json::Value;\nuse crate::features::language_service::message::Message;'},policy()),[]);
-  for(const source of ['use lgui::prelude::*;','use std::fs;','use crate::ui::theme;'])assert.ok(violations({'src/infrastructure/lsp/client.rs':source},policy()).length>0,source);
-  assert.deepEqual(violations({'src/infrastructure/lsp/client_tests.rs':'use std::fs;'},policy()),[],'only the tests read the fake server log');
-  assert.deepEqual(violations({'src/infrastructure/lsp/manager_tests.rs':'use std::fs;'},policy()),[]);
-  assert.deepEqual(violations({'src/infrastructure/lsp/job.rs':'use windows_sys::Win32::Foundation::CloseHandle;'},policy()),[],'the job object is the one Windows call in the lsp module');
-  assert.ok(violations({'src/infrastructure/lsp/manager.rs':'use windows_sys::Win32::Foundation::CloseHandle;'},policy()).length>0);
-  assert.ok(violations({'src/infrastructure/lsp/manager.rs':'use std::fs;'},policy()).length>0,'the manager does not read files itself');
+  assert.deepEqual(violations({'src/infrastructure/process_job.rs':'use std::process::Command;\nuse windows_sys::Win32::Foundation::CloseHandle;'},policy()),[]);
+  assert.ok(violations({'src/infrastructure/lsp/client.rs':'use std::process::Command;'},policy()).length>0,'retired host transport cannot return');
+  for(const source of ['use lgui::prelude::*;','use crate::ui::theme;'])assert.ok(violations({'src/infrastructure/process_job.rs':source},policy()).length>0,source);
 });
 
 test('language resources stay in infrastructure and test composition cannot enter production',()=>{

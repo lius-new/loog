@@ -94,83 +94,41 @@ Patterns use a small set of wildcards:
 A rule with an unknown language or an unsupported pattern is skipped and
 reported; the other rules still apply.
 
-## Language servers
+## Language providers
 
-Implementation and ownership are described in [LSP architecture](architecture/lsp.md).
+Implementation and ownership are described in [Language provider architecture](architecture/lsp.md).
 
-Loom ships no language servers and does not look for them on your PATH. The
-servers it can run are the ones that extensions declare (install one from the
-Extensions page: **Browse**, then Install; it brings the runtime it needs), plus
-servers you register yourself. A language can have several servers; they all run for a file, and their
-diagnostics are shown together. A language that no installed server serves just
-has no language-server features.
+Install language service extensions from the Extensions page. The first component
+clients support Rust, Go, JavaScript and TypeScript; syntax extensions remain
+independent. Each client owns its server, project sessions, configuration and
+status color block. There is no language panel. Processes require workspace trust.
 
-`language_servers` is an object keyed by server name.
-
-```jsonc
-"language_servers": {
-  // An extension's server: change how it behaves, never which program it is.
-  "rust-analyzer": {
-    "enabled": true,
-    "args": [],                                    // replaces the default arguments
-    "initialization_options": { "checkOnSave": false },
-    "settings": { "rust-analyzer": { "check": { "command": "clippy" } } },
-    "env": { "RA_LOG": "info" }
-  },
-  // A server of your own: a full definition. Its `command` must be an absolute
-  // path; Loom never searches PATH.
-  "my-server": {
-    "command": "C:\\tools\\my-server.exe",
-    "args": ["--stdio"],
-    "languages": [{ "language": "foo", "language_id": "foo" }],
-    "root": { "markers": ["foo.toml"], "strategy": "nearest", "fallback": "workspace" },
-    "priority": 10
-  }
-}
-```
-
-For an extension's server only `enabled`, `args`, `initialization_options`,
-`settings`, `env` and `priority` may be given; its `command`, `languages`, `root` and
-`display_name` are the extension's. To run another program, register it under a new
-name. An entry with a mistake is reported and skipped; the others still apply.
-
-A server runs once per project folder, found with the project files its definition
-names (the nearest or the outermost one), never above the open workspace folder. It
-stops a minute after its last file is closed, and a crashed server is restarted
-after 1, 2 and 4 seconds before being reported as failed.
-
-Each server instance reports only its own project folder to the server. Opening
-several project folders creates separate instances and keeps their document
-sessions and results independent.
-
-The language panel shows the server's background tasks. A task marked cancellable
-by its server has a **Cancel** button. It stays marked as cancelling until the
-server ends it. If cancellation is not acknowledged within five seconds, or a task
-reports no progress for five minutes, Loom stops tracking it and records a warning
-in the panel log. This does not mean the server finished the work; **Restart
-servers** remains available when a server is stuck.
-
-`settings` is what the server gets when it asks for its configuration
-(`workspace/configuration`). Changing it tells the running server; it is not
-restarted. Changing `args`, `initialization_options` or `env` starts a new instance.
+The retired `language_servers` and `lsp` keys are reported as unknown. Configure a
+client through its contributed settings, for example the JSON-text
+`loom.lsp.rust-analyzer.configuration` and `.initialization` settings. Configuration
+changes update live sessions; initialization changes restart them. Client options
+are stored with other extension settings, rather than registering host servers.
 
 ### Languages
 
 ```jsonc
 "languages": {
   "typescript": {
-    "language_servers": ["biome", "typescript-language-server", "..."],
-    "formatter": "biome",
+    "providers": {
+      "formatting": ["loom.lsp.typescript-language-server"],
+      "completion": ["loom.lsp.typescript-language-server", "..."]
+    },
     "format_on_save": true,
     "code_actions_on_save": ["source.organizeImports", "source.removeUnusedImports"]
   }
 }
 ```
 
-`language_servers` chooses which servers a language uses and in what order (the
-first is preferred); `"..."` stands for the servers not named, in their usual
-order, and a list without it leaves the others out. `formatter` names the server
-that formats (by default the first that can). `format_on_save` and
+`providers` selects ordered extension or provider IDs separately for each provider
+kind. `"..."` includes the remaining providers in normal order; a nonempty list
+without it excludes others. Absent or empty lists use normal order. Formatting
+uses the first available provider. Resolve and commands retain their original
+owner. `format_on_save` and
 `code_actions_on_save` run before the file is written. Action kinds run in list
 order, with each request using the text left by the preceding action; lazy
 actions are resolved and commands finish before formatting. Each server step
@@ -182,7 +140,7 @@ for sorting/combining imports and removing unused imports, as in this example.
 ### Behaviour
 
 ```jsonc
-"lsp": {
+"language_features": {
   "hover_delay_ms": 500,             // how long the pointer rests before hover opens
   "completion": {
     "auto": true,                    // open the list while typing; false = only the key

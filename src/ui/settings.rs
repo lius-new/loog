@@ -420,21 +420,29 @@ pub fn render(rect: UiRect, state: Binding) -> Element {
 }
 
 fn section_title(left: f32, right: f32, top: f32, title: &'static str) -> Element {
-    group(UiRect::new(left, top - 1.0, right, top + SECTION_TITLE_H))
-        .child(text(
-            UiRect::new(left, top, right, top + SECTION_TITLE_H),
-            title,
-            theme::mono(theme::c().text_dim, theme::SMALL).tracking(0.8),
-        ))
-        .child(panel(
-            UiRect::new(
-                left,
-                top + SECTION_TITLE_H - 1.0,
-                right,
-                top + SECTION_TITLE_H,
-            ),
-            VisualStyle::filled(theme::c().border),
-        ))
+    panel(
+        UiRect::new(left, top - 1.0, right, top + SECTION_TITLE_H),
+        VisualStyle::filled(theme::c().bg),
+    )
+    .position(lgui::core::Position::Sticky {
+        top: lgui::core::Dimension::Points(0.0),
+        left: lgui::core::Dimension::Auto,
+    })
+    .z_index(1)
+    .child(text(
+        UiRect::new(left, top, right, top + SECTION_TITLE_H),
+        title,
+        theme::mono(theme::c().text_dim, theme::SMALL).tracking(0.8),
+    ))
+    .child(panel(
+        UiRect::new(
+            left,
+            top + SECTION_TITLE_H - 1.0,
+            right,
+            top + SECTION_TITLE_H,
+        ),
+        VisualStyle::filled(theme::c().border),
+    ))
 }
 
 /// "Edit in settings.json", right-aligned on the title row.

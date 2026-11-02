@@ -130,11 +130,10 @@ pub struct FileStatus {
 }
 #[derive(Clone)]
 pub struct StatusFrame {
+    pub extension_widgets: Vec<Arc<crate::features::extensions::ui::Node>>,
     pub pending: Vec<crate::features::keymap::keystroke::Keystroke>,
     pub file: Option<FileStatus>,
     pub vim: Option<(loom_editor_core::vim::Mode, loom_editor_core::vim::Status)>,
-    /// The active file's main language server.
-    pub server: Option<ServerChip>,
     /// What the active file's diagnostics and syntax downloads say.
     pub language: Vec<StatusNote>,
 }
@@ -144,56 +143,18 @@ pub enum NoteLevel {
     Warning,
     Error,
 }
-/// A language server as the status bar shows it: a block in the colour of its state.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ServerChip {
-    /// Its name, state and how many other servers serve the file.
-    pub text: String,
-    pub tone: crate::ui::language_panel::Tone,
-    pub progress: crate::ui::language_panel::Progress,
-    /// What the person most likely wants to do next, if anything.
-    pub action: Option<ChipAction>,
-}
-/// The suggested action for a language server, shown as an icon beside its chip.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ChipAction {
-    /// Restart the instance that stopped.
-    Restart(u64),
-    /// Look at the server's details in the language panel.
-    Details(u64),
-    /// The server is on its way; there is nothing to do yet.
-    Pending,
-}
-impl ChipAction {
-    /// The icon for the action; each action has its own.
-    pub fn icon(&self) -> &'static str {
-        match self {
-            Self::Restart(_) => "update-restart",
-            Self::Details(_) => "info",
-            Self::Pending => "sync",
-        }
-    }
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Restart(_) => "Restart language server",
-            Self::Details(_) => "Show language server details",
-            Self::Pending => "Language server is starting",
-        }
-    }
-    /// Whether clicking it does anything.
-    pub fn interactive(&self) -> bool {
-        !matches!(self, Self::Pending)
-    }
-}
 /// One short phrase for the right side of the status bar.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StatusNote {
     pub text: String,
     pub level: NoteLevel,
 }
+#[derive(Clone)]
 pub enum StatusCommand {
-    ServerAction(ChipAction),
-    LanguagePanel,
+    ExtensionWidget {
+        origin: crate::features::extensions::ui::Origin,
+        payload: crate::features::extensions::ui::Payload,
+    },
     /// The language badge: which languages are highlighted and which can be installed.
     HighlightMenu,
     Encoding,

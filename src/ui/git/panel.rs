@@ -700,7 +700,7 @@ pub(crate) fn commit_input(
     } else {
         "Commit message"
     };
-    crate::ui::components::multiline::render(
+    crate::ui::components::input::render_portable(
         rect,
         id,
         focus,
@@ -722,6 +722,7 @@ pub(crate) fn commit_input(
             on_cancel: None,
             on_blur: None,
         },
+        true,
     )
 }
 

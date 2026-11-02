@@ -262,6 +262,7 @@ fn provider_request(kind: ProviderKind, text: &str) -> Inbound {
         cursor: None,
         trigger: None,
         item: None,
+        context: None,
     })
 }
 
@@ -384,6 +385,7 @@ fn a_guest_can_start_and_cancel_a_task_and_see_only_the_folders_it_was_given() {
     instance.put_roots(vec![RootRef {
         id: 7,
         name: "project".into(),
+        path: "/project".into(),
     }]);
     instance.put_settings(BTreeMap::from([(
         "example.tools.task".to_owned(),
@@ -428,6 +430,7 @@ fn an_instance_cannot_have_more_tasks_running_than_its_limit() {
     instance.put_roots(vec![RootRef {
         id: 1,
         name: "p".into(),
+        path: "/p".into(),
     }]);
     instance.put_settings(BTreeMap::from([(
         "example.tools.task".to_owned(),

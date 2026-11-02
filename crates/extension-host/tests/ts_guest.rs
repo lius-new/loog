@@ -70,7 +70,12 @@ fn limits() -> Limits {
 
 fn instance() -> (Runtime, Component) {
     let runtime = Runtime::new().unwrap();
-    let component = runtime.compile(guest_component()).unwrap();
+    let (component, _) = runtime
+        .compile_cached(
+            guest_component(),
+            &repo().join("target/test-ts-guest-cache"),
+        )
+        .unwrap();
     (runtime, component)
 }
 
@@ -87,7 +92,111 @@ fn provider(kind: ProviderKind, id: &str, text: &str, cursor: Option<u64>) -> In
         cursor,
         trigger: None,
         item: None,
+        context: None,
     })
+}
+
+#[test]
+fn a_typescript_widget_uses_general_node_operations_and_receives_its_events() {
+    use loom_extension_host::{UiEvent, UiEventPayload};
+    let (runtime, component) = instance();
+    let mut instance = runtime.instantiate(&component, limits()).unwrap();
+    instance
+        .dispatch(&[Inbound::RunCommand(CommandContext {
+            call: 7,
+            command: "example.tools.widget".into(),
+            snapshot: None,
+            selections: vec![],
+            selection_precondition: None,
+        })])
+        .unwrap();
+    instance.dispatch(&[]).unwrap();
+    let nodes = instance.take_ui_snapshot().unwrap();
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].description.background, Some(0x334455));
+    let node = nodes[0].node;
+    let click = || {
+        Inbound::UiEvent(UiEvent {
+            node,
+            id: "ext.example.example-status".into(),
+            payload: UiEventPayload::Click,
+        })
+    };
+    instance.dispatch(&[click()]).unwrap();
+    instance.dispatch(&[]).unwrap();
+    let updated = instance.take_ui_snapshot().unwrap();
+    assert_eq!(updated[0].description.text.as_deref(), Some("Ready"));
+    assert_eq!(updated[0].description.background, Some(0x228844));
+    instance.dispatch(&[click()]).unwrap();
+    instance.dispatch(&[]).unwrap();
+    assert!(instance.take_ui_snapshot().unwrap().is_empty());
+}
+
+#[test]
+fn typed_references_and_saved_snapshots_cross_the_real_typescript_component_boundary() {
+    use loom_extension_host::{ColumnUnit, DocumentRef, DocumentView, WireLanguageAnswer};
+    use std::sync::Arc;
+    let (runtime, component) = instance();
+    let mut instance = runtime.instantiate(&component, limits()).unwrap();
+    let text = Arc::new("中😀 TODO".to_owned());
+    let reference = DocumentRef {
+        document: 1,
+        lifecycle: 1,
+        version: 7,
+        path: std::env::temp_dir()
+            .join("loom-ts-reference.tsx")
+            .display()
+            .to_string(),
+        language: "typescript".into(),
+        variant: Some("tsx".into()),
+    };
+    instance.put_documents(
+        vec![DocumentView {
+            reference: reference.clone(),
+            text: Some(text.clone()),
+        }],
+        &[],
+    );
+    instance.put_snapshot(9, text.clone());
+    instance
+        .dispatch(&[provider(
+            ProviderKind::References,
+            "example.tools.references",
+            &text,
+            None,
+        )])
+        .unwrap();
+    instance.dispatch(&[]).unwrap();
+    let answers = instance.take_provided();
+    let [
+        Provided::Language {
+            answer: WireLanguageAnswer::Places(places),
+            ..
+        },
+    ] = answers.as_slice()
+    else {
+        panic!("{answers:?} {:?}", instance.state().logs);
+    };
+    assert_eq!(places.len(), 1);
+    assert_eq!(places[0].path, reference.path);
+    assert_eq!(places[0].range.unit, ColumnUnit::Utf16);
+    assert_eq!(places[0].range.start.column, 4);
+    assert_eq!(places[0].range.end.column, 8);
+    // More than the capture-handle cap: the SDK must release every saved snapshot.
+    for _ in 0..40 {
+        let saved = instance
+            .saved_snapshot(reference.clone(), text.clone())
+            .unwrap();
+        instance.dispatch(&[Inbound::DocumentSaved(saved)]).unwrap();
+        instance.dispatch(&[]).unwrap();
+    }
+    assert!(
+        instance
+            .state()
+            .logs
+            .iter()
+            .any(|(_, text)| text == "saved 7: 中😀 TODO")
+    );
 }
 
 #[test]

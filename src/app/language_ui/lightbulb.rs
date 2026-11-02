@@ -3,7 +3,7 @@ use super::{AppContext, AppState, Target, refactor, services, target};
 use crate::app::ui_timer;
 use crate::domain::{document::DocumentStamp, identity::PaneId};
 use crate::features::language_service::{reply, reply::CodeAction, request::Feature};
-use crate::infrastructure::lsp::manager::{CodeActionContext, RequestHandle, RequestSpec};
+use crate::features::providers::{CodeActionContext, RequestHandle, RequestSpec};
 use std::{ops::Range, sync::Arc, time::Duration};
 
 #[derive(Clone, PartialEq, Eq)]

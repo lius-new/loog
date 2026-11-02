@@ -86,7 +86,7 @@ fn submit(
             });
             if let Some(services) = ready.services().and_then(|r| r.language_services()) {
                 for saved in published {
-                    services.saved(saved.path, saved.text);
+                    services.saved_document(saved);
                 }
             }
             done(&ready, success);

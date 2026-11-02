@@ -18,14 +18,47 @@ mod bindings {
     wasmtime::component::bindgen!({
         path: "../../wit/loom-extension",
         world: "extension",
+        additional_derives: [serde::Serialize],
     });
 }
 
+mod completion_batch;
+mod documents;
+mod processes;
+pub use bindings::loom::extension::types::DocumentSnapshot;
+pub use documents::DocumentView;
+pub use processes::ProcessControl;
+mod watches;
+pub use bindings::loom::extension::types::{
+    FileChange, FileChangeKind, FileChanged, WatchFailure, WatchRequest,
+};
+pub use watches::WatchControl;
+mod publication_budget;
+mod ui;
+pub use bindings::loom::extension::types::{
+    UiDescription, UiEvent, UiEventPayload, UiKind, UiNode, UiParent,
+};
+pub use publication_budget::{Budget as PublicationBudget, Credit as PublicationCredit};
+
+pub use bindings::loom::extension::types::ProviderConfiguration;
+pub use bindings::loom::extension::types::WorkspaceChange;
+pub use bindings::loom::extension::types::WorkspaceFileChange;
+pub use bindings::loom::extension::types::WorkspaceOperation;
 pub use bindings::loom::extension::types::{
     ApplyEditRequest, ByteRange, CommandContext, CommittedReceipt, Completion, DocumentChange,
     DocumentEdits, DocumentRef, ErrorKind as WitErrorKind, HostError, Inbound, OutputChannel,
-    ProviderKind, ProviderRequest, RootRef, RoundStatus, Selection, TaskExit, TaskOutput,
-    TaskRequest, TextEdit,
+    ProcessExit, ProcessFraming, ProcessOutput, ProcessRequest, ProcessWritable, ProviderCommand,
+    ProviderCommandCall, ProviderKind, ProviderRequest, RootRef, RoundStatus, Selection, TaskExit,
+    TaskOutput, TaskRequest, TextEdit,
+};
+pub use bindings::loom::extension::types::{
+    ColumnUnit, FileLocation, FileRange, HierarchyItem as WireHierarchyItem,
+    LanguageAnswer as WireLanguageAnswer, ProviderContext, ProviderMode,
+    WorkspaceEdit as WireWorkspaceEdit,
+};
+pub use bindings::loom::extension::types::{
+    SelectionRange as WireSelectionRange, SignatureEntry, SignatureParameter, SignatureSet,
+    TextPosition,
 };
 use bindings::loom::extension::{host, types};
 
@@ -80,8 +113,12 @@ pub use bindings::loom::extension::types::{
 pub use bindings::loom::extension::types::{FileContent, HttpResponse, StorageScope};
 
 /// An answer a provider gave, in the order it was given.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub enum Provided {
+    Language {
+        request: u64,
+        answer: WireLanguageAnswer,
+    },
     Diagnostics {
         request: u64,
         items: Vec<WireDiagnostic>,
@@ -125,7 +162,8 @@ impl Provided {
     /// The request this answers.
     pub fn request(&self) -> u64 {
         match self {
-            Self::Diagnostics { request, .. }
+            Self::Language { request, .. }
+            | Self::Diagnostics { request, .. }
             | Self::Edits { request, .. }
             | Self::Completions { request, .. }
             | Self::Hover { request, .. }
@@ -141,6 +179,7 @@ impl Provided {
 /// Findings a guest pushed for one state of a file.
 #[derive(Clone, Debug)]
 pub struct PublishedDiagnostics {
+    _credit: publication_budget::Credit,
     pub provider: String,
     pub path: String,
     pub version: u64,
@@ -210,6 +249,13 @@ pub struct StartedFileOps {
 
 /// State behind the host imports.
 pub struct HostState {
+    clock_origin: std::time::Instant,
+    timers: BTreeMap<u64, std::time::Instant>,
+    next_timer: u64,
+    processes: processes::Processes,
+    watches: watches::Watches,
+    ui: ui::Tree,
+    documents: Option<documents::Documents>,
     limits: StoreLimits,
     pending_limit: usize,
     next_operation: u64,
@@ -217,14 +263,19 @@ pub struct HostState {
     outstanding: usize,
     settings: BTreeMap<String, String>,
     provided: Vec<Provided>,
+    provided_bytes: usize,
+    provider_configurations: BTreeMap<String, ProviderConfiguration>,
     roots: Vec<RootRef>,
     next_task: u64,
     started_tasks: Vec<StartedTask>,
     started_file_ops: Vec<StartedFileOps>,
+    workspace_operations: Vec<(u64, WorkspaceOperation)>,
+    workspace_operation_bytes: usize,
     cancelled_tasks: Vec<u64>,
     live_tasks: usize,
     task_limit: usize,
     published: Vec<PublishedDiagnostics>,
+    publication_budget: publication_budget::Budget,
     /// Open save-participant requests. While any is open the instance may
     /// read but not cause side effects (design §6.5).
     save_requests: std::collections::BTreeSet<u64>,
@@ -241,6 +292,13 @@ pub struct HostState {
 }
 
 impl HostState {
+    pub fn timer_wait(&self) -> Option<Duration> {
+        let now = std::time::Instant::now();
+        self.timers
+            .values()
+            .map(|deadline| deadline.saturating_duration_since(now))
+            .min()
+    }
     /// Queue an answer for the application, within the unconsumed-answer limit.
     fn push_provided(&mut self, answer: Provided) -> Result<(), HostError> {
         if self.provided.len() >= self.pending_limit {
@@ -249,6 +307,37 @@ impl HostState {
                 "too many unconsumed provider answers",
             ));
         }
+        // Count a closed serialization without allocating it. This includes
+        // empty records and metadata but avoids Debug's per-character formatting
+        // on large interactive answers. Stop at the same shared byte budget.
+        struct Counter {
+            bytes: usize,
+            remaining: usize,
+        }
+        impl std::io::Write for Counter {
+            fn write(&mut self, value: &[u8]) -> std::io::Result<usize> {
+                if value.len() > self.remaining {
+                    return Err(std::io::Error::other("provider answer budget exceeded"));
+                }
+                self.bytes += value.len();
+                self.remaining -= value.len();
+                Ok(value.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut count = Counter {
+            bytes: 0,
+            remaining: (32 * 1024 * 1024usize).saturating_sub(self.provided_bytes),
+        };
+        if serde_json::to_writer(&mut count, &answer).is_err() {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "unconsumed provider answer budget exceeded",
+            ));
+        }
+        self.provided_bytes += count.bytes;
         self.provided.push(answer);
         Ok(())
     }
@@ -323,6 +412,9 @@ impl HostState {
 
     fn new(limits: &Limits) -> Self {
         Self {
+            clock_origin: std::time::Instant::now(),
+            timers: BTreeMap::new(),
+            next_timer: 1,
             limits: StoreLimitsBuilder::new()
                 .memory_size(limits.memory_bytes)
                 .instances(limits.instances)
@@ -336,14 +428,23 @@ impl HostState {
             outstanding: 0,
             settings: BTreeMap::new(),
             provided: Vec::new(),
+            provided_bytes: 0,
+            provider_configurations: BTreeMap::new(),
             roots: Vec::new(),
             next_task: 1,
+            processes: Default::default(),
+            watches: Default::default(),
+            ui: Default::default(),
+            documents: None,
             started_tasks: Vec::new(),
             started_file_ops: Vec::new(),
+            workspace_operations: Vec::new(),
+            workspace_operation_bytes: 0,
             cancelled_tasks: Vec::new(),
             live_tasks: 0,
             task_limit: limits.tasks,
             published: Vec::new(),
+            publication_budget: Default::default(),
             save_requests: std::collections::BTreeSet::new(),
             storage: None,
             files: None,
@@ -367,6 +468,33 @@ fn host_error(kind: ErrorKind, message: &str) -> HostError {
     }
 }
 
+fn validate_launch(
+    program: &str,
+    args: &[String],
+    cwd: Option<&str>,
+    env: &[(String, String)],
+) -> Result<(), HostError> {
+    if program.is_empty()
+        || program.len() > 1024
+        || program.contains('\0')
+        || args.len() > 128
+        || args
+            .iter()
+            .any(|arg| arg.len() > 8192 || arg.contains('\0'))
+        || cwd.is_some_and(|cwd| cwd.len() > 4096 || cwd.contains('\0'))
+        || env.len() > 32
+        || env.iter().any(|(key, value)| {
+            key.len() > 64 || key.contains('\0') || value.len() > 1024 || value.contains('\0')
+        })
+    {
+        return Err(host_error(
+            ErrorKind::LimitExceeded,
+            "process launch fields exceed their budget",
+        ));
+    }
+    Ok(())
+}
+
 fn wit_kind(kind: ErrorKind) -> WitErrorKind {
     match kind {
         ErrorKind::UnsupportedApi => WitErrorKind::UnsupportedApi,
@@ -385,6 +513,196 @@ fn wit_kind(kind: ErrorKind) -> WitErrorKind {
 impl types::Host for HostState {}
 
 impl host::Host for HostState {
+    fn monotonic_nanoseconds(&mut self) -> u64 {
+        self.clock_origin.elapsed().as_nanos().min(u64::MAX as u128) as u64
+    }
+    fn timer_start(&mut self, milliseconds: u32) -> Result<u64, HostError> {
+        if self.timers.len() >= 64 || milliseconds > 86_400_000 {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "timer budget exceeded",
+            ));
+        }
+        let timer = self.next_timer;
+        self.next_timer += 1;
+        self.timers.insert(
+            timer,
+            std::time::Instant::now() + Duration::from_millis(milliseconds as u64),
+        );
+        Ok(timer)
+    }
+
+    fn timer_cancel(&mut self, timer: u64) {
+        self.timers.remove(&timer);
+    }
+    fn perform_workspace_operation(
+        &mut self,
+        request: WorkspaceOperation,
+    ) -> Result<u64, HostError> {
+        self.unrestricted("workspace operations")?;
+        if self.outstanding >= self.pending_limit {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "too many pending operations",
+            ));
+        }
+        // Limit recursively nested strings and edits before retaining the request.
+        let size = match &request {
+            WorkspaceOperation::ShowDocument(location) => location.path.len(),
+            WorkspaceOperation::Edit(request) => {
+                if request.title.len() > 4096 || request.edit.changes.len() > 1024 {
+                    return Err(host_error(
+                        ErrorKind::LimitExceeded,
+                        "workspace edit budget exceeded",
+                    ));
+                }
+                request.title.len()
+                    + request
+                        .edit
+                        .changes
+                        .iter()
+                        .map(|change| match change {
+                            WorkspaceChange::Text(d) => {
+                                d.path.len()
+                                    + d.edits
+                                        .iter()
+                                        .map(|e| e.text.len().saturating_add(128))
+                                        .sum::<usize>()
+                            }
+                            WorkspaceChange::Create(op) => op.path.len(),
+                            WorkspaceChange::Rename(op) => op.source.len() + op.target.len(),
+                            WorkspaceChange::Delete(op) => op.path.len(),
+                        })
+                        .sum::<usize>()
+            }
+        };
+        if size.saturating_add(self.workspace_operation_bytes) > 8 * 1024 * 1024
+            || self
+                .workspace_operations
+                .iter()
+                .map(|(_, op)| match op {
+                    WorkspaceOperation::Edit(r) => r.edit.changes.len(),
+                    _ => 1,
+                })
+                .sum::<usize>()
+                > 1024
+        {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "workspace operation budget exceeded",
+            ));
+        }
+        self.workspace_operation_bytes += size;
+        let operation = self.next_operation;
+        self.next_operation += 1;
+        self.outstanding += 1;
+        self.workspace_operations.push((operation, request));
+        Ok(operation)
+    }
+    fn configure_provider(
+        &mut self,
+        configuration: ProviderConfiguration,
+    ) -> Result<(), HostError> {
+        self.unrestricted("configuring providers")?;
+        if configuration.provider.len() > 128
+            || configuration
+                .modes
+                .as_ref()
+                .is_some_and(|modes| modes.len() > 16)
+            || configuration.provider.is_empty()
+            || configuration.triggers.len() > 64
+            || configuration.retriggers.len() > 64
+            || configuration.commands.len() > 256
+            || configuration.aliases.len() > 32
+            || configuration
+                .triggers
+                .iter()
+                .chain(&configuration.retriggers)
+                .any(|s| s.is_empty() || s.len() > 32)
+            || configuration
+                .commands
+                .iter()
+                .chain(&configuration.aliases)
+                .any(|s| s.is_empty() || s.len() > 256)
+            || (!self
+                .provider_configurations
+                .contains_key(&configuration.provider)
+                && self.provider_configurations.len() >= 64)
+        {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "provider configuration budget exceeded",
+            ));
+        }
+        self.provider_configurations
+            .insert(configuration.provider.clone(), configuration);
+        Ok(())
+    }
+    fn provide_language(
+        &mut self,
+        request: u64,
+        answer: WireLanguageAnswer,
+    ) -> Result<(), HostError> {
+        self.push_provided(Provided::Language { request, answer })
+    }
+    fn capture_document(&mut self, document: u64) -> Result<DocumentSnapshot, HostError> {
+        let documents = self.documents.as_mut().ok_or_else(|| {
+            host_error(
+                ErrorKind::PermissionDenied,
+                "document reading is not granted",
+            )
+        })?;
+        let (snapshot, text) = documents.capture(document)?;
+        self.snapshots.insert(snapshot.snapshot, text);
+        Ok(snapshot)
+    }
+    fn ui_create(
+        &mut self,
+        parent: UiParent,
+        description: UiDescription,
+    ) -> Result<u64, HostError> {
+        self.unrestricted("creating UI nodes")?;
+        self.ui.create(parent, description)
+    }
+    fn ui_update(&mut self, node: u64, description: UiDescription) -> Result<(), HostError> {
+        self.unrestricted("updating UI nodes")?;
+        self.ui.update(node, description)
+    }
+    fn ui_remove(&mut self, node: u64) -> Result<(), HostError> {
+        self.unrestricted("removing UI nodes")?;
+        self.ui.remove(node)
+    }
+    fn watch_files(&mut self, request: WatchRequest) -> Result<u64, HostError> {
+        self.unrestricted("registering a file watch")?;
+        self.watches.start(request)
+    }
+    fn unwatch_files(&mut self, watch: u64) {
+        self.watches.stop(watch);
+    }
+    fn process_spawn(&mut self, request: ProcessRequest) -> Result<u64, HostError> {
+        self.unrestricted("starting a process")?;
+        validate_launch(
+            &request.program,
+            &request.args,
+            request.cwd.as_deref(),
+            &request.env,
+        )?;
+        self.processes.spawn(request, self.task_limit)
+    }
+    fn process_write(&mut self, process: u64, bytes: Vec<u8>) -> Result<u32, HostError> {
+        self.unrestricted("writing a process")?;
+        self.processes.write(process, bytes)
+    }
+    fn process_close_stdin(&mut self, process: u64) -> Result<(), HostError> {
+        self.unrestricted("closing process input")?;
+        self.processes.close(process)
+    }
+    fn process_write_text(&mut self, process: u64, text: String) -> Result<u32, HostError> {
+        self.process_write(process, text.into_bytes())
+    }
+    fn process_kill(&mut self, process: u64) {
+        self.processes.kill(process);
+    }
     fn read_range(&mut self, snapshot: u64, range: ByteRange) -> Result<String, HostError> {
         let text = self
             .snapshots
@@ -405,6 +723,9 @@ impl host::Host for HostState {
     }
 
     fn release_snapshot(&mut self, snapshot: u64) {
+        if let Some(documents) = &mut self.documents {
+            documents.release(snapshot);
+        }
         self.snapshots.remove(&snapshot);
     }
 
@@ -440,14 +761,7 @@ impl host::Host for HostState {
         request: u64,
         items: Vec<WireDiagnostic>,
     ) -> Result<(), HostError> {
-        if self.provided.len() >= self.pending_limit {
-            return Err(host_error(
-                ErrorKind::LimitExceeded,
-                "too many unconsumed provider answers",
-            ));
-        }
-        self.provided.push(Provided::Diagnostics { request, items });
-        Ok(())
+        self.push_provided(Provided::Diagnostics { request, items })
     }
 
     fn provide_completions(
@@ -456,18 +770,22 @@ impl host::Host for HostState {
         items: Vec<WireCompletionItem>,
         incomplete: bool,
     ) -> Result<(), HostError> {
-        if self.provided.len() >= self.pending_limit {
-            return Err(host_error(
-                ErrorKind::LimitExceeded,
-                "too many unconsumed provider answers",
-            ));
-        }
-        self.provided.push(Provided::Completions {
+        self.push_provided(Provided::Completions {
             request,
             items,
             incomplete,
-        });
-        Ok(())
+        })
+    }
+
+    fn provide_completion_batch(
+        &mut self,
+        request: u64,
+        items: Vec<u8>,
+        incomplete: bool,
+    ) -> Result<(), HostError> {
+        let json = std::str::from_utf8(&items)
+            .map_err(|_| host_error(ErrorKind::InvalidEdit, "completion batch is not UTF-8"))?;
+        self.provide_completions(request, completion_batch::decode(json)?, incomplete)
     }
 
     fn provide_hover(&mut self, request: u64, answer: Option<WireHover>) -> Result<(), HostError> {
@@ -511,15 +829,9 @@ impl host::Host for HostState {
     }
 
     fn provide_edits(&mut self, request: u64, edits: Vec<TextEdit>) -> Result<(), HostError> {
-        if self.provided.len() >= self.pending_limit {
-            return Err(host_error(
-                ErrorKind::LimitExceeded,
-                "too many unconsumed provider answers",
-            ));
-        }
+        self.push_provided(Provided::Edits { request, edits })?;
         // Answering ends the restriction of a save request.
         self.save_requests.remove(&request);
-        self.provided.push(Provided::Edits { request, edits });
         Ok(())
     }
 
@@ -640,6 +952,12 @@ impl host::Host for HostState {
 
     fn task_start(&mut self, request: TaskRequest) -> Result<u64, HostError> {
         self.unrestricted("starting a task")?;
+        validate_launch(
+            &request.program,
+            &request.args,
+            request.cwd.as_deref(),
+            &request.env,
+        )?;
         if self.live_tasks >= self.task_limit {
             return Err(host_error(
                 ErrorKind::LimitExceeded,
@@ -671,7 +989,29 @@ impl host::Host for HostState {
                 "too many unconsumed diagnostics",
             ));
         }
+        if provider.len() > 128 || path.len() > 32768 {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "diagnostic identity budget exceeded",
+            ));
+        }
+        let bytes = items
+            .iter()
+            .fold(provider.len().saturating_add(path.len()), |bytes, item| {
+                bytes
+                    .saturating_add(std::mem::size_of_val(item))
+                    .saturating_add(item.message.len())
+                    .saturating_add(item.source.as_ref().map_or(0, String::len))
+                    .saturating_add(item.code.as_ref().map_or(0, String::len))
+            });
+        let credit = self.publication_budget.reserve(bytes).ok_or_else(|| {
+            host_error(
+                ErrorKind::LimitExceeded,
+                "unconsumed diagnostic publication budget exceeded",
+            )
+        })?;
         self.published.push(PublishedDiagnostics {
+            _credit: credit,
             provider,
             path,
             version,
@@ -690,7 +1030,11 @@ impl host::Host for HostState {
 
     fn log(&mut self, level: u8, message: String) {
         if self.logs.len() < 256 {
-            self.logs.push((level, message));
+            let mut end = message.len().min(4096);
+            while !message.is_char_boundary(end) {
+                end -= 1;
+            }
+            self.logs.push((level, message[..end].to_owned()));
         }
     }
 }
@@ -889,11 +1233,32 @@ pub struct Instance {
 }
 
 impl Instance {
+    /// Remove due timers before dispatch so callbacks may schedule replacements.
+    pub fn poll_timers(&mut self) -> (Vec<Inbound>, Option<Duration>) {
+        let now = std::time::Instant::now();
+        let state = self.store.data_mut();
+        let due: Vec<_> = state
+            .timers
+            .iter()
+            .filter(|(_, deadline)| **deadline <= now)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &due {
+            state.timers.remove(id);
+        }
+        let wait = state
+            .timers
+            .values()
+            .map(|deadline| deadline.saturating_duration_since(now))
+            .min();
+        (due.into_iter().map(Inbound::TimerElapsed).collect(), wait)
+    }
     /// Deliver `batch` and advance the guest by one bounded round.
     ///
     /// A trap fails the instance; the caller must discard it (no automatic
     /// resume), keeping committed operations as the real receipts.
     pub fn dispatch(&mut self, batch: &[Inbound]) -> RoundResult {
+        self.store.data_mut().ui.begin_round();
         self.store.set_epoch_deadline(self.limits.round_ticks);
         let result = self
             .bindings
@@ -920,6 +1285,36 @@ impl Instance {
     /// Provide snapshot text readable through `read-range`.
     pub fn put_snapshot(&mut self, token: u64, text: impl Into<Arc<String>>) {
         self.store.data_mut().snapshots.insert(token, text.into());
+    }
+    pub fn end_provider(&mut self, request: u64, token: u64) {
+        self.store.data_mut().save_requests.remove(&request);
+        self.store.data_mut().snapshots.remove(&token);
+    }
+    pub fn saved_snapshot(
+        &mut self,
+        reference: DocumentRef,
+        text: Arc<String>,
+    ) -> Result<DocumentSnapshot, HostError> {
+        let state = self.store.data_mut();
+        let documents = state.documents.as_mut().ok_or_else(|| {
+            host_error(
+                ErrorKind::PermissionDenied,
+                "document reading is not granted",
+            )
+        })?;
+        let (snapshot, text) = documents.capture_text(reference, text)?;
+        state.snapshots.insert(snapshot.snapshot, text);
+        Ok(snapshot)
+    }
+    /// Installed only for instances authorized to read documents. `None` text
+    /// keeps metadata while enforcing the host's large-document policy.
+    pub fn put_documents(&mut self, changed: Vec<DocumentView>, closed: &[u64]) {
+        let documents = self
+            .store
+            .data_mut()
+            .documents
+            .get_or_insert_with(Default::default);
+        documents.update(changed, closed);
     }
 
     /// A save-participant request is about to be delivered: restrict side effects.
@@ -985,6 +1380,28 @@ impl Instance {
         std::mem::take(&mut self.store.data_mut().started_tasks)
     }
 
+    pub fn take_process_controls(&mut self) -> Vec<ProcessControl> {
+        self.store.data_mut().processes.take()
+    }
+    pub fn take_watch_controls(&mut self) -> Vec<WatchControl> {
+        self.store.data_mut().watches.take()
+    }
+    pub fn take_ui_snapshot(&mut self) -> Option<Vec<UiNode>> {
+        self.store.data_mut().ui.take()
+    }
+    pub fn ui_dirty(&self) -> bool {
+        self.store.data().ui.dirty()
+    }
+    pub fn watch_ended(&mut self, watch: u64) {
+        self.store.data_mut().watches.ended(watch);
+    }
+    pub fn process_ended(&mut self, process: u64) {
+        self.store.data_mut().processes.ended(process);
+    }
+    pub fn process_writable(&mut self, process: u64, bytes: usize) {
+        self.store.data_mut().processes.writable(process, bytes);
+    }
+
     pub fn take_cancelled_tasks(&mut self) -> Vec<u64> {
         std::mem::take(&mut self.store.data_mut().cancelled_tasks)
     }
@@ -1001,7 +1418,17 @@ impl Instance {
 
     /// Provider answers since the last call, in the order given.
     pub fn take_provided(&mut self) -> Vec<Provided> {
+        self.store.data_mut().provided_bytes = 0;
         std::mem::take(&mut self.store.data_mut().provided)
+    }
+    pub fn take_provider_configurations(&mut self) -> Vec<ProviderConfiguration> {
+        std::mem::take(&mut self.store.data_mut().provider_configurations)
+            .into_values()
+            .collect()
+    }
+    pub fn take_workspace_operations(&mut self) -> Vec<(u64, WorkspaceOperation)> {
+        self.store.data_mut().workspace_operation_bytes = 0;
+        std::mem::take(&mut self.store.data_mut().workspace_operations)
     }
 
     /// Edits accepted since the last call, in acceptance order.
@@ -1017,5 +1444,62 @@ impl Instance {
 
     pub fn take_logs(&mut self) -> Vec<(u8, String)> {
         std::mem::take(&mut self.store.data_mut().logs)
+    }
+}
+
+#[cfg(test)]
+mod timer_tests {
+    use super::*;
+    #[test]
+    fn answer_budget_counts_empty_records_and_rejection_keeps_prior_credit() {
+        let mut state = HostState::new(&Limits::default());
+        state
+            .push_provided(Provided::Hover {
+                request: 1,
+                answer: Some(WireHover {
+                    contents: "small".into(),
+                    range: None,
+                }),
+            })
+            .unwrap();
+        let before = state.provided_bytes;
+        let error =
+            host::Host::provide_completion_batch(&mut state, 2, vec![0xff], false).unwrap_err();
+        assert!(matches!(error.kind, WitErrorKind::InvalidEdit));
+        assert_eq!(state.provided_bytes, before);
+        assert_eq!(state.provided.len(), 1);
+        let json = format!("[{}]", vec![r#"{"label":""}"#; 100000].join(","));
+        let items = completion_batch::decode(&json).unwrap();
+        let error = state
+            .push_provided(Provided::Completions {
+                request: 2,
+                items,
+                incomplete: false,
+            })
+            .unwrap_err();
+        assert!(matches!(error.kind, WitErrorKind::LimitExceeded));
+        assert_eq!(state.provided_bytes, before);
+        assert_eq!(state.provided.len(), 1);
+    }
+    #[test]
+    fn text_writes_preserve_the_existing_save_participant_restriction() {
+        let mut state = HostState::new(&Limits::default());
+        state.save_requests.insert(7);
+        let error = host::Host::process_write_text(&mut state, 99, "中😀".into()).unwrap_err();
+        assert!(matches!(error.kind, WitErrorKind::PermissionDenied));
+    }
+    #[test]
+    fn timers_are_bounded_cancellable_and_instance_owned() {
+        let mut state = HostState::new(&Limits::default());
+        let before = host::Host::monotonic_nanoseconds(&mut state);
+        let first = host::Host::timer_start(&mut state, 0).unwrap();
+        for _ in 1..64 {
+            host::Host::timer_start(&mut state, 1000).unwrap();
+        }
+        assert!(host::Host::timer_start(&mut state, 0).is_err());
+        host::Host::timer_cancel(&mut state, first);
+        assert!(host::Host::timer_start(&mut state, 0).is_ok());
+        assert!(host::Host::timer_start(&mut state, 86_400_001).is_err());
+        assert!(host::Host::monotonic_nanoseconds(&mut state) >= before);
     }
 }

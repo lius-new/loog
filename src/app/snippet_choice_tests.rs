@@ -43,8 +43,16 @@ fn received_snippet(source: &str, accept_on: &str) -> ChoiceHarness {
             file.0.to_str().unwrap(),
         ],
         |app| {
-            app.preferences.values_mut().lsp.completion.accept_on = accept_on.into();
-            app.preferences.values_mut().lsp.completion.words_fallback = false;
+            app.preferences
+                .values_mut()
+                .language_features
+                .completion
+                .accept_on = accept_on.into();
+            app.preferences
+                .values_mut()
+                .language_features
+                .completion
+                .words_fallback = false;
         },
     );
     h.until_ready();

@@ -8,7 +8,7 @@ use crate::domain::identity::PaneId;
 use crate::features::language_service::position::LineIndex;
 use crate::features::language_service::reply;
 use crate::features::language_service::request::Feature;
-use crate::infrastructure::lsp::manager::{RequestHandle, RequestSpec};
+use crate::features::providers::{RequestHandle, RequestSpec};
 use crate::ui::editor::hints::Hint;
 use std::sync::Arc;
 use std::time::Duration;
@@ -69,7 +69,7 @@ impl Inlay {
 
 /// Runs after every update.
 pub fn observe(ctx: &AppContext, app: &mut AppState) {
-    if !app.preferences.values().lsp.inlay_hints {
+    if !app.preferences.values().language_features.inlay_hints {
         app.editor.language.inlay = Inlay::default();
         return;
     }
@@ -82,14 +82,10 @@ pub fn observe(ctx: &AppContext, app: &mut AppState) {
     let mut providers = services(ctx)
         .map(|services| {
             services
-                .infos()
+                .capability_sources(Some(&t.path))
                 .into_iter()
-                .filter(|i| {
-                    i.status == crate::infrastructure::lsp::manager::Status::Ready
-                        && t.path.starts_with(&i.root)
-                        && i.providers.as_ref().is_some_and(|p| p.inlay_hint)
-                })
-                .map(|i| (i.id, i.run, i.registration_revision))
+                .filter(|i| i.providers.inlay_hint)
+                .map(|i| (i.id, i.run, i.revision))
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();

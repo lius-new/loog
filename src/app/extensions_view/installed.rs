@@ -47,6 +47,7 @@ fn entry(package: &Package) -> Entry {
     );
     for (title, resources) in [
         ("Themes", &c.themes),
+        ("Language identities", &c.languages),
         ("Highlight", &c.highlight),
         ("Snippets", &c.snippets),
     ] {
@@ -96,22 +97,6 @@ fn entry(package: &Package) -> Entry {
                     provider.id.clone(),
                     format!("{:?}", provider.kind),
                     provider.selector.languages.join(", "),
-                ]
-            })
-            .collect(),
-    );
-    table(
-        "Language servers",
-        "extension-code",
-        ["Identifier", "Command", "Languages"],
-        c.language_service
-            .servers
-            .iter()
-            .map(|server| {
-                [
-                    server.id.clone(),
-                    server.command.clone(),
-                    server.languages.join(", "),
                 ]
             })
             .collect(),

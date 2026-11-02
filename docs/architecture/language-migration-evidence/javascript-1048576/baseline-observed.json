@@ -1,0 +1,34 @@
+{
+  "commit": "5ff103ed69dbded3df479cb0f17133ace8de0c1b",
+  "language": "javascript",
+  "document_bytes": 1048576,
+  "profile": "release",
+  "small_document": {
+    "Completion": {
+      "count": 100,
+      "p50_ms": 15.524,
+      "p95_ms": 18.4259
+    },
+    "Hover": {
+      "count": 100,
+      "p50_ms": 1.4224999999999999,
+      "p95_ms": 1.8474
+    },
+    "Definition": {
+      "count": 100,
+      "p50_ms": 1.1776,
+      "p95_ms": 1.4845
+    }
+  },
+  "idle_memory": {
+    "resident_bytes": 18563072,
+    "private_bytes": 6623232,
+    "process_peak_resident_bytes": 29290496
+  },
+  "observed_peak_memory": {
+    "resident_bytes": 28295168,
+    "private_bytes": 15499264,
+    "process_peak_resident_bytes": 29290496
+  },
+  "exit_ms": 16.480999999999998
+}

@@ -7,7 +7,7 @@ use crate::features::language_service::diagnostics::Severity;
 use crate::features::language_service::reply::{self, HierarchyItem};
 use crate::features::language_service::request::Feature;
 use crate::features::language_service::uri;
-use crate::infrastructure::lsp::manager::{Failure, RequestHandle, RequestSpec};
+use crate::features::providers::{Failure, RequestHandle, RequestSpec};
 use std::sync::Arc;
 
 /// Which relation of a symbol to list.

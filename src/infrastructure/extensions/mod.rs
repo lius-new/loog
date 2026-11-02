@@ -4,6 +4,7 @@
 //! never waits on guest code. The application sends [`Job`]s and receives
 //! [`Event`]s through a sink; nothing UI-shaped crosses this boundary, only
 //! typed values and opaque ids (design §5, last layering rule).
+pub(crate) mod document_queue;
 pub mod documentation;
 pub mod fileops;
 pub mod http;
@@ -15,10 +16,12 @@ pub mod install;
 pub mod package;
 pub mod ports;
 // Read by the extensions page and the installer, which are built on it next.
+pub mod processes;
 #[allow(dead_code)]
 pub mod registry;
 pub mod tasks;
 pub mod trust_store;
+pub mod watches;
 
 use loom_extension_api::{ErrorKind, ExtensionError};
 use loom_extension_host::{
@@ -30,6 +33,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::JoinHandle;
 
@@ -53,6 +57,8 @@ pub struct ProviderJob {
     pub cursor: Option<usize>,
     pub trigger: Option<String>,
     pub item: Option<loom_extension_host::WireCompletionItem>,
+    pub context: Option<loom_extension_host::ProviderContext>,
+    pub timeout_ms: u64,
 }
 
 /// What the application tells an instance happened to an operation.
@@ -78,6 +84,44 @@ pub struct Run {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Job {
+    WorkspaceFiles {
+        id: String,
+        generation: u64,
+        changes: Vec<loom_extension_host::WorkspaceFileChange>,
+    },
+    DocumentSaved {
+        id: String,
+        generation: u64,
+        reference: loom_extension_host::DocumentRef,
+        text: Arc<String>,
+    },
+    CancelProvider {
+        id: String,
+        generation: u64,
+        request: u64,
+    },
+    Documents {
+        id: String,
+        generation: u64,
+        changed: Vec<loom_extension_host::DocumentView>,
+        closed: Vec<u64>,
+    },
+    DocumentEvents {
+        id: String,
+        generation: u64,
+        references: Vec<loom_extension_host::DocumentRef>,
+        messages: Vec<Inbound>,
+    },
+    DocumentBatch {
+        id: String,
+        generation: u64,
+        queue: Arc<Mutex<document_queue::Queue>>,
+    },
+    UiEvents {
+        id: String,
+        generation: u64,
+        events: UiEvents,
+    },
     Load {
         id: String,
         generation: u64,
@@ -135,6 +179,18 @@ pub enum Job {
         message: Inbound,
         ended: bool,
     },
+    Process {
+        id: String,
+        generation: u64,
+        message: Inbound,
+        credit: Option<processes::Credit>,
+    },
+    Watch {
+        id: String,
+        generation: u64,
+        message: Inbound,
+        credit: Option<watches::Credit>,
+    },
     /// New resolved setting values; `changed` lists the keys whose value differs.
     Settings {
         id: String,
@@ -156,6 +212,37 @@ pub enum Job {
 
 #[derive(Debug)]
 pub enum Event {
+    WorkspaceOperation {
+        id: String,
+        generation: u64,
+        operation: u64,
+        request: loom_extension_host::WorkspaceOperation,
+    },
+    ProviderExpired {
+        id: String,
+        generation: u64,
+        request: u64,
+    },
+    ProvidersConfigured {
+        id: String,
+        generation: u64,
+        configurations: Vec<loom_extension_host::ProviderConfiguration>,
+    },
+    UiChanged {
+        id: String,
+        generation: u64,
+        snapshot: UiMailbox,
+    },
+    WatchControls {
+        id: String,
+        generation: u64,
+        controls: Vec<loom_extension_host::WatchControl>,
+    },
+    ProcessControls {
+        id: String,
+        generation: u64,
+        controls: Vec<loom_extension_host::ProcessControl>,
+    },
     Loaded {
         id: String,
         generation: u64,
@@ -208,19 +295,25 @@ pub enum Event {
         id: String,
         level: u8,
         text: String,
+        _credit: loom_extension_host::PublicationCredit,
     },
 }
 
 pub type Sink = Box<dyn Fn(Event) + Send + 'static>;
+type DocumentQueues = HashMap<(String, u64), Arc<Mutex<document_queue::Queue>>>;
 
 pub struct Executor {
     jobs: Sender<Job>,
+    stopped: Arc<std::sync::atomic::AtomicBool>,
+    documents: Mutex<DocumentQueues>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Executor {
     pub fn spawn(sink: Sink) -> Result<Self, String> {
         let (jobs, inbox) = channel();
+        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_stopped = stopped.clone();
         let thread = std::thread::Builder::new()
             .name("loom-extensions".to_owned())
             .spawn(move || {
@@ -228,6 +321,7 @@ impl Executor {
                     return;
                 };
                 Worker {
+                    stopped: worker_stopped,
                     runtime,
                     sink,
                     instances: HashMap::new(),
@@ -238,16 +332,67 @@ impl Executor {
             .map_err(|error| format!("could not start the extension executor: {error}"))?;
         Ok(Self {
             jobs,
+            stopped,
+            documents: Mutex::new(HashMap::new()),
             thread: Some(thread),
         })
     }
 
     pub fn submit(&self, job: Job) -> bool {
-        self.jobs.send(job).is_ok()
+        if self.stopped.load(std::sync::atomic::Ordering::Acquire) {
+            return false;
+        }
+        let mut queues = self.documents.lock().unwrap();
+        let (id, generation) = match &job {
+            Job::Documents { id, generation, .. }
+            | Job::DocumentEvents { id, generation, .. }
+            | Job::DocumentSaved { id, generation, .. }
+            | Job::WorkspaceFiles { id, generation, .. } => (id.clone(), *generation),
+            Job::Load { id, .. } | Job::Stop { id } => {
+                queues.retain(|(owner, _), _| owner != id);
+                return self.jobs.send(job).is_ok();
+            }
+            Job::Shutdown => {
+                queues.clear();
+                return self.jobs.send(job).is_ok();
+            }
+            _ => return self.jobs.send(job).is_ok(),
+        };
+        let queue = queues.entry((id.clone(), generation)).or_default().clone();
+        let mut pending = queue.lock().unwrap();
+        match job {
+            Job::Documents {
+                changed, closed, ..
+            } => pending.documents(changed, closed),
+            Job::DocumentEvents {
+                references,
+                messages,
+                ..
+            } => pending.events(references, messages),
+            Job::DocumentSaved {
+                reference, text, ..
+            } => pending.saved(reference, text),
+            Job::WorkspaceFiles { changes, .. } => pending.files(changes),
+            _ => unreachable!(),
+        }
+        if pending.queued {
+            return true;
+        }
+        pending.queued = true;
+        self.jobs
+            .send(Job::DocumentBatch {
+                id,
+                generation,
+                queue: queue.clone(),
+            })
+            .is_ok()
     }
 
     /// Stop accepting work and wait for the executor to finish its queue.
     pub fn shutdown(&mut self) {
+        self.stopped
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.documents.lock().unwrap().clear();
         let _ = self.jobs.send(Job::Shutdown);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
@@ -264,9 +409,16 @@ impl Drop for Executor {
 struct Slot {
     generation: u64,
     instance: Instance,
+    ui: UiMailbox,
+    ui_published: std::time::Instant,
+    requests: HashMap<u64, (u64, std::time::Instant)>,
+    logs: loom_extension_host::PublicationBudget,
 }
+pub type UiMailbox = Arc<Mutex<Option<Vec<loom_extension_host::UiNode>>>>;
+pub type UiEvents = Arc<Mutex<Vec<loom_extension_host::UiEvent>>>;
 
 struct Worker {
+    stopped: Arc<std::sync::atomic::AtomicBool>,
     runtime: Runtime,
     sink: Sink,
     instances: HashMap<String, Slot>,
@@ -298,8 +450,88 @@ fn wit_error(error: &ExtensionError) -> HostError {
 
 impl Worker {
     fn run(mut self) {
-        while let Ok(job) = self.inbox.recv() {
+        loop {
+            if self.stopped.load(std::sync::atomic::Ordering::Acquire) {
+                break;
+            }
+            let pending = self.flush_ui();
+            let provider_wait = self
+                .expire_providers()
+                .into_iter()
+                .chain(self.poll_timers())
+                .min();
+            let wait = match (pending, provider_wait) {
+                (true, Some(wait)) => Some(wait.min(std::time::Duration::from_millis(16))),
+                (true, None) => Some(std::time::Duration::from_millis(16)),
+                (false, wait) => wait,
+            };
+            let job = if let Some(wait) = wait {
+                match self.inbox.recv_timeout(wait) {
+                    Ok(job) => job,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(_) => break,
+                }
+            } else {
+                match self.inbox.recv() {
+                    Ok(job) => job,
+                    Err(_) => break,
+                }
+            };
             match job {
+                Job::CancelProvider {
+                    id,
+                    generation,
+                    request,
+                } => {
+                    if let Some(slot) = self.slot(&id, generation)
+                        && let Some((token, _)) = slot.requests.remove(&request)
+                    {
+                        slot.instance.end_provider(request, token);
+                    }
+                    self.deliver(&id, generation, vec![Inbound::ProviderCancelled(request)]);
+                }
+                Job::Documents { .. }
+                | Job::DocumentEvents { .. }
+                | Job::DocumentSaved { .. }
+                | Job::WorkspaceFiles { .. } => unreachable!("document jobs must pass the outbox"),
+                Job::DocumentBatch {
+                    id,
+                    generation,
+                    queue,
+                } => {
+                    let batch = queue.lock().unwrap().drain();
+                    if batch.port
+                        && let Some(slot) = self.slot(&id, generation)
+                    {
+                        slot.instance.put_documents(batch.views, &batch.closed);
+                    }
+                    let mut messages = batch.events;
+                    if !batch.files.is_empty() {
+                        messages.push(Inbound::WorkspaceFilesChanged(batch.files));
+                    }
+                    if let Some(slot) = self.slot(&id, generation) {
+                        for (reference, text) in batch.saved {
+                            match slot.instance.saved_snapshot(reference, text) {
+                                Ok(snapshot) => messages.push(Inbound::DocumentSaved(snapshot)),
+                                Err(error) => {
+                                    slot.instance.state_mut().logs.push((1, error.message))
+                                }
+                            }
+                        }
+                    }
+                    self.deliver(&id, generation, messages);
+                }
+                Job::UiEvents {
+                    id,
+                    generation,
+                    events,
+                } => {
+                    let messages = std::mem::take(&mut *events.lock().unwrap())
+                        .into_iter()
+                        .map(Inbound::UiEvent)
+                        .collect();
+                    self.deliver(&id, generation, messages);
+                }
                 Job::Shutdown => break,
                 Job::Load {
                     id,
@@ -380,6 +612,14 @@ impl Worker {
                     job,
                 } => {
                     let job = *job;
+                    if job.timeout_ms == 0 {
+                        (self.sink)(Event::ProviderExpired {
+                            id,
+                            generation,
+                            request: job.request,
+                        });
+                        continue;
+                    }
                     let message = Inbound::ProviderRequest(ProviderRequest {
                         request: job.request,
                         provider: job.provider,
@@ -395,8 +635,17 @@ impl Worker {
                         cursor: job.cursor.map(|cursor| cursor as u64),
                         trigger: job.trigger,
                         item: job.item,
+                        context: job.context,
                     });
                     if let Some(slot) = self.slot(&id, generation) {
+                        slot.requests.insert(
+                            job.request,
+                            (
+                                job.token,
+                                std::time::Instant::now()
+                                    + std::time::Duration::from_millis(job.timeout_ms),
+                            ),
+                        );
                         slot.instance.put_snapshot(job.token, job.text);
                         if matches!(job.kind, ProviderKind::Save) {
                             slot.instance.begin_save(job.request);
@@ -410,8 +659,13 @@ impl Worker {
                     request,
                 } => {
                     if let Some(slot) = self.slot(&id, generation) {
-                        slot.instance.end_save(request);
+                        if let Some((token, _)) = slot.requests.remove(&request) {
+                            slot.instance.end_provider(request, token);
+                        } else {
+                            slot.instance.end_save(request);
+                        }
                     }
+                    self.deliver(&id, generation, vec![Inbound::ProviderCancelled(request)]);
                 }
                 Job::Roots {
                     id,
@@ -419,9 +673,47 @@ impl Worker {
                     roots,
                     workspace_key,
                 } => {
+                    let message = Inbound::RootsChanged(
+                        roots.iter().map(|(root, _, _)| root.clone()).collect(),
+                    );
                     if let Some(slot) = self.slot(&id, generation) {
                         slot.instance.put_root_details(roots, workspace_key);
                     }
+                    self.deliver(&id, generation, vec![message]);
+                }
+                Job::Watch {
+                    id,
+                    generation,
+                    message,
+                    credit,
+                } => {
+                    if let Inbound::WatchFailed(failure) = &message
+                        && let Some(slot) = self.slot(&id, generation)
+                    {
+                        slot.instance.watch_ended(failure.watch);
+                    }
+                    self.deliver(&id, generation, vec![message]);
+                    drop(credit);
+                }
+                Job::Process {
+                    id,
+                    generation,
+                    message,
+                    credit,
+                } => {
+                    if let Some(slot) = self.slot(&id, generation) {
+                        match &message {
+                            Inbound::ProcessExited(exit) => {
+                                slot.instance.process_ended(exit.process)
+                            }
+                            Inbound::ProcessWritable(writable) => slot
+                                .instance
+                                .process_writable(writable.process, writable.bytes as usize),
+                            _ => {}
+                        }
+                    }
+                    self.deliver(&id, generation, vec![message]);
+                    drop(credit);
                 }
                 Job::Task {
                     id,
@@ -464,6 +756,79 @@ impl Worker {
             .get_mut(id)
             .filter(|slot| slot.generation == generation)
     }
+    fn poll_timers(&mut self) -> Option<std::time::Duration> {
+        let mut due = Vec::new();
+        for (id, slot) in &mut self.instances {
+            let (events, _) = slot.instance.poll_timers();
+            if !events.is_empty() {
+                due.push((id.clone(), slot.generation, events));
+            }
+        }
+        for (id, generation, events) in due {
+            self.deliver(&id, generation, events);
+        }
+        // A callback may have installed an earlier timer during delivery.
+        self.instances
+            .values()
+            .filter_map(|slot| slot.instance.state().timer_wait())
+            .min()
+    }
+
+    fn expire_providers(&mut self) -> Option<std::time::Duration> {
+        let now = std::time::Instant::now();
+        let mut due = Vec::new();
+        let mut next = None;
+        for (id, slot) in &mut self.instances {
+            let expired = slot
+                .requests
+                .iter()
+                .filter(|(_, (_, deadline))| *deadline <= now)
+                .map(|(request, _)| *request)
+                .collect::<Vec<_>>();
+            for request in expired {
+                let (token, _) = slot.requests.remove(&request).unwrap();
+                slot.instance.end_provider(request, token);
+                due.push((id.clone(), slot.generation, request));
+            }
+            for (_, deadline) in slot.requests.values() {
+                let wait = deadline.saturating_duration_since(now);
+                next = Some(next.map_or(wait, |before: std::time::Duration| before.min(wait)));
+            }
+        }
+        for (id, generation, request) in due {
+            (self.sink)(Event::ProviderExpired {
+                id: id.clone(),
+                generation,
+                request,
+            });
+            self.deliver(&id, generation, vec![Inbound::ProviderCancelled(request)]);
+        }
+        next
+    }
+    fn flush_ui(&mut self) -> bool {
+        let mut pending = false;
+        for (id, slot) in &mut self.instances {
+            if !slot.instance.ui_dirty() {
+                continue;
+            }
+            if slot.ui_published.elapsed() < std::time::Duration::from_millis(16) {
+                pending = true;
+                continue;
+            }
+            if let Some(nodes) = slot.instance.take_ui_snapshot() {
+                slot.ui_published = std::time::Instant::now();
+                let notify = slot.ui.lock().unwrap().replace(nodes).is_none();
+                if notify {
+                    (self.sink)(Event::UiChanged {
+                        id: id.clone(),
+                        generation: slot.generation,
+                        snapshot: slot.ui.clone(),
+                    });
+                }
+            }
+        }
+        pending
+    }
 
     fn load(
         &mut self,
@@ -502,8 +867,13 @@ impl Worker {
                 self.instances.insert(
                     id.clone(),
                     Slot {
+                        logs: Default::default(),
+                        requests: HashMap::new(),
                         generation,
                         instance,
+                        ui: Arc::default(),
+                        ui_published: std::time::Instant::now()
+                            - std::time::Duration::from_millis(16),
                     },
                 );
                 (self.sink)(Event::Loaded {
@@ -526,22 +896,80 @@ impl Worker {
     fn deliver(&mut self, id: &str, generation: u64, messages: Vec<Inbound>) {
         let mut batch = messages;
         for _ in 0..MAX_CONSECUTIVE_ROUNDS {
+            if self.stopped.load(std::sync::atomic::Ordering::Acquire) {
+                return;
+            }
             let Some(slot) = self.slot(id, generation) else {
                 return;
             };
             let status = slot.instance.dispatch(&batch);
             let accepted = slot.instance.take_accepted();
-            let logs = slot.instance.take_logs();
-            let provided = slot.instance.take_provided();
+            let logs = slot
+                .instance
+                .take_logs()
+                .into_iter()
+                .filter_map(|(level, text)| {
+                    slot.logs
+                        .reserve(text.len())
+                        .map(|credit| (level, text, credit))
+                })
+                .collect::<Vec<_>>();
+            let provided = slot
+                .instance
+                .take_provided()
+                .into_iter()
+                .filter(|answer| {
+                    if let Some((token, _)) = slot.requests.remove(&answer.request()) {
+                        slot.instance.end_provider(answer.request(), token);
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .collect::<Vec<_>>();
             let started = slot.instance.take_started_tasks();
+            let controls = slot.instance.take_process_controls();
+            let watches = slot.instance.take_watch_controls();
             let file_ops = slot.instance.take_started_file_ops();
             let cancelled = slot.instance.take_cancelled_tasks();
+            let configurations = slot.instance.take_provider_configurations();
             let published = slot.instance.take_published();
-            for (level, text) in logs {
+            let operations = slot.instance.take_workspace_operations();
+            for (operation, request) in operations {
+                (self.sink)(Event::WorkspaceOperation {
+                    id: id.to_owned(),
+                    generation,
+                    operation,
+                    request,
+                });
+            }
+            if !configurations.is_empty() {
+                (self.sink)(Event::ProvidersConfigured {
+                    id: id.to_owned(),
+                    generation,
+                    configurations,
+                });
+            }
+            if !watches.is_empty() {
+                (self.sink)(Event::WatchControls {
+                    id: id.to_owned(),
+                    generation,
+                    controls: watches,
+                });
+            }
+            if !controls.is_empty() {
+                (self.sink)(Event::ProcessControls {
+                    id: id.to_owned(),
+                    generation,
+                    controls,
+                });
+            }
+            for (level, text, credit) in logs {
                 (self.sink)(Event::Log {
                     id: id.to_owned(),
                     level,
                     text,
+                    _credit: credit,
                 });
             }
             for started in file_ops {

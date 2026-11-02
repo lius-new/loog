@@ -10,7 +10,7 @@ use crate::domain::identity::{FileId, PaneId};
 use crate::features::language_service::reply;
 use crate::features::language_service::request::Feature;
 use crate::features::language_service::uri;
-use crate::infrastructure::lsp::manager::{RequestHandle, RequestSpec};
+use crate::features::providers::{RequestHandle, RequestSpec};
 use lgui::prelude::UiRect;
 use serde_json::json;
 use std::collections::HashMap;
@@ -76,7 +76,7 @@ fn wanted(app: &AppState) -> Option<Wanted> {
     (setting.format_on_save || !setting.code_actions_on_save.is_empty()).then(|| Wanted {
         kinds: setting.code_actions_on_save.clone(),
         format: setting.format_on_save,
-        formatter: setting.formatter.clone(),
+        formatter: None,
     })
 }
 

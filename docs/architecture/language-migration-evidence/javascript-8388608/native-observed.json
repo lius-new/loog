@@ -1,0 +1,104 @@
+{
+  "language": "javascript",
+  "document_bytes": 8388608,
+  "route": "native-executor-wasm-provider-consumer",
+  "indexing_probes": 10,
+  "profile": "release",
+  "small_document": {
+    "Completion": {
+      "count": 100,
+      "p50_ms": 18.5459,
+      "p95_ms": 22.9732
+    },
+    "Hover": {
+      "count": 100,
+      "p50_ms": 1.2313,
+      "p95_ms": 1.7588000000000001
+    },
+    "Definition": {
+      "count": 100,
+      "p50_ms": 1.0338,
+      "p95_ms": 1.2734
+    }
+  },
+  "guest_cpu": [
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.3522,
+      "p95_ms": 0.8003
+    },
+    {
+      "name": "rpc:textDocument/completion",
+      "count": 100,
+      "p50_ms": 8.9873,
+      "p95_ms": 12.894
+    },
+    {
+      "name": "convert:completion",
+      "count": 100,
+      "p50_ms": 4.7136,
+      "p95_ms": 6.796599999999999
+    },
+    {
+      "name": "sdk-completion-encode",
+      "count": 100,
+      "p50_ms": 1.331,
+      "p95_ms": 2.3847
+    },
+    {
+      "name": "sdk-completion-submit",
+      "count": 100,
+      "p50_ms": 0.8736,
+      "p95_ms": 1.3715
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.3489,
+      "p95_ms": 0.517
+    },
+    {
+      "name": "rpc:textDocument/hover",
+      "count": 100,
+      "p50_ms": 0.8948,
+      "p95_ms": 1.9299
+    },
+    {
+      "name": "convert:hover",
+      "count": 100,
+      "p50_ms": 0.0195,
+      "p95_ms": 0.0312
+    },
+    {
+      "name": "json-decode",
+      "count": 100,
+      "p50_ms": 0.0214,
+      "p95_ms": 0.032
+    },
+    {
+      "name": "rpc:textDocument/definition",
+      "count": 100,
+      "p50_ms": 0.6858,
+      "p95_ms": 1.0969
+    },
+    {
+      "name": "convert:definition",
+      "count": 100,
+      "p50_ms": 0.0313,
+      "p95_ms": 0.0508
+    }
+  ],
+  "idle_memory": {
+    "resident_bytes": 180539392,
+    "private_bytes": 198500352,
+    "process_peak_resident_bytes": 225923072
+  },
+  "observed_peak_memory": {
+    "resident_bytes": 201756672,
+    "private_bytes": 237043712,
+    "process_peak_resident_bytes": 225923072
+  },
+  "restart_ms": 1972.4602,
+  "exit_ms": 14.6573
+}

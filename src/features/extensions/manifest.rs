@@ -132,6 +132,10 @@ pub struct Selector {
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Contributes {
+    /// Declarative language identities and file associations, independent of
+    /// syntax parsers and executable providers.
+    #[serde(default)]
+    pub languages: Vec<ResourceDecl>,
     #[serde(default)]
     pub commands: Vec<CommandDecl>,
     /// Color themes.
@@ -153,13 +157,10 @@ pub struct Contributes {
     pub settings: Vec<SettingDecl>,
 }
 
-/// The language service a package brings: language servers it asks Loom to run,
-/// and providers its own code answers with.
+/// Language providers answered by the package's own component.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LanguageService {
-    #[serde(default)]
-    pub servers: Vec<LanguageServerDecl>,
     #[serde(default)]
     pub providers: Vec<ProviderDecl>,
 }
@@ -198,7 +199,7 @@ pub struct CommandDecl {
     pub title: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProviderKind {
     Completion,
@@ -211,6 +212,18 @@ pub enum ProviderKind {
     DocumentSymbols,
     SignatureHelp,
     InlayHints,
+    References,
+    WorkspaceSymbols,
+    DocumentHighlights,
+    Rename,
+    FoldingRanges,
+    SelectionRanges,
+    CallHierarchy,
+    TypeHierarchy,
+    CodeLens,
+    FormatOnType,
+    ExecuteCommand,
+    Highlights,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -243,47 +256,6 @@ pub struct QueryDecl {
     pub path: String,
 }
 
-/// Declarative language server integration. Parsing never starts a program.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LanguageServerDecl {
-    pub id: String,
-    pub languages: Vec<String>,
-    pub command: String,
-    #[serde(default)]
-    pub args: Vec<String>,
-    /// File names that mark a project root (for example `Cargo.toml`).
-    pub root_markers: Vec<String>,
-    /// `nearest` (default) or `outermost`.
-    #[serde(default)]
-    pub root_strategy: Option<String>,
-    /// `workspace` (default), `file_directory` or `none`: where the server runs
-    /// when no marker is found.
-    #[serde(default)]
-    pub root_fallback: Option<String>,
-    /// Higher goes first among the servers for a language.
-    #[serde(default)]
-    pub priority: Option<i32>,
-    /// The language id the server expects for each language (and variant). Absent:
-    /// every language in `languages`, under its own name.
-    #[serde(default)]
-    pub bindings: Vec<LanguageBinding>,
-    #[serde(default)]
-    pub initialization_options: Option<serde_json::Value>,
-    /// The name shown to people.
-    #[serde(default)]
-    pub name: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LanguageBinding {
-    pub language: String,
-    #[serde(default)]
-    pub variant: Option<String>,
-    pub language_id: String,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManifestError {
     Syntax(String),
@@ -311,13 +283,6 @@ pub enum ManifestError {
     BadQuery(String),
     /// A network domain is not a plain host name pattern, or is declared without the capability.
     BadDomain(String),
-    /// The server declaration is not one the language service accepts.
-    BadLanguageServer {
-        id: String,
-        reason: String,
-    },
-    /// A server is a program the machine runs, so the package must ask for that.
-    ServerNeedsExecution(String),
     /// A display field (name, categories, license, ...) is not usable.
     BadMetadata(String),
 }
@@ -349,13 +314,6 @@ impl std::fmt::Display for ManifestError {
             Self::BadDomain(domain) => {
                 write!(f, "`{domain}` is not a valid network domain declaration")
             }
-            Self::BadLanguageServer { id, reason } => {
-                write!(f, "language server `{id}`: {reason}")
-            }
-            Self::ServerNeedsExecution(id) => write!(
-                f,
-                "language server `{id}` runs a program, so the package must declare `process.execute-local`"
-            ),
             Self::BadMetadata(problem) => write!(f, "{problem}"),
             Self::BadQuery(id) => write!(
                 f,
@@ -390,6 +348,7 @@ pub const EVENTS: &[&str] = &[
     "document.change",
     "document.close",
     "document.save",
+    "workspace.files",
     "selection.change",
     "focus.change",
     "root.change",
@@ -675,7 +634,13 @@ impl Manifest {
                 return Err(ManifestError::EmptySelector(provider.id.clone()));
             }
         }
-        for resource in c.themes.iter().chain(&c.highlight).chain(&c.snippets) {
+        for resource in c
+            .themes
+            .iter()
+            .chain(&c.highlight)
+            .chain(&c.snippets)
+            .chain(&c.languages)
+        {
             self.namespaced(&resource.id)?;
             unique(&resource.id)?;
             check_package_path(&resource.path)?;
@@ -703,30 +668,6 @@ impl Manifest {
             if !super::settings::matches_kind(&setting.default, setting.kind) {
                 return Err(ManifestError::BadSettingDefault(setting.key.clone()));
             }
-        }
-        for server in &c.language_service.servers {
-            self.namespaced(&server.id)?;
-            unique(&server.id)?;
-            if server.languages.is_empty() {
-                return Err(ManifestError::EmptySelector(server.id.clone()));
-            }
-            // Declaring a server is data, but starting it is local execution.
-            if !self
-                .capabilities
-                .iter()
-                .any(|c| c == "process.execute-local")
-            {
-                return Err(ManifestError::ServerNeedsExecution(server.id.clone()));
-            }
-            // Checked with the rules the language service itself applies, so a
-            // declaration that could never start is rejected when the package
-            // loads. Nothing is started here (design §6.6).
-            super::servers::validate(server).map_err(|reason| {
-                ManifestError::BadLanguageServer {
-                    id: server.id.clone(),
-                    reason,
-                }
-            })?;
         }
         Ok(())
     }
@@ -952,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn language_server_declarations_need_the_execution_capability() {
+    fn retired_host_server_declarations_are_rejected() {
         let source = r#"{
             "schema": 1, "id": "acme.rust", "version": "1.0.0",
             "capabilities": ["process.execute-local"],
@@ -960,17 +901,9 @@ mod tests {
                 { "id": "acme.rust.analyzer", "languages": ["rust"], "command": "rust-analyzer", "args": ["--stdio"], "root_markers": ["Cargo.toml"] }
             ] } }
         }"#;
-        let manifest = Manifest::parse(source).unwrap();
-        assert_eq!(
-            manifest.contributes.language_service.servers[0].command,
-            "rust-analyzer"
+        assert!(
+            matches!(Manifest::parse(source), Err(ManifestError::Syntax(message)) if message.contains("servers"))
         );
-        // Without the capability the declaration could never be allowed to run.
-        let without = source.replace("\"capabilities\": [\"process.execute-local\"],", "");
-        assert!(matches!(
-            Manifest::parse(&without),
-            Err(ManifestError::ServerNeedsExecution(_))
-        ));
     }
 
     const COMPLETE: &str = r##"{

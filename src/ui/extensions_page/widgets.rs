@@ -12,13 +12,16 @@ use crate::ui::theme;
 
 /// Hands out element ids that are unique within one render of the page.
 pub(super) struct Ids {
-    prefix: &'static str,
+    prefix: String,
     next: usize,
 }
 
 impl Ids {
-    pub(super) fn new(prefix: &'static str) -> Self {
-        Self { prefix, next: 0 }
+    pub(super) fn new(prefix: impl Into<String>) -> Self {
+        Self {
+            prefix: prefix.into(),
+            next: 0,
+        }
     }
 
     pub(super) fn next(&mut self) -> UiId {
@@ -300,18 +303,7 @@ pub(super) fn link(
 
 /// A rounded outline holding a short label.
 pub(super) fn chip(rect: UiRect, label: &str, style: TextStyle) -> Element {
-    theme::bordered(
-        rect,
-        theme::c().bg,
-        theme::c().border,
-        rect.height() / 2.0,
-        1.0,
-    )
-    .child(line(
-        rect,
-        label.to_owned(),
-        aligned(style, TextAlign::Center),
-    ))
+    lgui::badge(rect, label, Some(style.color))
 }
 
 pub(super) fn rule(rect: UiRect) -> Element {

@@ -476,7 +476,6 @@ fn encoding_picker_real_click_selects_without_writing_and_keyboard_can_cancel() 
         state.get().chrome.encoding.is_some(),
         "encoding click must not open the overlaid language-server panel"
     );
-    assert!(!state.get().chrome.language_panel);
     session.render_view(&view, rect, UiScale::ONE);
 
     assert!(!session.tree().nodes().iter().any(|node| {

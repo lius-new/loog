@@ -122,9 +122,8 @@ pub fn current_file_is_own_write() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::features::settings::servers::LanguageServerSetting;
     #[test]
-    fn server_settings_are_written_and_reloaded_without_losing_other_preferences() {
+    fn provider_settings_are_written_and_reloaded_without_losing_other_preferences() {
         let path = std::env::temp_dir().join(format!(
             "loom-server-settings-{}.json",
             std::time::SystemTime::now()
@@ -132,26 +131,15 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let command = if cfg!(windows) {
-            "C:/demo/server.exe"
-        } else {
-            "/opt/demo/server"
-        };
-        let original = format!(
-            r#"// user preferences
-{{
+        let original = r#"// user preferences
+{
   "smooth_caret": false,
-  "language_servers": {{"demo-user": {{"command":"{command}","args":["--stdio"],"env":{{"A":"B"}},"languages":[{{"language":"rust","language_id":"rust"}}],"root":{{"markers":["Cargo.toml"],"fallback":"file_directory"}}}}}}
-}}
-"#
-        );
-        fs::write(&path, &original).unwrap();
-        let mut settings = parse(&original).unwrap().settings;
-        settings.language_servers[0].args = Some(vec!["--changed".to_owned()]);
-        settings.language_servers.push(LanguageServerSetting {
-            server: "other-user".into(),
-            ..settings.language_servers[0].clone()
-        });
+  "languages": {"rust": {"providers":{"formatting":["example.format"]}}}
+}
+"#;
+        fs::write(&path, original).unwrap();
+        let mut settings = parse(original).unwrap().settings;
+        settings.languages.get_mut("rust").unwrap().format_on_save = true;
         save_at(&path, &settings).unwrap();
         let written = fs::read_to_string(&path).unwrap();
         assert!(written.starts_with("// user preferences"));

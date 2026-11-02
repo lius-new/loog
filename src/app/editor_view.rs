@@ -508,12 +508,8 @@ pub(crate) fn binding(
                             .and_then(|s| s.results(&t.path, &t.stamp).diagnostics)
                     })
                     .is_some_and(|ds| {
-                        ds.iter().any(|d| {
-                            d.extra
-                                .pointer("/codeDescription/href")
-                                .and_then(serde_json::Value::as_str)
-                                == Some(url.as_str())
-                        })
+                        ds.iter()
+                            .any(|d| d.documentation_url.as_deref() == Some(url.as_str()))
                     });
                 if valid
                     && (url.starts_with("https://") || url.starts_with("http://"))
@@ -641,7 +637,7 @@ pub(crate) fn binding(
                     .get()
                     .preferences
                     .values()
-                    .lsp
+                    .language_features
                     .semantic_highlighting
                     == "combined"
                     && let Some(semantic) = syntax_state

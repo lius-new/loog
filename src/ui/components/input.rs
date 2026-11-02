@@ -22,6 +22,7 @@ const CURSOR_MARGIN: f32 = 8.0;
 
 #[derive(Clone)]
 pub struct InputState {
+    portable: lgui::TextInputModel,
     buffer: TextBuffer,
     pub(super) selection: Selection,
     pub focused: bool,
@@ -43,6 +44,7 @@ impl InputState {
         let buffer = TextBuffer::new(value);
         let selection = Selection::caret(buffer.text().len());
         Self {
+            portable: lgui::TextInputModel::new(buffer.text()),
             buffer,
             selection,
             focused: false,
@@ -161,6 +163,114 @@ pub struct AccessInputOptions {
     pub on_submit: Option<Arc<dyn Fn() + Send + Sync>>,
     pub on_cancel: Option<Arc<dyn Fn() + Send + Sync>>,
     pub on_blur: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+/// Keep Loom's projected state and actions while LGUI owns text editing/rendering.
+pub fn render_portable<T: Clone + Send + 'static>(
+    rect: UiRect,
+    id: UiId,
+    _focus: UiFocusHandle,
+    binding: InputBinding<T>,
+    options: AccessInputOptions,
+    multiline: bool,
+) -> Element {
+    let reader = binding.clone();
+    let writer = binding;
+    let value = lgui::WidgetValue::new(
+        move || {
+            let input = reader.get();
+            let mut model = input.portable.clone();
+            if model.text != input.text() {
+                model = lgui::TextInputModel::new(input.text());
+            }
+            model.select(
+                input.selection.anchor.unwrap_or(input.selection.cursor),
+                input.selection.cursor,
+            );
+            model.focused = input.focused;
+            model.scroll = lgui::core::Point::new(input.scroll_x, input.scroll_y);
+            model.preedit = input.preedit;
+            model.preedit_cursor = input.preedit_cursor;
+            model
+        },
+        move |model| {
+            writer.update(|input| {
+                if input.text() != model.text {
+                    input.buffer = TextBuffer::new(model.text.clone());
+                }
+                input.selection = Selection::caret(model.cursor);
+                if model.anchor != model.cursor {
+                    input.selection.anchor = Some(model.anchor);
+                }
+                input.focused = model.focused;
+                input.scroll_x = model.scroll.x;
+                input.scroll_y = model.scroll.y;
+                input.preedit = model.preedit.clone();
+                input.preedit_cursor = model.preedit_cursor.clone();
+                input.portable = model;
+            })
+        },
+    );
+    let label = options.label;
+    let placeholder = options.placeholder;
+    let style = options.style;
+    let submit = options.on_submit;
+    let cancel = options.on_cancel;
+    let blur = options.on_blur;
+    Element::new(move |cx| {
+        let clipboard = cx
+            .try_use_context::<lgui::application::ApplicationContext>()
+            .map(|app| app.clipboard());
+        let read = clipboard.clone();
+        let write = clipboard;
+        let clipboard = lgui::TextClipboard {
+            read: read.map(|port| {
+                Arc::new(move || port.read_text().ok().flatten().unwrap_or_default())
+                    as Arc<dyn Fn() -> String + Send + Sync>
+            }),
+            write: write.map(|port| {
+                Arc::new(move |text: String| {
+                    let _ = port.write_text(&text);
+                }) as Arc<dyn Fn(String) + Send + Sync>
+            }),
+        };
+        let input = lgui::text_input(rect, value)
+            .id(id)
+            .label(label)
+            .multiline(multiline)
+            .placeholder(placeholder)
+            .clipboard(clipboard)
+            .style(VisualStyle::default(), style.text);
+        cx.compile(
+            Element::from(input)
+                .on_event_capture(lgui::core::UiEventKind::KeyDown, move |cx, payload| {
+                    let lgui::core::UiEventPayload::Keyboard { event } = payload else {
+                        return;
+                    };
+                    let action = match event.key {
+                        lgui::core::LogicalKey::Named(lgui::core::NamedKey::Enter)
+                            if !multiline =>
+                        {
+                            submit.as_ref()
+                        }
+                        lgui::core::LogicalKey::Named(lgui::core::NamedKey::Escape) => {
+                            cancel.as_ref()
+                        }
+                        _ => None,
+                    };
+                    if let Some(action) = action {
+                        action();
+                        cx.prevent_default();
+                        cx.stop_propagation();
+                    }
+                })
+                .on_blur(move |_| {
+                    if let Some(action) = &blur {
+                        action();
+                    }
+                }),
+        )
+    })
 }
 
 pub fn render<T>(
@@ -530,6 +640,104 @@ mod tests {
 
     fn write(state: &mut Harness) -> &mut InputState {
         &mut state.input
+    }
+
+    #[test]
+    fn portable_control_maps_native_unicode_hits_and_preedit_to_byte_state() {
+        let exposed = Arc::new(Mutex::new(None::<State<Harness>>));
+        let observed = exposed.clone();
+        let view: AppView = Arc::new(move |cx| {
+            let state = cx.state_with(|| Harness {
+                input: InputState::new("a👩‍💻中"),
+            });
+            *observed.lock().unwrap() = Some(state.clone());
+            let id = cx.use_stable_id();
+            let focus = cx.focus_handle(id.clone());
+            render_portable(
+                cx.viewport(),
+                id,
+                focus,
+                InputBinding::new(state, read, write),
+                AccessInputOptions {
+                    label: "Portable text",
+                    placeholder: "",
+                    style: InputStyle {
+                        text: TextStyle::new(Color::WHITE, 14.0, 400),
+                        placeholder: TextStyle::new(Color::WHITE, 14.0, 400),
+                        caret: Color::WHITE,
+                        selection: Color::WHITE,
+                    },
+                    on_submit: None,
+                    on_cancel: None,
+                    on_blur: None,
+                },
+                false,
+            )
+        });
+        let application = ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &application,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let viewport = UiRect::new(0.0, 0.0, 360.0, 36.0);
+        let mut session = UiSession::new();
+        session.render_view(&view, viewport, UiScale::ONE);
+        let text = session
+            .tree()
+            .nodes()
+            .iter()
+            .find(|n| n.text.as_deref() == Some("a👩‍💻中"))
+            .unwrap();
+        let layout = lgui::text::layout(&lgui::text::TextLayoutRequest::for_style(
+            "a👩‍💻中",
+            text.layout_rect,
+            &text.text_style.unwrap(),
+        ))
+        .unwrap();
+        let caret = layout.caret_rect(4).unwrap();
+        send(
+            &mut session,
+            &application,
+            &view,
+            viewport,
+            InputEvent::PointerDown {
+                pointer: PointerData::mouse(Point::new(
+                    caret.left + 0.1,
+                    (caret.top + caret.bottom) / 2.0,
+                )),
+                button: PointerButton::Left,
+            },
+        );
+        let state = exposed.lock().unwrap().clone().unwrap();
+        assert_eq!(state.get().input.selection.cursor, "a👩‍💻".len());
+        send(
+            &mut session,
+            &application,
+            &view,
+            viewport,
+            InputEvent::Ime(ImeEvent::Preedit {
+                text: "文".into(),
+                cursor: Some(0..3),
+            }),
+        );
+        assert_eq!(state.get().input.text(), "a👩‍💻中");
+        assert!(
+            session
+                .tree()
+                .nodes()
+                .iter()
+                .any(|n| n.text.as_deref() == Some("a👩‍💻文中"))
+        );
+        send(
+            &mut session,
+            &application,
+            &view,
+            viewport,
+            InputEvent::TextInput("文".into()),
+        );
+        assert_eq!(state.get().input.text(), "a👩‍💻文中");
+        assert_eq!(state.get().input.selection.cursor, "a👩‍💻文".len());
+        assert!(state.get().input.preedit_cursor.is_none());
     }
 
     fn send(

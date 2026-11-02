@@ -12,17 +12,18 @@ wit_bindgen::generate!({
 use exports::loom::extension::guest::Guest;
 use loom::extension::host;
 use loom::extension::types::{
-    ApplyEditRequest, ByteRange, Completion, Diagnostic, DocumentEdits, ErrorKind, HostError, Inbound,
-    ProviderKind, RoundStatus, TextEdit,
+    ApplyEditRequest, ByteRange, Completion, Diagnostic, DocumentEdits, ErrorKind, HostError,
+    Inbound, ProviderCommand, ProviderKind, RoundStatus, TextEdit,
 };
 use loom::extension::types::{
-    StorageScope,
-    CompletionItem,
-    CodeAction, DocumentSymbol, HoverAnswer, InlayHint, Location, ParameterInfo, SignatureAnswer,
+    CodeAction, CompletionItem, DocumentSymbol, HoverAnswer, InlayHint, Location, ParameterInfo,
+    SignatureAnswer, StorageScope,
 };
 
 #[derive(Default)]
 struct State {
+    ui_node: Option<u64>,
+    watch: Option<u64>,
     /// The last document the host told us about: path and version.
     last_doc: Option<(String, u64)>,
     current_task: Option<u64>,
@@ -39,14 +40,23 @@ thread_local! {
 
 struct Extension;
 
-fn run(command: &str, call: u64, snapshot: Option<u64>, selections: Vec<loom::extension::types::Selection>, precondition: Option<u64>) {
+fn run(
+    command: &str,
+    call: u64,
+    snapshot: Option<u64>,
+    selections: Vec<loom::extension::types::Selection>,
+    precondition: Option<u64>,
+) {
     match command {
         "example.tools.uppercase" => {
             let Some(snapshot) = snapshot else { return };
             let mut edits = Vec::new();
             for selection in &selections {
                 match host::read_range(snapshot, selection.range) {
-                    Ok(text) => edits.push(TextEdit { range: selection.range, text: text.to_uppercase() }),
+                    Ok(text) => edits.push(TextEdit {
+                        range: selection.range,
+                        text: text.to_uppercase(),
+                    }),
                     Err(error) => host::log(2, &error.message),
                 }
             }
@@ -80,7 +90,7 @@ fn run(command: &str, call: u64, snapshot: Option<u64>, selections: Vec<loom::ex
             STATE.with(|state| state.borrow_mut().hoard.push(block));
         },
         "example.tools.trap" => panic!("deliberate trap"),
-        "example.tools.run" | "example.tools.check" => {
+        "example.tools.run" | "example.tools.check" | "example.tools.stream" => {
             let setting = host::get_setting("example.tools.task").unwrap_or_default();
             let mut spec: serde_json::Value = serde_json::from_str(&setting).unwrap_or_default();
             // A string setting holds the task as JSON text.
@@ -98,12 +108,48 @@ fn run(command: &str, call: u64, snapshot: Option<u64>, selections: Vec<loom::ex
                 program: spec["program"].as_str().unwrap_or_default().to_owned(),
                 args: spec["args"]
                     .as_array()
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(str::to_owned))
+                            .collect()
+                    })
                     .unwrap_or_default(),
                 cwd: spec["cwd"].as_str().map(str::to_owned),
                 env: Vec::new(),
                 timeout_ms: Some(20_000),
             };
+            if command == "example.tools.stream" {
+                use loom::extension::types::{ProcessFraming, ProcessRequest};
+                let process = host::process_spawn(&ProcessRequest {
+                    root: Some(request.root),
+                    program: request.program,
+                    args: request.args,
+                    cwd: request.cwd,
+                    env: request.env,
+                    framing: if spec["framed"].as_bool().unwrap_or(false) {
+                        ProcessFraming::ContentLength
+                    } else {
+                        ProcessFraming::Raw
+                    },
+                })
+                .unwrap();
+                let accepted = if let Some(messages) = spec["input"].as_array() {
+                    messages
+                        .iter()
+                        .map(|value| {
+                            host::process_write(process, value.as_str().unwrap().as_bytes())
+                                .unwrap()
+                        })
+                        .sum()
+                } else {
+                    host::process_write(process, &[0, 255, 1]).unwrap()
+                };
+                host::log(0, &format!("process started {process} accepted {accepted}"));
+                if !spec["persistent"].as_bool().unwrap_or(false) {
+                    host::process_close_stdin(process).unwrap();
+                }
+                return;
+            }
             match host::task_start(&request) {
                 Ok(task) => {
                     host::log(0, &format!("task started {task}"));
@@ -111,7 +157,10 @@ fn run(command: &str, call: u64, snapshot: Option<u64>, selections: Vec<loom::ex
                         let mut state = state.borrow_mut();
                         state.current_task = Some(task);
                         if command == "example.tools.check" {
-                            state.checking = state.last_doc.clone().map(|(path, version)| (task, path, version));
+                            state.checking = state
+                                .last_doc
+                                .clone()
+                                .map(|(path, version)| (task, path, version));
                         }
                     });
                 }
@@ -135,6 +184,127 @@ fn run(command: &str, call: u64, snapshot: Option<u64>, selections: Vec<loom::ex
             let key = spec["key"].as_str().unwrap_or("k").to_owned();
             let value = spec["value"].as_str().unwrap_or_default().to_owned();
             let message = match spec["op"].as_str().unwrap_or_default() {
+                "configure" => {
+                    let configuration = loom::extension::types::ProviderConfiguration {
+                        modes: None,
+                        revision: None,
+                        provider: spec["provider"].as_str().unwrap_or("").into(),
+                        enabled: spec["enabled"].as_bool().unwrap_or(true),
+                        resolve: true,
+                        prepare: true,
+                        triggers: vec![".".into()],
+                        retriggers: vec![",".into()],
+                        commands: vec!["run".into()],
+                        aliases: vec!["test-formatter".into()],
+                    };
+                    match host::configure_provider(&configuration) {
+                        Ok(()) => "configured".into(),
+                        Err(error) => format!("configure refused: {}", error.message),
+                    }
+                }
+                "capture" => match host::capture_document(spec["document"].as_u64().unwrap_or(1)) {
+                    Ok(captured) => {
+                        let text = host::read_range(
+                            captured.snapshot,
+                            ByteRange {
+                                start: 0,
+                                end: captured.length,
+                            },
+                        )
+                        .unwrap();
+                        host::release_snapshot(captured.snapshot);
+                        format!(
+                            "captured {} v{} {:?}",
+                            captured.document.document, captured.document.version, text
+                        )
+                    }
+                    Err(error) => format!("capture error: {}", error.message),
+                },
+                "workspace-edit" => {
+                    use loom::extension::types::{
+                        ColumnUnit, FileEdits, FileRange, FileTextEdit, TextPosition,
+                        WorkspaceChange, WorkspaceEdit, WorkspaceEditRequest, WorkspaceOperation,
+                    };
+                    let changes = spec["paths"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|path| {
+                            WorkspaceChange::Text(FileEdits {
+                                path: path.as_str().unwrap().into(),
+                                version: spec["version"].as_u64(),
+                                edits: vec![FileTextEdit {
+                                    range: FileRange {
+                                        start: TextPosition { line: 0, column: 1 },
+                                        end: TextPosition { line: 0, column: 3 },
+                                        unit: ColumnUnit::Utf16,
+                                    },
+                                    text: spec["text"].as_str().unwrap_or("中").into(),
+                                }],
+                            })
+                        })
+                        .collect();
+                    match host::perform_workspace_operation(&WorkspaceOperation::Edit(
+                        WorkspaceEditRequest {
+                            title: "Generic edit".into(),
+                            edit: WorkspaceEdit { changes },
+                        },
+                    )) {
+                        Ok(operation) => format!("workspace edit accepted {operation}"),
+                        Err(error) => format!("workspace edit refused: {}", error.message),
+                    }
+                }
+                "ui-create" | "ui-update" => {
+                    use loom::extension::types::{UiDescription, UiKind, UiParent};
+                    let description = UiDescription {
+                        id: "status".into(),
+                        kind: UiKind::Button,
+                        text: Some(spec["text"].as_str().unwrap_or("Starting").into()),
+                        icon: None,
+                        foreground: Some(0xffffff),
+                        background: Some(spec["color"].as_u64().unwrap_or(0x445566) as u32),
+                        width: Some(100.0),
+                        height: Some(28.0),
+                        padding: 4.0,
+                        gap: 0.0,
+                        visible: true,
+                        label: Some("Extension status".into()),
+                    };
+                    if spec["op"] == "ui-create" {
+                        let node = host::ui_create(
+                            &UiParent::Mount("statusbar.extensions".into()),
+                            &description,
+                        )
+                        .unwrap();
+                        STATE.with(|state| state.borrow_mut().ui_node = Some(node));
+                        format!("ui created {node}")
+                    } else {
+                        let node = STATE.with(|state| state.borrow().ui_node.unwrap());
+                        host::ui_update(node, &description).unwrap();
+                        "ui updated".into()
+                    }
+                }
+                "ui-remove" => {
+                    let node = STATE.with(|state| state.borrow_mut().ui_node.take().unwrap());
+                    host::ui_remove(node).unwrap();
+                    "ui removed".into()
+                }
+                "ui-trap" => panic!("UI owner failed"),
+                "watch" => {
+                    let watch = host::watch_files(&loom::extension::types::WatchRequest {
+                        root,
+                        patterns: vec![spec["pattern"].as_str().unwrap_or("**/*").into()],
+                    })
+                    .unwrap();
+                    STATE.with(|state| state.borrow_mut().watch = Some(watch));
+                    format!("watch started {watch}")
+                }
+                "unwatch" => {
+                    if let Some(watch) = STATE.with(|state| state.borrow_mut().watch.take()) {
+                        host::unwatch_files(watch);
+                    }
+                    "watch stopped".into()
+                }
                 "set" => match host::storage_set(scope, &key, &value) {
                     Ok(()) => "stored".to_owned(),
                     Err(e) => format!("store error: {}", e.message),
@@ -161,8 +331,12 @@ fn run(command: &str, call: u64, snapshot: Option<u64>, selections: Vec<loom::ex
                     Err(e) => format!("find error: {}", e.message),
                 },
                 "fileops" => {
-                    use loom::extension::types::{CreateOp, DeleteOp, FileOp, FileOpsRequest, RenameOp};
-                    let text = |v: &serde_json::Value, k: &str| v[k].as_str().unwrap_or_default().to_owned();
+                    use loom::extension::types::{
+                        CreateOp, DeleteOp, FileOp, FileOpsRequest, RenameOp,
+                    };
+                    let text = |v: &serde_json::Value, k: &str| {
+                        v[k].as_str().unwrap_or_default().to_owned()
+                    };
                     let ops: Vec<FileOp> = spec["ops"]
                         .as_array()
                         .map(|list| {
@@ -216,6 +390,10 @@ impl Guest for Extension {
     fn dispatch(batch: Vec<Inbound>) -> Result<RoundStatus, HostError> {
         for message in batch {
             match message {
+                Inbound::UiEvent(event) => host::log(
+                    0,
+                    &format!("ui event {} {} {:?}", event.node, event.id, event.payload),
+                ),
                 Inbound::RunCommand(context) => run(
                     &context.command,
                     context.call,
@@ -224,12 +402,21 @@ impl Guest for Extension {
                     context.selection_precondition,
                 ),
                 Inbound::OperationComplete((operation, completion)) => {
-                    STATE.with(|state| state.borrow_mut().pending.retain(|pending| *pending != operation));
+                    STATE.with(|state| {
+                        state
+                            .borrow_mut()
+                            .pending
+                            .retain(|pending| *pending != operation)
+                    });
                     match completion {
-                        Completion::Committed(receipt) => {
-                            host::log(0, &format!("operation {operation} committed as {}", receipt.transaction))
-                        }
-                        Completion::Failed(error) => host::log(2, &format!("operation {operation} failed: {}", error.message)),
+                        Completion::Committed(receipt) => host::log(
+                            0,
+                            &format!("operation {operation} committed as {}", receipt.transaction),
+                        ),
+                        Completion::Failed(error) => host::log(
+                            2,
+                            &format!("operation {operation} failed: {}", error.message),
+                        ),
                     }
                 }
                 Inbound::TaskOutput(output) => host::log(
@@ -245,13 +432,18 @@ impl Guest for Extension {
                             exit.code,
                             exit.cancelled,
                             exit.timed_out,
-                            exit.error.as_ref().map(|e| e.message.as_str()).unwrap_or("none")
+                            exit.error
+                                .as_ref()
+                                .map(|e| e.message.as_str())
+                                .unwrap_or("none")
                         ),
                     );
                     let checking = STATE.with(|state| {
                         let mut state = state.borrow_mut();
                         match state.checking.take() {
-                            Some((task, path, version)) if task == exit.task => Some((path, version)),
+                            Some((task, path, version)) if task == exit.task => {
+                                Some((path, version))
+                            }
                             other => {
                                 state.checking = other;
                                 None
@@ -260,22 +452,46 @@ impl Guest for Extension {
                     });
                     if let (Some((path, version)), Some(0)) = (checking, exit.code) {
                         let finding = Diagnostic {
+                            documentation_url: None,
                             range: ByteRange { start: 0, end: 4 },
                             severity: 2,
                             message: "checker says hi".into(),
                             source: None,
                             code: None,
                         };
-                        let _ = host::publish_diagnostics("example.tools.checker", &path, version, &[finding]);
+                        let _ = host::publish_diagnostics(
+                            "example.tools.checker",
+                            &path,
+                            version,
+                            &[finding],
+                        );
                     }
                 }
                 Inbound::DocumentOpened(d) => {
-                    STATE.with(|state| state.borrow_mut().last_doc = Some((d.path.clone(), d.version)));
-                    host::log(0, &format!("opened {} v{} life {} {}", d.document, d.version, d.lifecycle, d.language));
+                    STATE.with(|state| {
+                        state.borrow_mut().last_doc = Some((d.path.clone(), d.version))
+                    });
+                    host::log(
+                        0,
+                        &format!(
+                            "opened {} v{} life {} {}",
+                            d.document, d.version, d.lifecycle, d.language
+                        ),
+                    );
                 }
-                Inbound::DocumentChanged(c) => host::log(0, &format!("changed {} {}->{} x{}", c.document, c.from_version, c.to_version, c.edits)),
-                Inbound::DocumentResync(d) => host::log(0, &format!("resync {} v{}", d.document, d.version)),
-                Inbound::DocumentClosed(d) => host::log(0, &format!("closed {} life {}", d.document, d.lifecycle)),
+                Inbound::DocumentChanged(c) => host::log(
+                    0,
+                    &format!(
+                        "changed {} {}->{} x{}",
+                        c.document, c.from_version, c.to_version, c.edits
+                    ),
+                ),
+                Inbound::DocumentResync(d) => {
+                    host::log(0, &format!("resync {} v{}", d.document, d.version))
+                }
+                Inbound::DocumentClosed(d) => {
+                    host::log(0, &format!("closed {} life {}", d.document, d.lifecycle))
+                }
                 Inbound::ProviderRequest(request)
                     if matches!(
                         request.kind,
@@ -284,43 +500,133 @@ impl Guest for Extension {
                 {
                     match request.kind {
                         ProviderKind::Completion => {
-                            let items = vec![
+                            let mut items = vec![
                                 CompletionItem {
                                     label: "loom_hello".into(),
+                                    label_detail: None,
+                                    label_description: None,
+                                    deprecated: None,
+                                    preselect: None,
+                                    insert_text_mode: None,
                                     detail: Some("from the extension".into()),
                                     documentation: None,
                                     kind: Some(3),
                                     insert_text: Some("loom_hello()".into()),
+                                    text_edit: None,
+                                    additional_text_edits: vec![],
+                                    insert_text_format: None,
+                                    commit_characters: vec![],
+                                    command: None,
                                     sort_text: None,
                                     filter_text: None,
                                     data: Some("hello".into()),
                                 },
                                 CompletionItem {
                                     label: "loom_world".into(),
+                                    label_detail: None,
+                                    label_description: None,
+                                    deprecated: None,
+                                    preselect: None,
+                                    insert_text_mode: None,
                                     detail: None,
                                     documentation: None,
                                     kind: Some(3),
                                     insert_text: None,
+                                    text_edit: None,
+                                    additional_text_edits: vec![],
+                                    insert_text_format: None,
+                                    commit_characters: vec![],
+                                    command: None,
                                     sort_text: None,
                                     filter_text: None,
                                     data: Some("world".into()),
                                 },
                             ];
+                            if request.trigger.as_deref() == Some("!") {
+                                let item = &mut items[0];
+                                item.text_edit = Some(TextEdit {
+                                    range: ByteRange {
+                                        start: 0,
+                                        end: request.length,
+                                    },
+                                    text: "loom_hello(${1:x})$0".into(),
+                                });
+                                item.additional_text_edits = vec![TextEdit {
+                                    range: ByteRange {
+                                        start: request.length,
+                                        end: request.length,
+                                    },
+                                    text: "\n// imported".into(),
+                                }];
+                                item.insert_text_format = Some(2);
+                                item.commit_characters = vec!["(".into()];
+                                item.command = Some(ProviderCommand {
+                                    name: "accepted".into(),
+                                    arguments: "[42]".into(),
+                                });
+                            }
                             let _ = host::provide_completions(request.request, &items, false);
                         }
                         _ => {
                             if let Some(mut item) = request.item.clone() {
-                                item.documentation =
-                                    Some(format!("docs for {}", item.data.clone().unwrap_or_default()));
+                                item.documentation = Some(format!(
+                                    "docs for {}",
+                                    item.data.clone().unwrap_or_default()
+                                ));
                                 let _ = host::provide_completions(request.request, &[item], false);
                             }
                         }
                     }
                 }
+                Inbound::WatchReady(watch) => host::log(0, &format!("watch ready {watch}")),
+                Inbound::FileChanged(batch) => host::log(
+                    0,
+                    &format!("files changed {} {:?}", batch.watch, batch.changes),
+                ),
+                Inbound::WatchFailed(failure) => host::log(
+                    0,
+                    &format!("watch failed {} {}", failure.watch, failure.error.message),
+                ),
+                Inbound::RootsChanged(roots) => {
+                    host::log(0, &format!("roots changed {}", roots.len()))
+                }
+                Inbound::ProcessOutput(output) => {
+                    host::log(
+                        0,
+                        &format!("process output {} {:?}", output.process, output.bytes),
+                    );
+                    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&output.bytes) {
+                        host::log(0, &format!("process message {}", value["id"]));
+                    }
+                }
+                Inbound::ProcessWritable(writable) => host::log(
+                    0,
+                    &format!("process writable {} {}", writable.process, writable.bytes),
+                ),
+                Inbound::ProcessExited(exit) => host::log(
+                    0,
+                    &format!(
+                        "process exited {} code {:?} killed {} error {:?}",
+                        exit.process,
+                        exit.code,
+                        exit.killed,
+                        exit.error.map(|error| error.message)
+                    ),
+                ),
+                Inbound::ProviderCommand(call) => host::log(
+                    0,
+                    &format!(
+                        "provider command {} {} {}",
+                        call.provider, call.command.name, call.command.arguments
+                    ),
+                ),
                 Inbound::ProviderRequest(request) => {
                     let text = host::read_range(
                         request.snapshot,
-                        ByteRange { start: 0, end: request.length },
+                        ByteRange {
+                            start: 0,
+                            end: request.length,
+                        },
                     )
                     .unwrap_or_default();
                     match request.kind {
@@ -330,7 +636,11 @@ impl Guest for Extension {
                             while let Some(found) = text[at..].find("TODO") {
                                 let start = at + found;
                                 items.push(Diagnostic {
-                                    range: ByteRange { start: start as u64, end: start as u64 + 4 },
+                                    documentation_url: None,
+                                    range: ByteRange {
+                                        start: start as u64,
+                                        end: start as u64 + 4,
+                                    },
                                     severity: 2,
                                     message: "TODO found".into(),
                                     source: Some(request.provider.clone()),
@@ -341,7 +651,9 @@ impl Guest for Extension {
                             let _ = host::provide_diagnostics(request.request, &items);
                         }
                         ProviderKind::Completion | ProviderKind::CompletionResolve => {}
-                        ProviderKind::Formatting | ProviderKind::Save => {
+                        ProviderKind::Formatting
+                        | ProviderKind::FormatOnType
+                        | ProviderKind::Save => {
                             let mut edits = Vec::new();
                             let mut offset = 0usize;
                             for line in text.split_inclusive('\n') {
@@ -364,20 +676,34 @@ impl Guest for Extension {
                             let at = request.cursor.unwrap_or(0);
                             let answer = HoverAnswer {
                                 contents: format!("hover at {at} of {} bytes", request.length),
-                                range: Some(ByteRange { start: at, end: at + 1 }),
+                                range: Some(ByteRange {
+                                    start: at,
+                                    end: at + 1,
+                                }),
                             };
                             let _ = host::provide_hover(request.request, Some(&answer));
                         }
                         ProviderKind::Definition => {
-                            let place = Location { path: "elsewhere.txt".into(), line: 2, column: 3 };
+                            let place = Location {
+                                path: "elsewhere.txt".into(),
+                                line: 2,
+                                column: 3,
+                            };
                             let _ = host::provide_locations(request.request, &[place]);
                         }
                         ProviderKind::DocumentSymbols => {
-                            let whole = ByteRange { start: 0, end: request.length };
-                            let first = ByteRange { start: 0, end: request.length.min(2) };
+                            let whole = ByteRange {
+                                start: 0,
+                                end: request.length,
+                            };
+                            let first = ByteRange {
+                                start: 0,
+                                end: request.length.min(2),
+                            };
                             let items = [
                                 DocumentSymbol {
                                     name: "outer".into(),
+                                    deprecated: None,
                                     detail: None,
                                     kind: 2,
                                     range: whole,
@@ -386,6 +712,7 @@ impl Guest for Extension {
                                 },
                                 DocumentSymbol {
                                     name: "inner".into(),
+                                    deprecated: None,
                                     detail: Some("nested".into()),
                                     kind: 12,
                                     range: first,
@@ -400,8 +727,14 @@ impl Guest for Extension {
                                 label: "add(a, b)".into(),
                                 documentation: None,
                                 parameters: vec![
-                                    ParameterInfo { label: "a".into(), documentation: None },
-                                    ParameterInfo { label: "b".into(), documentation: None },
+                                    ParameterInfo {
+                                        label: "a".into(),
+                                        documentation: None,
+                                    },
+                                    ParameterInfo {
+                                        label: "b".into(),
+                                        documentation: None,
+                                    },
                                 ],
                                 active_parameter: Some(1),
                             };
@@ -424,9 +757,161 @@ impl Guest for Extension {
                                 title: "Mark the selection".into(),
                                 kind: Some("refactor".into()),
                                 preferred: false,
-                                edits: vec![TextEdit { range, text: "[marked]".into() }],
+                                edits: vec![TextEdit {
+                                    range,
+                                    text: "[marked]".into(),
+                                }],
                             };
                             let _ = host::provide_code_actions(request.request, &[action]);
+                        }
+                        _ => {
+                            use loom::extension::types::*;
+                            let captured = host::capture_document(request.document).unwrap();
+                            let path = captured.document.path;
+                            host::release_snapshot(captured.snapshot);
+                            let range = FileRange {
+                                start: TextPosition { line: 0, column: 0 },
+                                end: TextPosition { line: 0, column: 5 },
+                                unit: ColumnUnit::Utf8,
+                            };
+                            let location = FileLocation {
+                                path: path.clone(),
+                                range,
+                            };
+                            let item = HierarchyItem {
+                                name: "item".into(),
+                                kind: 12,
+                                detail: None,
+                                location: location.clone(),
+                                selection: range,
+                                data: Some("owned-data".into()),
+                            };
+                            let context = request.context.as_ref();
+                            let answer = match request.kind {
+                                ProviderKind::References => LanguageAnswer::Places(vec![location]),
+                                ProviderKind::WorkspaceSymbols => {
+                                    LanguageAnswer::WorkspaceSymbols(vec![WorkspaceSymbol {
+                                        name: context
+                                            .and_then(|c| c.query.clone())
+                                            .unwrap_or_else(|| "symbol".into()),
+                                        kind: 12,
+                                        container: None,
+                                        location,
+                                    }])
+                                }
+                                ProviderKind::DocumentHighlights => {
+                                    LanguageAnswer::DocumentHighlights(vec![RangeKind {
+                                        range: ByteRange { start: 0, end: 5 },
+                                        kind: 2,
+                                    }])
+                                }
+                                ProviderKind::PrepareRename => {
+                                    LanguageAnswer::RenameTarget(Some(RenameTarget {
+                                        range: Some(ByteRange { start: 0, end: 5 }),
+                                        placeholder: Some("hello".into()),
+                                        default_behavior: false,
+                                    }))
+                                }
+                                ProviderKind::Rename => {
+                                    LanguageAnswer::WorkspaceEdit(WorkspaceEdit {
+                                        changes: vec![WorkspaceChange::Text(FileEdits {
+                                            path,
+                                            version: Some(request.version),
+                                            edits: vec![FileTextEdit {
+                                                range,
+                                                text: context
+                                                    .and_then(|c| c.name.clone())
+                                                    .unwrap_or_else(|| "renamed".into()),
+                                            }],
+                                        })],
+                                    })
+                                }
+                                ProviderKind::FoldingRanges => {
+                                    LanguageAnswer::Folds(vec![FoldRange {
+                                        start: 0,
+                                        end: 1,
+                                        start_column: None,
+                                        end_column: None,
+                                        kind: Some("region".into()),
+                                        label: None,
+                                    }])
+                                }
+                                ProviderKind::SelectionRanges => LanguageAnswer::Selections(vec![
+                                    SelectionRange {
+                                        range: ByteRange {
+                                            start: 0,
+                                            end: request.length,
+                                        },
+                                        parent: None,
+                                    },
+                                    SelectionRange {
+                                        range: ByteRange { start: 0, end: 5 },
+                                        parent: Some(0),
+                                    },
+                                ]),
+                                ProviderKind::CallHierarchy
+                                    if context.and_then(|c| c.mode)
+                                        != Some(ProviderMode::Prepare) =>
+                                {
+                                    LanguageAnswer::Calls(vec![HierarchyEdge {
+                                        item,
+                                        sites: vec![range],
+                                    }])
+                                }
+                                ProviderKind::CallHierarchy | ProviderKind::TypeHierarchy => {
+                                    LanguageAnswer::Hierarchy(vec![item])
+                                }
+                                ProviderKind::CodeLens => LanguageAnswer::Lenses(vec![CodeLens {
+                                    range: ByteRange { start: 0, end: 5 },
+                                    title: None,
+                                    command: None,
+                                    data: Some("lens-data".into()),
+                                }]),
+                                ProviderKind::CodeLensResolve => {
+                                    LanguageAnswer::Lenses(vec![CodeLens {
+                                        range: ByteRange { start: 0, end: 5 },
+                                        title: Some("Run".into()),
+                                        command: Some(ProviderCommand {
+                                            name: "run".into(),
+                                            arguments: "[]".into(),
+                                        }),
+                                        data: None,
+                                    }])
+                                }
+                                ProviderKind::CodeActionResolve => {
+                                    LanguageAnswer::Actions(vec![ProviderAction {
+                                        title: "Resolved".into(),
+                                        kind: None,
+                                        preferred: true,
+                                        disabled: None,
+                                        edit: None,
+                                        command: Some(ProviderCommand {
+                                            name: "run".into(),
+                                            arguments: "[]".into(),
+                                        }),
+                                        data: None,
+                                    }])
+                                }
+                                ProviderKind::ExecuteCommand => {
+                                    host::log(
+                                        0,
+                                        &format!(
+                                            "execute {:?} {:?}",
+                                            context.and_then(|c| c.name.as_ref()),
+                                            context.and_then(|c| c.data.as_ref())
+                                        ),
+                                    );
+                                    LanguageAnswer::Completed
+                                }
+                                ProviderKind::Highlights => {
+                                    LanguageAnswer::Highlights(vec![Highlight {
+                                        range: ByteRange { start: 0, end: 5 },
+                                        theme: "function".into(),
+                                    }])
+                                }
+                                _ => continue,
+                            };
+                            host::provide_language(request.request, &answer).unwrap();
                         }
                     }
                     host::release_snapshot(request.snapshot);
@@ -438,12 +923,40 @@ impl Guest for Extension {
                     }
                 }
                 Inbound::Cancel(call) => host::log(0, &format!("call {call} cancelled")),
-                Inbound::Shutdown => {}
+                Inbound::DocumentSaved(saved) => {
+                    let text = host::read_range(
+                        saved.snapshot,
+                        ByteRange {
+                            start: 0,
+                            end: saved.length,
+                        },
+                    )
+                    .unwrap();
+                    host::release_snapshot(saved.snapshot);
+                    host::log(
+                        0,
+                        &format!(
+                            "saved {} v{} {:?}",
+                            saved.document.document, saved.document.version, text
+                        ),
+                    );
+                }
+                Inbound::WorkspaceFilesChanged(changes) => {
+                    host::log(0, &format!("workspace files {changes:?}"))
+                }
+                Inbound::ProviderCancelled(request) => {
+                    host::log(0, &format!("provider cancelled {request}"))
+                }
+                Inbound::TimerElapsed(_) | Inbound::Shutdown => {}
             }
         }
         let waiting = STATE.with(|state| !state.borrow().pending.is_empty());
         let _ = (ByteRange { start: 0, end: 0 }, ErrorKind::Cancelled);
-        Ok(if waiting { RoundStatus::Pending } else { RoundStatus::Idle })
+        Ok(if waiting {
+            RoundStatus::Pending
+        } else {
+            RoundStatus::Idle
+        })
     }
 }
 

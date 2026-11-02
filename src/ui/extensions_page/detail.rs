@@ -3,7 +3,7 @@
 use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel};
 
 use super::content::{self, Body};
-use super::widgets::{self, Ids, Kind, Look, Tone, line};
+use super::widgets::{self, Ids, Kind, Tone, line};
 use crate::ui::extensions_binding::{Action, Binding, Command, DetailTab, Entry, RegistryStatus};
 use crate::ui::tabs::{ellipsize_sans, measure, measure_sans};
 use crate::ui::theme;
@@ -275,76 +275,37 @@ pub(super) fn render(
         area.right,
         tabs_bottom,
     )));
-    let mut tab_left = area.left + PAD_X;
-    for (kind, label) in tabs() {
-        let count = (kind == DetailTab::Contributions).then(|| entry.contribution_count());
-        let label_w = measure_sans(label, theme::UI_SIZE, 400);
-        let count_text = count.map(|count| count.to_string()).unwrap_or_default();
-        let count_w = if count.is_some() {
-            measure(&count_text, theme::SMALL, 400) + 6.0
-        } else {
-            0.0
-        };
-        let rect = UiRect::new(
-            tab_left - 4.0,
-            tabs_top,
-            tab_left + label_w + count_w + 4.0,
-            tabs_bottom,
-        );
-        let selected = kind == tab;
-        let run = state.clone();
-        root = root.child(
-            widgets::pad(
-                format!("ext.tab.{}.{label}", entry.id),
-                rect,
-                Look {
-                    fill: None,
-                    hover: c.bg,
-                    border: None,
-                    radius: 0.0,
-                },
-            )
-            .child(line(
-                UiRect::new(
-                    tab_left,
-                    tabs_top,
-                    tab_left + label_w + 8.0,
-                    tabs_bottom - 2.0,
-                ),
-                label,
-                theme::sans(
-                    if selected {
-                        c.text_bright
-                    } else {
-                        c.text_muted
-                    },
-                    theme::UI_SIZE,
-                ),
-            ))
-            .child(line(
-                UiRect::new(
-                    tab_left + label_w + 6.0,
-                    tabs_top,
-                    tab_left + label_w + count_w + 12.0,
-                    tabs_bottom - 2.0,
-                ),
-                count_text,
-                theme::mono(c.text_dim, theme::SMALL),
-            ))
-            .on_click(move || run.run(Command::SetTab(kind))),
-        );
-        if selected {
-            root = root.child(panel(
-                UiRect::new(rect.left, tabs_bottom - 2.0, rect.right, tabs_bottom),
-                VisualStyle::filled(c.accent),
-            ));
-        }
-        tab_left = rect.right + 22.0;
-    }
-    let region = UiRect::new(area.left, tabs_bottom, area.right, area.bottom);
-    root.child(content::render(
-        region,
-        &mut ids,
-        Body { entry, tab, state },
+    let current = state.clone();
+    let update = state.clone();
+    let index = lgui::WidgetValue::new(
+        move || match current.ui.get().tab {
+            DetailTab::Details => 0,
+            DetailTab::Contributions => 1,
+            DetailTab::Changelog => 2,
+        },
+        move |index| {
+            update.run(Command::SetTab(match index {
+                1 => DetailTab::Contributions,
+                2 => DetailTab::Changelog,
+                _ => DetailTab::Details,
+            }))
+        },
+    );
+    let labels = tabs()
+        .into_iter()
+        .map(|(kind, label)| {
+            if kind == DetailTab::Contributions {
+                format!("{label} ({})", entry.contribution_count())
+            } else {
+                label.to_owned()
+            }
+        })
+        .collect::<Vec<_>>();
+    // The portable control owns header selection and confines arrow keys to it.
+    root.child(lgui::tabs(
+        UiRect::new(area.left, tabs_top, area.right, area.bottom),
+        labels.into(),
+        index,
+        |_, region| content::render(region, &mut ids, Body { entry, tab, state }),
     ))
 }

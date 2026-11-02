@@ -16,6 +16,7 @@ pub enum Event {
 pub fn render(
     viewport: UiRect,
     anchor: UiRect,
+    anchor_id: &'static str,
     labels: Vec<String>,
     selected: usize,
     send: Arc<dyn Fn(Event) + Send + Sync>,
@@ -27,21 +28,18 @@ pub fn render(
     let y = (anchor.top - height - 4.0).max(viewport.top);
     let card = UiRect::new(x, y, x + width, y + height);
     let close = send.clone();
+    let outside = send.clone();
     let key = send.clone();
     let overlay = Element::new(move |cx| {
         UiElement::panel(UiId::new(FOCUS_ID), viewport, VisualStyle::default())
             .children(cx.children)
     })
     .event_policy(EventPolicy::INTERACTIVE)
-    .on_pointer_down_with_button(move |_, p, _| {
-        if !card.contains(p.point) {
-            close(Event::Close);
-        }
-    })
+    .focus_scope()
+    .on_close_requested(move |_| close(Event::Close))
     .on_key_down(move |cx, event| {
         if let LogicalKey::Named(k) = event.key {
             match k {
-                NamedKey::Escape => key(Event::Close),
                 NamedKey::ArrowUp => key(Event::Move(false)),
                 NamedKey::ArrowDown => key(Event::Move(true)),
                 NamedKey::Enter => key(Event::Accept),
@@ -52,6 +50,14 @@ pub fn render(
         cx.stop_propagation();
     });
     let mut menu = theme::bordered(card, theme::c().surface, theme::c().border, 5.0, 1.0)
+        .position(lgui::core::Position::Anchor {
+            target: anchor_id.into(),
+            side: lgui::core::AnchorSide::Top,
+            gap: lgui::core::Dimension::Points(4.0),
+            offset: lgui::core::Point::new(anchor.width() - width, 0.0),
+            flip: true,
+        })
+        .on_outside_pointer(move |_, _, _| outside(Event::Close))
         .event_policy(EventPolicy {
             focus: false,
             ..EventPolicy::INTERACTIVE

@@ -134,6 +134,9 @@ impl DocumentStream {
     pub fn pending(&self) -> usize {
         self.queue.len()
     }
+    pub fn lifecycle(&self) -> u64 {
+        self.lifecycle
+    }
 
     pub fn drain(&mut self) -> Vec<Delivery> {
         std::mem::take(&mut self.queue)

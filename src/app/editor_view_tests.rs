@@ -1531,86 +1531,18 @@ fn editor_menu_executes_its_intent_and_keeps_editor_focus() {
 #[test]
 fn diagnostics_from_a_server_are_underlined_in_the_editor() {
     use lgui::{
-        application::{AppView, ApplicationContext},
         core::{InputEvent, Point, PointerData, UiScale, dispatch_runtime_output},
         session::UiSession,
     };
-    use std::sync::Arc;
-    let context = ApplicationContext::empty(Default::default());
-    let _fonts = lgui::backend::install_text_environment(
-        &context,
-        lgui::render_skia::skia_text_system_handle(),
-    );
-    fonts::set(&fonts::FontSettings::EDITOR, &fonts::FontSettings::TERMINAL);
-    let exe = std::env::current_exe().unwrap();
-    let fake = exe
-        .parent()
-        .and_then(|deps| deps.parent())
-        .unwrap()
-        .join("examples")
-        .join(if cfg!(windows) {
-            "fake_lsp.exe"
-        } else {
-            "fake_lsp"
-        });
-    let mut app = AppState::new();
-    app.workspace.open_path(
-        std::env::temp_dir().join("loom-diagnostic-test.rs"),
-        "fn a() {}\nsecond line\n".into(),
-    );
-    app.preferences.values_mut().language_servers =
-        vec![crate::features::settings::servers::LanguageServerSetting {
-            args: Some(vec!["--sync".into(), "full".into(), "--diagnostics".into()]),
-            ..crate::features::settings::servers::LanguageServerSetting::named("rust-analyzer")
-        }];
-    let rect = UiRect::new(0.0, 0.0, 800.0, 400.0);
-    let initial = Arc::new(Mutex::new(Some(app)));
-    let exposed = Arc::new(Mutex::new(None));
-    let output = exposed.clone();
-    let runtime = Arc::new(crate::app::runtime::AppRuntime::default());
-    let view_runtime = runtime.clone();
-    let tasks = crate::app::test_support::UiTasks::default();
-    let application = tasks.application();
-    let view: AppView = Arc::new(move |cx| {
-        let state = AppContext::detached(cx.state_with(|| initial.lock().unwrap().take().unwrap()))
-            .with_runtime(&view_runtime);
-        if view_runtime.markdown().is_none() {
-            view_runtime.install_markdown(crate::app::markdown_service::MarkdownService::new(
-                state.clone(),
-                application.clone(),
-                Arc::new(TestClipboard::default()),
-            ));
-        }
-        if view_runtime.highlighter().is_none() {
-            view_runtime.install_highlighter(crate::app::syntax::Highlighter::new(
-                state.clone(),
-                application.clone(),
-            ));
-            let results_state = state.clone();
-            // Match shell.rs: deliver server results through the UI queue, after
-            // the UI has installed the request handle that will consume them.
-            let results_ready = crate::infrastructure::ui_dispatch::LatestNotification::new(
-                application.clone(),
-                move |()| crate::app::language_ui::tick(&results_state),
-            );
-            view_runtime.install_language_services(
-                crate::app::language_services::LanguageServices::new(
-                    crate::features::language_service::server_set::rust_analyzer_running(
-                        &fake.display().to_string(),
-                    ),
-                    move || results_ready.send(()),
-                ),
-            );
-        }
-        let git = cx.state_with(GitStoreSnapshot::default);
-        *output.lock().unwrap() = Some(state.clone());
-        let id = UiId::new("diagnostic-editor-test");
-        let focus = cx.focus_handle(id.clone());
-        render(PaneId::new(1), rect, state, git, id, focus)
-    });
-    let mut session = UiSession::new();
-    session.render_view(&view, rect, UiScale::ONE);
-    let state: AppContext = exposed.lock().unwrap().clone().unwrap();
+    let LanguageHarness {
+        mut session,
+        view,
+        context,
+        state,
+        tasks,
+        runtime,
+        rect,
+    } = LanguageHarness::new("fn a() {}\nsecond line\n", &["--diagnostics"]);
     // Make the services see the document, then wait for the server's answer.
     state.update(|app| app.editor.syntax_revision = app.editor.syntax_revision.wrapping_add(1));
     // The underline is a wave stroked in the error colour.
@@ -1638,7 +1570,9 @@ fn diagnostics_from_a_server_are_underlined_in_the_editor() {
         assert!(
             std::time::Instant::now() < deadline,
             "no underline was drawn; infos {:?}; services {}; docs {:?}",
-            runtime.language_services().map(|s| s.infos()),
+            runtime
+                .language_services()
+                .map(|s| s.capability_sources(None)),
             runtime.language_services().is_some(),
             state
                 .get()
@@ -1730,33 +1664,6 @@ impl LanguageHarness {
         server_args: &[&str],
         configure: impl FnOnce(&mut AppState),
     ) -> Self {
-        let exe = std::env::current_exe().unwrap();
-        let fake = exe
-            .parent()
-            .and_then(|deps| deps.parent())
-            .unwrap()
-            .join("examples")
-            .join(if cfg!(windows) {
-                "fake_lsp.exe"
-            } else {
-                "fake_lsp"
-            });
-        Self::with_servers(
-            source,
-            server_args,
-            crate::features::language_service::server_set::rust_analyzer_running(
-                &fake.display().to_string(),
-            ),
-            configure,
-        )
-    }
-
-    fn with_servers(
-        source: &str,
-        server_args: &[&str],
-        servers: Arc<crate::features::language_service::server_set::ServerSet>,
-        configure: impl FnOnce(&mut AppState),
-    ) -> Self {
         use lgui::{
             application::{AppView, ApplicationContext},
             core::UiScale,
@@ -1778,13 +1685,8 @@ impl LanguageHarness {
         app.workspace
             .open_path(std::env::temp_dir().join(name), source.into());
         app.editor.focused = true;
-        let mut args: Vec<String> = ["--sync", "incremental"].map(String::from).into();
+        let mut args: Vec<String> = ["--sync", "object"].map(String::from).into();
         args.extend(server_args.iter().map(|a| a.to_string()));
-        app.preferences.values_mut().language_servers =
-            vec![crate::features::settings::servers::LanguageServerSetting {
-                args: Some(args),
-                ..crate::features::settings::servers::LanguageServerSetting::named("rust-analyzer")
-            }];
         configure(&mut app);
         let rect = UiRect::new(0.0, 0.0, 800.0, 400.0);
         let initial = Arc::new(Mutex::new(Some(app)));
@@ -1811,18 +1713,8 @@ impl LanguageHarness {
                     state.clone(),
                     application.clone(),
                 ));
-                let results_state = state.clone();
-                // Match shell.rs: deliver server results through the UI queue, after
-                // the UI has installed the request handle that will consume them.
-                let results_ready = crate::infrastructure::ui_dispatch::LatestNotification::new(
-                    application.clone(),
-                    move |()| crate::app::language_ui::tick(&results_state),
-                );
                 view_runtime.install_language_services(
-                    crate::app::language_services::LanguageServices::new(
-                        servers.clone(),
-                        move || results_ready.send(()),
-                    ),
+                    crate::app::language_services::LanguageServices::new(),
                 );
             }
             let git = cx.state_with(GitStoreSnapshot::default);
@@ -1834,6 +1726,7 @@ impl LanguageHarness {
         let mut session = UiSession::new();
         session.render_view(&view, rect, UiScale::ONE);
         let state: AppContext = exposed.lock().unwrap().clone().unwrap();
+        crate::app::test_support::language::install(&state, &runtime, &args);
         state.update(|app| app.editor.syntax_revision = app.editor.syntax_revision.wrapping_add(1));
         Self {
             session,
@@ -1912,8 +1805,15 @@ impl LanguageHarness {
             }
             assert!(
                 std::time::Instant::now() < deadline,
-                "timed out waiting for {what}; infos {:?}",
-                self.runtime.language_services().map(|s| s.infos())
+                "timed out waiting for {what}; infos {:?}; client {:?}; completion {:?}",
+                self.runtime
+                    .language_services()
+                    .map(|s| s.capability_sources(None)),
+                self.runtime.extensions().map(|host| host
+                    .service()
+                    .package("example.language-fixture")
+                    .map(|package| (package.last_error.clone(), package.logs.clone()))),
+                self.completion_labels()
             );
             std::thread::sleep(std::time::Duration::from_millis(30));
         }
@@ -1922,10 +1822,10 @@ impl LanguageHarness {
     /// Waits until a server is ready and holds the document.
     fn until_ready(&mut self) {
         self.until("the server to be ready", |h| {
-            h.runtime.language_services().is_some_and(|s| {
-                s.infos()
+            h.state.get().extension_widgets.roots().iter().any(|root| {
+                root.children
                     .iter()
-                    .any(|i| i.status == crate::infrastructure::lsp::manager::Status::Ready)
+                    .any(|node| node.properties.text.as_deref() == Some("Fixture: Ready"))
             })
         });
     }
@@ -1948,9 +1848,6 @@ impl LanguageHarness {
 }
 
 static LANGUAGE_CASES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-#[path = "real_language_server_tests.rs"]
-mod real_servers;
 
 #[path = "signature_help_tests.rs"]
 mod signature_help;
@@ -2405,7 +2302,7 @@ fn problems_are_visited_in_order_and_wrap() {
         h.runtime
             .language_services()
             .and_then(|s| s.results(&doc.meta.path, &doc.stamp(id)).diagnostics)
-            .is_some()
+            .is_some_and(|found| !found.is_empty())
     });
     h.set_cursor(10);
     h.act(Action::GoToDiagnostic);
@@ -2915,11 +2812,10 @@ fn on_save(kinds: &[&str], format: bool) -> impl FnOnce(&mut AppState) + use<> {
     move |app: &mut AppState| {
         app.preferences.values_mut().languages.insert(
             "rust".to_owned(),
-            crate::features::settings::servers::LanguageSetting {
+            crate::features::settings::language::LanguageSetting {
                 format_on_save: format,
-                formatter: Some("rust-analyzer".to_owned()),
+                providers: [("formatting".into(), vec!["example.language-fixture".into()])].into(),
                 code_actions_on_save: kinds,
-                ..Default::default()
             },
         );
     }
@@ -2985,7 +2881,11 @@ fn a_language_without_save_settings_saves_without_waiting_for_the_server() {
 fn automatic_completion_can_be_turned_off_and_the_key_still_works() {
     use crate::features::keymap::action::Action;
     let mut h = LanguageHarness::configured("\n", &["--features", "completion"], |app| {
-        app.preferences.values_mut().lsp.completion.auto = false
+        app.preferences
+            .values_mut()
+            .language_features
+            .completion
+            .auto = false
     });
     h.until_ready();
     h.type_text("a");
@@ -3013,7 +2913,11 @@ fn without_a_server_the_words_of_the_file_complete() {
 fn enter_alone_can_be_the_key_that_accepts() {
     use crate::features::keymap::action::Action;
     let mut h = LanguageHarness::configured("\n", &["--features", "completion"], |app| {
-        app.preferences.values_mut().lsp.completion.accept_on = "enter".to_owned()
+        app.preferences
+            .values_mut()
+            .language_features
+            .completion
+            .accept_on = "enter".to_owned()
     });
     h.until_ready();
     h.type_text("al");
@@ -3099,7 +3003,7 @@ fn the_problems_of_the_open_files_are_listed_with_the_worst_first() {
         h.runtime
             .language_services()
             .and_then(|s| s.results(&doc.meta.path, &doc.stamp(id)).diagnostics)
-            .is_some()
+            .is_some_and(|items| !items.is_empty())
     });
     h.act(Action::ToggleProblems);
     h.until_popup("the problems");
@@ -3227,7 +3131,7 @@ fn a_hint_moves_what_follows_it_and_clicks_still_find_the_source_character() {
 #[test]
 fn inlay_hints_are_requested_after_the_text_settles_and_shown_inside_the_line() {
     let mut h = LanguageHarness::configured("let x = 1;\n", &["--features", "inlay"], |app| {
-        app.preferences.values_mut().lsp.inlay_hints = true
+        app.preferences.values_mut().language_features.inlay_hints = true
     });
     h.until_ready();
     h.until("the hints", |h| {
@@ -3271,104 +3175,82 @@ fn typing_a_trigger_character_lets_the_server_format() {
 }
 
 #[test]
-fn the_panel_names_what_a_server_offers() {
+fn the_language_extension_owns_its_ready_status_color_and_text() {
     let mut h = LanguageHarness::new("x\n", &["--features", "hover,definition,rename"]);
     h.until_ready();
-    let frame = crate::app::chrome::language_panel_frame(&h.state);
-    let offers = frame
-        .sections
+    let roots = h.state.get().extension_widgets.roots();
+    let status = roots
         .iter()
-        .map(|s| &s.subtitle)
-        .find(|subtitle| subtitle.contains("hover"))
-        .expect("a subtitle naming the capabilities");
-    for name in ["hover", "definition", "rename"] {
-        assert!(offers.contains(name), "{offers}");
-    }
-    assert!(!offers.contains("completion"));
+        .find(|node| node.origin.owner.as_ref() == "example.language-fixture")
+        .unwrap();
+    assert_eq!(status.properties.background, Some(0x246842));
+    assert_eq!(
+        status.children[0].properties.text.as_deref(),
+        Some("Fixture: Ready")
+    );
+    assert!(
+        !h.runtime
+            .language_services()
+            .unwrap()
+            .capability_sources(None)
+            .is_empty()
+    );
 }
 
 #[test]
-fn the_language_panel_cancel_button_ends_only_the_selected_server_task() {
-    use lgui::core::{InputEvent, Point, PointerData};
-    let mut h = LanguageHarness::new("fn alpha() {}\n", &["--progress", "--progress-cancellable"]);
+fn granting_workspace_trust_again_restarts_the_relevant_language_owner() {
+    let mut h = LanguageHarness::new("fn alpha() {}\n", &["--features", "hover"]);
     h.until_ready();
-    h.until("the cancellable task", |h| {
-        crate::app::chrome::language_panel_frame(&h.state)
-            .sections
-            .iter()
-            .flat_map(|s| &s.lines)
-            .any(|line| line.cancel.is_some())
+    let previous = h
+        .runtime
+        .language_services()
+        .unwrap()
+        .capability_sources(None)[0]
+        .run;
+    let root = std::env::temp_dir();
+    crate::app::trust_prompt::decide(&h.state, &root, false);
+    h.until("trust revocation stops the client", |h| {
+        !h.state.get().extension_widgets.roots().iter().any(|root| {
+            root.children
+                .iter()
+                .any(|node| node.properties.text.as_deref() == Some("Fixture: Ready"))
+        })
     });
-    let state = h.state.clone();
-    let runtime = h.runtime.clone();
-    let invoked = Arc::new(Mutex::new(Vec::new()));
-    let seen = invoked.clone();
-    let rect = h.rect;
-    let view: lgui::application::AppView = Arc::new(move |_| {
-        let runtime = runtime.clone();
-        let seen = seen.clone();
-        crate::ui::language_panel::render(
-            rect,
-            None,
-            &crate::app::chrome::language_panel_frame(&state),
-            Arc::new(move |event| {
-                if let crate::ui::language_panel::Event::CancelTask(target) = event {
-                    seen.lock().unwrap().push(target);
-                    runtime.language_services().unwrap().cancel_task(
-                        target.instance,
-                        target.run,
-                        target.task,
-                    );
-                }
-            }),
-        )
-    });
-    let mut session = lgui::session::UiSession::new();
-    session.render_view(&view, rect, lgui::core::UiScale::ONE);
-    let button = session
-        .tree()
-        .nodes()
-        .iter()
-        .find(|n| n.text.as_deref() == Some("Cancel"))
-        .expect("the active task has a cancel button")
-        .paint_bounds;
-    let pointer = PointerData::mouse(Point::new(
-        (button.left + button.right) / 2.0,
-        (button.top + button.bottom) / 2.0,
-    ));
-    for input in [
-        InputEvent::PointerDown {
-            pointer,
-            button: PointerButton::Left,
-        },
-        InputEvent::PointerUp {
-            pointer,
-            button: PointerButton::Left,
-        },
-    ] {
-        let events = session.handle_input(input);
-        lgui::core::dispatch_runtime_output(
-            events,
-            &h.context,
-            &lgui::window::WindowId::new("language-ui-test"),
-            |action| session.handle_default_action(action),
-            |_| {},
-        );
-    }
-    assert_eq!(invoked.lock().unwrap().len(), 1);
-    h.until("the server acknowledged cancellation", |h| {
-        h.runtime.language_services().unwrap().infos()[0]
-            .tasks
-            .is_empty()
-    });
-    let frame = crate::app::chrome::language_panel_frame(&h.state);
+    crate::app::trust_prompt::decide(&h.state, &root, true);
+    h.until_ready();
     assert!(
-        frame
-            .sections
+        h.runtime
+            .language_services()
+            .unwrap()
+            .capability_sources(None)
             .iter()
-            .flat_map(|s| &s.lines)
-            .all(|line| line.cancel.is_none())
+            .any(|source| source.run > previous && source.providers.hover)
     );
+}
+
+#[test]
+fn the_language_extension_updates_progress_and_reclaims_its_status_on_stop() {
+    let mut h = LanguageHarness::new("fn alpha() {}\n", &["--progress", "--progress-cancellable"]);
+    h.until("extension progress status", |h| {
+        h.state.get().extension_widgets.roots().iter().any(|root| {
+            root.properties.background == Some(0x665522)
+                && root.children.iter().any(|node| {
+                    node.properties.text.as_deref() == Some("Fixture: Loading project 3/10")
+                })
+        })
+    });
+    let app = h.state.get();
+    let file = app.workspace.active_document().unwrap();
+    let document = &app.workspace.documents[&file];
+    let path = document.meta.path.clone();
+    let text = document.buffer.text_snapshot();
+    drop(app);
+    crate::app::test_support::language::saved(&h.state, path, text);
+    h.until_ready();
+    h.runtime.extensions().unwrap().stop_all(&h.state);
+    h.until("status reclaimed with its owner", |h| {
+        h.state.get().extension_widgets.roots().is_empty()
+    });
 }
 
 #[test]
@@ -4088,10 +3970,7 @@ fn lsp_folding_fallback_is_versioned_and_late_results_do_not_fold_a_switched_tab
             &path,
         ],
         |app| {
-            app.preferences.values_mut().language_servers[0]
-                .args
-                .as_mut()
-                .unwrap()[1] = "object".into();
+            let _ = app;
         },
     );
     h.until_ready();
@@ -4120,10 +3999,11 @@ fn lsp_folding_fallback_is_versioned_and_late_results_do_not_fold_a_switched_tab
         app.workspace
             .test_open_view("fold-other.txt".into(), "other".into());
     });
-    h.runtime
-        .language_services()
-        .unwrap()
-        .saved(target, Arc::new("fn f() {\n body();\n}\nnext\n".into()));
+    crate::app::test_support::language::saved(
+        &h.state,
+        target,
+        Arc::new("fn f() {\n body();\n}\nnext\n".into()),
+    );
     h.until("the folding reply after the save barrier", |h| {
         h.state.try_update(crate::app::folding::tick);
         let app = h.state.get();
@@ -4497,10 +4377,7 @@ fn multicursor_cancels_pending_completion_and_snippets_before_late_reply() {
             &log_arg,
         ],
         |app| {
-            app.preferences.values_mut().language_servers[0]
-                .args
-                .as_mut()
-                .unwrap()[1] = "object".into()
+            let _ = app;
         },
     );
     h.until_ready();
@@ -4521,10 +4398,7 @@ fn multicursor_cancels_pending_completion_and_snippets_before_late_reply() {
         .update(|app| crate::app::multicursor::command(app, false, true, h.rect));
     assert!(h.state.get().editor.language.completion.is_none());
     let path = h.state.get().workspace.active_path().unwrap().to_path_buf();
-    h.runtime
-        .language_services()
-        .unwrap()
-        .saved(path.clone(), Arc::new("b\nb".into()));
+    crate::app::test_support::language::saved(&h.state, path.clone(), Arc::new("b\nb".into()));
     h.state
         .update(|app| completion::observe(&h.state, app, Some('o')));
     assert!(h.state.get().editor.language.completion.is_none());
@@ -4554,10 +4428,7 @@ fn multicursor_cancels_pending_completion_and_snippets_before_late_reply() {
         "new manual completion request after releasing the cancelled response",
         |h| count(h) > before,
     );
-    h.runtime
-        .language_services()
-        .unwrap()
-        .saved(path, Arc::new("b\nb".into()));
+    crate::app::test_support::language::saved(&h.state, path, Arc::new("b\nb".into()));
     h.until("manual completion at the primary caret", |h| {
         h.state
             .get()
@@ -4689,10 +4560,6 @@ fn vim_editor_pending_completion_cannot_reopen_after_escape() {
         ],
         |app| {
             app.editor.vim.options.enabled = true;
-            app.preferences.values_mut().language_servers[0]
-                .args
-                .as_mut()
-                .unwrap()[1] = "object".into();
         },
     );
     h.until_ready();
@@ -4705,10 +4572,7 @@ fn vim_editor_pending_completion_cannot_reopen_after_escape() {
     crate::app::editor_vim::feed_keys(&h.state, "<Esc>", h.rect, &TestClipboard::default());
     h.render();
     let path = h.state.get().workspace.active_path().unwrap().to_path_buf();
-    h.runtime
-        .language_services()
-        .unwrap()
-        .saved(path.clone(), Arc::new("\n".into()));
+    crate::app::test_support::language::saved(&h.state, path.clone(), Arc::new("\n".into()));
     h.until("save barrier after cancelling Vim completion", |h| {
         server_log(h, &log)
             .iter()
@@ -4731,10 +4595,7 @@ fn vim_editor_pending_completion_cannot_reopen_after_escape() {
             .count()
             > before
     });
-    h.runtime
-        .language_services()
-        .unwrap()
-        .saved(path, Arc::new("\n".into()));
+    crate::app::test_support::language::saved(&h.state, path, Arc::new("\n".into()));
     h.until("fresh completion after Vim re-enters Insert", |h| {
         !h.completion_labels().is_empty()
     });
@@ -4830,11 +4691,7 @@ fn vim_editor_inlay_hints_recover_when_a_provider_appears_without_an_edit() {
         &["--features", "hover", "--registration-script", &script_arg],
         |app| {
             app.editor.vim.options.enabled = true;
-            app.preferences.values_mut().lsp.inlay_hints = true;
-            app.preferences.values_mut().language_servers[0]
-                .args
-                .as_mut()
-                .unwrap()[1] = "object".into();
+            app.preferences.values_mut().language_features.inlay_hints = true;
         },
     );
     h.until_ready();
@@ -4855,10 +4712,7 @@ fn vim_editor_inlay_hints_recover_when_a_provider_appears_without_an_edit() {
     let before = h.document_text();
     let cursor = h.cursor();
     let save = |h: &LanguageHarness| {
-        h.runtime
-            .language_services()
-            .unwrap()
-            .saved(path.clone(), Arc::new(before.clone()))
+        crate::app::test_support::language::saved(&h.state, path.clone(), Arc::new(before.clone()))
     };
     save(&h);
     h.until("inlay hints after late capability registration", |h| {
@@ -4873,15 +4727,20 @@ fn vim_editor_inlay_hints_recover_when_a_provider_appears_without_an_edit() {
     });
     assert_eq!(h.document_text(), before);
     assert_eq!(h.cursor(), cursor);
-    let run = h.runtime.language_services().unwrap().infos()[0].run;
-    h.runtime.language_services().unwrap().restart();
+    let run = h
+        .runtime
+        .language_services()
+        .unwrap()
+        .capability_sources(None)[0]
+        .run;
+    h.runtime.extensions().unwrap().reload_all(&h.state);
     h.until("inlay provider restart", |h| {
         h.runtime
             .language_services()
             .unwrap()
-            .infos()
+            .capability_sources(None)
             .iter()
-            .any(|i| i.run > run && i.status == crate::infrastructure::lsp::manager::Status::Ready)
+            .any(|i| i.run > run && i.providers.inlay_hint)
     });
     h.until("old hints cleared after provider restart", |h| {
         h.state.try_update(crate::app::language_ui::inlay::tick);

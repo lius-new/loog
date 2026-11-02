@@ -60,7 +60,10 @@ fn the_list_shows_what_is_installed_and_a_search_adds_what_the_registry_offers()
     assert_eq!(ids(&visible(&frame, "")), ["a.on", "b.off", "c.update"]);
     assert_eq!(ids(&visible(&frame, "UPDATE")), ["c.update"]);
     // Installed matches come first, then the registry's extensions.
-    assert_eq!(ids(&visible(&frame, ".")), ["a.on", "b.off", "c.update", "d.new"]);
+    assert_eq!(
+        ids(&visible(&frame, ".")),
+        ["a.on", "b.off", "c.update", "d.new"]
+    );
     assert_eq!(ids(&visible(&frame, "d.new")), ["d.new"]);
     assert!(visible(&frame, "nothing like this").is_empty());
 }
@@ -73,4 +76,70 @@ fn the_detail_falls_back_to_the_first_result() {
     assert_eq!(current(&entries, Some("gone")).unwrap().id, "a.on");
     assert_eq!(current(&entries, None).unwrap().id, "a.on");
     assert!(current(&[], Some("a.on")).is_none());
+}
+
+#[test]
+fn installed_extension_list_materializes_only_the_visible_rows() {
+    use lgui::{
+        application::{AppView, ApplicationContext},
+        core::{InputEvent, Point, UiScale, WheelDelta, dispatch_runtime_output},
+        session::UiSession,
+    };
+    let data = Frame {
+        installed: (0..5000)
+            .map(|i| entry(&format!("entry.{i}"), true, false))
+            .collect(),
+        ..Default::default()
+    };
+    let view: AppView = Arc::new(move |cx| {
+        let ui = cx.state_with(ExtensionsUiState::default);
+        let commands = ui.clone();
+        let data = data.clone();
+        let binding = Binding::new(
+            ui.into(),
+            move || data.clone(),
+            move |command| {
+                commands.update(|ui| match command {
+                    Command::SetTab(tab) => ui.tab = tab,
+                    Command::Select(id) => ui.selected = Some(id),
+                    _ => {}
+                })
+            },
+        );
+        let id = cx.use_stable_id();
+        let focus = cx.focus_handle(id.clone());
+        render(cx.viewport(), binding, id, focus)
+    });
+    let viewport = UiRect::new(0.0, 0.0, 1000.0, 700.0);
+    let mut session = UiSession::new();
+    session.render_view(&view, viewport, UiScale::ONE);
+    assert!(session.tree().nodes().len() < 600);
+    assert!(
+        !session
+            .tree()
+            .nodes()
+            .iter()
+            .any(|n| n.text.as_deref() == Some("entry.4999"))
+    );
+    let application = ApplicationContext::empty(Default::default());
+    let output = session.handle_input(InputEvent::Wheel {
+        point: Point::new(40.0, 150.0),
+        delta: WheelDelta::lines(0.0, -100000.0),
+    });
+    dispatch_runtime_output(
+        output,
+        &application,
+        &lgui::window::WindowId::new("extension-list"),
+        |action| session.handle_default_action(action),
+        |_| {},
+    );
+    session.render_view(&view, viewport, UiScale::ONE);
+    assert!(session.tree().nodes().len() < 600);
+    assert!(
+        session
+            .tree()
+            .nodes()
+            .iter()
+            .any(|n| n.text.as_deref() == Some("entry.4999"))
+    );
 }

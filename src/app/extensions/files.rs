@@ -7,8 +7,8 @@
 //! changes is refused, so no typing is lost.
 use super::*;
 use crate::features::extensions::manifest::check_package_path;
+use crate::features::providers::FileChange;
 use crate::infrastructure::extensions::fileops::{self, Op, Outcome as DiskOutcome};
-use crate::infrastructure::lsp::manager::FileChange;
 
 /// What a running file operation was for.
 pub(super) struct FileJob {
@@ -28,7 +28,7 @@ fn refuse(kind: ErrorKind, message: impl Into<String>) -> ExtensionError {
 
 /// A path inside the folder, as the extension named it. The folder's own path
 /// (not a resolved one) is kept, so open documents keep matching.
-fn within(root: &Path, relative: &str) -> Result<PathBuf, ExtensionError> {
+pub(super) fn within(root: &Path, relative: &str) -> Result<PathBuf, ExtensionError> {
     let outside = || {
         refuse(
             ErrorKind::PermissionDenied,

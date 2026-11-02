@@ -8,6 +8,32 @@ use std::cell::Cell;
 use crate::features::highlighting::{HighlightId, HighlightModifiers, HighlightStyle, StyleTable};
 use lgui::prelude::{Color, Element, Stroke, TextAlign, TextStyle, UiRect, VisualStyle, panel};
 
+/// Bridge the current application palette into portable widget defaults.
+pub fn widget_theme() -> lgui::ThemeContext {
+    let palette = c();
+    lgui::ThemeContext::new(lgui::ThemeTokens {
+        colors: lgui::ColorTokens {
+            surface: palette.bg,
+            surface_raised: palette.surface,
+            surface_interactive: palette.surface,
+            surface_hover: palette.active_line,
+            border: palette.border,
+            border_subtle: palette.active_line,
+            text: palette.text,
+            text_secondary: palette.text_soft,
+            text_muted: palette.text_dim,
+            accent: palette.accent,
+            accent_contrast: palette.on_accent,
+        },
+        typography: lgui::TypographyTokens {
+            body_size: UI_SIZE as i32,
+            label_size: SMALL as i32,
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+}
+
 // ---- Palettes ----------------------------------------------------------
 
 /// Every color the UI draws with. Built-in themes are `Palette` values in

@@ -221,7 +221,7 @@ fn completion_key(state: &AppContext, action: Action, rect: UiRect) -> Option<bo
         .get()
         .preferences
         .values()
-        .lsp
+        .language_features
         .completion
         .accept_on
         .clone();

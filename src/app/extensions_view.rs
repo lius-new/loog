@@ -523,7 +523,7 @@ mod tests {
                 surface.draw(&scene, &frame).expect("draw the page")
             });
             let mut rgba = surface.pixels().to_vec();
-            for pixel in rgba.chunks_exact_mut(4) {
+            for pixel in rgba.as_chunks_mut::<4>().0 {
                 pixel.swap(0, 2);
                 pixel[3] = 255;
             }
