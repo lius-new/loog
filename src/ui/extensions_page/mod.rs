@@ -14,7 +14,8 @@ use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel};
 use std::sync::Arc;
 
 use self::widgets::{Ids, Kind, Look, line};
-use crate::ui::components::input::{self, AccessInputOptions, InputBinding, InputStyle};
+use crate::ui::components::input::InputBinding;
+use crate::ui::components::search_field;
 use crate::ui::extensions_binding::{
     Binding, Command, Entry, ExtensionsUiState, Frame, RegistryStatus,
 };
@@ -24,7 +25,7 @@ use crate::ui::theme;
 const LIST_MIN_W: f32 = 240.0;
 const LIST_MAX_W: f32 = 340.0;
 const SEARCH_TOP: f32 = 12.0;
-const SEARCH_H: f32 = 28.0;
+const SEARCH_H: f32 = search_field::HEIGHT;
 const ROW_H: f32 = 62.0;
 const TILE: f32 = 36.0;
 const MARGIN: f32 = 12.0;
@@ -200,37 +201,23 @@ fn list_column(
         area.right - MARGIN,
         area.top + SEARCH_TOP + SEARCH_H,
     );
-    column = column
-        .child(theme::bordered(search, c.bg, c.border, 5.0, 1.0))
-        .child(icon(
-            ids.next(),
-            "search",
-            UiRect::new(
-                search.left + 8.0,
-                search.top + 7.0,
-                search.left + 22.0,
-                search.bottom - 7.0,
-            ),
-            c.text_dim,
-        ))
-        .child(search_input(
-            UiRect::new(
-                search.left + 26.0,
-                search.top + 1.0,
-                search.right - 4.0,
-                search.bottom - 1.0,
-            ),
-            state.clone(),
-            search_focus,
-            search_id,
-            "Search extensions",
-        ));
+    let cancel = state.clone();
+    let mut options = search_field::Options::new("Search extensions");
+    options.trailing_width = if registry.refreshing { 28.0 } else { 4.0 };
+    options.on_cancel = Some(Arc::new(move || cancel.run(Command::ClearSearch)));
+    column = column.child(search_field::render(
+        search,
+        search_id,
+        search_focus,
+        InputBinding::new_access(state.ui.clone(), |ui| &ui.search, |ui| &mut ui.search),
+        options,
+    ));
     let y = search.bottom + 8.0;
     let ring = UiRect::new(
         search.right - 22.0,
-        search.top + 6.0,
+        search.top + 4.0,
         search.right - 6.0,
-        search.bottom - 6.0,
+        search.bottom - 4.0,
     );
     column = column.child(
         lgui::presence(
@@ -257,36 +244,6 @@ fn list_column(
         area.right,
         area.bottom,
     )))
-}
-
-fn search_input(
-    rect: UiRect,
-    state: Binding,
-    focus: UiFocusHandle,
-    id: UiId,
-    label: &'static str,
-) -> Element {
-    let cancel = state.clone();
-    input::render_portable(
-        rect,
-        id,
-        focus,
-        InputBinding::new_access(state.ui, |ui| &ui.search, |ui| &mut ui.search),
-        AccessInputOptions {
-            label,
-            placeholder: label,
-            style: InputStyle {
-                text: theme::sans(theme::c().text, theme::UI_SIZE),
-                placeholder: theme::sans(theme::c().text_faint, theme::UI_SIZE),
-                caret: theme::c().text_faint,
-                selection: theme::c().accent,
-            },
-            on_submit: None,
-            on_cancel: Some(Arc::new(move || cancel.run(Command::ClearSearch))),
-            on_blur: None,
-        },
-        false,
-    )
 }
 
 /// The scrolling rows of the list, or the message that stands in for them.

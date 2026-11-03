@@ -13,6 +13,7 @@ use super::state::SearchPanelState;
 use crate::features::search::{FileMatches, Results};
 use crate::ui::components::input::{self, InputBinding, InputState, InputStyle};
 use crate::ui::components::scrollbar;
+use crate::ui::components::search_field;
 use crate::ui::components::state_access::StateAccess;
 use crate::ui::components::text::SingleLineText;
 use crate::ui::drawer::drawer_icon;
@@ -21,7 +22,7 @@ use crate::ui::theme;
 // Search uses the compact UI scale for dense result lists.
 const TEXT_SIZE: f32 = theme::SMALL;
 const META_SIZE: f32 = 9.0;
-const INPUT_H: f32 = 24.0;
+const INPUT_H: f32 = search_field::HEIGHT;
 
 fn file_labels(file: &FileMatches, multiple_roots: bool) -> (String, String) {
     // Buffer paths may use Windows' verbatim prefix while search roots do not.
@@ -220,34 +221,20 @@ pub fn render(
     let input_right = options
         .as_ref()
         .map_or(right - 4.0, |areas| areas[0].left - 2.0);
-    root = root.child(
-        theme::bordered(
-            query,
-            theme::c().surface,
-            if search.model.status().error.is_some() {
-                theme::c().error
-            } else if search.query.focused {
-                theme::c().accent
-            } else {
-                theme::c().border
-            },
-            4.0,
-            1.0,
-        )
-        .child(search_input(
-            UiRect::new(
-                left + 2.0,
-                top + 1.0,
-                input_right.max(left + 2.0),
-                top + INPUT_H - 1.0,
-            ),
-            state.clone(),
-            commands.clone(),
-            inputs.ids[0].clone(),
-            inputs.focus[0].clone(),
-            0,
-        )),
-    );
+    let submit = commands.clone();
+    let cancel = commands.clone();
+    let mut field_options = search_field::Options::new("Search workspace");
+    field_options.trailing_width = query.right - input_right;
+    field_options.invalid = search.model.status().error.is_some();
+    field_options.on_submit = Some(Arc::new(move || submit.dispatch(Command::Refresh)));
+    field_options.on_cancel = Some(Arc::new(move || cancel.dispatch(Command::Cancel)));
+    root = root.child(search_field::render(
+        query,
+        inputs.ids[0].clone(),
+        inputs.focus[0].clone(),
+        InputBinding::new_access(state.clone(), |app| &app.ui.query, |app| &mut app.ui.query),
+        field_options,
+    ));
     if let Some(areas) = options {
         for (index, icon, name, active) in [
             (
