@@ -46,14 +46,19 @@ if (!check) {
   rmSync(target, { recursive: true, force: true });
   mkdirSync(target, { recursive: true });
 }
-const result = spawnSync(
-  process.execPath,
-  [jco, 'types', join(root, 'wit', 'loom-extension'), '--world-name', 'extension', '-o', output],
-  { stdio: check ? 'ignore' : 'inherit' },
-);
-if (result.status !== 0) {
-  console.error('jco types failed');
-  process.exit(result.status ?? 1);
+// COMPAT(base-extension-world): Generate the original world's declaration for existing
+// SDK consumers as well as extension-ui for new builds. Drop the old output only when
+// source support for the original world ends; no removal version has been scheduled.
+for (const world of ['extension', 'extension-ui']) {
+  const result = spawnSync(
+    process.execPath,
+    [jco, 'types', join(root, 'wit', 'loom-extension'), '--world-name', world, '-o', output],
+    { stdio: check ? 'ignore' : 'inherit' },
+  );
+  if (result.status !== 0) {
+    console.error(`jco types failed for ${world}`);
+    process.exit(result.status ?? 1);
+  }
 }
 
 // jco emits whitespace on empty documentation lines. Keep generated sources

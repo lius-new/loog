@@ -483,6 +483,10 @@ interface types {
     record file-changed { watch: u64, root: u64, changes: list<file-change> }
     record watch-failure { watch: u64, error: host-error }
     enum ui-kind { block, text, icon, button, row, column, text-input }
+    // COMPAT(legacy-ui-mount): Preserve mount(string) for existing statusbar components.
+    // New roots use ui.detached and loom:ui/tree; owned nodes still use node(u64).
+    // Retire legacy mount names when their support ends, without removing staging or
+    // owned-parent support. No removal version has been scheduled.
     variant ui-parent { mount(string), node(u64) }
     record ui-description {
         id: string,
@@ -498,6 +502,9 @@ interface types {
         visible: bool,
         label: option<string>,
     }
+    // COMPAT(base-extension-world): Keep this original record's ABI unchanged.
+    // Placement is carried by loom:ui/tree and a separate host-side node model.
+    // Revisit only when the base 0.1.0 ABI is retired; no retirement is scheduled.
     record ui-node { node: u64, parent: ui-parent, description: ui-description }
     variant ui-event-payload { click, input(string), selection(byte-range), visibility(bool), focus(bool) }
     record ui-event { node: u64, id: string, payload: ui-event-payload }
@@ -676,7 +683,16 @@ interface guest {
     dispatch: func(batch: list<inbound>) -> result<round-status, host-error>;
 }
 
+// COMPAT(base-extension-world): Preserve source consumers of the original world.
+// New SDK builds use extension-ui. Remove this world only when base-only source
+// consumers lose support and extension-ui no longer includes it; no removal is scheduled.
 world extension {
     import host;
     export guest;
+}
+
+/// Opt-in UI composition contract. Keep the original world source-compatible.
+world extension-ui {
+    include extension;
+    import loom:ui/tree@0.1.0;
 }

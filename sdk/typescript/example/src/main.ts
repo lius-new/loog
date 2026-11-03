@@ -3,6 +3,9 @@
 // a hover provider, all with `async`/`await`.
 import { byteOffset, byteRange, commands, guest as sdkGuest, log, providers, workspace, ui } from '@loom/extension';
 
+// COMPAT(legacy-ui-mount): Keep this example as a legacy mount regression fixture.
+// New extensions should follow example.tools.relative-widget below. Remove this
+// fixture and its corresponding host test when mount support ends; no removal is scheduled.
 commands.register('example.tools.widget', () => {
   const node = ui.create('statusbar.extensions', ui.button('Starting', {
     id: 'example-status', background: 0x334455, foreground: 0xffffff, width: 100, height: 28,
@@ -12,6 +15,17 @@ commands.register('example.tools.widget', () => {
     if (event.payload.tag !== 'click') return;
     if (ready) node.remove();
     else { ready = true; node.update({ text: 'Ready', background: 0x228844 }); }
+  });
+});
+
+commands.register('example.tools.relative-widget', () => {
+  const node = ui.createElement(ui.button('Relative', { id: 'relative-status', width: 120 }));
+  ui.insertBefore(ui.target('demo.cursor'), node, { order: 100 });
+  let moved = false;
+  node.onEvent(event => {
+    if (event.payload.tag !== 'click') return;
+    if (moved) node.remove();
+    else { moved = true; ui.move(node, ui.target('demo.encoding'), { relation: 'after', order: -10 }); }
   });
 });
 

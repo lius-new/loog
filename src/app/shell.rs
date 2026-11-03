@@ -1842,9 +1842,19 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         );
     }
 
+    let ui_state = state.clone();
+    let extension_layer = crate::ui::extension_widgets::layer(
+        vp,
+        s.extension_widgets.roots(),
+        Arc::new(move |origin, payload| {
+            if let Some(host) = ui_state.services().and_then(|runtime| runtime.extensions()) {
+                host.ui_event(&ui_state.get(), origin, payload);
+            }
+        }),
+    );
     lgui::core::context_provider(
         theme::widget_theme(),
-        root.child(layout_map::render(
+        root.child(extension_layer).child(layout_map::render(
             content_area,
             state.clone(),
             layout_map_store.clone(),

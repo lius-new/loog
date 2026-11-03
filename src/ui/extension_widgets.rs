@@ -1,11 +1,52 @@
 //! Runtime widget descriptions composed through the normal retained LGUI tree.
-use crate::features::extensions::ui::{Kind, Node, Origin, Payload};
+use crate::features::extensions::ui::{Attachment, Kind, Node, Origin, Payload, Relation};
 use crate::ui::theme;
 use lgui::core::*;
 use lgui::prelude::panel;
 use lgui::services::ServicesContextExt;
 use std::sync::Arc;
 pub type Sink = Arc<dyn Fn(Origin, Payload) + Send + Sync>;
+
+/// One application-wide staging tree. Generic LGUI projection resolves public
+/// targets before measurement, independent of which native view declared them.
+pub fn layer(rect: UiRect, nodes: Vec<Arc<Node>>, sink: Sink) -> Element {
+    lgui::core::group(rect)
+        .key("extension-ui-layer")
+        .visibility(Visibility::Collapsed)
+        .children(
+            nodes
+                .into_iter()
+                // COMPAT(legacy-ui-mount): Old roots are rendered by the statusbar mount.
+                // New roots enter this generic layer via Detached/Relative attachments.
+                // Remove this exclusion with legacy root routing; no removal is scheduled.
+                .filter(|node| node.attachment != Attachment::Legacy)
+                .map(|node| {
+                    let key = node.origin.public_id();
+                    let attachment = node.attachment.clone();
+                    let widget = render(node, sink.clone());
+                    Element::new(move |cx: ElementRenderCx<'_, '_, '_>| {
+                        let widget = cx.compile(widget);
+                        match attachment {
+                            Attachment::Relative {
+                                target,
+                                relation,
+                                order,
+                            } => widget.relative_to(RelativePlacement {
+                                target,
+                                relation: match relation {
+                                    Relation::Before => RelativeRelation::Before,
+                                    Relation::After => RelativeRelation::After,
+                                    Relation::Append => RelativeRelation::Append,
+                                },
+                                order,
+                            }),
+                            _ => widget,
+                        }
+                    })
+                    .key(key.as_ref())
+                }),
+        )
+}
 #[derive(Clone)]
 struct Props {
     node: Arc<Node>,
@@ -195,6 +236,7 @@ mod tests {
     use std::sync::Mutex;
     fn node(kind: Kind) -> Arc<Node> {
         Arc::new(Node {
+            attachment: Attachment::Legacy,
             origin: Origin {
                 owner: "example.widgets".into(),
                 session: 1,
@@ -294,16 +336,30 @@ mod tests {
         assert_eq!(events[0].0.public_id(), public);
     }
     #[test]
-    fn a_runtime_text_input_emits_committed_utf8_text_and_selection() {
-        let node = node(Kind::TextInput);
+    fn a_relative_text_input_keeps_focus_and_utf8_state_when_moved() {
+        let mut initial = (*node(Kind::TextInput)).clone();
+        initial.attachment = Attachment::Relative {
+            target: "input.start".into(),
+            relation: Relation::Before,
+            order: 0,
+        };
+        let node = Arc::new(Mutex::new(Arc::new(initial)));
+        let read = node.clone();
         let seen = Arc::new(Mutex::new(vec![]));
         let events = seen.clone();
         let view: lgui::application::AppView = Arc::new(move |_| {
             let events = events.clone();
-            group(UiRect::new(0.0, 0.0, 600.0, 28.0))
-                .layout(LayoutSpec::Flex(FlexLayout::default()))
-                .child(render(
-                    node.clone(),
+            let rect = UiRect::new(0.0, 0.0, 600.0, 28.0);
+            group(rect)
+                .child(
+                    group(rect)
+                        .layout(LayoutSpec::Flex(FlexLayout::default()))
+                        .child(group(UiRect::new(0.0, 0.0, 100.0, 28.0)).public_id("input.start"))
+                        .child(group(UiRect::new(0.0, 0.0, 100.0, 28.0)).public_id("input.end")),
+                )
+                .child(layer(
+                    rect,
+                    vec![read.lock().unwrap().clone()],
                     Arc::new(move |_, payload| events.lock().unwrap().push(payload)),
                 ))
         });
@@ -318,6 +374,14 @@ mod tests {
         pointer(&mut session, &context, Point::new(100.0, 14.0));
         input(&mut session, &context, InputEvent::TextInput("中😀".into()));
         session.render_view(&view, viewport, UiScale::ONE);
+        Arc::make_mut(&mut node.lock().unwrap()).attachment = Attachment::Relative {
+            target: "input.end".into(),
+            relation: Relation::After,
+            order: 0,
+        };
+        session.render_view(&view, viewport, UiScale::ONE);
+        input(&mut session, &context, InputEvent::TextInput("续".into()));
+        session.render_view(&view, viewport, UiScale::ONE);
         let seen = seen.lock().unwrap();
         let text = seen
             .iter()
@@ -331,6 +395,10 @@ mod tests {
             })
             .unwrap();
         assert!(text.contains("中😀"));
+        assert!(
+            text.contains("续"),
+            "moving the input lost its focus or state"
+        );
         let range = seen
             .iter()
             .rev()
@@ -347,5 +415,177 @@ mod tests {
                 && text.is_char_boundary(range.start)
                 && text.is_char_boundary(range.end)
         );
+    }
+
+    #[test]
+    fn relative_widgets_move_between_arbitrary_native_nodes_without_losing_identity() {
+        let mut widget = (*node(Kind::Button)).clone();
+        widget.attachment = Attachment::Relative {
+            target: "demo.anchor".into(),
+            relation: Relation::Before,
+            order: 10,
+        };
+        let public = widget.origin.public_id();
+        let widgets = Arc::new(Mutex::new(vec![Arc::new(widget)]));
+        let reader = widgets.clone();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let seen = events.clone();
+        let viewport = UiRect::new(0.0, 0.0, 800.0, 28.0);
+        let view: lgui::application::AppView = Arc::new(move |_| {
+            let seen = seen.clone();
+            group(viewport)
+                .child(
+                    group(viewport)
+                        .layout(LayoutSpec::Flex(FlexLayout {
+                            justify: Justify::End,
+                            ..Default::default()
+                        }))
+                        .child(
+                            text(
+                                UiRect::new(0.0, 0.0, 100.0, 28.0),
+                                "Anchor",
+                                theme::mono(theme::c().text, 12.0),
+                            )
+                            .public_id("demo.anchor"),
+                        )
+                        .child(
+                            text(
+                                UiRect::new(0.0, 0.0, 100.0, 28.0),
+                                "End",
+                                theme::mono(theme::c().text, 12.0),
+                            )
+                            .public_id("demo.end"),
+                        ),
+                )
+                .child(layer(
+                    viewport,
+                    reader.lock().unwrap().clone(),
+                    Arc::new(move |origin, payload| seen.lock().unwrap().push((origin, payload))),
+                ))
+        });
+        let context = lgui::application::ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let mut session = lgui::session::UiSession::new();
+        session.render_view(&view, viewport, UiScale::ONE);
+        let original = session
+            .tree()
+            .nodes()
+            .iter()
+            .find(|node| node.public_id.as_deref() == Some(public.as_ref()))
+            .unwrap()
+            .id
+            .clone();
+        let bounds = session.tree().public_node(&public).unwrap().bounds;
+        let anchor = session.tree().public_node("demo.anchor").unwrap().bounds;
+        assert_eq!(bounds.right, anchor.left);
+        pointer(
+            &mut session,
+            &context,
+            Point::new((bounds.left + bounds.right) / 2.0, 14.0),
+        );
+        assert_eq!(events.lock().unwrap().len(), 1);
+        Arc::make_mut(&mut widgets.lock().unwrap()[0]).attachment = Attachment::Relative {
+            target: "demo.end".into(),
+            relation: Relation::After,
+            order: 0,
+        };
+        session.render_view(&view, viewport, UiScale::ONE);
+        let moved = session
+            .tree()
+            .nodes()
+            .iter()
+            .find(|node| node.public_id.as_deref() == Some(public.as_ref()))
+            .unwrap();
+        assert_eq!(moved.id, original);
+        let bounds = session.tree().public_node(&public).unwrap().bounds;
+        assert_eq!(
+            bounds.left,
+            session.tree().public_node("demo.end").unwrap().bounds.right
+        );
+        pointer(
+            &mut session,
+            &context,
+            Point::new((bounds.left + bounds.right) / 2.0, 14.0),
+        );
+        assert_eq!(events.lock().unwrap().len(), 2);
+        widgets.lock().unwrap().clear();
+        session.render_view(&view, viewport, UiScale::ONE);
+        assert!(session.tree().public_node(&public).is_none());
+    }
+
+    #[test]
+    fn relative_widgets_wait_for_targets_and_rebind_after_native_reconstruction() {
+        let mut widget = (*node(Kind::Button)).clone();
+        widget.attachment = Attachment::Relative {
+            target: "demo.optional".into(),
+            relation: Relation::Before,
+            order: 0,
+        };
+        let widget = Arc::new(widget);
+        let public = widget.origin.public_id();
+        let visible = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let visibility = visible.clone();
+        let viewport = UiRect::new(0.0, 0.0, 600.0, 28.0);
+        let view: lgui::application::AppView = Arc::new(move |_| {
+            let mut native = group(viewport).layout(LayoutSpec::Flex(FlexLayout::default()));
+            if visibility.load(std::sync::atomic::Ordering::Relaxed) {
+                native = native
+                    .child(group(UiRect::new(0.0, 0.0, 100.0, 28.0)).public_id("demo.optional"));
+            }
+            group(viewport).child(native).child(layer(
+                viewport,
+                vec![widget.clone()],
+                Arc::new(|_, _| {}),
+            ))
+        });
+        let context = lgui::application::ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let mut session = lgui::session::UiSession::new();
+        let mut original = None;
+        for show in [false, true, false, true] {
+            visible.store(show, std::sync::atomic::Ordering::Relaxed);
+            session.render_view(&view, viewport, UiScale::ONE);
+            let native = session
+                .tree()
+                .nodes()
+                .iter()
+                .find(|node| node.public_id.as_deref() == Some(public.as_ref()))
+                .unwrap();
+            if let Some(original) = &original {
+                assert_eq!(&native.id, original);
+            } else {
+                original = Some(native.id.clone());
+            }
+            if show {
+                assert_eq!(
+                    session.tree().public_node(&public).unwrap().bounds.right,
+                    session
+                        .tree()
+                        .public_node("demo.optional")
+                        .unwrap()
+                        .bounds
+                        .left
+                );
+            } else {
+                let parent = session
+                    .tree()
+                    .node(native.parent.as_ref().unwrap())
+                    .unwrap();
+                assert_eq!(parent.visibility, Visibility::Collapsed);
+                assert_ne!(
+                    session
+                        .tree()
+                        .hit_test(Point::new(60.0, 14.0))
+                        .map(|hit| hit.id),
+                    Some(native.id.clone())
+                );
+            }
+        }
     }
 }

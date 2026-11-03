@@ -46,7 +46,7 @@ mkdirSync(dirname(out), { recursive: true });
 const { rolldown } = await import(pathToFileURL(join(tools, 'rolldown', 'dist', 'index.mjs')).href);
 const built = await rolldown({
   input: entry,
-  external: ['loom:extension/host@0.1.0'],
+  external: ['loom:extension/host@0.1.0', 'loom:ui/tree@0.1.0'],
   resolve: { alias: { '@loom/extension': join(here, 'src', 'index.ts') } },
 });
 await built.write({ file: bundle, format: 'esm' });
@@ -56,7 +56,7 @@ run('componentize', process.execPath, [
   join(tools, '@bytecodealliance', 'jco', 'dist', 'jco.js'),
   'componentize', bundle,
   '--wit', join(root, 'wit', 'loom-extension'),
-  '--world-name', 'extension',
+  '--world-name', 'extension-ui',
   '--disable', 'stdio', 'random', 'clocks', 'http',
   '-o', out,
 ]);

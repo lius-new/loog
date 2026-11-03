@@ -371,6 +371,28 @@ test('widget builders preserve colors, route events and discard removed subtrees
   equal(events.length, 1);
 });
 
+test('relative UI references preserve placement, ownership and subtree cleanup', () => {
+  const { host } = fakeHost();
+  const placements: unknown[] = [];
+  const runtime = createRuntime(host, { place: (node, placement) => { placements.push({ node, placement }); } });
+  const target = runtime.ui.target('statusbar.cursor-position');
+  const block = runtime.ui.createElement(runtime.ui.row({ id: 'relative-status' }));
+  const label = runtime.ui.createElement(runtime.ui.text('Ready', { id: 'relative-label' }));
+  runtime.ui.insertBefore(target, block, { order: 100 });
+  runtime.ui.appendChild(block, label);
+  deepStrictEqual(placements[0], { node: block.node, placement: { target: { tag: 'public-id', val: 'statusbar.cursor-position' }, relation: 'before', order: 100 } });
+  runtime.ui.move(block, runtime.ui.target('other.component'), { relation: 'after', order: -1 });
+  equal(placements.length, 3);
+  throws(() => runtime.ui.insertBefore(target, block, { order: NaN }), /32-bit/);
+  const other = createRuntime(fakeHost().host);
+  const foreign = other.ui.createElement(other.ui.row({ id: 'foreign' }));
+  throws(() => runtime.ui.appendChild(block, foreign), /belong/);
+  throws(() => runtime.ui.target('ext.owned-by-another-plugin'), /Invalid/);
+  block.remove();
+  throws(() => label.update({ text: 'stale' }), /removed/);
+  throws(() => runtime.ui.insertAfter(target, block), /removed/);
+});
+
 test('a captured document snapshot includes version metadata and releases once', () => {
   const { host, calls } = fakeHost(); const runtime = createRuntime(host);
   const captured = runtime.workspace.captureDocument(3n);

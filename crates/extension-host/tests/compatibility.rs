@@ -30,6 +30,13 @@ fn a_newer_loom_host_interface_is_not_silently_stubbed() {
 }
 
 #[test]
+fn an_unknown_ui_tree_version_is_refused_independently_of_the_base_contract() {
+    let error = outcome(r#"(component (import "loom:ui/tree@0.2.0" (instance)))"#).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::UnsupportedApi);
+    assert!(error.message.contains("loom:ui/tree@0.1.0"));
+}
+
+#[test]
 fn a_component_without_the_guest_export_fails_to_link() {
     let error = outcome("(component)").unwrap_err();
     assert_eq!(error.kind, ErrorKind::ExtensionFailed, "{error}");

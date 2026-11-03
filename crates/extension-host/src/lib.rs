@@ -17,7 +17,7 @@ use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder, Trap};
 mod bindings {
     wasmtime::component::bindgen!({
         path: "../../wit/loom-extension",
-        world: "extension",
+        world: "extension-ui",
         additional_derives: [serde::Serialize],
     });
 }
@@ -36,8 +36,22 @@ pub use watches::WatchControl;
 mod publication_budget;
 mod ui;
 pub use bindings::loom::extension::types::{
-    UiDescription, UiEvent, UiEventPayload, UiKind, UiNode, UiParent,
+    UiDescription, UiEvent, UiEventPayload, UiKind, UiParent,
 };
+pub use bindings::loom::ui::tree::{
+    Placement as UiPlacement, Relation as UiRelation, Target as UiTarget,
+};
+
+// COMPAT(base-extension-world): Keep placement outside the original WIT ui-node record
+// so existing components retain their ABI. New placement travels through loom:ui/tree.
+// Revisit this split only when the base 0.1.0 ABI is retired; no retirement is scheduled.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct UiNode {
+    pub node: u64,
+    pub parent: UiParent,
+    pub description: UiDescription,
+    pub placement: Option<UiPlacement>,
+}
 pub use publication_budget::{Budget as PublicationBudget, Credit as PublicationCredit};
 
 pub use bindings::loom::extension::types::ProviderConfiguration;
@@ -511,6 +525,16 @@ fn wit_kind(kind: ErrorKind) -> WitErrorKind {
 }
 
 impl types::Host for HostState {}
+
+impl bindings::loom::ui::tree::Host for HostState {
+    fn place(&mut self, node: u64, placement: UiPlacement) -> Result<(), String> {
+        self.unrestricted("placing UI nodes")
+            .map_err(|error| error.message)?;
+        self.ui
+            .place(node, placement)
+            .map_err(|error| error.message)
+    }
+}
 
 impl host::Host for HostState {
     fn monotonic_nanoseconds(&mut self) -> u64 {
@@ -1049,7 +1073,11 @@ pub struct Runtime {
 /// Loom interfaces a component may import. An import of another version of a
 /// Loom interface is a structural mismatch and is refused before instantiation
 /// (design §7.4); only toolchain WASI imports are stubbed.
-pub const KNOWN_IMPORTS: &[&str] = &["loom:extension/types@0.1.0", "loom:extension/host@0.1.0"];
+pub const KNOWN_IMPORTS: &[&str] = &[
+    "loom:extension/types@0.1.0",
+    "loom:extension/host@0.1.0",
+    "loom:ui/tree@0.1.0",
+];
 
 /// Length of one epoch tick.
 pub const TICK: Duration = Duration::from_millis(10);
@@ -1168,7 +1196,11 @@ impl Runtime {
             }
         }
         let mut linker = Linker::<HostState>::new(&self.engine);
-        bindings::Extension::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)
+        // COMPAT(base-extension-world): Register both interfaces; existing components
+        // may import only the base host. New SDK components also import loom:ui/tree.
+        // Require the new import only after base-only components lose support;
+        // no removal version has been scheduled.
+        bindings::ExtensionUi::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)
             .map_err(|error| failed(&error))?;
         linker
             .define_unknown_imports_as_traps(component)
@@ -1176,7 +1208,7 @@ impl Runtime {
         let mut store = Store::new(&self.engine, HostState::new(&limits));
         store.limiter(|state| &mut state.limits);
         store.set_epoch_deadline(limits.round_ticks);
-        let bindings = bindings::Extension::instantiate(&mut store, component, &linker)
+        let bindings = bindings::ExtensionUi::instantiate(&mut store, component, &linker)
             .map_err(|error| failed(&error))?;
         Ok(Instance {
             store,
@@ -1228,7 +1260,7 @@ pub type RoundResult = Result<RoundStatus, ExtensionError>;
 
 pub struct Instance {
     store: Store<HostState>,
-    bindings: bindings::Extension,
+    bindings: bindings::ExtensionUi,
     limits: Limits,
 }
 

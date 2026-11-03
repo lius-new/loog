@@ -59,18 +59,12 @@ pub fn render(viewport: UiRect, anchor: Option<UiRect>, state: Binding) -> Eleme
         .saturating_sub(normal_count.saturating_sub(1))
         .max(pinned);
 
-    let close = state.clone();
     let clear_hover = state.clone();
     let overlay = Element::new(move |cx| {
         UiElement::panel(UiId::new(FOCUS_ID), viewport, VisualStyle::default())
             .children(cx.children)
     })
     .event_policy(EventPolicy::INTERACTIVE)
-    .on_pointer_down_with_button(move |_cx, pointer, _button| {
-        if !card.contains(pointer.point) {
-            close.run(Command::Close);
-        }
-    })
     .on_event_capture(UiEventKind::PointerMove, move |_cx, _payload| {
         clear_hover.run(Command::Hover(None));
     })
@@ -79,7 +73,16 @@ pub fn render(viewport: UiRect, anchor: Option<UiRect>, state: Binding) -> Eleme
         cx.stop_propagation();
     });
     let wheel = state.clone();
+    let close = state.clone();
     let mut surface = theme::bordered(card, theme::c().surface, theme::c().border, 6.0, 1.0)
+        .position(lgui::core::Position::Anchor {
+            target: "statusbar.encoding".into(),
+            side: lgui::core::AnchorSide::Top,
+            gap: lgui::core::Dimension::Points(ANCHOR_GAP),
+            offset: lgui::core::Point::new(anchor.width() - width, 0.0),
+            flip: true,
+        })
+        .on_outside_pointer(move |_, _, _| close.run(Command::Close))
         .shadow(
             ShadowStyle::new(Color::BLACK)
                 .alpha(theme::c().shadow_alpha)

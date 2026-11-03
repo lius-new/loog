@@ -32,6 +32,7 @@ fn measure(s: &str, weight: i32) -> f32 {
 /// The native file-status items in order.
 struct Items {
     items: Vec<(String, TextStyle)>,
+    cursor: Option<usize>,
     encoding: Option<usize>,
     ending: Option<usize>,
     indent: Option<usize>,
@@ -78,7 +79,7 @@ pub fn encoding_anchor(rect: UiRect, frame: &StatusFrame) -> Option<UiRect> {
     Some(UiRect::new(
         x,
         rect.top,
-        x + items.width_of(index) + TEXT_MARGIN,
+        x + items.width_of(index),
         rect.bottom,
     ))
 }
@@ -87,26 +88,41 @@ pub fn render(rect: UiRect, state: StatusBinding) -> Element {
     let s = state.frame();
     let items = status_items(&s);
     use lgui::core::{
-        Axis, Dimension, DockSide, EdgeInsets, FlexItem, FlexLayout, LayoutSpec, Overflow,
+        Axis, Dimension, DockSide, EdgeInsets, FlexItem, FlexLayout, Justify, LayoutSpec, Overflow,
         SizeConstraints,
     };
     let height = rect.height().max(0.0);
     let row = |width| UiRect::new(0.0, 0.0, width, height);
+    let vim_width = s.vim.as_ref().map_or(0.0, |(mode, status)| {
+        let labels = vim_status_items(*mode, status.clone());
+        labels
+            .iter()
+            .map(|(label, style)| measure(label, style.weight) + TEXT_MARGIN)
+            .sum::<f32>()
+            + GAP * labels.len().saturating_sub(1) as f32
+    });
+    let available =
+        (rect.width() - EDGE_PAD * 2.0 - vim_width - if vim_width > 0.0 { GAP } else { 0.0 })
+            .max(0.0);
     let mut settings = lgui::core::group(row(items.total()))
         .layout(LayoutSpec::Flex(FlexLayout {
             gap: GAP,
             ..Default::default()
         }))
-        .size_constraints(SizeConstraints::new(
-            Dimension::Content,
-            Dimension::Points(height),
-        ))
+        .size_constraints(
+            SizeConstraints::new(Dimension::Content, Dimension::Points(height))
+                .max_size(lgui::core::Size::new(available, height)),
+        )
+        .overflow(Overflow::Clip)
         .dock(DockSide::Right);
     for index in 0..items.items.len() {
         let width = items.width_of(index);
         let (label, style) = items.items[index].clone();
         let mut slot =
             lgui::core::group(row(width)).child(text(row(width + TEXT_MARGIN), label, style));
+        if items.cursor == Some(index) {
+            slot = slot.public_id("statusbar.cursor-position");
+        }
         let command = if items.encoding == Some(index) {
             Some((
                 "statusbar.encoding",
@@ -197,20 +213,35 @@ pub fn render(rect: UiRect, state: StatusBinding) -> Element {
             Dimension::Points(height),
         ))
         .dock(DockSide::Left);
+    // COMPAT(legacy-ui-mount): Render existing extensions using statusbar.extensions.
+    // New extensions place their roots through the generic layer and public targets.
+    // Remove this mount and its Legacy filter when legacy mount support ends;
+    // no removal version has been scheduled.
     let mount = lgui::core::group(row(0.0))
         .public_id("statusbar.extensions")
-        .layout(LayoutSpec::Flex(FlexLayout::new(Axis::Horizontal)))
+        .layout(LayoutSpec::Flex(FlexLayout {
+            axis: Axis::Horizontal,
+            justify: Justify::End,
+            ..Default::default()
+        }))
         .dock(DockSide::Fill)
         .overflow(Overflow::Clip)
-        .children(s.extension_widgets.into_iter().map(|node| {
-            let state = state.clone();
-            crate::ui::extension_widgets::render(
-                node,
-                std::sync::Arc::new(move |origin, payload| {
-                    state.run(StatusCommand::ExtensionWidget { origin, payload })
+        .children(
+            s.extension_widgets
+                .into_iter()
+                .filter(|node| {
+                    node.attachment == crate::features::extensions::ui::Attachment::Legacy
+                })
+                .map(|node| {
+                    let state = state.clone();
+                    crate::ui::extension_widgets::render(
+                        node,
+                        std::sync::Arc::new(move |origin, payload| {
+                            state.run(StatusCommand::ExtensionWidget { origin, payload })
+                        }),
+                    )
                 }),
-            )
-        }));
+        );
     panel(rect, VisualStyle::filled(theme::c().sidebar))
         .key("statusbar")
         .public_id("statusbar")
@@ -235,6 +266,7 @@ pub fn render(rect: UiRect, state: StatusBinding) -> Element {
 
 fn status_items(s: &StatusFrame) -> Items {
     let mut items = Vec::new();
+    let mut cursor = None;
     let mut encoding = None;
     let mut ending = None;
     let mut indent = None;
@@ -271,6 +303,7 @@ fn status_items(s: &StatusFrame) -> Items {
             ));
         }
         if let Some((line, col)) = file.cursor {
+            cursor = Some(items.len());
             items.push((
                 format!("Ln {}, Col {}", line + 1, col + 1),
                 theme::mono(theme::c().text_muted, theme::SMALL),
@@ -315,6 +348,7 @@ fn status_items(s: &StatusFrame) -> Items {
     }
     Items {
         items,
+        cursor,
         encoding,
         ending,
         indent,
@@ -405,11 +439,48 @@ mod tests {
 
     #[test]
     fn native_file_controls_keep_their_click_targets() {
-        let rect = UiRect::new(0.0, 0.0, 1000.0, 28.0);
-        {
+        for width in [500.0, 1000.0] {
+            let rect = UiRect::new(0.0, 0.0, width, 28.0);
             let lang = crate::domain::language::builtin("rust");
+            use crate::features::extensions::ui::{
+                Attachment, Kind, Node, Origin, Properties, Relation,
+            };
+            let widgets: Vec<_> = ["go", "rust", "typescript"]
+                .into_iter()
+                .map(|owner| {
+                    Arc::new(Node {
+                        origin: Origin {
+                            owner: owner.into(),
+                            session: 1,
+                            generation: 1,
+                            node: 1,
+                            id: "status".into(),
+                        },
+                        attachment: Attachment::Relative {
+                            target: "statusbar.cursor-position".into(),
+                            relation: Relation::Before,
+                            order: 100,
+                        },
+                        properties: Properties {
+                            id: "status".into(),
+                            kind: Kind::Block,
+                            text: None,
+                            icon: None,
+                            foreground: None,
+                            background: Some(0x246842),
+                            width: Some(220.0),
+                            height: Some(28.0),
+                            padding: 0.0,
+                            gap: 0.0,
+                            visible: true,
+                            label: Some(owner.into()),
+                        },
+                        children: vec![],
+                    })
+                })
+                .collect();
             let frame = StatusFrame {
-                extension_widgets: vec![],
+                extension_widgets: widgets.clone(),
                 pending: Vec::new(),
                 vim: None,
                 file: Some(FileStatus {
@@ -443,7 +514,16 @@ mod tests {
                     });
                 },
             );
-            let view: AppView = Arc::new(move |_| render(rect, binding.clone()));
+            let roots = widgets.clone();
+            let view: AppView = Arc::new(move |_| {
+                lgui::core::group(rect)
+                    .child(render(rect, binding.clone()))
+                    .child(crate::ui::extension_widgets::layer(
+                        rect,
+                        roots.clone(),
+                        Arc::new(|_, _| {}),
+                    ))
+            });
             let context = ApplicationContext::empty(Default::default());
             let _fonts = lgui::backend::install_text_environment(
                 &context,
@@ -451,6 +531,26 @@ mod tests {
             );
             let mut session = UiSession::new();
             session.render_view(&view, rect, UiScale::ONE);
+            let cursor = session
+                .tree()
+                .public_node("statusbar.cursor-position")
+                .unwrap()
+                .bounds;
+            for widget in widgets {
+                let bounds = session
+                    .tree()
+                    .public_node(&widget.origin.public_id())
+                    .unwrap()
+                    .bounds;
+                assert!(
+                    bounds.right <= cursor.left,
+                    "extension overlapped cursor at window width {width}"
+                );
+                assert!(
+                    bounds.left >= 0.0,
+                    "extension escaped the status bar at window width {width}"
+                );
+            }
             for label in ["2 diagnostics", "Ln 1, Col 1"] {
                 let bounds = session
                     .tree()

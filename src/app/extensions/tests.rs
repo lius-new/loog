@@ -2371,6 +2371,14 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
     use crate::features::language_service::request::Feature;
     use std::time::Instant;
     let packages = repo().join(".tmp/loom-extensions/language-clients/.work/packages");
+    let installed = crate::infrastructure::extensions::state::read(&packages);
+    let package_dir = |id: &str| {
+        let entry = installed
+            .extensions
+            .get(id)
+            .expect("run the local staging script first");
+        crate::infrastructure::extensions::state::version_dir(&packages, id, &entry.version)
+    };
     let fixture_bytes: usize = std::env::var("LOOM_MIGRATION_BYTES")
         .ok()
         .map(|value| value.parse().unwrap())
@@ -2428,7 +2436,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             assert_eq!(content.len(), fixture_bytes);
         }
         let text = content.as_str();
-        let package = packages.join(extension);
+        let package = package_dir(extension);
         assert!(
             package.join("extension.wasm").is_file(),
             "build/stage {extension} first"
@@ -2484,7 +2492,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
         f.apply(effects);
         if extension.ends_with("typescript-language-server") {
             f.service
-                .load_package(&packages.join("loom.runtime.node"))
+                .load_package(&package_dir("loom.runtime.node"))
                 .unwrap();
         }
         eprintln!("official {language}: loading component and starting server");

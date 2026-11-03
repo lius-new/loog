@@ -1,6 +1,10 @@
 use super::*;
-use crate::features::extensions::ui::{FlatNode, Kind, Origin, Payload, Properties};
-use loom_extension_host::{UiEvent, UiEventPayload, UiKind, UiNode, UiParent};
+use crate::features::extensions::ui::{
+    Attachment, FlatNode, Kind, Origin, Payload, Properties, Relation,
+};
+use loom_extension_host::{
+    UiEvent, UiEventPayload, UiKind, UiNode, UiParent, UiRelation, UiTarget,
+};
 use std::sync::Arc;
 impl ExtensionService {
     pub(super) fn ui_changed(
@@ -17,12 +21,52 @@ impl ExtensionService {
         {
             return vec![];
         }
+        let public_ids: std::collections::HashMap<_, _> = nodes
+            .iter()
+            .map(|node| {
+                (
+                    node.node,
+                    Origin {
+                        owner: id.into(),
+                        session: self.ui_session,
+                        generation,
+                        node: node.node,
+                        id: node.description.id.clone().into(),
+                    }
+                    .public_id(),
+                )
+            })
+            .collect();
         let nodes = nodes
             .into_iter()
             .map(|node| {
                 let p = node.description;
+                let attachment = match node.placement {
+                    Some(placement) => {
+                        let target = match placement.target {
+                            UiTarget::PublicId(target) => Some(target.into()),
+                            UiTarget::Node(target) => public_ids.get(&target).cloned(),
+                        };
+                        target.map_or(Attachment::Detached, |target| Attachment::Relative {
+                            target,
+                            relation: match placement.relation {
+                                UiRelation::Before => Relation::Before,
+                                UiRelation::After => Relation::After,
+                                UiRelation::Append => Relation::Append,
+                            },
+                            order: placement.order,
+                        })
+                    }
+                    None if matches!(&node.parent, UiParent::Mount(name) if name == "ui.detached") => Attachment::Detached,
+                    // COMPAT(legacy-ui-mount): Old statusbar roots have no placement metadata.
+                    // New roots use Detached/Relative; owned children still take this branch.
+                    // Remove the legacy root fallback when mount support ends, preserving
+                    // owned-child handling. No removal version has been scheduled.
+                    None => Attachment::Legacy,
+                };
                 FlatNode {
                     node: node.node,
+                    attachment,
                     parent: match node.parent {
                         UiParent::Node(id) => Some(id),
                         UiParent::Mount(_) => None,

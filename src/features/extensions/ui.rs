@@ -10,6 +10,27 @@ pub enum Kind {
     Column,
     TextInput,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Relation {
+    Before,
+    After,
+    Append,
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Attachment {
+    // COMPAT(legacy-ui-mount): Preserve old root routing to statusbar.extensions.
+    // New roots use Detached/Relative; owned descendants also carry this default.
+    // Remove legacy root routing when legacy mount support ends, preserving descendant
+    // handling. No removal version has been scheduled.
+    #[default]
+    Legacy,
+    Detached,
+    Relative {
+        target: Arc<str>,
+        relation: Relation,
+        order: i32,
+    },
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct Properties {
     pub id: Arc<str>,
@@ -33,6 +54,7 @@ mod tests {
         FlatNode {
             node: id,
             parent,
+            attachment: Attachment::Legacy,
             properties: Properties {
                 id: format!("n{id}").into(),
                 kind: Kind::Block,
@@ -147,12 +169,14 @@ pub enum Payload {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Node {
     pub origin: Origin,
+    pub attachment: Attachment,
     pub properties: Properties,
     pub children: Vec<Arc<Node>>,
 }
 pub struct FlatNode {
     pub node: u64,
     pub parent: Option<u64>,
+    pub attachment: Attachment,
     pub properties: Properties,
 }
 #[derive(Clone, Default)]
@@ -250,6 +274,7 @@ impl Model {
                 .collect();
             let model = Node {
                 origin,
+                attachment: node.attachment.clone(),
                 properties: node.properties.clone(),
                 children,
             };

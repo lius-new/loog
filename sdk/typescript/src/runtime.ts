@@ -44,7 +44,7 @@ import type {
   TaskRequest,
 } from '../generated/interfaces/loom-extension-types.js';
 import { slice } from './text.ts';
-import { createUi, type Ui } from './ui.ts';
+import { createUi, type Ui, type UiTreeHost } from './ui.ts';
 
 export type HostApi = typeof Host;
 export interface CompletionAnswer { items: CompletionItem[]; incomplete: boolean }
@@ -269,7 +269,10 @@ const answers: {
   highlights: (h,r,v) => h.provideLanguage(r,v),
 };
 
-export function createRuntime(host: HostApi): Runtime {
+// COMPAT(legacy-ui-runtime): Preserve createRuntime(host) for existing embeddings
+// and test hosts. New embeddings pass the separate UI tree interface as well.
+// Make uiTree mandatory after those callers migrate; no removal version is scheduled.
+export function createRuntime(host: HostApi, uiTree?: UiTreeHost): Runtime {
   const timers = new Map<bigint, () => void>();
   const documents = new Map<bigint, DocumentRef>();
   const texts = new Map<string, { document: bigint; value: string; bytes: number }>();
@@ -295,7 +298,7 @@ export function createRuntime(host: HostApi): Runtime {
       return value;
     });
   }
-  const widgets = createUi(host, track);
+  const widgets = createUi(host, track, uiTree);
   const watches = new Map<bigint, { listener: (event: FileChanged) => void; onError?: (error: HostError) => void; resolve: () => void; reject: (error: Error) => void }>();
   type ProcessState = {
     output?: (output: ProcessOutput) => void;

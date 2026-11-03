@@ -1,0 +1,13 @@
+package loom:ui@0.1.0;
+
+/// Kept separate so old components retain their original host ABI.
+// COMPAT(base-extension-world): An independent interface avoids changing the base host ABI.
+// New SDK components import both. Revisit this separation only with an explicitly
+// breaking replacement for the base 0.1.0 contract; no such retirement is scheduled.
+interface tree {
+    enum relation { before, after, append }
+    variant target { public-id(string), node(u64) }
+    record placement { target: target, relation: relation, order: s32 }
+    /// Missing public targets remain pending and hidden until they appear.
+    place: func(node: u64, placement: placement) -> result<_, string>;
+}

@@ -878,6 +878,12 @@ export interface WatchFailure {
  * ## `"text-input"`
  */
 export type UiKind = "block" | "text" | "icon" | "button" | "row" | "column" | "text-input";
+/**
+ * COMPAT(legacy-ui-mount): Preserve mount(string) for existing statusbar components.
+ * New roots use ui.detached and loom:ui/tree; owned nodes still use node(u64).
+ * Retire legacy mount names when their support ends, without removing staging or
+ * owned-parent support. No removal version has been scheduled.
+ */
 export type UiParent = UiParentMount | UiParentNode;
 export interface UiParentMount {
   tag: 'mount',
@@ -901,6 +907,11 @@ export interface UiDescription {
   visible: boolean,
   label?: string,
 }
+/**
+ * COMPAT(base-extension-world): Keep this original record's ABI unchanged.
+ * Placement is carried by loom:ui/tree and a separate host-side node model.
+ * Revisit only when the base 0.1.0 ABI is retired; no retirement is scheduled.
+ */
 export interface UiNode {
   node: bigint,
   parent: UiParent,

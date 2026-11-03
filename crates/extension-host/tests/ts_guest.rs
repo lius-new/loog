@@ -68,15 +68,21 @@ fn limits() -> Limits {
     }
 }
 
-fn instance() -> (Runtime, Component) {
-    let runtime = Runtime::new().unwrap();
-    let (component, _) = runtime
-        .compile_cached(
-            guest_component(),
-            &repo().join("target/test-ts-guest-cache"),
-        )
-        .unwrap();
-    (runtime, component)
+fn instance() -> (&'static Runtime, Component) {
+    // Each test gets an isolated Store, while the immutable engine/component
+    // only needs one cold compilation when the SDK changes.
+    static INSTANCE: OnceLock<(Runtime, Component)> = OnceLock::new();
+    let (runtime, component) = INSTANCE.get_or_init(|| {
+        let runtime = Runtime::new().unwrap();
+        let (component, _) = runtime
+            .compile_cached(
+                guest_component(),
+                &repo().join("target/test-ts-guest-cache"),
+            )
+            .unwrap();
+        (runtime, component)
+    });
+    (runtime, component.clone())
 }
 
 fn provider(kind: ProviderKind, id: &str, text: &str, cursor: Option<u64>) -> Inbound {
@@ -128,6 +134,45 @@ fn a_typescript_widget_uses_general_node_operations_and_receives_its_events() {
     assert_eq!(updated[0].description.text.as_deref(), Some("Ready"));
     assert_eq!(updated[0].description.background, Some(0x228844));
     instance.dispatch(&[click()]).unwrap();
+    instance.dispatch(&[]).unwrap();
+    assert!(instance.take_ui_snapshot().unwrap().is_empty());
+}
+
+#[test]
+fn relative_ui_placement_crosses_the_versioned_component_interface() {
+    use loom_extension_host::{UiEvent, UiEventPayload, UiRelation, UiTarget};
+    let (runtime, component) = instance();
+    let mut instance = runtime.instantiate(&component, limits()).unwrap();
+    instance
+        .dispatch(&[Inbound::RunCommand(CommandContext {
+            call: 8,
+            command: "example.tools.relative-widget".into(),
+            snapshot: None,
+            selections: vec![],
+            selection_precondition: None,
+        })])
+        .unwrap();
+    instance.dispatch(&[]).unwrap();
+    let nodes = instance.take_ui_snapshot().unwrap();
+    assert_eq!(nodes.len(), 1);
+    let node = nodes[0].node;
+    let placement = nodes[0].placement.as_ref().unwrap();
+    assert!(matches!(&placement.target, UiTarget::PublicId(id) if id == "demo.cursor"));
+    assert!(matches!(placement.relation, UiRelation::Before));
+    assert_eq!(placement.order, 100);
+    let click = Inbound::UiEvent(UiEvent {
+        node,
+        id: "relative-status".into(),
+        payload: UiEventPayload::Click,
+    });
+    instance.dispatch(&[click.clone()]).unwrap();
+    instance.dispatch(&[]).unwrap();
+    let nodes = instance.take_ui_snapshot().unwrap();
+    assert_eq!(nodes[0].node, node);
+    let placement = nodes[0].placement.as_ref().unwrap();
+    assert!(matches!(&placement.target, UiTarget::PublicId(id) if id == "demo.encoding"));
+    assert!(matches!(placement.relation, UiRelation::After));
+    instance.dispatch(&[click]).unwrap();
     instance.dispatch(&[]).unwrap();
     assert!(instance.take_ui_snapshot().unwrap().is_empty());
 }

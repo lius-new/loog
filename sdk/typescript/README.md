@@ -150,7 +150,30 @@ Publishing coalesces to at most once per 16 ms per instance, retaining only the
 latest pending tree; state events coalesce in a bounded queue. Public IDs contain
 an owner namespace, host session and activation generation. A stopped, failed or
 unloaded owner loses its widgets; stale input cannot reach its replacement.
-There is no interface query API and no operation for changing host-owned nodes.
+Loom 0.1.10 adds logical public-component references and relative placement:
+
+```ts
+const cursor = ui.target('statusbar.cursor-position');
+const status = ui.createElement(ui.button('Ready', { id: 'status', width: 120 }));
+ui.insertBefore(cursor, status, { order: 100, whenMissing: 'hide' });
+// ui.insertAfter(target, node), ui.appendChild(target, node), and
+// ui.move(node, target, { relation: 'before', order: 100 }) use the same model.
+```
+
+Targets are existing public component IDs, not extension-only containers. Each
+window resolves its own tree before layout. Missing targets hide their attached
+nodes until they appear; references survive native component reconstruction.
+Sibling positions are ordered by priority and stable owner/node identity. Owned
+nodes may be moved without recreating their state or event handles. Appending
+requires a container. References do not permit modifying native properties or
+removing native components. Foreign extension handles and cycles are rejected.
+The old `statusbar.extensions` mount remains supported for existing components.
+
+Placement uses the independent `loom:ui/tree@0.1.0` import; the existing
+`loom:extension/host@0.1.0` function signatures are unchanged. New SDK components
+need the updated host; existing compiled components continue to load.
+The SDK builds the opt-in `extension-ui` world. The original `extension` world
+remains available unchanged for existing Rust and other SDK source consumers.
 
 ## Building
 

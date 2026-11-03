@@ -10,9 +10,10 @@
 // The host contract (`wit/loom-extension/world.wit`) is not frozen; the types in
 // `generated/` come from it and are regenerated with `node sdk/typescript/generate.mjs`.
 import * as host from 'loom:extension/host@0.1.0';
+import * as uiTree from 'loom:ui/tree@0.1.0';
 import { createRuntime } from './runtime.ts';
 
-const runtime = createRuntime(host);
+const runtime = createRuntime(host, uiTree);
 
 export const commands = runtime.commands;
 export const providers = runtime.providers;
@@ -32,7 +33,7 @@ export function log(level: number, message: string): void {
 }
 
 export { byteOffset, byteRange, bounds, slice, stringIndex, utf8Length } from './text.ts';
-export type { Ui, UiNode, UiOptions } from './ui.ts';
+export type { Ui, UiNode, UiOptions, UiTarget, PlacementOptions } from './ui.ts';
 export type {
   CommandCall,
   CommandHandler,
