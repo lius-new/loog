@@ -386,6 +386,8 @@ fn diagnostic_card_documentation_links_are_rendered_without_launching_a_browser(
 
 #[test]
 fn save_resolves_lazy_source_actions_runs_their_commands_and_waits_for_edits_before_formatting() {
+    let _budget =
+        crate::app::language_ui::save::test_step_budget(std::time::Duration::from_secs(5));
     let files = Files(std::env::temp_dir().join(format!(
         "loom-save-lazy-{}-{}",
         std::process::id(),

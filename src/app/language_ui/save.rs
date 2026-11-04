@@ -20,6 +20,38 @@ use std::time::{Duration, Instant};
 /// How long each server step may take before the file is saved anyway.
 const STEP: Duration = Duration::from_secs(1);
 
+#[cfg(test)]
+thread_local! {
+    static TEST_STEP: std::cell::Cell<Duration> = const { std::cell::Cell::new(STEP) };
+}
+
+fn step_budget() -> Duration {
+    #[cfg(test)]
+    {
+        TEST_STEP.with(std::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        STEP
+    }
+}
+
+/// UI correctness tests can allow scheduling slack without changing production
+/// deadlines or the dedicated timeout tests. The guard stays on the UI thread.
+#[cfg(test)]
+pub(crate) fn test_step_budget(step: Duration) -> impl Drop {
+    struct Reset(Duration, std::marker::PhantomData<std::rc::Rc<()>>);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TEST_STEP.with(|value| value.set(self.0));
+        }
+    }
+    Reset(
+        TEST_STEP.with(|value| value.replace(step)),
+        std::marker::PhantomData,
+    )
+}
+
 /// What to do once the steps are over (normally: write the file).
 pub type Then = Arc<dyn Fn(&AppContext) + Send + Sync>;
 type Loaded = HashMap<std::path::PathBuf, String>;
@@ -118,7 +150,7 @@ pub fn save(state: &AppContext, rect: UiRect, then: Then) {
         do_format: wanted.format,
         kind: 0,
         action: None,
-        deadline: Instant::now() + STEP * 2,
+        deadline: Instant::now() + step_budget() * 2,
         stamps: Vec::new(),
         loading: None,
     };
@@ -142,7 +174,7 @@ fn begin_stage(state: &AppContext, app: &mut AppState, mut run: Run) -> bool {
     let remaining = run
         .deadline
         .saturating_duration_since(Instant::now())
-        .min(STEP);
+        .min(step_budget());
     if remaining.is_zero() {
         return false;
     }
@@ -248,14 +280,6 @@ pub fn tick(state: &AppContext, app: &mut AppState) -> Option<Then> {
     if !progress.finished {
         return None;
     }
-    #[cfg(test)]
-    eprintln!(
-        "save stage {:?}: progress {:?}; expected {:?}; current {:?}",
-        run.stage,
-        progress,
-        run.stamp,
-        target(app, run.pane).map(|t| t.stamp)
-    );
     app.editor.language.save = None;
     let Some(t) = target(app, run.pane).filter(|t| {
         t.document == run.document
@@ -336,8 +360,6 @@ pub fn tick(state: &AppContext, app: &mut AppState) -> Option<Then> {
                         reply: None,
                     };
                     if let Err(error) = edit::apply_now(app, &request, HashMap::new()) {
-                        #[cfg(test)]
-                        eprintln!("save formatting edit rejected: {error}");
                         app.show_toast(format!("Save: {error}"));
                     }
                 }
@@ -371,7 +393,7 @@ fn load_action(
     let remaining = run
         .deadline
         .saturating_duration_since(Instant::now())
-        .min(STEP);
+        .min(step_budget());
     let Some(application) = state
         .services()
         .and_then(|r| r.application())
