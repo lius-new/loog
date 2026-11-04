@@ -390,7 +390,7 @@ Loom 宿主                                 扩展(WASM)
 
 **F. SDK(接入层,不含具体功能)**:WIT 绑定、控件描述构造器、provider 与事件的类型。
 LSP 客户端不在其中,由扩展自己负责(§4.5)。
-`sdk/typescript` 指使用 TypeScript 编写扩展时使用的通用 SDK,不是 TypeScript 语言服务。
+三个官方语言插件现已使用 Rust WASM,直接从 WIT 生成绑定;旧 TypeScript 客户端与通用 TS SDK 已移除(2026-11-04)。TypeScript 语言服务器及其 Node 运行时仍保留。
 JS/TS 的客户端、服务器初始化和语言行为归 `loom-extensions` 的对应语言服务插件。
 
 ## 5. 首期三组语言验收(rust-analyzer 先行)
@@ -474,7 +474,7 @@ PG 为实现全部 lgui 需求而需要的其他区域使用方迁移与真实�
 
 1. `[x]` **帧模式**:已定,做。宿主按长度头切帧,大消息和半包只在宿主处理一次(2026-11-01)。
    接口按"带长度头的消息流"泛化命名,不绑定 LSP;原始字节模式仍保留给不用帧的协议。
-2. `[x]` **rust-analyzer 扩展的实现语言**:已定,只做 TypeScript(已有 SDK)。Rust 版不做,体积与性能评估只针对 TypeScript 的产物(2026-11-01)。LSP 客户端本身由扩展负责,不进 SDK(§4.5)。
+2. `[x]` **语言客户端的实现语言**:原 2026-11-01 的 TypeScript 决定已被 Rust WASM 迁移取代。gopls、rust-analyzer、typescript-language-server 均使用 Rust,旧 TS 实现与 TS SDK 已移除(2026-11-04)。LSP 客户端本身仍由扩展负责,不进 SDK(§4.5)。
 3. `[x]` **高亮**:已定(2026-11-01)。不区分语法高亮与语义高亮,宿主只提供通用的
    `highlights` provider(§4.3)。语法高亮扩展与语言服务扩展互不依赖、互无兼容代码,
    各自可以提供高亮;宿主只定固定的绘制顺序,不协调。回答格式为范围加主题高亮类型,

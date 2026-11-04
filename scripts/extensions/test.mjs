@@ -28,9 +28,6 @@ run('host: Rust guest and compatibility', 'cargo', [
 ]);
 if (!quick) {
   run('host: JavaScript guest', 'cargo', ['test', '--locked', '--release', '-p', 'loom-extension-host', '--test', 'js_guest']);
-  run('TypeScript SDK: types follow the contract', process.execPath, ['sdk/typescript/generate.mjs', '--check']);
-  run('TypeScript SDK: unit tests', process.execPath, ['--test', 'sdk/typescript/test/sdk.test.ts']);
-  run('host: TypeScript guest', 'cargo', ['test', '--locked', '--release', '-p', 'loom-extension-host', '--test', 'ts_guest']);
 }
 run('packaging script', process.execPath, ['--test', 'scripts/extensions/package/pack.test.mjs']);
 run('application integration', 'cargo', [

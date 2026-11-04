@@ -1,14 +1,12 @@
-# Loom extension SDKs
+# Loom extension API bindings
 
-This directory contains reusable bindings and wrappers for Loom's extension API.
-SDK subdirectories are named after the language used to write an extension;
-`typescript/` is the SDK for extensions written in TypeScript, regardless of the
-languages or tools those extensions support.
+The shared extension contract is `wit/loom-extension/world.wit`, with independent
+UI placement in `wit/loom-extension/deps/ui/world.wit`. Rust extensions generate
+bindings with `wit-bindgen`; see `tests/extensions/rust-guest` for a working guest.
+The previous TypeScript SDK has been removed.
 
-SDKs expose generic document, provider, process, workspace and UI capabilities.
-They do not contain language server clients, protocol initialization, server
-installation rules or language-specific behavior. Those belong to the relevant
-language server plugin in the `loom-extensions` repository, including the
-JavaScript/TypeScript plugin.
-
-The shared contract is `wit/loom-extension/world.wit` at the repository root.
+The contract exposes generic document, provider, process, workspace and UI
+capabilities. Language server clients, protocol initialization and server
+installation rules belong to the corresponding plugins in `loom-extensions`.
+The three official language clients use Rust WASM and do not embed a JavaScript
+engine. The TypeScript language server still uses the separate Node runtime.

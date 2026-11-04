@@ -51,13 +51,13 @@ Existing specialized editor controls keep their application command adapters.
 
 ## Language capability baseline
 
-`sdk/typescript` is the SDK for extensions written in TypeScript, independent of
-their target language. It contains Loom API bindings and general wrappers only.
-Language server clients, initialization, capability negotiation and language
-behavior belong to the corresponding plugins in `loom-extensions`. No such client
-has been added to the SDK. All three official plugin sources now contain private
-clients, bundled independently into each WASM. Their shared build sources live in
-the extension repository's `language-clients`, not in the SDK.
+All three official language plugins now compile private Rust clients into
+independent WASM components from `loom-extensions/language-clients/rust`.
+The previous TypeScript clients and TypeScript SDK have been removed. Extensions
+generate Rust bindings directly from Loom's WIT contract; protocol initialization,
+capability negotiation and language behavior remain in the plugins. Historical
+TypeScript test counts below describe the earlier migration baseline, not the
+current test suite.
 
 Language service packages contribute metadata-only `contributes.languages`
 resources for file associations. They work without syntax packages; when both

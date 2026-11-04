@@ -1,8 +1,9 @@
 # Extensions: state and roadmap
 
-Reviewed on 2026-10-31 against the source at the commit that added this file.
+Originally reviewed on 2026-10-31; SDK/client cleanup updated on 2026-11-04.
+Other roadmap evidence below retains its original review scope.
 The development guide is [tests/extensions/README.md](../tests/extensions/README.md)
-and the TypeScript SDK is in [sdk/typescript](../sdk/typescript/README.md). The
+and the binding guide is in [sdk/README.md](../sdk/README.md). The
 contract is `wit/loom-extension/world.wit`; it is a candidate and **not frozen**.
 
 Keep the states apart. An *implementation gap* has an identifiable source
@@ -16,7 +17,7 @@ evidence.
 | Area | State |
 | --- | --- |
 | Packages | Folder with `manifest.json` under the per-user `extensions` directory; manifest checked on load (ids, paths, capabilities, events, settings, servers). Resource-only packages need no component. |
-| Runtime | Wasmtime component model, one instance per package, bounded rounds (`dispatch`), epoch interruption, memory limits, precompiled component cache. Rust, JavaScript and TypeScript guests run on **Windows x64 only**. |
+| Runtime | Wasmtime component model, one instance per package, bounded rounds (`dispatch`), epoch interruption, memory limits, precompiled component cache. Rust and JavaScript guests run on **Windows x64 only**. |
 | Commands, edits | Commands and `extension::Run` key bindings, captured document and selection, atomic edits through the shared workspace transaction, one undo step. |
 | Providers | Diagnostics, formatting, completion (+ resolve), save participants, hover, definition, document outline, signature help, inlay hints, code actions. Answers join the language servers' replies, so the existing UI shows them. |
 | Host abilities | Settings (user and project), storage, bounded file read and find, bounded `GET`, create/rename/delete files with undo on failure, tasks (programs without a shell), published diagnostics. |
@@ -29,7 +30,7 @@ evidence.
 
 | ID | Remaining work | Completion condition |
 | --- | --- | --- |
-| EXT-01 | Linux x64 and macOS evidence for the Rust, JavaScript and TypeScript guests, process tasks (process groups) and language servers. | Run `node scripts/extensions/test.mjs` on both platforms and record the results in [the guide's platform table](../tests/extensions/README.md). A platform that was not run counts as failing. |
+| EXT-01 | Linux x64 and macOS evidence for the Rust and JavaScript guests, process tasks (process groups) and language servers. | Run `node scripts/extensions/test.mjs` on both platforms and record the results in [the guide's platform table](../tests/extensions/README.md). A platform that was not run counts as failing. |
 | EXT-02 | Freeze the public contract: signatures, budget defaults (queue, snapshot lease, receipt retention), compatibility matrix, and the final decision record for the asynchronous model. | Needs EXT-01. Then add a second contract version and fixtures for old component on new host and new component on old host (today only one version exists, so those pairs cannot be tested), and write the decision. |
 
 ## Implementation gaps
@@ -41,7 +42,7 @@ evidence.
 | EXT-05 | Selection and focus events; selection lease. | Only document open/change/close events are delivered. Add selection and focus events with a generation on the selection a command captured, and explicit lease release. |
 | EXT-06 | Activation on language demand. | Providers wake from their declared selector, but the subscription baseline for a language-driven wake-up is missing. The first event after activation must follow a baseline. |
 | EXT-07 | Management UI. | Only commands exist. Add per-extension stop/retry, a persistent "disabled" state, a page that shows permissions and failures, and a confirmation flow for grants. Local packages are currently granted everything they declare (decision record in the design notes); a real install flow must ask first, and no third-party package may be loaded before it exists. |
-| EXT-08 | Debugging. | No source maps: an error cannot be mapped to a TypeScript line. Add maps, error positions in the log, and reuse of grants in a development mode. |
+| EXT-08 | Debugging. | Guest errors do not consistently include source positions. Add maps, error positions in the log, and reuse of grants in a development mode. |
 | EXT-09 | Resource contributions: the rest. | Official default themes and language resources are not packages; version selection between bundled and independently updated resources, a deterministic rule for conflicts other than "the user chose", and removal/fallback are unspecified. Language packs in a package need a restart (they are read at startup); making them load without one needs the language registry to accept additions at run time. |
 | EXT-10 | Language server install and update. | Declared servers run an existing program; download and install steps, pinned sources with checksums, and the official servers as package declarations are not done. They must go through the same grants as running a program. |
 | EXT-11 | More language providers. | References, implementation, type definition, workspace symbols, call and type hierarchies, code lens, folding and selection ranges. Several providers for one feature are ordered by source rank only; add a user-configurable order, and one chosen formatter per language. |
@@ -55,8 +56,8 @@ evidence.
 
 | ID | Remaining behavior | Current evidence and completion condition |
 | --- | --- | --- |
-| EXT-17 | TypeScript SDK completeness. | Commands, providers, edits, files and tasks are wrapped; storage, network, settings, file operations and save participants are available only through the generated types. Wrap them, publish the package with a version, and add source maps (EXT-08). |
-| EXT-18 | Rust SDK. | The Rust test guest is hand written. Provide the equivalent SDK (context, futures resuming across rounds, receipts, RAII leases) so the two languages share one contract. |
+| EXT-17 | Removed from scope (2026-11-04). | The TypeScript SDK and the three old TypeScript language clients have been removed after Rust migration. No TypeScript SDK publication is planned. |
+| EXT-18 | Rust SDK. | The Rust test guest is hand written. Consider reusable Rust helpers for context, futures resuming across rounds, receipts and RAII leases; the current clients use generated WIT bindings directly. |
 | EXT-19 | Performance regression. | `crates/extension-host/tests/measure.rs` is a manual, ignored measurement (Rust compile 31 ms, JavaScript component 11.7 MiB and 9.2 s cold compile). Turn it into a check with thresholds that runs in CI, and keep the precompile cache a hard requirement for JavaScript. |
 
 ## Order of work

@@ -10,7 +10,7 @@ server omissions and measurements are recorded in
 
 | Layer | Responsibility |
 | --- | --- |
-| `wit/loom-extension/world.wit`, `sdk/typescript` | General document, provider, process, workspace, watch, timer and UI contracts; SDK wrappers are independent of target language |
+| `wit/loom-extension/world.wit`, `wit/loom-extension/deps/ui/world.wit` | General document, provider, process, workspace, watch, timer and UI contracts; Rust bindings are independent of target language |
 | `crates/extension-host` | WASM isolation, typed results, bounded queues and owned resources |
 | `src/infrastructure/extensions` | Generic execution, framed streams, process-tree cleanup, watches and persisted trust |
 | `src/features/providers` | Request ownership, aggregation, cancellation, coordinate indexes and retained results |

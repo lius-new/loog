@@ -1822,11 +1822,12 @@ impl LanguageHarness {
     /// Waits until a server is ready and holds the document.
     fn until_ready(&mut self) {
         self.until("the server to be ready", |h| {
-            h.state.get().extension_widgets.roots().iter().any(|root| {
-                root.children
-                    .iter()
-                    .any(|node| node.properties.text.as_deref() == Some("Fixture: Ready"))
-            })
+            h.state
+                .get()
+                .extension_widgets
+                .roots()
+                .iter()
+                .any(|root| root.properties.label.as_deref() == Some("Fixture: Ready"))
         });
     }
 
@@ -3183,10 +3184,18 @@ fn the_language_extension_owns_its_ready_status_color_and_text() {
         .iter()
         .find(|node| node.origin.owner.as_ref() == "example.language-fixture")
         .unwrap();
-    assert_eq!(status.properties.background, Some(0x246842));
+    assert_eq!(status.properties.background, Some(0x10b981));
+    assert_eq!(status.properties.label.as_deref(), Some("Fixture: Ready"));
     assert_eq!(
-        status.children[0].properties.text.as_deref(),
-        Some("Fixture: Ready")
+        status
+            .children
+            .iter()
+            .find(|node| node.properties.id.as_ref() == "language-status-text")
+            .unwrap()
+            .properties
+            .text
+            .as_deref(),
+        Some("Fixture")
     );
     assert!(
         !h.runtime
@@ -3210,11 +3219,12 @@ fn granting_workspace_trust_again_restarts_the_relevant_language_owner() {
     let root = std::env::temp_dir();
     crate::app::trust_prompt::decide(&h.state, &root, false);
     h.until("trust revocation stops the client", |h| {
-        !h.state.get().extension_widgets.roots().iter().any(|root| {
-            root.children
-                .iter()
-                .any(|node| node.properties.text.as_deref() == Some("Fixture: Ready"))
-        })
+        !h.state
+            .get()
+            .extension_widgets
+            .roots()
+            .iter()
+            .any(|root| root.properties.label.as_deref() == Some("Fixture: Ready"))
     });
     crate::app::trust_prompt::decide(&h.state, &root, true);
     h.until_ready();
@@ -3233,9 +3243,9 @@ fn the_language_extension_updates_progress_and_reclaims_its_status_on_stop() {
     let mut h = LanguageHarness::new("fn alpha() {}\n", &["--progress", "--progress-cancellable"]);
     h.until("extension progress status", |h| {
         h.state.get().extension_widgets.roots().iter().any(|root| {
-            root.properties.background == Some(0x665522)
+            root.properties.background == Some(0x818cf8)
                 && root.children.iter().any(|node| {
-                    node.properties.text.as_deref() == Some("Fixture: Loading project 3/10")
+                    node.properties.text.as_deref() == Some("Fixture: Loading project 3/10 30%")
                 })
         })
     });

@@ -2,7 +2,7 @@
 //!
 //! The guest in `tests/extensions/rust-guest` is built for
 //! `wasm32-unknown-unknown` and wrapped into a component with `wit-component`,
-//! so it imports only `loom:extension/host`.
+//! importing the base host and the independent UI placement interface.
 use loom_extension_api::ErrorKind;
 use loom_extension_host::{
     ByteRange, CommandContext, CommittedReceipt, Completion, Inbound, Limits, Provided,
@@ -527,4 +527,79 @@ fn a_save_participant_answers_with_edits_and_that_answer_lifts_the_restriction()
         1,
         "the answer ended the restriction"
     );
+}
+
+#[test]
+fn a_rust_widget_uses_general_node_operations_and_receives_its_events() {
+    use loom_extension_host::{UiEvent, UiEventPayload};
+    let (runtime, component) = runtime();
+    let mut instance = runtime.instantiate(&component, Limits::default()).unwrap();
+    instance
+        .dispatch(&[Inbound::RunCommand(CommandContext {
+            call: 7,
+            command: "example.tools.widget".into(),
+            snapshot: None,
+            selections: vec![],
+            selection_precondition: None,
+        })])
+        .unwrap();
+    instance.dispatch(&[]).unwrap();
+    let nodes = instance.take_ui_snapshot().unwrap();
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].description.background, Some(0x334455));
+    let node = nodes[0].node;
+    let click = || {
+        Inbound::UiEvent(UiEvent {
+            node,
+            id: "ext.example.example-status".into(),
+            payload: UiEventPayload::Click,
+        })
+    };
+    instance.dispatch(&[click()]).unwrap();
+    instance.dispatch(&[]).unwrap();
+    let updated = instance.take_ui_snapshot().unwrap();
+    assert_eq!(updated[0].description.text.as_deref(), Some("Ready"));
+    assert_eq!(updated[0].description.background, Some(0x228844));
+    instance.dispatch(&[click()]).unwrap();
+    instance.dispatch(&[]).unwrap();
+    assert!(instance.take_ui_snapshot().unwrap().is_empty());
+}
+
+#[test]
+fn relative_ui_placement_crosses_the_versioned_component_interface() {
+    use loom_extension_host::{UiEvent, UiEventPayload, UiRelation, UiTarget};
+    let (runtime, component) = runtime();
+    let mut instance = runtime.instantiate(&component, Limits::default()).unwrap();
+    instance
+        .dispatch(&[Inbound::RunCommand(CommandContext {
+            call: 8,
+            command: "example.tools.relative-widget".into(),
+            snapshot: None,
+            selections: vec![],
+            selection_precondition: None,
+        })])
+        .unwrap();
+    instance.dispatch(&[]).unwrap();
+    let nodes = instance.take_ui_snapshot().unwrap();
+    assert_eq!(nodes.len(), 1);
+    let node = nodes[0].node;
+    let placement = nodes[0].placement.as_ref().unwrap();
+    assert!(matches!(&placement.target, UiTarget::PublicId(id) if id == "demo.cursor"));
+    assert!(matches!(placement.relation, UiRelation::Before));
+    assert_eq!(placement.order, 100);
+    let click = Inbound::UiEvent(UiEvent {
+        node,
+        id: "relative-status".into(),
+        payload: UiEventPayload::Click,
+    });
+    instance.dispatch(std::slice::from_ref(&click)).unwrap();
+    instance.dispatch(&[]).unwrap();
+    let nodes = instance.take_ui_snapshot().unwrap();
+    assert_eq!(nodes[0].node, node);
+    let placement = nodes[0].placement.as_ref().unwrap();
+    assert!(matches!(&placement.target, UiTarget::PublicId(id) if id == "demo.encoding"));
+    assert!(matches!(placement.relation, UiRelation::After));
+    instance.dispatch(&[click]).unwrap();
+    instance.dispatch(&[]).unwrap();
+    assert!(instance.take_ui_snapshot().unwrap().is_empty());
 }

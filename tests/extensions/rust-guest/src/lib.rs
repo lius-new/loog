@@ -6,7 +6,8 @@ use std::cell::RefCell;
 
 wit_bindgen::generate!({
     path: "../../../wit/loom-extension",
-    world: "extension",
+    world: "extension-ui",
+    generate_all,
 });
 
 use exports::loom::extension::guest::Guest;
@@ -23,6 +24,8 @@ use loom::extension::types::{
 #[derive(Default)]
 struct State {
     ui_node: Option<u64>,
+    widget_clicks: u8,
+    relative_widget: bool,
     watch: Option<u64>,
     /// The last document the host told us about: path and version.
     last_doc: Option<(String, u64)>,
@@ -48,6 +51,52 @@ fn run(
     precondition: Option<u64>,
 ) {
     match command {
+        "example.tools.widget" | "example.tools.relative-widget" => {
+            use loom::extension::types::{UiDescription, UiKind, UiParent};
+            let relative = command == "example.tools.relative-widget";
+            let description = UiDescription {
+                id: if relative {
+                    "relative-status"
+                } else {
+                    "ext.example.example-status"
+                }
+                .into(),
+                kind: UiKind::Button,
+                text: Some("Starting".into()),
+                icon: None,
+                foreground: None,
+                background: Some(0x334455),
+                width: None,
+                height: None,
+                padding: 4.0,
+                gap: 0.0,
+                visible: true,
+                label: None,
+            };
+            let node = host::ui_create(
+                &UiParent::Mount("statusbar.extensions".into()),
+                &description,
+            )
+            .unwrap();
+            if relative {
+                use loom::ui::tree::{self, Placement, Relation, Target};
+                tree::place(
+                    node,
+                    &Placement {
+                        target: Target::PublicId("demo.cursor".into()),
+                        relation: Relation::Before,
+                        order: 100,
+                    },
+                )
+                .unwrap();
+            }
+            STATE.with(|state| {
+                let mut state = state.borrow_mut();
+                state.ui_node = Some(node);
+                state.widget_clicks = 0;
+                state.relative_widget = relative;
+            });
+        }
         "example.tools.uppercase" => {
             let Some(snapshot) = snapshot else { return };
             let mut edits = Vec::new();
@@ -390,10 +439,54 @@ impl Guest for Extension {
     fn dispatch(batch: Vec<Inbound>) -> Result<RoundStatus, HostError> {
         for message in batch {
             match message {
-                Inbound::UiEvent(event) => host::log(
-                    0,
-                    &format!("ui event {} {} {:?}", event.node, event.id, event.payload),
-                ),
+                Inbound::UiEvent(event) => {
+                    host::log(
+                        0,
+                        &format!("ui event {} {} {:?}", event.node, event.id, event.payload),
+                    );
+                    if event.id == "relative-status" || event.id == "ext.example.example-status" {
+                        STATE.with(|state| {
+                            let mut state = state.borrow_mut();
+                            state.widget_clicks += 1;
+                            let node = state.ui_node.unwrap();
+                            if state.widget_clicks == 2 {
+                                host::ui_remove(node).unwrap();
+                                state.ui_node = None;
+                            } else if state.relative_widget {
+                                use loom::ui::tree::{self, Placement, Relation, Target};
+                                tree::place(
+                                    node,
+                                    &Placement {
+                                        target: Target::PublicId("demo.encoding".into()),
+                                        relation: Relation::After,
+                                        order: 100,
+                                    },
+                                )
+                                .unwrap();
+                            } else {
+                                use loom::extension::types::{UiDescription, UiKind};
+                                host::ui_update(
+                                    node,
+                                    &UiDescription {
+                                        id: event.id.clone(),
+                                        kind: UiKind::Button,
+                                        text: Some("Ready".into()),
+                                        icon: None,
+                                        foreground: None,
+                                        background: Some(0x228844),
+                                        width: None,
+                                        height: None,
+                                        padding: 4.0,
+                                        gap: 0.0,
+                                        visible: true,
+                                        label: None,
+                                    },
+                                )
+                                .unwrap();
+                            }
+                        });
+                    }
+                }
                 Inbound::RunCommand(context) => run(
                     &context.command,
                     context.call,

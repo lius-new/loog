@@ -69,6 +69,7 @@ pub fn begin(state: &AppContext, wanted: Wanted, rect: UiRect, query: Option<Str
             .extra(extra),
         ),
     );
+    let finished = handle.is_finished();
     state.update(|app| {
         app.editor.language.pending = Some(Pending {
             wanted,
@@ -77,6 +78,10 @@ pub fn begin(state: &AppContext, wanted: Wanted, rect: UiRect, query: Option<Str
             rect,
         });
     });
+    // Unsupported requests finish synchronously and have no provider event to wake the UI.
+    if finished {
+        super::tick(state);
+    }
 }
 
 /// Where `parts` say to go, without repeats.
