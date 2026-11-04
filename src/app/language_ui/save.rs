@@ -248,6 +248,14 @@ pub fn tick(state: &AppContext, app: &mut AppState) -> Option<Then> {
     if !progress.finished {
         return None;
     }
+    #[cfg(test)]
+    eprintln!(
+        "save stage {:?}: progress {:?}; expected {:?}; current {:?}",
+        run.stage,
+        progress,
+        run.stamp,
+        target(app, run.pane).map(|t| t.stamp)
+    );
     app.editor.language.save = None;
     let Some(t) = target(app, run.pane).filter(|t| {
         t.document == run.document
@@ -328,6 +336,8 @@ pub fn tick(state: &AppContext, app: &mut AppState) -> Option<Then> {
                         reply: None,
                     };
                     if let Err(error) = edit::apply_now(app, &request, HashMap::new()) {
+                        #[cfg(test)]
+                        eprintln!("save formatting edit rejected: {error}");
                         app.show_toast(format!("Save: {error}"));
                     }
                 }

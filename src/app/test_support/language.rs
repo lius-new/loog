@@ -120,14 +120,6 @@ pub(crate) fn install(state: &AppContext, runtime: &Arc<AppRuntime>, arguments: 
         None,
     )
     .unwrap();
-    // This fixed JavaScript fixture checks UI/LSP ordering, not execution speed.
-    // Match the SDK correctness tests' epoch budget under shared CI scheduling;
-    // production defaults and the separate runaway-guest tests stay unchanged.
-    host.service()
-        .set_guest_limits(loom_extension_host::Limits {
-            round_ticks: 500,
-            ..Default::default()
-        });
     host.load_package(&directory).unwrap();
     runtime.install_extensions(host);
     state.update(|_| {});
