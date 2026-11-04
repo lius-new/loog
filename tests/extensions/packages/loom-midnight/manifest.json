@@ -12,7 +12,7 @@
   "icon": "icon.svg",
   "readme": "README.md",
   "changelog": "CHANGELOG.md",
-  "engines": { "loom": "0.1.8" },
+  "engines": { "loom": ">=0.1.8 <0.3" },
   "contributes": {
     "themes": [
       { "id": "loom.midnight.dark", "path": "themes/midnight.json" },

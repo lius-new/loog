@@ -165,7 +165,7 @@ fn relative_ui_placement_crosses_the_versioned_component_interface() {
         id: "relative-status".into(),
         payload: UiEventPayload::Click,
     });
-    instance.dispatch(&[click.clone()]).unwrap();
+    instance.dispatch(std::slice::from_ref(&click)).unwrap();
     instance.dispatch(&[]).unwrap();
     let nodes = instance.take_ui_snapshot().unwrap();
     assert_eq!(nodes[0].node, node);

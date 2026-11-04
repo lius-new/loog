@@ -2391,7 +2391,9 @@ version = "0.1.0"
 name = "loom-extension-host"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "loom-extension-api",
+ "ring",
  "serde",
  "serde_json",
  "wasmtime 50.0.1",

@@ -83,3 +83,12 @@ test('long paths use the prefix field and the checksum is valid', () => {
   equal(parseInt(tar.subarray(148, 154).toString(), 8), sum);
   throws(() => createTar([{ path: 'x'.repeat(300), data: Buffer.alloc(0) }]), /too long/);
 });
+
+test('engine ranges match the importer while exact-version recipes remain valid', () => {
+  for (const range of ['0.1.8', '>=0.1.8 <0.3', '^0.1.8', '~1.2', '>=1.0.0-beta <2']) {
+    deepStrictEqual(manifestProblems({ ...manifest, engines: { loom: range } }, () => 100), [], range);
+  }
+  for (const range of ['', 'latest', '>=', '1.2.3.4', '1 || 2', '18446744073709551616']) {
+    ok(manifestProblems({ ...manifest, engines: { loom: range } }, () => 100).some(p => p.startsWith('\u0060engines.loom\u0060')), range);
+  }
+});

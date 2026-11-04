@@ -78,6 +78,8 @@ impl ExtensionService {
                     id: owner.clone(),
                     generation,
                     component: package.component.clone(),
+                    package_dir: package.dir.clone(),
+                    version: package.manifest.version.clone(),
                     cache: self.cache.clone(),
                     limits: self.guest_limits,
                     storage: storage_of(&self.grants, package)
@@ -141,6 +143,8 @@ impl ExtensionService {
                     id: owner.clone(),
                     generation,
                     component: package.component.clone(),
+                    package_dir: package.dir.clone(),
+                    version: package.manifest.version.clone(),
                     cache: self.cache.clone(),
                     limits: self.guest_limits,
                     storage: storage_of(&self.grants, package)

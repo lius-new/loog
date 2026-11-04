@@ -22,6 +22,8 @@ mod bindings {
     });
 }
 
+pub mod aot;
+pub use aot::{CodeSource, LoadedCode};
 mod completion_batch;
 mod documents;
 mod processes;
@@ -1066,6 +1068,8 @@ impl host::Host for HostState {
 /// Shared engine plus the thread that advances its epoch.
 pub struct Runtime {
     engine: Engine,
+    aot_engine: Option<Engine>,
+    aot_keys: Vec<(String, String)>,
     stop: Arc<AtomicBool>,
     ticker: Option<JoinHandle<()>>,
 }
@@ -1087,15 +1091,21 @@ impl Runtime {
         let mut config = Config::new();
         config.epoch_interruption(true);
         let engine = Engine::new(&config).map_err(|error| failed(&error))?;
+        let aot_engine = (aot::target() != "unsupported")
+            .then(|| aot::portable_engine(aot::target()))
+            .transpose()?;
         let stop = Arc::new(AtomicBool::new(false));
         let ticker = {
-            let (engine, stop) = (engine.clone(), stop.clone());
+            let (engine, portable, stop) = (engine.clone(), aot_engine.clone(), stop.clone());
             std::thread::Builder::new()
                 .name("loom-extension-epoch".into())
                 .spawn(move || {
                     while !stop.load(Ordering::Relaxed) {
                         std::thread::sleep(TICK);
                         engine.increment_epoch();
+                        if let Some(engine) = &portable {
+                            engine.increment_epoch();
+                        }
                     }
                 })
                 .map_err(|error| {
@@ -1104,6 +1114,11 @@ impl Runtime {
         };
         Ok(Self {
             engine,
+            aot_engine,
+            aot_keys: aot::OFFICIAL_KEYS
+                .iter()
+                .map(|(id, key)| (id.to_string(), key.to_string()))
+                .collect(),
             stop,
             ticker: Some(ticker),
         })
@@ -1179,11 +1194,23 @@ impl Runtime {
         component: &Component,
         limits: Limits,
     ) -> Result<Instance, ExtensionError> {
+        let engine = component.engine();
+        if !Engine::same(engine, &self.engine)
+            && !self
+                .aot_engine
+                .as_ref()
+                .is_some_and(|owned| Engine::same(engine, owned))
+        {
+            return Err(ExtensionError::new(
+                ErrorKind::UnsupportedApi,
+                "component does not belong to a runtime-managed epoch engine",
+            ));
+        }
         // Inspect the real imports (design §9): anything that is neither the Loom
         // contract nor a WASI interface is an unsupported API, rejected before
         // instantiation. Toolchain-required WASI imports are linked as denied
         // stubs that trap if they are ever called.
-        for (name, _) in component.component_type().imports(&self.engine) {
+        for (name, _) in component.component_type().imports(engine) {
             let known = KNOWN_IMPORTS.contains(&name);
             if !known && !name.starts_with("wasi:") {
                 return Err(ExtensionError::new(
@@ -1195,7 +1222,7 @@ impl Runtime {
                 ));
             }
         }
-        let mut linker = Linker::<HostState>::new(&self.engine);
+        let mut linker = Linker::<HostState>::new(engine);
         // COMPAT(base-extension-world): Register both interfaces; existing components
         // may import only the base host. New SDK components also import loom:ui/tree.
         // Require the new import only after base-only components lose support;
@@ -1205,7 +1232,7 @@ impl Runtime {
         linker
             .define_unknown_imports_as_traps(component)
             .map_err(|error| failed(&error))?;
-        let mut store = Store::new(&self.engine, HostState::new(&limits));
+        let mut store = Store::new(engine, HostState::new(&limits));
         store.limiter(|state| &mut state.limits);
         store.set_epoch_deadline(limits.round_ticks);
         let bindings = bindings::ExtensionUi::instantiate(&mut store, component, &linker)

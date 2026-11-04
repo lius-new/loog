@@ -1,7 +1,7 @@
 import test from 'node:test';
 import {runtimeGrammarManifestErrors,hostBuildScriptErrors} from './check.mjs';
 import assert from 'node:assert/strict';
-import {dependencies,stateFields,structFields,violations,verificationManifestErrors} from './check.mjs';
+import {allowed,dependencies,stateFields,structFields,violations,verificationManifestErrors} from './check.mjs';
 const policy=()=>({exceptions:{},root_state_adapters:[],runtime_bridges:[],state_ownership:{}});
 
 test('workspace, document and pane rules cannot regain I/O, UI, Git or adapter exceptions',()=>{
@@ -459,4 +459,12 @@ test('extension model and executor keep their layers apart',()=>{
     assert.ok(violations({'src/infrastructure/extensions/mod.rs':source},policy()).length>0,source);
   assert.deepEqual(violations({'src/features/extensions/manifest.rs':'use serde::Deserialize;\nuse crate::features::extensions::trust::Denial;'},policy()),[]);
   assert.deepEqual(violations({'src/infrastructure/extensions/mod.rs':'use loom_extension_host::Runtime;\nuse loom_extension_api::ErrorKind;\nuse std::thread::JoinHandle;'},policy()),[]);
+});
+
+test('extensions preview export permissions stay confined to the cfg(test) module',()=>{
+  for(const dependency of ['image','std::fs']) {
+    assert.equal(allowed('src/ui/extensions_page/tests.rs',dependency),true);
+    assert.equal(allowed('src/ui/extensions_page/mod.rs',dependency),false);
+    assert.equal(allowed('src/ui/extensions_page/detail.rs',dependency),false);
+  }
 });

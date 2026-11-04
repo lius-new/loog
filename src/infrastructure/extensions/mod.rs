@@ -126,6 +126,8 @@ pub enum Job {
         id: String,
         generation: u64,
         component: Vec<u8>,
+        package_dir: PathBuf,
+        version: String,
         cache: PathBuf,
         limits: Limits,
         /// Where this extension's stored values live; `None` when storage is not granted.
@@ -247,6 +249,8 @@ pub enum Event {
         id: String,
         generation: u64,
         cache_hit: bool,
+        source: loom_extension_host::CodeSource,
+        aot_rejection: Option<String>,
         result: Result<(), ExtensionError>,
     },
     EditRequested {
@@ -317,7 +321,14 @@ impl Executor {
         let thread = std::thread::Builder::new()
             .name("loom-extensions".to_owned())
             .spawn(move || {
-                let Ok(runtime) = Runtime::new() else {
+                #[cfg(test)]
+                let runtime = match std::env::var("LOOM_MIGRATION_AOT_PUBLIC_KEY") {
+                    Ok(key) => Runtime::with_aot_authorities(vec![("benchmark-only".into(), key)]),
+                    Err(_) => Runtime::new(),
+                };
+                #[cfg(not(test))]
+                let runtime = Runtime::new();
+                let Ok(runtime) = runtime else {
                     return;
                 };
                 Worker {
@@ -537,13 +548,24 @@ impl Worker {
                     id,
                     generation,
                     component,
+                    package_dir,
+                    version,
                     cache,
                     limits,
                     storage,
                     files,
                     domains,
                 } => self.load(
-                    id, generation, &component, &cache, limits, storage, files, domains,
+                    id,
+                    generation,
+                    &component,
+                    &package_dir,
+                    &version,
+                    &cache,
+                    limits,
+                    storage,
+                    files,
+                    domains,
                 ),
                 Job::Run {
                     id,
@@ -835,6 +857,8 @@ impl Worker {
         id: String,
         generation: u64,
         component: &[u8],
+        package_dir: &std::path::Path,
+        version: &str,
         cache: &std::path::Path,
         limits: Limits,
         storage: Option<PathBuf>,
@@ -845,14 +869,15 @@ impl Worker {
         self.instances.remove(&id);
         let result = self
             .runtime
-            .compile_cached(component, cache)
-            .and_then(|(compiled, hit)| {
+            .compile_package(component, cache, package_dir, &id, version)
+            .and_then(|loaded| {
+                let source = loaded.source;
                 self.runtime
-                    .instantiate(&compiled, limits)
-                    .map(|instance| (instance, hit))
+                    .instantiate(&loaded.component, limits)
+                    .map(|instance| (instance, source, loaded.aot_rejection))
             });
         match result {
-            Ok((mut instance, cache_hit)) => {
+            Ok((mut instance, source, rejection)) => {
                 // Capabilities are granted by giving the instance the port; without one
                 // every call fails with permission-denied.
                 if let Some(dir) = storage {
@@ -879,7 +904,9 @@ impl Worker {
                 (self.sink)(Event::Loaded {
                     id,
                     generation,
-                    cache_hit,
+                    cache_hit: source == loom_extension_host::CodeSource::LocalCache,
+                    source,
+                    aot_rejection: rejection,
                     result: Ok(()),
                 });
             }
@@ -887,6 +914,8 @@ impl Worker {
                 id,
                 generation,
                 cache_hit: false,
+                source: loom_extension_host::CodeSource::Compiled,
+                aot_rejection: None,
                 result: Err(error),
             }),
         }

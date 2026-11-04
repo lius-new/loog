@@ -2370,7 +2370,9 @@ const WRITER: &str = r#"["documents.read", "workspace.edit", "workspace.files.wr
 fn official_language_components_reach_native_consumers_without_host_servers() {
     use crate::features::language_service::request::Feature;
     use std::time::Instant;
-    let packages = repo().join(".tmp/loom-extensions/language-clients/.work/packages");
+    let packages = std::env::var_os("LOOM_MIGRATION_PACKAGES")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| repo().join(".tmp/loom-extensions/language-clients/.work/packages"));
     let installed = crate::infrastructure::extensions::state::read(&packages);
     let package_dir = |id: &str| {
         let entry = installed
@@ -2385,14 +2387,14 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
         .unwrap_or(0);
     assert!([0, 1024 * 1024, 8 * 1024 * 1024].contains(&fixture_bytes));
     let mut exceeded = Vec::new();
-    let cases = [
+    let mut cases = vec![
         (
             "rust",
             "loom.lsp.rust-analyzer",
             "src/main.rs",
             "Cargo.toml",
             "[workspace]\n[package]\nname=\"loom_native\"\nversion=\"0.1.0\"\nedition=\"2021\"\n",
-            "fn add(a: i32, b: i32) -> i32 { a + b }\nfn main() { let value = add(1, 2); println!(\"{}\", value); }\n",
+            "struct Counter;\nfn add(a: i32, b: i32) -> i32 { a + b }\nfn main() { let value = add(1, 2); println!(\"{}\", value); }\n",
         ),
         (
             "go",
@@ -2400,7 +2402,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             "main.go",
             "go.mod",
             "module example.com/loomnative\n\ngo 1.26\n",
-            "package main\nimport \"fmt\"\nfunc add(a int, b int) int { return a+b }\nfunc main() { value := add(1,2); fmt.Println(value) }\n",
+            "package main\nimport \"fmt\"\ntype Counter struct{}\nfunc add(a int, b int) int { return a+b }\nfunc main() { value := add(1,2); fmt.Println(value) }\n",
         ),
         (
             "javascript",
@@ -2408,7 +2410,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             "main.js",
             "jsconfig.json",
             "{\"compilerOptions\":{\"checkJs\":true,\"target\":\"ES2022\"}}",
-            "/** @param {number} a @param {number} b */\nfunction add(a, b) { return a+b; }\nconst value = add(1,2);\nconsole.log(value);\n",
+            "class Counter {}\n/** @param {number} a @param {number} b */\nfunction add(a, b) { return a+b; }\nconst value = add(1,2);\nconsole.log(value);\n",
         ),
         (
             "typescript",
@@ -2416,10 +2418,25 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             "main.ts",
             "tsconfig.json",
             "{\"compilerOptions\":{\"strict\":true,\"target\":\"ES2022\"}}",
-            "function add(a: number, b: number): number { return a+b; }\nconst value = add(1,2);\nconsole.log(value);\n",
+            "class Counter {}\nfunction add(a: number, b: number): number { return a+b; }\nconst value = add(1,2);\nconsole.log(value);\n",
         ),
     ];
+    if std::env::var_os("LOOM_MIGRATION_VARIANTS").is_some() {
+        cases.extend([
+            ("jsx", "loom.lsp.typescript-language-server", "main.jsx", "jsconfig.json",
+             r#"{"compilerOptions":{"checkJs":true,"jsx":"preserve","target":"ES2022"}}"#,
+             "// @ts-nocheck\nclass Counter {}\n/** @param {number} a @param {number} b */\nfunction add(a, b) { return a+b; }\nconst view = <div/>;\nconst value = add(1,2); console.log(value);\n"),
+            ("tsx", "loom.lsp.typescript-language-server", "main.tsx", "tsconfig.json",
+             r#"{"compilerOptions":{"strict":true,"jsx":"preserve","target":"ES2022"}}"#,
+             "declare namespace JSX { interface IntrinsicElements { div: {} } }\nclass Counter {}\nfunction add(a:number,b:number):number { return a+b; }\nconst view = <div/>;\nconst value = add(1,2); console.log(value);\n"),
+        ]);
+    }
     for (language, extension, filename, marker, project, text) in cases {
+        let base_language = match language {
+            "jsx" => "javascript",
+            "tsx" => "typescript",
+            other => other,
+        };
         if std::env::var("LOOM_MIGRATION_LANGUAGE")
             .ok()
             .is_some_and(|name| name != language)
@@ -2458,7 +2475,11 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             text,
             0..0,
             &package,
-            Some(repo().join("target/language-migration/cache")),
+            Some(
+                std::env::var_os("LOOM_MIGRATION_CACHE")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| repo().join("target/language-migration/cache")),
+            ),
         );
         f.app.workspace = AppState::new().workspace;
         f.path = path.clone();
@@ -2470,7 +2491,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
                 .definition()
                 .name
                 .as_ref(),
-            language,
+            base_language,
             "acceptance metadata must recognize {filename}"
         );
         f.app.explorer.model.add_root(
@@ -2496,6 +2517,8 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
                 .unwrap();
         }
         eprintln!("official {language}: loading component and starting server");
+        let pre_activation_memory = migration_metrics::snapshot();
+        let startup_started = Instant::now();
         f.observe();
         let ready = format!("{extension}.completion");
         f.pump_until(|f| {
@@ -2523,10 +2546,20 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             "{language}: server failed to initialize: {:?}",
             f.service.package(extension).unwrap().logs
         );
+        let initial_code_source = f.service.package(extension).unwrap().code_source;
+        if std::env::var_os("LOOM_MIGRATION_REQUIRE_AOT").is_some() {
+            assert_eq!(
+                initial_code_source,
+                Some(loom_extension_host::CodeSource::PublishedAot),
+                "AOT must load without compiling"
+            );
+        }
+        let initialized_ms = startup_started.elapsed().as_secs_f64() * 1000.0;
+        let mut first_usable_ms = None;
         let cursor = text.rfind("add(").unwrap() + 1;
         let mut token = 1000;
         let mut peak_memory = migration_metrics::snapshot();
-        let mut ask = |f: &mut Fixture, feature, extra| {
+        let mut ask = |f: &mut Fixture, feature, extra: serde_json::Value| {
             token += 1;
             let file = f.app.workspace.active_document().unwrap();
             let document = &f.app.workspace.documents[&file];
@@ -2537,7 +2570,10 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
                     incarnation: document.incarnation,
                     version: document.buffer.version(),
                 },
-                start: cursor,
+                start: extra
+                    .get("_offset")
+                    .and_then(serde_json::Value::as_u64)
+                    .map_or(cursor, |n| n as usize),
                 end: cursor,
                 extra,
                 target: None,
@@ -2599,6 +2635,9 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
                     usable = true;
                 }
             }
+            if usable && first_usable_ms.is_none() {
+                first_usable_ms = Some(startup_started.elapsed().as_secs_f64() * 1000.0);
+            }
             stable_probes = if usable { stable_probes + 1 } else { 0 };
             if stable_probes >= 10 && warm_started.elapsed() >= Duration::from_secs(2) {
                 break;
@@ -2627,6 +2666,117 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             rename.get("documentChanges").is_some() || rename.get("changes").is_some(),
             "{language}: rename"
         );
+        let mut functional_checks = Vec::new();
+        if std::env::var_os("LOOM_MIGRATION_FULL_CHECKS").is_some() {
+            for feature in [
+                Feature::DocumentSymbol,
+                Feature::References,
+                Feature::DocumentHighlight,
+                Feature::PrepareRename,
+                Feature::FoldingRange,
+                Feature::SelectionRange,
+                Feature::Formatting,
+                Feature::RangeFormatting,
+                Feature::OnTypeFormatting,
+                Feature::InlayHint,
+                Feature::CodeAction,
+                Feature::CodeLens,
+                Feature::PrepareCallHierarchy,
+                Feature::PrepareTypeHierarchy,
+                Feature::TypeDefinition,
+                Feature::Implementation,
+                Feature::WorkspaceSymbol,
+                Feature::SignatureHelp,
+            ] {
+                if f.service
+                    .matching_language_providers(feature, base_language, None, None)
+                    .is_empty()
+                {
+                    continue;
+                }
+                let extra = if feature == Feature::SignatureHelp {
+                    serde_json::json!({"_offset":text.rfind("add(").unwrap()+4})
+                } else if matches!(
+                    feature,
+                    Feature::PrepareTypeHierarchy
+                        | Feature::TypeDefinition
+                        | Feature::Implementation
+                ) {
+                    serde_json::json!({"_offset":text.find("Counter").unwrap()+1})
+                } else if feature == Feature::OnTypeFormatting {
+                    serde_json::json!({"_offset":text.rfind(';').map_or(cursor, |i| i+1),"ch":";"})
+                } else if feature == Feature::WorkspaceSymbol {
+                    serde_json::json!({"query":"add"})
+                } else {
+                    serde_json::Value::Null
+                };
+                let (answer, _) = ask(&mut f, feature, extra);
+                assert!(
+                    !answer.is_null(),
+                    "{language}: functional {feature:?}; logs: {:?}",
+                    f.service.package(extension).unwrap().logs
+                );
+                functional_checks.push(format!("{feature:?}"));
+                let resolve = match feature {
+                    Feature::CodeAction => Some(Feature::CodeActionResolve),
+                    Feature::CodeLens => Some(Feature::CodeLensResolve),
+                    _ => None,
+                };
+                if let Some(resolve) = resolve
+                    && !f
+                        .service
+                        .matching_language_providers(resolve, base_language, None, None)
+                        .is_empty()
+                    && let Some(item) = answer.as_array().and_then(|items| items.first())
+                {
+                    let (resolved, _) =
+                        ask(&mut f, resolve, serde_json::json!({"data":item["data"]}));
+                    assert!(
+                        resolved.is_object(),
+                        "{language}: {resolve:?}: {resolved:?}"
+                    );
+                    functional_checks.push(format!("{resolve:?}"));
+                }
+                if matches!(
+                    feature,
+                    Feature::PrepareCallHierarchy | Feature::PrepareTypeHierarchy
+                ) {
+                    if let Some(item) = answer.as_array().and_then(|items| items.first()) {
+                        let nested = if feature == Feature::PrepareCallHierarchy {
+                            vec![Feature::IncomingCalls, Feature::OutgoingCalls]
+                        } else {
+                            vec![Feature::Supertypes, Feature::Subtypes]
+                        };
+                        for nested in nested {
+                            let (reply, _) =
+                                ask(&mut f, nested, serde_json::json!({"data":item["data"]}));
+                            assert!(reply.is_array(), "{language}: functional {nested:?}");
+                            functional_checks.push(format!("{nested:?}"));
+                        }
+                    }
+                }
+            }
+            let (completion, _) = ask(&mut f, Feature::Completion, serde_json::Value::Null);
+            if f.service
+                .package(extension)
+                .unwrap()
+                .provider_configurations
+                .get(&format!("{extension}.completion"))
+                .is_some_and(|c| c.resolve)
+            {
+                let item = completion["items"]
+                    .as_array()
+                    .and_then(|items| items.first())
+                    .unwrap()
+                    .clone();
+                let (resolved, _) = ask(&mut f, Feature::CompletionResolve, item);
+                assert!(
+                    resolved["label"].is_string(),
+                    "{language}: completion resolve"
+                );
+                functional_checks.push("CompletionResolve".to_owned());
+            }
+        }
         let mut timings = serde_json::Map::new();
         for feature in [Feature::Completion, Feature::Hover, Feature::Definition] {
             for _ in 0..10 {
@@ -2647,7 +2797,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
                 samples.push(elapsed);
             }
             samples.sort_by(f64::total_cmp);
-            timings.insert(format!("{feature:?}"), serde_json::json!({"count":samples.len(),"p50_ms":samples[49],"p95_ms":samples[94]}));
+            timings.insert(format!("{feature:?}"), serde_json::json!({"count":samples.len(),"p50_ms":samples[49],"p95_ms":samples[94],"samples_ms":samples}));
         }
         let cpu: Vec<_> = f
             .service
@@ -2706,7 +2856,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             f.service.processes.is_empty(),
             "{language}: processes reclaimed"
         );
-        std::fs::write(root.join("native-observed.json"), serde_json::to_vec_pretty(&serde_json::json!({"language":language,"document_bytes":text.len(),"route":"native-executor-wasm-provider-consumer","indexing_probes":warm_attempts,"profile":if cfg!(debug_assertions){"debug"}else{"release"},"small_document":timings,"guest_cpu":cpu,"idle_memory":idle_memory,"observed_peak_memory":peak_memory,"restart_ms":restart_ms,"exit_ms":stop_started.elapsed().as_secs_f64()*1000.0})).unwrap()).unwrap();
+        std::fs::write(root.join("native-observed.json"), serde_json::to_vec_pretty(&serde_json::json!({"code_source":initial_code_source,"language":language,"document_bytes":text.len(),"route":"native-executor-wasm-provider-consumer","indexing_probes":warm_attempts,"initialized_ms":initialized_ms,"first_usable_ms":first_usable_ms,"pre_activation_memory":pre_activation_memory,"profile":if cfg!(debug_assertions){"debug"}else{"release"},"small_document":timings,"functional_checks":functional_checks,"guest_cpu":cpu,"idle_memory":idle_memory,"observed_peak_memory":peak_memory,"restart_ms":restart_ms,"exit_ms":stop_started.elapsed().as_secs_f64()*1000.0})).unwrap()).unwrap();
         if std::env::var_os("LOOM_MIGRATION_COMPARE").is_some() {
             let baseline: serde_json::Value = serde_json::from_slice(
                 &std::fs::read(root.join("baseline-observed.json"))
@@ -3464,4 +3614,12 @@ fn a_note_left_by_an_interrupted_operation_is_reported_when_the_folder_opens() {
     // Reported once, not at every update.
     let again = f.service.observe(&f.app);
     assert!(f.apply(again).iter().all(|m| !m.contains("did not finish")));
+}
+
+#[test]
+fn official_aot_authority_matches_the_publication_registry_key() {
+    assert_eq!(
+        loom_extension_host::aot::OFFICIAL_KEYS,
+        crate::infrastructure::extensions::registry::KEYS
+    );
 }

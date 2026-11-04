@@ -32,6 +32,20 @@ const SKIPPED = new Set(['.git', 'node_modules', '.DS_Store', 'Thumbs.db', '.loo
 const VERSION = /^\d+\.\d+\.\d+([-+][0-9A-Za-z.+-]*)?$/;
 const ID = /^[a-z0-9]+(-[a-z0-9]+)*(\.[a-z0-9]+(-[a-z0-9]+)*)+$/;
 
+// COMPAT(manifest-engine-ranges): Older recipes use exact host versions; keep
+// those alongside the comparator ranges supported by the importer. New recipes
+// should state their supported range. Drop exact versions only when the host
+// stops accepting them; no removal version is scheduled.
+function validEngineRange(value) {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  return value.trim().split(/\s+/).every(word => {
+    const core = word.replace(/^(>=|<=|>|<|=|\^|~)/, '').split(/[-+]/, 1)[0];
+    const parts = core.split('.');
+    return parts.length >= 1 && parts.length <= 3 && parts.every(part =>
+      /^\d+$/.test(part) && BigInt(part) <= 18446744073709551615n);
+  });
+}
+
 /** Whether `path` is a safe package-relative path (`/`-separated, no climbing). */
 export function safePath(path) {
   if (typeof path !== 'string' || path === '' || path.length > 240) return false;
@@ -81,8 +95,8 @@ export function manifestProblems(manifest, sizeOf) {
     else if (size === 0) problems.push(`\`${field}\`: ${path} is empty`);
     else if (size > limit) problems.push(`\`${field}\`: ${path} is larger than ${limit / 1024} KiB`);
   }
-  if (manifest.engines === undefined || typeof manifest.engines !== 'object') problems.push('`engines.loom` is missing: the oldest Loom version it runs on');
-  else need(typeof manifest.engines.loom === 'string' && /^\d+\.\d+\.\d+$/.test(manifest.engines.loom), '`engines.loom` must look like 0.1.8');
+  need(validEngineRange(manifest.engines?.loom), '`engines.loom` must be a version range such as >=0.1.8 <0.3');
+
   if (manifest.component !== undefined) {
     if (!safePath(manifest.component)) problems.push(`\`component\`: ${manifest.component} must stay inside the package`);
     else if (sizeOf(manifest.component) === undefined) problems.push(`\`component\`: ${manifest.component} is not in the package`);

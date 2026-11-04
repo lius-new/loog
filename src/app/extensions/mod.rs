@@ -497,6 +497,7 @@ pub struct Package {
     pub logs: Vec<(u8, String)>,
     pub last_error: Option<String>,
     component: Vec<u8>,
+    code_source: Option<loom_extension_host::CodeSource>,
 }
 
 impl Package {
@@ -808,6 +809,7 @@ impl ExtensionService {
                 logs: Vec::new(),
                 last_error: None,
                 component,
+                code_source: None,
             },
         );
         Ok(id)
@@ -1120,6 +1122,8 @@ impl ExtensionService {
                     id: owner,
                     generation,
                     component: package.component.clone(),
+                    package_dir: package.dir.clone(),
+                    version: package.manifest.version.clone(),
                     cache: self.cache.clone(),
                     limits: self.guest_limits,
                     storage: storage_of(&self.grants, package)
@@ -1337,8 +1341,22 @@ impl ExtensionService {
                 id,
                 generation,
                 result,
+                source,
+                aot_rejection,
                 ..
             } => {
+                if let Some(package) = self
+                    .packages
+                    .get_mut(&id)
+                    .filter(|p| p.lifecycle.generation() == generation)
+                {
+                    package.code_source = Some(source);
+                    if let Some(reason) = aot_rejection {
+                        package
+                            .logs
+                            .push((1, format!("Published AOT not used: {reason}")));
+                    }
+                }
                 let effects = self.loaded(&id, generation, result);
                 let (mut setup, work): (Vec<_>, Vec<_>) = effects.into_iter().partition(|effect| {
                     matches!(
@@ -1854,6 +1872,8 @@ impl ExtensionService {
                             id: name.clone(),
                             generation,
                             component: package.component.clone(),
+                            package_dir: package.dir.clone(),
+                            version: package.manifest.version.clone(),
                             cache: self.cache.clone(),
                             limits: self.guest_limits,
                             storage: storage_of(&self.grants, package)
@@ -2446,6 +2466,8 @@ impl ExtensionService {
                     id: owner.to_owned(),
                     generation,
                     component: package.component.clone(),
+                    package_dir: package.dir.clone(),
+                    version: package.manifest.version.clone(),
                     cache: self.cache.clone(),
                     limits: self.guest_limits,
                     storage: storage_of(&self.grants, package)

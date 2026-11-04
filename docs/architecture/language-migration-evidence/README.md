@@ -1,5 +1,7 @@
 # Windows language migration measurements
 
+The current native harness additionally includes named Go/Rust/JS/TS types for Rust-client hierarchy probes, and opt-in JSX/TSX fixtures. The archived reports retain the original fixtures. Recollect a matching reference before using LOOM_MIGRATION_COMPARE with the changed fixtures; do not combine these historical reports with new runs. The current TS-component/Rust-component comparison uses freshly paired runs of identical fixtures and servers.
+
 The paired JSON files retain every measured cohort, including p50, p95, count,
 Loom process memory, owner stop and extension restart observations. Each operation
 has 100 measured requests after ten warm-ups. Server indexing has a separate
