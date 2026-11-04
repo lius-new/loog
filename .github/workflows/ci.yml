@@ -104,12 +104,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.97.1
+          targets: wasm32-unknown-unknown
           components: ${{ runner.os == 'Linux' && 'clippy' || '' }}
       - name: Prepare build dependencies
         uses: ./.github/actions/dependencies
       - name: Run Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings -A clippy::redundant_closure_call -A clippy::collapsible_if -A clippy::too_many_arguments -A clippy::let_and_return -A clippy::manual_div_ceil
         if: runner.os == 'Linux'
+      - name: Test extension host and authenticated AOT loader
+        run: cargo test --locked -p loom-extension-host --lib
       - name: Run tests
         run: cargo test --locked -p loom
   result:
