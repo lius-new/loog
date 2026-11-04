@@ -113,8 +113,11 @@ jobs:
         if: runner.os == 'Linux'
       - name: Test extension host and authenticated AOT loader
         run: cargo test --locked -p loom-extension-host --lib
+      # macOS debug UI layout can exhaust the real two-second save budget.
+      # Exercise that platform's shipped optimization profile, keeping deadlines
+      # and every functional assertion intact. Linux still checks all targets.
       - name: Run tests
-        run: cargo test --locked -p loom
+        run: cargo test --locked -p loom ${{ runner.os == 'macOS' && '--release' || '' }}
   result:
     name: CI result
     if: ${{ always() }}
