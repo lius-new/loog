@@ -33,7 +33,7 @@ test('three-platform functionality stays unconditional and Clippy shares the Lin
   const build = ci.jobs.build;
   assert.equal(build.if,undefined);assert.equal(build.strategy['fail-fast'],false);
   assert.deepEqual(build.strategy.matrix.include.map(row => row.os).sort(),['macos-15','ubuntu-24.04','windows-2025']);
-  assert.equal(build.steps.find(step => step.name === 'Run tests').run,'cargo test --locked -p loom');
+  assert.equal(build.steps.find(step => step.name === 'Run tests').run,"cargo test --locked -p loom ${{ runner.os == 'macOS' && '--release' || '' }}");
   assert.equal(build.steps.find(step => step.name === 'Run tests').if,undefined);
   assert.equal(build.steps.find(step => step.name === 'Run Clippy').if,"runner.os == 'Linux'");
   for (const crate of ['loom-editor-core','loom-workspace-tests','loom-markdown-tests']) assert.ok(runs(ci.jobs.core).includes('cargo test --locked -p ' + crate));
