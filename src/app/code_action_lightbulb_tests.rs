@@ -7,6 +7,11 @@ use serde_json::{Value, json};
 struct Files(std::path::PathBuf);
 impl Drop for Files {
     fn drop(&mut self) {
+        if std::thread::panicking()
+            && let Ok(log) = std::fs::read_to_string(self.0.join("log.jsonl"))
+        {
+            eprintln!("Fake LSP traffic for failed UI fixture:\n{log}");
+        }
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
