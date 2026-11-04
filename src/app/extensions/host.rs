@@ -1239,6 +1239,7 @@ mod lifetime_tests {
     use super::*;
     #[test]
     fn an_extension_completion_and_its_resolve_reach_the_native_ui_without_a_host_server() {
+        let cache = super::super::tests::precompiled_cache().clone();
         let mut app = AppState::new();
         let path =
             std::env::temp_dir().join(format!("loom-provider-native-{}.txt", std::process::id()));
@@ -1277,7 +1278,7 @@ mod lifetime_tests {
         let host = ExtensionHost::start(
             ui.state.clone(),
             ui.tasks.application(),
-            std::env::temp_dir().join("loom-native-provider-cache"),
+            cache,
             Arc::new(TrustStore::default()),
             None,
         )

@@ -1664,6 +1664,7 @@ mod tests {
         };
         use std::time::Instant;
 
+        let cache = crate::app::extensions::tests::precompiled_cache().clone();
         let path =
             std::env::temp_dir().join(format!("loom-live-completion-{}.txt", std::process::id()));
         let queue = UiTasks::default();
@@ -1696,7 +1697,7 @@ mod tests {
         let host = ExtensionHost::start(
             state.clone(),
             queue.application(),
-            std::env::temp_dir().join(format!("loom-live-completion-cache-{}", std::process::id())),
+            cache,
             runtime.trust().clone(),
             None,
         )

@@ -253,7 +253,7 @@ fn feature_result(method: &str, params: &Value, options: &Options) -> Option<Val
         }]),
         "workspace/symbol" => json!([{
             "name": format!("sym-{}", params["query"].as_str().unwrap_or("")),
-            "kind": 12, "location": { "uri": "file:///C:/elsewhere.rs" }
+            "kind": 12, "location": { "uri": if cfg!(windows) { "file:///C:/elsewhere.rs" } else { "file:///elsewhere.rs" } }
         }]),
         "textDocument/completion" if options.value("--completion-items-file").is_some() => {
             let bytes = std::fs::read(options.value("--completion-items-file").unwrap()).ok()?;

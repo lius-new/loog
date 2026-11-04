@@ -45,6 +45,20 @@ pub(crate) fn component() -> &'static [u8] {
     })
 }
 
+/// UI correctness tests start after cold fixture compilation; startup cost is
+/// covered separately by the migration benchmarks. Share the warm cache once.
+pub(crate) fn precompiled_cache() -> &'static PathBuf {
+    static CACHE: OnceLock<PathBuf> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let cache = repo().join("target/test-native-rust-guest-cache");
+        loom_extension_host::Runtime::new()
+            .unwrap()
+            .compile_cached(component(), &cache)
+            .unwrap();
+        cache
+    })
+}
+
 const MANIFEST: &str = r#"{
     "schema": 1,
     "id": "example.tools",
