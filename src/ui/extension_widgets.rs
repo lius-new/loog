@@ -665,7 +665,7 @@ mod tests {
                 index == 0,
             );
             lgui::assets::backend::with_render_resources(&context, RenderResources::new(), || {
-                surface.draw(&scene, &frame).expect("draw")
+                surface.draw(scene, &frame).expect("draw")
             });
             let whole = [viewport];
             let everything = FrameInfo::new(
