@@ -17,12 +17,40 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// The newest change time of the files under `path`, which may be one file.
+fn newest(path: &Path) -> Option<std::time::SystemTime> {
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_dir() {
+        return meta.modified().ok();
+    }
+    std::fs::read_dir(path)
+        .ok()?
+        .filter_map(|entry| newest(&entry.ok()?.path()))
+        .max()
+}
+
+/// Whether the built guest is missing or older than what it is built from: the WIT it
+/// imports and its own sources. A guest built against an older contract fails to link.
+fn stale(wasm: &Path, root: &Path) -> bool {
+    let Ok(built) = std::fs::metadata(wasm).and_then(|meta| meta.modified()) else {
+        return true;
+    };
+    ["wit/loom-extension", "tests/extensions/js-guest/guest.js"]
+        .iter()
+        .chain(&[
+            "tests/extensions/js-guest/build.mjs",
+            "tests/extensions/js-guest/package.json",
+        ])
+        .filter_map(|input| newest(&root.join(input)))
+        .any(|changed| changed > built)
+}
+
 fn guest_component() -> &'static [u8] {
     static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
     BYTES.get_or_init(|| {
         let root = repo();
         let wasm = root.join("target/extension-guest/js_guest.wasm");
-        if !wasm.exists() {
+        if stale(&wasm, &root) {
             let status = Command::new("node")
                 .arg(root.join("tests/extensions/js-guest/build.mjs"))
                 .current_dir(&root)
