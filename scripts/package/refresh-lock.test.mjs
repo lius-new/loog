@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import {buildLock, trustedKeys, verifySignature} from './refresh-lock.mjs';
+import {buildLock, trustedKeys, verifySignature} from './lib/refresh.mjs';
 
 const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 

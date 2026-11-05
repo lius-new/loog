@@ -2,6 +2,9 @@
 /.tmp/
 # Packaging toolchain, downloads, staging and artifacts (scripts/package).
 /.packaging/
+# Bundled extension lock and index snapshot, generated from the live registry
+# (scripts/package/lib/refresh.mjs).
+/assets/registry/
 /docs/prototypes/git-workbench/node_modules/
 /scripts/ci/node_modules/
 /tests/extensions/js-guest/node_modules/

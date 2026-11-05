@@ -27,6 +27,7 @@ import * as linux from './linux/index.mjs';
 import * as macos from './macos/index.mjs';
 import * as windows from './windows/index.mjs';
 import { keygen, writeManifest } from './manifest.mjs';
+import { ensureLocked } from './lib/lock.mjs';
 import { DIST_DIR, PackagingError, ROOT, cargoPackageField, fail } from './lib/util.mjs';
 
 const STEPS = ['setup', 'compile', 'package', 'bundle', 'manifest'];
@@ -130,6 +131,8 @@ async function main() {
   // Packaged builds check for updates; plain `cargo build` builds do not.
   process.env.LOOM_UPDATES = '1';
   const steps = options.step === 'all' ? STEPS : [options.step];
+  // The bundled extensions come from the live registry when no lock was handed over.
+  if (steps.includes('package')) await ensureLocked();
   for (const name of steps) {
     if (name === 'manifest') {
       writeManifest({ platform: options.platform, version, required: options.step === 'manifest' });

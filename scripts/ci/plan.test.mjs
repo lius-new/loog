@@ -38,7 +38,6 @@ test('Markdown and shared typography changes select evidence; language changes s
     assert.deepEqual(pull([file]),selected(...(file.startsWith('tools/') ? ['tooling','evidence','validator','standalone'] : ['evidence','validator','standalone'])),file);
   }
   assert.deepEqual(pull(['tests/fixtures/extensions/loom.lang.json/tree-sitter-json.wasm']),selected('tooling','evidence','validator','standalone'));
-  assert.deepEqual(pull(['assets/registry/extensions.lock']),selected('tooling','package','evidence'));
   assert.deepEqual(pull(['icons/app.ico']),selected('tooling','package','evidence'));
   assert.deepEqual(pull(['src/main.rs']),selected('standalone'));
   assert.deepEqual(pull(['src/features/extensions/manifest.rs']),selected('validator'));

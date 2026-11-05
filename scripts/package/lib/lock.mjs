@@ -3,10 +3,10 @@
 // the signed index it was locked against, which the application falls back to when
 // the live index cannot be fetched.
 //
-// Both live in assets/registry. Extension releases never touch them: before an
-// application release, `refresh-lock.mjs` rewrites them from the registry's live signed
-// index and the result is committed and tested like any other change. Nothing else is
-// shipped as an extension.
+// Both live in assets/registry and are generated, never committed: when they are
+// missing, `ensureLocked` writes them from the registry's live signed index (see
+// refresh.mjs). The release workflow does that once and hands the result to every
+// platform build. Nothing else is shipped as an extension.
 //
 //   node scripts/package/refresh-lock.mjs    lock the newest bundled extensions
 //   node scripts/package/fetch-locked.mjs    download and check the locked packages
@@ -26,6 +26,8 @@ export const REGISTRY_DIR = path.join(ROOT, 'assets/registry');
 export const LOCK_FILE = path.join(REGISTRY_DIR, 'extensions.lock');
 export const LOCKED_DIR = path.join(ROOT, '.packaging/locked');
 const SHIPPED = ['extensions.lock', 'index.snapshot.json', 'index.snapshot.json.sig'];
+/** The extensions Loom ships inside its installer. */
+export const BUNDLED = ['loom.theme.aura', 'loom.lang.json', 'loom.lang.markdown'];
 const ID = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+$/;
 
 const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -83,12 +85,20 @@ export async function fetchLocked({lock, destination, fetchBytes = download}) {
 /** The lock, which a release cannot do without. */
 function requireLock(file) {
   const lock = readLock(file);
-  if (!lock) throw new Error(`${file} is missing; run loom-ext lock in the extensions repository and copy its output to assets/registry`);
+  if (!lock) throw new Error(`${file} is missing; run node scripts/package/refresh-lock.mjs`);
   return lock;
 }
 
-/** Fetch the locked extensions unless they are already there. */
+/** Generate the lock and snapshot from the live registry unless they are already there. */
+export async function ensureRegistry({registry = REGISTRY_DIR} = {}) {
+  if (SHIPPED.every(name => fs.existsSync(path.join(registry, name)))) return;
+  const {refreshRegistry} = await import('./refresh.mjs');
+  await refreshRegistry();
+}
+
+/** Make sure the lock exists, then fetch the locked extensions unless they are already there. */
 export async function ensureLocked({lock = LOCK_FILE, locked = LOCKED_DIR} = {}) {
+  if (lock === LOCK_FILE) await ensureRegistry();
   const found = requireLock(lock);
   if (found.extensions.every(extension => fs.existsSync(path.join(locked, extension.id, 'manifest.json')))) return;
   await fetchLocked({lock: found, destination: locked});

@@ -71,7 +71,7 @@ test('a release needs a lock, and a lock needs its packages fetched', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-lock-none-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   assert.equal(readLock(path.join(root, 'missing.lock')), null);
-  assert.throws(() => stageBundled({destination: path.join(root, 'out/extensions'), lock: path.join(root, 'missing.lock')}), /is missing; run loom-ext lock/);
+  assert.throws(() => stageBundled({destination: path.join(root, 'out/extensions'), lock: path.join(root, 'missing.lock')}), /is missing; run node scripts\/package\/refresh-lock\.mjs/);
   const file = path.join(root, 'extensions.lock');
   fs.writeFileSync(file, JSON.stringify({schema: 1, extensions: [{id: 'loom.look', version: '1.0.0', artifacts: []}]}));
   assert.throws(() => stageBundled({destination: path.join(root, 'out/extensions'), lock: file, locked: path.join(root, 'none'), registry: root}), /not fetched/);

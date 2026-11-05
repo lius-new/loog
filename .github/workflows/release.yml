@@ -44,6 +44,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           INPUT_VERSION: ${{ inputs.version }}
         run: node scripts/release/verify-ci.mjs
+      - name: Lock the bundled extensions once for every platform
+        # The newest verified extensions, signed index included; kept with the run so a
+        # release can be traced to the exact index it bundled.
+        run: node scripts/package/refresh-lock.mjs
+      - name: Hand the lock to the platform builds
+        uses: actions/upload-artifact@v7
+        with:
+          name: registry-lock
+          path: assets/registry/
+          if-no-files-found: error
+          retention-days: 90
     timeout-minutes: 5
   package:
     name: Package ${{ matrix.label }}
@@ -106,8 +117,12 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
         if: matrix.platform == 'macos'
+      - name: Take the lock the verify job made
+        uses: actions/download-artifact@v7
+        with:
+          name: registry-lock
+          path: assets/registry
       - name: Fetch the locked extensions
-        # Does nothing while assets/registry has no extensions.lock.
         run: node scripts/package/fetch-locked.mjs
       - name: Build and package once
         env:

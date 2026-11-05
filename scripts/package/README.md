@@ -47,12 +47,18 @@ does not change Windows-wide mitigation settings.
 ## Layout
 
 Application assembly requires `assets/registry/extensions.lock` and its signed
-index snapshot. `node scripts/package/fetch-locked.mjs` downloads and checks the
+index snapshot. Both are generated and git-ignored: when they are missing,
+packaging and staging write them from the extensions registry's live signed index
+(`node scripts/package/refresh-lock.mjs` does the same on demand and checks the
+signature against the application's trusted keys). The release workflow makes them
+once in its verify job and hands them to every platform build, so all platforms
+bundle the same index. `node scripts/package/fetch-locked.mjs` downloads and checks the
 locked theme, JSON and Markdown extension packages into `.packaging/locked/`.
 Local, CI and release staging all copy those packages to `extensions/` beside the
 executable and copy the lock and snapshot into the adjacent `registry/` directory.
-A missing lock or unfetched package stops staging; it does not fall back to test
-fixtures. Refresh the lock and snapshot together before each application release.
+An unreachable registry or an unfetched package stops staging; it does not fall back
+to test fixtures. Source builds need `node scripts/build/stage-resources.mjs` once so
+the snapshot exists beside the executable.
 
 The independent [extensions repository](https://github.com/lius-new/loom-extensions)
 owns extension recipes, builds and publication. Loom's repository retains

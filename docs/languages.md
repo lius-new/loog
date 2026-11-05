@@ -231,10 +231,12 @@ node scripts/build/cargo.mjs run --locked
 ~~~
 
 The default directory is `target/debug`; pass another executable directory when
-needed. `assets/registry/extensions.lock` pins the bundled extensions
-(`loom.theme.aura`, `loom.lang.json`, `loom.lang.markdown`). Staging fetches their
-packages from the independent [extensions repository](https://github.com/lius-new/loom-extensions)
-and checks their hashes. Packaging copies them to `extensions/` on every platform
+needed. The bundled extensions (`loom.theme.aura`, `loom.lang.json`,
+`loom.lang.markdown`) are locked in `assets/registry/extensions.lock`, a generated,
+git-ignored file that staging writes from the live signed index when it is missing.
+Staging fetches their packages from the independent
+[extensions repository](https://github.com/lius-new/loom-extensions) and checks
+their hashes. Packaging copies them to `extensions/` on every platform
 with `scripts/package/stage-extensions.mjs`, after
 checks that stop on a missing module, a native library standing in for a grammar,
 a manifest whose id differs from its folder, or a link in a package. Grammars are
