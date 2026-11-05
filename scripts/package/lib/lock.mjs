@@ -1,12 +1,14 @@
 // The extensions Loom ships come from the extensions repository: `extensions.lock`
-// (written there by `loom-ext lock`) names each one's version and package with its
-// SHA-256, and `index.snapshot.json` is the signed index it was locked against, which
-// the application falls back to when the live index cannot be fetched.
+// names each one's version and package with its SHA-256, and `index.snapshot.json` is
+// the signed index it was locked against, which the application falls back to when
+// the live index cannot be fetched.
 //
-// Both live in assets/registry and are refreshed with each application release
-// (run `loom-ext lock` in the extensions repository after its release workflow, and
-// copy its output there). Nothing else is shipped as an extension.
+// Both live in assets/registry. Extension releases never touch them: before an
+// application release, `refresh-lock.mjs` rewrites them from the registry's live signed
+// index and the result is committed and tested like any other change. Nothing else is
+// shipped as an extension.
 //
+//   node scripts/package/refresh-lock.mjs    lock the newest bundled extensions
 //   node scripts/package/fetch-locked.mjs    download and check the locked packages
 //
 // The packaging scripts then stage them (`stageBundled`) like any other bundled

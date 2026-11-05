@@ -46,7 +46,10 @@ Malformed sections fail generation instead of silently dropping their contents.
 
 ## Publishing
 
-1. Commit product changes and wait for their exact-SHA CI to succeed. There is
+1. Run `node scripts/package/refresh-lock.mjs` to lock the newest bundled
+   extensions and the signed index snapshot in `assets/registry` (it checks the
+   index signature against the application's trusted keys), then commit the result
+   with the product changes and wait for their exact-SHA CI to succeed. There is
    no per-release source version bump. The tag is the release version authority.
 2. Create and push a version tag such as v0.2.0 on that tested commit. Release accepts successful push/manual CI runs from this
    repository, never a PR run that tested a synthetic merge commit. The latest
