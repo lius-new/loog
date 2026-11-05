@@ -75,9 +75,13 @@ fn check_animation(animation: &MotionAnimation) -> Result<(), HostError> {
         }
         if keys.first().map(|key| key.offset) != Some(0.0)
             || keys.last().map(|key| key.offset) != Some(1.0)
-            || keys
-                .windows(2)
-                .any(|pair| !(pair[0].offset <= pair[1].offset))
+            // Offsets must not decrease; NaN has no order, so it is rejected too.
+            || keys.windows(2).any(|pair| {
+                !matches!(
+                    pair[0].offset.partial_cmp(&pair[1].offset),
+                    Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+                )
+            })
             || keys
                 .iter()
                 .any(|key| !value_allowed(track.property, key.value))
