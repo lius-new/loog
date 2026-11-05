@@ -7,6 +7,7 @@ pub(crate) mod highlight_menu;
 pub(crate) mod highlighting;
 pub(crate) mod keymap;
 pub(crate) mod language_service;
+pub(crate) mod language_services_menu;
 pub(crate) mod markdown;
 pub(crate) mod outline;
 pub(crate) mod palette;

@@ -67,6 +67,13 @@ impl ExtensionService {
             ) {
                 continue;
             }
+            // A package for some languages is not woken by files: a document of one of its
+            // languages does that, and it looks at the folder when it starts.
+            if package.lifecycle.state() == State::Dormant
+                && super::language_scope(&package.manifest).is_some()
+            {
+                continue;
+            }
             crate::infrastructure::extensions::document_queue::merge_files(
                 &mut package.pending_files,
                 vec![change.clone()],

@@ -352,6 +352,31 @@ fn wants(manifest: &Manifest, event: &str) -> bool {
     })
 }
 
+/// The languages a package says it is for: those its providers select and those its
+/// document activations name. `None` when it names none, so it is not about any language.
+fn language_scope(manifest: &Manifest) -> Option<Vec<&str>> {
+    use crate::features::extensions::manifest::Activation;
+    let mut languages: Vec<&str> = manifest
+        .contributes
+        .language_service
+        .providers
+        .iter()
+        .flat_map(|provider| provider.selector.languages.iter().map(String::as_str))
+        .collect();
+    for activation in &manifest.activation {
+        if let Activation::Document { selector } = activation {
+            languages.extend(selector.languages.iter().map(String::as_str));
+        }
+    }
+    (!languages.is_empty()).then_some(languages)
+}
+
+/// Whether the documents of `language` are the package's business. A package that names
+/// no language is about every document, as before.
+fn serves(manifest: &Manifest, language: &str) -> bool {
+    language_scope(manifest).is_none_or(|languages| languages.contains(&language))
+}
+
 fn subscribed(manifest: &Manifest) -> bool {
     manifest.has_behaviour()
         && ["document.open", "document.change", "document.close"]
@@ -545,6 +570,8 @@ pub struct ExtensionService {
     next_watch: u64,
     ui_events: HashMap<String, (u64, crate::infrastructure::extensions::UiEvents)>,
     ui_session: u64,
+    /// What each extension reports about its service, with the generation it came from.
+    service_status: HashMap<String, (u64, Vec<loom_extension_host::ServiceReport>)>,
     file_jobs: HashMap<u64, files::FileJob>,
     next_file_job: u64,
     saves: HashMap<u64, save::Chain>,
@@ -680,6 +707,7 @@ impl ExtensionService {
             next_watch: 0,
             ui_events: HashMap::new(),
             ui_session: UI_SESSIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            service_status: HashMap::new(),
             file_jobs: HashMap::new(),
             next_file_job: 0,
             saves: HashMap::new(),
@@ -717,6 +745,30 @@ impl ExtensionService {
 
     pub fn set_guest_limits(&mut self, limits: Limits) {
         self.guest_limits = limits;
+    }
+
+    /// What the extension reports about its service that is about `document`, or about every
+    /// document it serves; empty when it reports nothing, or is not running.
+    pub fn service_reports(
+        &self,
+        id: &str,
+        document: Option<&str>,
+    ) -> Vec<&loom_extension_host::ServiceReport> {
+        let running = self
+            .packages
+            .get(id)
+            .is_some_and(|package| package.lifecycle.state() == State::Active);
+        let Some((_, reports)) = self.service_status.get(id).filter(|_| running) else {
+            return Vec::new();
+        };
+        reports
+            .iter()
+            .filter(|report| match (&report.contexts, document) {
+                (None, _) => true,
+                (Some(contexts), Some(document)) => contexts.iter().any(|path| path == document),
+                (Some(_), None) => false,
+            })
+            .collect()
     }
 
     pub fn package(&self, id: &str) -> Option<&Package> {
@@ -1209,6 +1261,7 @@ impl ExtensionService {
             let _ = package.lifecycle.stopped();
         }
         self.themes_revision += 1;
+        self.service_status.remove(id);
         self.calls.retain(|_, call| call.extension != id);
         let mut effects = self.clear_sources(id);
         effects.extend(self.cancel_tasks_of(id));
@@ -1326,6 +1379,20 @@ impl ExtensionService {
                     Some(snapshot) => self.ui_changed(app, &id, generation, snapshot),
                     None => vec![],
                 }
+            }
+            Event::ServiceStatus {
+                id,
+                generation,
+                reports,
+            } => {
+                if self
+                    .packages
+                    .get(&id)
+                    .is_some_and(|package| package.lifecycle.accepts(generation))
+                {
+                    self.service_status.insert(id, (generation, reports));
+                }
+                vec![]
             }
             Event::WatchControls {
                 id,
@@ -1717,10 +1784,12 @@ impl ExtensionService {
                     .values()
                     .language_features
                     .max_document_bytes;
+            // A package for some languages hears only about their documents, so a document
+            // of another language neither feeds it nor wakes it.
             for package in self
                 .packages
                 .values_mut()
-                .filter(|p| document_events_of(grants, p))
+                .filter(|p| document_events_of(grants, p) && serves(&p.manifest, language))
             {
                 let feed = package.feeds.entry(id).or_insert_with(|| {
                     let mut stream = DocumentStream::new(FEED_MAX_EDITS, FEED_MAX_MESSAGES);

@@ -161,6 +161,10 @@ pub struct Contributes {
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LanguageService {
+    /// What the service is called wherever it is listed, such as `Rust Analyzer`. The
+    /// package name says what is installed; this says what answers for a language.
+    #[serde(default)]
+    pub name: Option<String>,
     #[serde(default)]
     pub providers: Vec<ProviderDecl>,
 }
@@ -420,6 +424,11 @@ impl Manifest {
             _ => Ok(()),
         };
         text("name", &self.name, 60)?;
+        text(
+            "contributes.language_service.name",
+            &self.contributes.language_service.name,
+            40,
+        )?;
         text("publisher", &self.publisher, 60)?;
         text("description", &self.description, 200)?;
         text("license", &self.license, 100)?;
@@ -1036,6 +1045,33 @@ mod tests {
             Manifest::parse(&source),
             Err(ManifestError::EmptySelector(_))
         ));
+    }
+
+    #[test]
+    fn a_language_service_may_carry_a_display_name_of_one_short_line() {
+        let with_name = |name: &str| {
+            Manifest::parse(&SELECTION_TOOLS.replace(
+                "\"commands\": [",
+                &format!(
+                    "\"language_service\": {{ \"name\": {name}, \"providers\": [{{ \"id\": \"example.selection-tools.diag\", \"kind\": \"diagnostics\", \"selector\": {{ \"languages\": [\"rust\"] }} }}] }}, \"commands\": ["
+                ),
+            ))
+        };
+        let named = with_name("\"Rust Analyzer\"").unwrap();
+        assert_eq!(
+            named.contributes.language_service.name.as_deref(),
+            Some("Rust Analyzer")
+        );
+        for bad in [
+            "\"\"",
+            "\"two\\nlines\"",
+            &format!("\"{}\"", "x".repeat(41)),
+        ] {
+            assert!(
+                matches!(with_name(bad), Err(ManifestError::BadMetadata(_))),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

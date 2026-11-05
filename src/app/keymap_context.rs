@@ -28,6 +28,7 @@ pub fn facts(app: &AppState) -> ContextFacts {
         vim_mode: app.editor.vim.mode().context_name(),
         trust: app.chrome.trust_question().is_some(),
         highlight_menu: app.highlight_menu.visible,
+        language_services_menu: app.language_services_menu.visible,
         close: app.editor.close_request.is_some(),
         clone: app.git.ui.clone_visible,
         stash: app.git.ui.stash_switch.is_some(),

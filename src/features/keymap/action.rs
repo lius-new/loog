@@ -103,6 +103,7 @@ actions! {
     ReloadExtensions => "workspace::ReloadExtensions", "Reload the installed extensions from disk";
     ImportExtension => "workspace::ImportExtension", "Install an extension from a .loomext package";
     ShowHighlighting => "workspace::ShowHighlighting", "Show which languages are highlighted and which highlighting can be installed";
+    ShowLanguageServices => "workspace::ShowLanguageServices", "Show the installed language services, restart or stop them, and find ones to install";
     FindExtensionForFile =>"workspace::FindExtensionForFile", "Find an extension that adds the language of the current file";
     InspectHighlight => "editor::InspectHighlight", "Show how the code at the cursor is coloured and which query rule decides it";
     ShowQueryProblems => "workspace::ShowQueryProblems", "Show custom highlight queries that were left out, and why";

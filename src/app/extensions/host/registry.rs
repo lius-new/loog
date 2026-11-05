@@ -437,6 +437,37 @@ impl ExtensionHost {
         )
     }
 
+    /// The language service extensions of the registry, for the language services
+    /// panel. `None` while there is no usable index.
+    pub(crate) fn service_candidates(
+        &self,
+    ) -> Option<Vec<crate::features::language_services_menu::Candidate>> {
+        self.read_local();
+        let state = self.inner.registry.lock().unwrap();
+        let loaded = state.loaded.as_ref().filter(|loaded| !loaded.expired)?;
+        let platform = current_platform();
+        let service = self.inner.service.lock().unwrap();
+        Some(
+            loaded
+                .index
+                .extensions
+                .iter()
+                .filter_map(|entry| {
+                    let info = entry.language_service.as_ref()?;
+                    Some(crate::features::language_services_menu::Candidate {
+                        extension: entry.id.clone(),
+                        name: info.name.clone().unwrap_or_else(|| entry.name.clone()),
+                        languages: info.languages.clone(),
+                        installed: service.package(&entry.id).is_some(),
+                        installable: platform
+                            .is_some_and(|platform| entry.best_for(LOOM, platform).is_some()),
+                        installing: state.installing.contains(&entry.id),
+                    })
+                })
+                .collect(),
+        )
+    }
+
     /// Show what the registry offers for a file called `name`: the Extensions page,
     /// on the extensions that recognize its type.
     pub(crate) fn find_for_file(&self, context: &AppContext, name: &str) {

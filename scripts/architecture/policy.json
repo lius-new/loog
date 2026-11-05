@@ -12,6 +12,10 @@
       "owner": "app/highlight_menu: native syntax selection interaction",
       "remove_in": "composition"
     },
+    "language_services_menu": {
+      "owner": "app/language_services_menu: language service list and controls",
+      "remove_in": "composition"
+    },
     "editor": {
       "owner": "app/state/editor (composition field)",
       "remove_in": "composition"

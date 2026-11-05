@@ -549,6 +549,10 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             crate::app::highlight_menu::open(&env.state);
             true
         }
+        Action::ShowLanguageServices => {
+            crate::app::language_services_menu::open(&env.state);
+            true
+        }
         Action::SelectTheme => {
             crate::app::palette::open_themes(&env.state);
             true

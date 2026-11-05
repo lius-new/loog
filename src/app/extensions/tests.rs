@@ -246,7 +246,16 @@ impl Fixture {
             }
             assert!(
                 std::time::Instant::now() < limit,
-                "the executor produced no event"
+                "the executor produced no event; the packages are {:?}",
+                self.service
+                    .packages()
+                    .map(|package| (
+                        package.manifest.id.clone(),
+                        package.lifecycle.state(),
+                        package.last_error.clone(),
+                        package.logs.clone(),
+                    ))
+                    .collect::<Vec<_>>()
             );
             let _ = self
                 .wake
@@ -724,6 +733,55 @@ fn extensions_without_event_declarations_are_never_woken_by_documents() {
     );
 }
 
+/// `EVENT_MANIFEST` for the documents of `language` only.
+fn language_event_manifest(language: &str) -> String {
+    EVENT_MANIFEST.replace(
+        "\"activation\": [",
+        &format!(
+            "\"activation\": [\n        {{ \"kind\": \"document\", \"selector\": {{ \"languages\": [\"{language}\"] }} }},"
+        ),
+    )
+}
+
+#[test]
+fn a_package_for_other_languages_is_not_woken_by_a_document_of_another_language() {
+    // The document is plain text; the package is for Rust.
+    let mut f = fixture_with(
+        "other-language",
+        "abc",
+        0..0,
+        &language_event_manifest("rust"),
+    );
+    f.observe();
+    f.observe();
+    let package = f.service.package("example.tools").unwrap();
+    assert_eq!(package.lifecycle.state(), State::Dormant);
+    assert!(
+        package.feeds.is_empty(),
+        "no feed of a document it is not for"
+    );
+}
+
+#[test]
+fn a_package_for_a_language_is_woken_by_its_documents() {
+    let mut f = fixture_with(
+        "same-language",
+        "abc",
+        0..0,
+        &language_event_manifest("plaintext"),
+    );
+    f.observe();
+    assert_eq!(
+        f.service
+            .package("example.tools")
+            .unwrap()
+            .lifecycle
+            .state(),
+        State::Activating
+    );
+    f.wait_for_log("opened 1");
+}
+
 const SETTINGS_MANIFEST: &str = r#"{
     "schema": 1,
     "id": "example.tools",
@@ -999,7 +1057,15 @@ impl Fixture {
         let probe =
             std::env::temp_dir().join(format!("loom-ext-doc-{}-{name}.txt", std::process::id()));
         let manifest = provider_manifest(&language_of(&probe));
-        fixture_with(name, text, 0..0, &manifest)
+        // Providers answer within a deadline that starts with the request, and a cold
+        // compile of the guest in a debug build can outlast it: start from the warm cache.
+        fixture_package(
+            name,
+            text,
+            0..0,
+            &package_dir_with(name, &manifest),
+            Some(precompiled_cache().clone()),
+        )
     }
 }
 
@@ -3156,6 +3222,41 @@ fn application_file_notifications_wake_only_authorized_subscribers() {
                 FileChange::Created(std::env::temp_dir().join("outside-workspace"))
             )
             .is_empty()
+    );
+}
+
+#[test]
+fn file_notifications_do_not_wake_a_package_for_particular_languages() {
+    use crate::features::extensions::manifest::{Activation, Selector};
+    use crate::features::providers::FileChange;
+    let (mut f, folder) = Fixture::ops(
+        "workspace-events-scoped",
+        r#"["documents.read","workspace.edit","workspace.files.read","events"]"#,
+    );
+    let package = f.service.packages.get_mut("example.tools").unwrap();
+    package.manifest.activation.push(Activation::Event {
+        name: "workspace.files".into(),
+    });
+    package.manifest.activation.push(Activation::Document {
+        selector: Selector {
+            languages: vec!["rust".into()],
+        },
+    });
+    let effects = f.service.workspace_files_changed(
+        &f.app,
+        FileChange::Renamed {
+            from: folder.join("a"),
+            to: folder.join("b"),
+        },
+    );
+    assert!(effects.is_empty(), "nothing woke it");
+    assert_eq!(
+        f.service
+            .package("example.tools")
+            .unwrap()
+            .lifecycle
+            .state(),
+        State::Dormant
     );
 }
 

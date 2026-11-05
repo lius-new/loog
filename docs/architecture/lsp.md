@@ -46,6 +46,12 @@ coordinates are UTF-8 byte ranges; unopened-file locations retain their stated
 column unit. Shared immutable coordinate indexes are bounded and never retain a
 document after its last owner disappears.
 
+An extension is for the languages its provider selectors and document activations name.
+Document events reach it, and wake it, only for documents of those languages, and file
+events do not wake it while it is dormant: an open file of its language does, and the
+client looks at the folder when it starts. An extension that names no language is about
+every document, as before.
+
 ## Execution and interface
 
 Persistent process streams share task admission and the existing innermost
@@ -55,10 +61,18 @@ it grants no execution permission and every subsequent launch is checked again.
 Framing, backpressure and process-tree ownership are generic infrastructure.
 Protocol methods and server lifecycle policy stay in the client component.
 
-An extension creates, updates and deletes its own status color block through the
-description UI API. Owner stop/failure reclaims its descriptions. Loom provides
-the status-bar mount and general widgets. There is no language panel or server
-details card.
+An extension reports how its service is doing (state, one line, the documents it is
+about) through `loom:service/status`; see
+[shared extension UI](shared-extension-ui.md#service-status-is-data-not-ui). Loom
+draws the status bar item and the panel below. Owner stop/failure withdraws its reports.
+
+`workspace::ShowLanguageServices` opens a panel that lists every installed extension
+that declares language providers. It shows the extension lifecycle (idle, starting,
+running, stopped, failed), restarts, stops or starts an extension, and offers registry
+extensions that serve the languages of the open files. It reads manifests and the
+lifecycle only and names no service: the display name is `contributes.language_service.name`.
+Stopping or starting an extension is the same enable/disable choice as on the
+Extensions page and is kept for the next run; restart keeps nothing.
 
 The retired `language_servers` and `lsp` settings are reported as unknown. Use
 extension-contributed configuration for client options, `languages` for provider

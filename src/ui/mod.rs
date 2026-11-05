@@ -24,6 +24,7 @@ pub mod highlight_menu;
 pub(crate) mod image_preview;
 pub(crate) mod image_rendering;
 pub mod keymap_page;
+pub mod language_services_menu;
 pub(crate) mod markdown;
 pub mod outline;
 pub mod palette;

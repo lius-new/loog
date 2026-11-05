@@ -103,6 +103,7 @@ pub(crate) mod chrome;
 
 pub(crate) mod close_dialog;
 pub(crate) mod highlight_menu;
+pub(crate) mod language_services_menu;
 pub(crate) mod trust_prompt;
 
 pub(crate) mod pane_chrome;

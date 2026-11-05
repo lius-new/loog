@@ -1,0 +1,37 @@
+package loom:service@0.1.0;
+
+/// What an extension says about the service it runs for documents.
+///
+/// The host draws it: the status bar icon, the service list and their words and
+/// motion belong to the application. An extension only says which state it is in.
+/// Nothing crosses to the extension when the state is shown or the list is opened.
+interface status {
+    enum state {
+        /// Not running, by choice or because it ended.
+        stopped,
+        /// Preparing to answer.
+        starting,
+        /// Ready and idle.
+        ready,
+        /// Busy, such as indexing a project.
+        working,
+        /// It could not run, or stopped running by itself.
+        error,
+    }
+
+    record report {
+        /// Names one running session of the service, such as one workspace folder. A later
+        /// report with the same key replaces the earlier one.
+        key: string,
+        state: state,
+        /// One short line about the state, shown in the service list and as a hint.
+        detail: option<string>,
+        /// The documents it is about, by the `DocumentRef` path; none is every document it serves.
+        contexts: option<list<string>>,
+    }
+
+    /// Publish or replace one session's report.
+    publish: func(report: report) -> result<_, string>;
+    /// Remove the report of one session.
+    withdraw: func(key: string) -> result<_, string>;
+}

@@ -10,6 +10,8 @@ pub struct ContextFacts {
     pub trust: bool,
     /// The highlight panel is open.
     pub highlight_menu: bool,
+    /// The language services panel is open.
+    pub language_services_menu: bool,
     pub close: bool,
     pub clone: bool,
     pub stash: bool,
@@ -41,6 +43,7 @@ pub const MENU: &str = "Menu";
 pub const DIALOG: &str = "Dialog";
 pub const TRUST_PROMPT: &str = "TrustPrompt";
 pub const HIGHLIGHT_MENU: &str = "HighlightMenu";
+pub const LANGUAGE_SERVICES_MENU: &str = "LanguageServicesMenu";
 pub const CLOSE_CONFIRMATION: &str = "CloseConfirmation";
 pub const CLONE_REPOSITORY: &str = "CloneRepository";
 pub const BRANCH_PICKER: &str = "BranchPicker";
@@ -123,6 +126,12 @@ pub fn context_stack(app: &ContextFacts) -> Vec<KeyContext> {
     if app.highlight_menu {
         let mut dialog = KeyContext::new(DIALOG);
         dialog.add(HIGHLIGHT_MENU);
+        return vec![dialog];
+    }
+    // The language services panel has no field, but it is a menu over the code.
+    if app.language_services_menu {
+        let mut dialog = KeyContext::new(DIALOG);
+        dialog.add(LANGUAGE_SERVICES_MENU);
         return vec![dialog];
     }
     // The palette's filter takes typing, so workspace shortcuts stay out.

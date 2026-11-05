@@ -149,6 +149,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
+## Material Design Icons
+
+The language services icons of the status bar (a turning arc, a circle with a check, a
+circle with an exclamation mark and a circle with a pause) are paths from Material Design
+Icons by Pictogrammers, https://pictogrammers.com/library/mdi/, licensed under the
+Apache License, Version 2.0; the text is included in LICENSE-APACHE.
+
 ## resvg
 
 SVG images in Markdown previews are drawn with resvg, usvg and tiny-skia

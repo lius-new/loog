@@ -12,7 +12,7 @@
 //   Dialog TrustPrompt | Dialog CloseConfirmation | Dialog CloneRepository
 //     | Dialog StashSwitch
 //     | Dialog GitConfirm | Dialog BranchPicker | Dialog CommandPalette
-//     | Dialog HighlightMenu
+//     | Dialog HighlightMenu LanguageServicesMenu
 //     (modal, separate roots)
 //
 // Users override these in keymap.json: open the Keymap page
@@ -362,6 +362,12 @@
   {
     // Other keys edit the language filter.
     "context": "HighlightMenu",
+    "bindings": {
+      "escape": "menu::Cancel"
+    }
+  },
+  {
+    "context": "LanguageServicesMenu",
     "bindings": {
       "escape": "menu::Cancel"
     }

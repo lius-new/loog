@@ -136,6 +136,9 @@ pub struct StatusFrame {
     pub vim: Option<(loom_editor_core::vim::Mode, loom_editor_core::vim::Status)>,
     /// What the active file's diagnostics and syntax downloads say.
     pub language: Vec<StatusNote>,
+    /// How the language services that answer for the active file are doing together;
+    /// none when no service answers for it.
+    pub language_services: Option<crate::features::language_services_menu::State>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoteLevel {
@@ -157,6 +160,8 @@ pub enum StatusCommand {
     },
     /// The language badge: which languages are highlighted and which can be installed.
     HighlightMenu,
+    /// The language services icon: how each service is doing, and what to install.
+    LanguageServices,
     Encoding,
     LineEnding,
     Indent,

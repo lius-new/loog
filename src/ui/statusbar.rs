@@ -8,9 +8,10 @@
 //! With no active file there is no cursor position or language to report, so
 //! only the universal editor settings (indent mode, encoding) remain.
 
-use lgui::core::{SemanticRole, Semantics};
+use lgui::core::{CursorIcon, EventPolicy, SemanticRole, Semantics};
 use lgui::prelude::{Element, TextStyle, UiRect, VisualStyle, panel, text};
 
+use crate::features::language_services_menu::State as ServiceState;
 use crate::ui::chrome::{StatusBinding, StatusCommand, StatusFrame};
 use crate::ui::theme;
 
@@ -20,6 +21,9 @@ const EDGE_PAD: f32 = 12.0;
 const GAP: f32 = 10.0;
 /// Extra right margin inside each text rect so the last glyph is not clipped.
 const TEXT_MARGIN: f32 = 6.0;
+/// The room of the language services icon, and the gap after it.
+const SERVICE_ICON: f32 = 12.0;
+const SERVICE_ICON_ROOM: f32 = SERVICE_ICON + 6.0;
 
 /// Natural width of `s` in the monospace status bar font at `weight`,
 /// measured with the renderer's text system so it matches the rendered
@@ -38,12 +42,18 @@ struct Items {
     indent: Option<usize>,
     /// The language badge, which opens the highlight panel.
     badge: Option<usize>,
+    /// How the language services are doing: an icon and a phrase, which open their panel.
+    service: Option<(usize, ServiceState)>,
 }
 
 impl Items {
     fn width_of(&self, index: usize) -> f32 {
         let (label, style) = &self.items[index];
-        measure(label, style.weight)
+        let icon = match self.service {
+            Some((at, _)) if at == index => SERVICE_ICON_ROOM,
+            _ => 0.0,
+        };
+        icon + measure(label, style.weight)
     }
 
     fn total(&self) -> f32 {
@@ -118,6 +128,19 @@ pub fn render(rect: UiRect, state: StatusBinding) -> Element {
     for index in 0..items.items.len() {
         let width = items.width_of(index);
         let (label, style) = items.items[index].clone();
+        if let Some((at, service)) = items.service
+            && at == index
+        {
+            settings = settings.child(
+                service_entry(height, width, label, style, service, state.clone()).flex_item(
+                    FlexItem {
+                        shrink: 0.0,
+                        ..Default::default()
+                    },
+                ),
+            );
+            continue;
+        }
         let mut slot =
             lgui::core::group(row(width)).child(text(row(width + TEXT_MARGIN), label, style));
         if items.cursor == Some(index) {
@@ -271,6 +294,24 @@ fn status_items(s: &StatusFrame) -> Items {
     let mut ending = None;
     let mut indent = None;
     let mut badge = None;
+    let mut service = None;
+    // The first item: how the language services do for this file, in words every
+    // service shares.
+    if let Some(state) = s.language_services {
+        let palette = theme::c();
+        let style = match state {
+            ServiceState::Failed => theme::mono_bold(palette.error, theme::SMALL),
+            ServiceState::Starting | ServiceState::Working => {
+                theme::mono(palette.text_muted, theme::SMALL)
+            }
+            ServiceState::Ready => theme::mono(palette.text_dim, theme::SMALL),
+            ServiceState::Idle | ServiceState::Stopped => {
+                theme::mono(palette.text_faint, theme::SMALL)
+            }
+        };
+        service = Some((items.len(), state));
+        items.push((format!("Language Services: {}", state.label()), style));
+    }
     if !s.pending.is_empty() {
         items.push((
             format!(
@@ -353,7 +394,87 @@ fn status_items(s: &StatusFrame) -> Items {
         ending,
         indent,
         badge,
+        service,
     }
+}
+
+// Material Design Icons (Pictogrammers), Apache-2.0: a quarter arc that turns while a service
+// prepares or works, and a circle with a mark for each other state.
+const LOADING_ICON: &str = "svg-path:24x24:M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z";
+const READY_ICON: &str = "svg-path:24x24:M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M10 17L5 12L6.41 10.59L10 14.17L17.59 6.58L19 8L10 17Z";
+const ERROR_ICON: &str = "svg-path:24x24:M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z";
+const STOPPED_ICON: &str = "svg-path:24x24:M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4M9,9V15H15V9";
+
+/// The icon of a state that is not turning.
+fn service_icon(state: ServiceState) -> &'static str {
+    match state {
+        ServiceState::Ready => READY_ICON,
+        ServiceState::Failed => ERROR_ICON,
+        ServiceState::Idle | ServiceState::Stopped => STOPPED_ICON,
+        ServiceState::Starting | ServiceState::Working => LOADING_ICON,
+    }
+}
+
+/// The color of a service state's icon.
+fn service_color(state: ServiceState) -> lgui::prelude::Color {
+    let palette = theme::c();
+    match state {
+        ServiceState::Ready => palette.git.added,
+        ServiceState::Working => palette.accent,
+        ServiceState::Starting => palette.warning,
+        ServiceState::Failed => palette.error,
+        ServiceState::Idle | ServiceState::Stopped => palette.text_faint,
+    }
+}
+
+/// The language services item: the state's icon, its words, and a click that opens the panel.
+fn service_entry(
+    height: f32,
+    width: f32,
+    label: String,
+    style: TextStyle,
+    state: ServiceState,
+    binding: StatusBinding,
+) -> Element {
+    let color = service_color(state);
+    let middle = height / 2.0;
+    let box_ = UiRect::new(
+        0.0,
+        middle - SERVICE_ICON / 2.0,
+        SERVICE_ICON,
+        middle + SERVICE_ICON / 2.0,
+    );
+    let icon = if matches!(state, ServiceState::Starting | ServiceState::Working) {
+        crate::ui::components::loading_indicator::render_icon(
+            box_,
+            color,
+            "statusbar-language-services".into(),
+            LOADING_ICON,
+        )
+    } else {
+        crate::ui::tabs::icon(
+            lgui::core::UiId::new("statusbar-language-services-icon"),
+            service_icon(state),
+            box_,
+            color,
+        )
+    };
+    panel(UiRect::new(0.0, 0.0, width, height), VisualStyle::default())
+        .public_id("statusbar.language-services")
+        .event_policy(EventPolicy::INTERACTIVE)
+        .cursor(CursorIcon::Pointer)
+        .semantics(
+            Semantics::new(SemanticRole::Button)
+                .name("Language services")
+                .value(label.clone()),
+        )
+        .on_click(move || binding.run(StatusCommand::LanguageServices))
+        .child(icon)
+        .child(text(
+            UiRect::new(SERVICE_ICON_ROOM, 0.0, width + TEXT_MARGIN, height),
+            label,
+            style,
+        ))
 }
 
 /// Vim's mode, then its command line, message or pending keys, and macro
@@ -499,6 +620,7 @@ mod tests {
                     text: "2 diagnostics".into(),
                     level: NoteLevel::Warning,
                 }],
+                language_services: None,
             };
             let commands = Arc::new(Mutex::new(Vec::new()));
             let seen = commands.clone();
@@ -509,6 +631,7 @@ mod tests {
                     seen.lock().unwrap().push(match command {
                         StatusCommand::ExtensionWidget { .. } => "extension",
                         StatusCommand::HighlightMenu => "highlighting",
+                        StatusCommand::LanguageServices => "language services",
                         StatusCommand::Encoding => "encoding",
                         StatusCommand::LineEnding => "ending",
                         StatusCommand::Indent => "indent",
@@ -766,6 +889,7 @@ mod tests {
                 text: "Rust syntax is available".into(),
                 level: NoteLevel::Quiet,
             }],
+            language_services: None,
         };
         let binding = StatusBinding::new(move || frame.clone(), |_| {});
         let context = ApplicationContext::empty(Default::default());
@@ -967,6 +1091,7 @@ mod tests {
                 is_file: true,
             }),
             language: Vec::new(),
+            language_services: None,
         };
         let binding = StatusBinding::new(move || frame.clone(), |_| {});
         let roots = Arc::new(Mutex::new(vec![root]));
@@ -1003,6 +1128,7 @@ mod tests {
             let mut whole = SkiaSoftwareSurface::new_opaque(64 << 20);
             let mut damage = vec![viewport];
             let (mut differing, mut shown) = (Vec::new(), Vec::new());
+            let mut angles = Vec::new();
             for index in 0..130_u32 {
                 if index > 0 {
                     let elapsed = [16.0, 17.0, 36.0, 16.0, 45.0][index as usize % 5];
@@ -1056,6 +1182,15 @@ mod tests {
                             .collect()
                     };
                 }
+                angles.push(
+                    // The icon is the only composited layer in this view.
+                    session
+                        .tree()
+                        .nodes()
+                        .iter()
+                        .find_map(|node| node.compositing_layer)
+                        .map(|layer| layer.transform.rotation_degrees_f32()),
+                );
                 let label = session
                     .tree()
                     .public_node("ext.5:probe.1.1.text")
@@ -1119,11 +1254,107 @@ mod tests {
                 differing.iter().all(|count| *count == 0),
                 "scale {factor}: bytes differing from a full repaint, per frame: {differing:?}"
             );
+            assert!(
+                angles
+                    .windows(2)
+                    .all(|pair| pair[0].is_some() && pair[0] != pair[1]),
+                "scale {factor}: the icon stopped turning; angle per frame: {angles:?}"
+            );
             let (least, most) = (shown.iter().min().unwrap(), shown.iter().max().unwrap());
             assert!(
                 *least * 10 >= *most * 6,
                 "scale {factor}: the icon is not whole in every frame; pixels per frame: {shown:?}"
             );
         }
+    }
+
+    /// The language services item is the first of the bar's right side, says one phrase
+    /// for every service, and opens the panel when pressed.
+    #[test]
+    fn the_language_services_item_shows_the_shared_state_and_opens_the_panel() {
+        use crate::features::language_services_menu::State;
+        let context = ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let rect = UiRect::new(0.0, 0.0, 700.0, 28.0);
+        for (state, label) in [
+            (State::Ready, "Language Services: Ready"),
+            (State::Working, "Language Services: Working"),
+            (State::Failed, "Language Services: Error"),
+            (State::Idle, "Language Services: Idle"),
+        ] {
+            let frame = StatusFrame {
+                extension_widgets: Vec::new(),
+                pending: Vec::new(),
+                vim: None,
+                file: Some(FileStatus {
+                    indent: "Spaces: 2".into(),
+                    line_ending: "LF".into(),
+                    encoding: "UTF-8".into(),
+                    lang: crate::domain::language::builtin("rust"),
+                    missing: false,
+                    conflict: false,
+                    cursor: Some((0, 0)),
+                    is_diff: false,
+                    is_file: true,
+                }),
+                language: Vec::new(),
+                language_services: Some(state),
+            };
+            let commands = Arc::new(Mutex::new(Vec::new()));
+            let seen = commands.clone();
+            let binding = StatusBinding::new(
+                move || frame.clone(),
+                move |command| {
+                    if matches!(command, StatusCommand::LanguageServices) {
+                        seen.lock().unwrap().push("language services");
+                    }
+                },
+            );
+            let view: AppView = Arc::new(move |_| render(rect, binding.clone()));
+            let mut session = UiSession::new();
+            session.render_view(&view, rect, UiScale::ONE);
+            let text = session
+                .tree()
+                .nodes()
+                .iter()
+                .find(|node| node.text.as_deref() == Some(label))
+                .unwrap_or_else(|| panic!("`{label}` is not drawn"))
+                .paint_bounds;
+            let cursor = session
+                .tree()
+                .nodes()
+                .iter()
+                .find(|node| node.text.as_deref() == Some("Ln 1, Col 1"))
+                .unwrap()
+                .paint_bounds;
+            assert!(
+                text.right <= cursor.left,
+                "it comes before the cursor position"
+            );
+            click(&mut session, &context, (text.left + text.right) / 2.0, 14.0);
+            assert_eq!(*commands.lock().unwrap(), ["language services"], "{label}");
+        }
+        // No service answers for the file: no item.
+        let frame = StatusFrame {
+            extension_widgets: Vec::new(),
+            pending: Vec::new(),
+            vim: None,
+            file: None,
+            language: Vec::new(),
+            language_services: None,
+        };
+        let binding = StatusBinding::new(move || frame.clone(), |_| {});
+        let view: AppView = Arc::new(move |_| render(rect, binding.clone()));
+        let mut session = UiSession::new();
+        session.render_view(&view, rect, UiScale::ONE);
+        assert!(session.tree().nodes().iter().all(|node| {
+            !node
+                .text
+                .as_deref()
+                .is_some_and(|text| text.starts_with("Language Services"))
+        }));
     }
 }

@@ -235,6 +235,12 @@ pub enum Event {
         generation: u64,
         snapshot: UiMailbox,
     },
+    /// Everything the extension reports about its service, after a change.
+    ServiceStatus {
+        id: String,
+        generation: u64,
+        reports: Vec<loom_extension_host::ServiceReport>,
+    },
     WatchControls {
         id: String,
         generation: u64,
@@ -830,6 +836,14 @@ impl Worker {
     fn flush_ui(&mut self) -> bool {
         let mut pending = false;
         for (id, slot) in &mut self.instances {
+            // A report is a few words: it goes as it is, without the pacing of a tree.
+            if let Some(reports) = slot.instance.take_service_reports() {
+                (self.sink)(Event::ServiceStatus {
+                    id: id.clone(),
+                    generation: slot.generation,
+                    reports,
+                });
+            }
             if !slot.instance.ui_dirty() {
                 continue;
             }

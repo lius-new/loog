@@ -113,7 +113,7 @@ impl Binding {
 }
 
 /// `a` with `amount` (0..=1) of `b` mixed in.
-fn mix(a: Color, b: Color, amount: f32) -> Color {
+pub(crate) fn mix(a: Color, b: Color, amount: f32) -> Color {
     let channel = |shift: u32| {
         let from = ((a.0 >> shift) & 0xff) as f32;
         let to = ((b.0 >> shift) & 0xff) as f32;
@@ -146,7 +146,7 @@ pub fn tint(key: &str) -> Color {
     choices[sum % choices.len()]
 }
 
-fn centered(color: Color, size: f32, weight: i32) -> lgui::prelude::TextStyle {
+pub(crate) fn centered(color: Color, size: f32, weight: i32) -> lgui::prelude::TextStyle {
     let mut style = theme::mono(color, size);
     style.weight = weight;
     style.align = TextAlign::Center;
@@ -232,14 +232,14 @@ fn card_height(frame: &Frame, available: f32) -> f32 {
     height + 1.0 + more_height(frame)
 }
 
-fn divider(card: UiRect, y: f32) -> Element {
+pub(crate) fn divider(card: UiRect, y: f32) -> Element {
     panel(
         UiRect::new(card.left + 1.0, y, card.right - 1.0, y + 1.0),
         VisualStyle::filled(theme::c().border),
     )
 }
 
-fn header(card: UiRect, y: f32, label: String) -> Element {
+pub(crate) fn header(card: UiRect, y: f32, label: String) -> Element {
     panel(
         UiRect::new(card.left, y, card.right, y + HEADER_H),
         VisualStyle::default(),
@@ -252,7 +252,7 @@ fn header(card: UiRect, y: f32, label: String) -> Element {
 }
 
 /// A language's short mark on a tint of its color.
-fn mark(rect: UiRect, label: &str, key: &str, size: f32) -> Element {
+pub(crate) fn mark(rect: UiRect, label: &str, key: &str, size: f32) -> Element {
     let tint = tint(key);
     panel(
         rect,

@@ -82,6 +82,7 @@ pub struct AppState {
     /// The command palette opened by `workspace::OpenCommandPalette`.
     pub palette: crate::app::palette::PaletteState,
     pub highlight_menu: crate::app::highlight_menu::HighlightMenuState,
+    pub language_services_menu: crate::app::language_services_menu::LanguageServicesMenuState,
     /// Search, source, selection and tab of the Extensions page.
     pub extensions_ui: crate::ui::extensions_binding::ExtensionsUiState,
     pub extension_widgets: crate::features::extensions::ui::Model,
@@ -133,6 +134,7 @@ impl AppState {
             keymap_ui: Default::default(),
             palette: Default::default(),
             highlight_menu: Default::default(),
+            language_services_menu: Default::default(),
             extensions_ui: Default::default(),
             extension_widgets: Default::default(),
             update: Default::default(),
@@ -663,6 +665,7 @@ impl AppState {
     fn close_menus(&mut self) {
         self.palette.close();
         self.highlight_menu.close();
+        self.language_services_menu.close();
         self.terminal.ui.terminal_workspace_picker = None;
         self.editor.menu = None;
         self.explorer.ui.menu = None;

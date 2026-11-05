@@ -1776,6 +1776,12 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             highlight_menu_input_id.clone(),
         ));
     }
+    if s.language_services_menu.visible {
+        root = root.child(crate::ui::language_services_menu::render(
+            vp,
+            super::language_services_menu::binding(&state),
+        ));
+    }
     if s.palette.visible {
         root = root.child(crate::ui::palette::render(
             vp,

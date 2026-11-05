@@ -57,6 +57,27 @@ use the same region. There is no privileged first creator. The region disappears
 when there is no eligible candidate, and its remaining registrations disappear
 when their last owner leaves. Stale generations cannot replace newer candidates.
 
+## Service status is data, not UI
+
+Language service status is not a shared region. An extension that runs a service
+reports it with `loom:service/status@0.1.0`: `publish(report)` and `withdraw(key)`,
+where a report is a `key` naming one running session, a `state` (`stopped`, `starting`,
+`ready`, `working`, `error`), an optional one-line `detail` and optional `contexts`
+(document paths, spelled as in `DocumentRef.path`; none means every document it
+serves). The application owns the status bar icon, its words, colors and motion, and the
+language services panel: they are drawn from these reports and the extension lifecycle,
+for the services that answer for the file being edited. An extension creates no node for
+them and requests no animation.
+
+The state names are the application's contract, shared by every extension. They are not
+plugin state names, and the application does not branch on anything else a plugin says.
+Reports are bounded (16 sessions, 200 bytes of detail, the same context limits as shared
+regions), replaced by key, withdrawn when the extension stops, and unavailable during save
+participation. A refused report leaves the previous one. Extensions older than this
+interface keep publishing their own status region, which the shared-region rules above
+still mount; no removal of that path is scheduled by this change, and it disappears as
+those extensions are replaced by versions that report instead.
+
 ## Bounds and compatibility
 
 Only an instance-owned detached root placed against a public target can be

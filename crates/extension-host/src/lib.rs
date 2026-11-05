@@ -36,10 +36,12 @@ pub use bindings::loom::extension::types::{
 };
 pub use watches::WatchControl;
 mod publication_budget;
+mod service;
 mod ui;
 pub use bindings::loom::extension::types::{
     UiDescription, UiEvent, UiEventPayload, UiKind, UiParent,
 };
+pub use bindings::loom::service::status::{Report as ServiceReport, State as ServiceState};
 pub use bindings::loom::ui::motion::{
     Animation as MotionAnimation, Direction as MotionDirection, Easing as MotionEasing,
     Keyframe as MotionKeyframe, Property as MotionProperty, Smoothing as MotionSmoothing,
@@ -283,6 +285,7 @@ pub struct HostState {
     processes: processes::Processes,
     watches: watches::Watches,
     ui: ui::Tree,
+    service: service::Reports,
     documents: Option<documents::Documents>,
     limits: StoreLimits,
     pending_limit: usize,
@@ -463,6 +466,7 @@ impl HostState {
             processes: Default::default(),
             watches: Default::default(),
             ui: Default::default(),
+            service: Default::default(),
             documents: None,
             started_tasks: Vec::new(),
             started_file_ops: Vec::new(),
@@ -539,6 +543,20 @@ fn wit_kind(kind: ErrorKind) -> WitErrorKind {
 }
 
 impl types::Host for HostState {}
+
+impl bindings::loom::service::status::Host for HostState {
+    fn publish(&mut self, report: ServiceReport) -> Result<(), String> {
+        self.unrestricted("reporting service status")
+            .map_err(|error| error.message)?;
+        self.service.publish(report)
+    }
+
+    fn withdraw(&mut self, key: String) -> Result<(), String> {
+        self.unrestricted("reporting service status")
+            .map_err(|error| error.message)?;
+        self.service.withdraw(&key)
+    }
+}
 
 impl bindings::loom::ui::shared::Host for HostState {
     fn publish(&mut self, node: u64, contribution: UiContribution) -> Result<(), String> {
@@ -1134,6 +1152,7 @@ pub const KNOWN_IMPORTS: &[&str] = &[
     "loom:ui/tree@0.1.0",
     "loom:ui/motion@0.1.0",
     "loom:ui/shared@0.1.0",
+    "loom:service/status@0.1.0",
 ];
 
 /// Length of one epoch tick.
@@ -1503,6 +1522,13 @@ impl Instance {
     }
     pub fn ui_dirty(&self) -> bool {
         self.store.data().ui.dirty()
+    }
+    /// What the extension reports about its service, once after a change.
+    pub fn take_service_reports(&mut self) -> Option<Vec<ServiceReport>> {
+        self.store.data_mut().service.take()
+    }
+    pub fn service_dirty(&self) -> bool {
+        self.store.data().service.dirty()
     }
     pub fn watch_ended(&mut self, watch: u64) {
         self.store.data_mut().watches.ended(watch);

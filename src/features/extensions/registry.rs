@@ -76,6 +76,9 @@ pub struct LanguageInfo {
 /// The languages a language service extension serves.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct ServiceInfo {
+    /// The name the manifest gives the service, when it gives one.
+    #[serde(default)]
+    pub name: Option<String>,
     #[serde(default)]
     pub languages: Vec<String>,
 }
@@ -626,6 +629,7 @@ mod tests {
     fn language_services_require_the_component_contract_per_version() {
         let mut entry = index().extensions[0].clone();
         entry.language_service = Some(ServiceInfo {
+            name: None,
             languages: vec!["rust".into()],
         });
         assert!(entry.best_for("0.2.0", "linux-x86_64").is_none());

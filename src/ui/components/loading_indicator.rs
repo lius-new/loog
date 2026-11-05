@@ -9,11 +9,16 @@ pub const ICON_KEY: &str = "tab-loading";
 pub const SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5" opacity="0.16"/><path d="M8 2.5a5.5 5.5 0 1 1-5.5 5.5" stroke-linecap="round"/></svg>"#;
 
 pub fn render(rect: UiRect, color: Color, key: String) -> Element {
+    render_icon(rect, color, key, ICON_KEY)
+}
+
+/// The same turn, of another icon: a registered name or an `svg-path:` key.
+pub fn render_icon(rect: UiRect, color: Color, key: String, icon: &'static str) -> Element {
     let id = UiId::owned(format!("{key}-svg"));
     animated_compositing_layer(rect, |_motion: &mut Spin| {})
         .key(key)
         .child(Element::new(move |_| {
-            UiElement::icon(id, rect, ICON_KEY).icon_style(IconStyle::new(color))
+            UiElement::icon(id, rect, icon).icon_style(IconStyle::new(color))
         }))
 }
 

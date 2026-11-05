@@ -184,6 +184,7 @@ pub fn status_binding(state: &AppContext) -> crate::ui::chrome::StatusBinding {
                 ),
                 pending: app.keymap.pending().to_vec(),
                 language: syntax_notes(),
+                language_services: crate::app::language_services_menu::status(&reader, &app),
                 vim: crate::app::editor_vim::is_active(&app)
                     .then(|| (app.editor.vim.mode(), app.editor.vim.status())),
                 file: app.workspace.active().map(|id| FileStatus {
@@ -252,6 +253,13 @@ pub fn status_binding(state: &AppContext) -> crate::ui::chrome::StatusBinding {
                     writer.update(|app| app.highlight_menu.close());
                 } else {
                     crate::app::highlight_menu::open(&writer);
+                }
+            }
+            StatusCommand::LanguageServices => {
+                if writer.get().language_services_menu.visible {
+                    writer.update(|app| app.language_services_menu.close());
+                } else {
+                    crate::app::language_services_menu::open(&writer);
                 }
             }
         },

@@ -759,6 +759,69 @@ impl ExtensionHost {
         }
     }
 
+    /// The installed extensions that answer for languages, for the language services panel
+    /// and the status bar. What a running extension reports about `document` (its path)
+    /// decides how it is doing; the lifecycle tells the rest.
+    pub(crate) fn language_services(
+        &self,
+        document: Option<&str>,
+    ) -> Vec<crate::features::language_services_menu::Service> {
+        use crate::app::language_services_menu::{report_state, short, state_of};
+        use crate::features::language_services_menu::{Service, State};
+        let service = self.inner.service.lock().unwrap();
+        service
+            .packages()
+            .filter(|package| {
+                !package
+                    .manifest
+                    .contributes
+                    .language_service
+                    .providers
+                    .is_empty()
+            })
+            .map(|package| {
+                let declared = &package.manifest.contributes.language_service;
+                let mut languages: Vec<String> = declared
+                    .providers
+                    .iter()
+                    .flat_map(|provider| provider.selector.languages.iter().cloned())
+                    .collect();
+                languages.sort();
+                languages.dedup();
+                let mut state = state_of(package.lifecycle.state());
+                let mut note = String::new();
+                if state == State::Failed {
+                    note = package.last_error.as_deref().map(short).unwrap_or_default();
+                } else if state == State::Ready {
+                    // Running: what it says about itself, the most urgent first.
+                    let reports = service.service_reports(&package.manifest.id, document);
+                    let reported =
+                        State::most_urgent(reports.iter().map(|report| report_state(report.state)));
+                    if let Some(reported) = reported {
+                        state = reported;
+                        note = reports
+                            .iter()
+                            .find(|report| report_state(report.state) == reported)
+                            .and_then(|report| report.detail.as_deref())
+                            .map(short)
+                            .unwrap_or_default();
+                    }
+                }
+                Service {
+                    extension: package.manifest.id.clone(),
+                    name: declared
+                        .name
+                        .clone()
+                        .or_else(|| package.manifest.name.clone())
+                        .unwrap_or_else(|| package.manifest.id.clone()),
+                    languages,
+                    state,
+                    note,
+                }
+            })
+            .collect()
+    }
+
     #[cfg(test)]
     pub(crate) fn service(&self) -> std::sync::MutexGuard<'_, ExtensionService> {
         self.inner.service.lock().unwrap()
@@ -1222,6 +1285,42 @@ impl ExtensionHost {
                 "Stopped {count} extension(s); reload them with workspace::ReloadExtensions"
             ));
         });
+    }
+
+    /// Stop an extension and make it ready again: it starts when something it serves
+    /// next needs it. Unlike `set_enabled`, nothing is kept for the next run.
+    pub(crate) fn restart(&self, context: &AppContext, id: &str) {
+        context.update(|app| {
+            let result = {
+                let mut service = self.inner.service.lock().unwrap();
+                service
+                    .disable(id)
+                    .and_then(|effects| service.enable(id).map(|()| effects))
+            };
+            match result {
+                Ok(effects) => self.inner.apply(app, effects),
+                Err(error) => app.show_error(format!("{id}: {error}")),
+            }
+        });
+    }
+
+    /// Turn an extension on again. One that failed has only to be retried; one that was
+    /// turned off is enabled, which is kept for the next run.
+    pub(crate) fn turn_on(&self, context: &AppContext, id: &str) {
+        let failed = self
+            .inner
+            .service
+            .lock()
+            .unwrap()
+            .package(id)
+            .is_some_and(|package| package.lifecycle.state() == super::State::Failed);
+        if failed {
+            if let Err(error) = self.retry(id) {
+                context.update(|app| app.show_error(format!("{id}: {error}")));
+            }
+        } else {
+            self.set_enabled(context, id, true);
+        }
     }
 
     pub(crate) fn report(&self) -> String {
