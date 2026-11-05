@@ -358,8 +358,8 @@ pub(crate) fn install_save(cx: &mut RenderCx<'_, '_>, tabs: &TerminalStore, app:
     );
     let tabs = tabs.clone();
     // The height is rewritten to disk on every drag event otherwise.
-    let dragging = app.terminal.ui.terminal_split_drag.is_some()
-        || app.terminal_chrome.resizing_terminal;
+    let dragging =
+        app.terminal.ui.terminal_split_drag.is_some() || app.terminal_chrome.resizing_terminal;
     cx.use_effect(key, move || {
         if !dragging {
             save(&tabs, visible, height);
