@@ -344,6 +344,7 @@ pub(crate) fn install_save(cx: &mut RenderCx<'_, '_>, tabs: &TerminalStore, app:
     let visible = app.default_terminal_open();
     let height = app.terminal_chrome.terminal_h;
     let key = (
+        app.terminal_chrome.resizing_terminal,
         snapshot.shells(),
         snapshot.saved_groups(),
         snapshot.widths(),
@@ -356,7 +357,9 @@ pub(crate) fn install_save(cx: &mut RenderCx<'_, '_>, tabs: &TerminalStore, app:
         height,
     );
     let tabs = tabs.clone();
-    let dragging = app.terminal.ui.terminal_split_drag.is_some();
+    // The height is rewritten to disk on every drag event otherwise.
+    let dragging = app.terminal.ui.terminal_split_drag.is_some()
+        || app.terminal_chrome.resizing_terminal;
     cx.use_effect(key, move || {
         if !dragging {
             save(&tabs, visible, height);
