@@ -2,7 +2,7 @@
 //!
 //! The guest in `tests/extensions/rust-guest` is built for
 //! `wasm32-unknown-unknown` and wrapped into a component with `wit-component`,
-//! importing the base host and the independent UI placement interface.
+//! importing the base host and the independent UI placement and motion interfaces.
 use loom_extension_api::ErrorKind;
 use loom_extension_host::{
     ByteRange, CommandContext, CommittedReceipt, Completion, Inbound, Limits, Provided,
@@ -602,4 +602,68 @@ fn relative_ui_placement_crosses_the_versioned_component_interface() {
     instance.dispatch(&[click]).unwrap();
     instance.dispatch(&[]).unwrap();
     assert!(instance.take_ui_snapshot().unwrap().is_empty());
+}
+
+#[test]
+fn motion_crosses_the_versioned_component_interface_as_data() {
+    use loom_extension_host::{
+        MotionDirection, MotionEasing, MotionProperty, UiEvent, UiEventPayload,
+    };
+    let (runtime, component) = runtime();
+    let mut instance = runtime.instantiate(&component, Limits::default()).unwrap();
+    instance
+        .dispatch(&[Inbound::RunCommand(CommandContext {
+            call: 9,
+            command: "example.tools.motion".into(),
+            snapshot: None,
+            selections: vec![],
+            selection_precondition: None,
+        })])
+        .unwrap();
+    instance.dispatch(&[]).unwrap();
+    let nodes = instance.take_ui_snapshot().unwrap();
+    assert_eq!(nodes.len(), 1);
+    let motion = &nodes[0].motion;
+    let (_, animation) = motion.animation.as_ref().expect("the animation arrived");
+    assert_eq!(animation.duration_ms, 800);
+    assert_eq!(animation.iterations, None, "endless unless asked otherwise");
+    assert!(matches!(animation.direction, MotionDirection::Normal));
+    assert_eq!(animation.tracks.len(), 2);
+    assert!(matches!(
+        animation.tracks[0].property,
+        MotionProperty::Rotation
+    ));
+    assert_eq!(
+        animation.tracks[1]
+            .keyframes
+            .iter()
+            .map(|key| (key.offset, key.value))
+            .collect::<Vec<_>>(),
+        [(0.0, 1.0), (0.5, 0.5), (1.0, 1.0)]
+    );
+    assert!(matches!(
+        animation.tracks[1].easing,
+        MotionEasing::CubicBezier(_)
+    ));
+    assert_eq!(motion.smoothing.len(), 1);
+    assert_eq!(motion.smoothing[0].duration_ms, 120);
+    assert!(matches!(
+        motion.resting.as_slice(),
+        [(MotionProperty::TranslateX, value)] if *value == 6.0
+    ));
+    let node = nodes[0].node;
+    instance
+        .dispatch(&[Inbound::UiEvent(UiEvent {
+            node,
+            id: "motion-icon".into(),
+            payload: UiEventPayload::Click,
+        })])
+        .unwrap();
+    instance.dispatch(&[]).unwrap();
+    let nodes = instance.take_ui_snapshot().unwrap();
+    assert!(
+        nodes[0].motion.animation.is_none(),
+        "stopped by the extension"
+    );
+    assert_eq!(nodes[0].motion.resting.len(), 1, "its resting values stay");
 }

@@ -40,19 +40,31 @@ mod ui;
 pub use bindings::loom::extension::types::{
     UiDescription, UiEvent, UiEventPayload, UiKind, UiParent,
 };
+pub use bindings::loom::ui::motion::{
+    Animation as MotionAnimation, Direction as MotionDirection, Easing as MotionEasing,
+    Keyframe as MotionKeyframe, Property as MotionProperty, Smoothing as MotionSmoothing,
+    Track as MotionTrack,
+};
+pub use bindings::loom::ui::shared::Contribution as UiContribution;
 pub use bindings::loom::ui::tree::{
     Placement as UiPlacement, Relation as UiRelation, Target as UiTarget,
 };
+pub use ui::UiMotion;
 
-// COMPAT(base-extension-world): Keep placement outside the original WIT ui-node record
-// so existing components retain their ABI. New placement travels through loom:ui/tree.
-// Revisit this split only when the base 0.1.0 ABI is retired; no retirement is scheduled.
+// COMPAT(base-extension-world): Keep placement, motion and shared regions outside the original WIT
+// ui-node record so installed base/tree components retain their ABI. New components
+// use independent loom:ui/tree, motion and shared interfaces. Revisit this split
+// only when the base 0.1.0 ABI is retired; no removal version has been scheduled.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct UiNode {
     pub node: u64,
     pub parent: UiParent,
     pub description: UiDescription,
     pub placement: Option<UiPlacement>,
+    /// What the extension asked the host to move, turn, scale or fade; separate from the
+    /// description for the same reason as `placement`.
+    pub motion: UiMotion,
+    pub shared: Option<UiContribution>,
 }
 pub use publication_budget::{Budget as PublicationBudget, Credit as PublicationCredit};
 
@@ -528,12 +540,51 @@ fn wit_kind(kind: ErrorKind) -> WitErrorKind {
 
 impl types::Host for HostState {}
 
+impl bindings::loom::ui::shared::Host for HostState {
+    fn publish(&mut self, node: u64, contribution: UiContribution) -> Result<(), String> {
+        self.unrestricted("publishing shared UI")
+            .map_err(|error| error.message)?;
+        self.ui
+            .publish_shared(node, contribution)
+            .map_err(|error| error.message)
+    }
+}
+
 impl bindings::loom::ui::tree::Host for HostState {
     fn place(&mut self, node: u64, placement: UiPlacement) -> Result<(), String> {
         self.unrestricted("placing UI nodes")
             .map_err(|error| error.message)?;
         self.ui
             .place(node, placement)
+            .map_err(|error| error.message)
+    }
+}
+
+impl bindings::loom::ui::motion::Host for HostState {
+    fn animate(&mut self, node: u64, animation: MotionAnimation) -> Result<(), String> {
+        self.unrestricted("animating UI nodes")
+            .map_err(|error| error.message)?;
+        self.ui
+            .animate(node, animation)
+            .map_err(|error| error.message)
+    }
+    fn stop(&mut self, node: u64) -> Result<(), String> {
+        self.unrestricted("animating UI nodes")
+            .map_err(|error| error.message)?;
+        self.ui.stop_motion(node).map_err(|error| error.message)
+    }
+    fn set(&mut self, node: u64, property: MotionProperty, value: f32) -> Result<(), String> {
+        self.unrestricted("animating UI nodes")
+            .map_err(|error| error.message)?;
+        self.ui
+            .set_resting(node, property, value)
+            .map_err(|error| error.message)
+    }
+    fn smooth(&mut self, node: u64, smoothing: MotionSmoothing) -> Result<(), String> {
+        self.unrestricted("animating UI nodes")
+            .map_err(|error| error.message)?;
+        self.ui
+            .smooth(node, smoothing)
             .map_err(|error| error.message)
     }
 }
@@ -1081,6 +1132,8 @@ pub const KNOWN_IMPORTS: &[&str] = &[
     "loom:extension/types@0.1.0",
     "loom:extension/host@0.1.0",
     "loom:ui/tree@0.1.0",
+    "loom:ui/motion@0.1.0",
+    "loom:ui/shared@0.1.0",
 ];
 
 /// Length of one epoch tick.
@@ -1223,8 +1276,8 @@ impl Runtime {
             }
         }
         let mut linker = Linker::<HostState>::new(engine);
-        // COMPAT(base-extension-world): Register both interfaces; existing components
-        // may import only the base host. New SDK components also import loom:ui/tree.
+        // COMPAT(base-extension-world): Register the supported interfaces; existing components
+        // may import only the base host or tree. New components can also import motion.
         // Require the new import only after base-only components lose support;
         // no removal version has been scheduled.
         bindings::ExtensionUi::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)

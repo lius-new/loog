@@ -1,4 +1,98 @@
 use super::*;
+
+/// What an extension asked the host to do with one node's look while it is composited.
+/// `revision` changes with every request, so a consumer can tell something is new.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct UiMotion {
+    pub revision: u64,
+    /// Native monotonic start time; not part of the guest ABI or serialized data.
+    #[serde(skip)]
+    pub started_at: Option<std::time::Instant>,
+    pub resting: Vec<(MotionProperty, f32)>,
+    pub smoothing: Vec<MotionSmoothing>,
+    /// The revision it was started at, and the animation itself.
+    pub animation: Option<(u64, MotionAnimation)>,
+}
+
+const MAX_ANIMATED_NODES: usize = 16;
+const MAX_KEYFRAMES: usize = 16;
+const MAX_MOTION_MS: u32 = 3_600_000;
+
+fn motion_error(message: &str) -> HostError {
+    host_error(ErrorKind::InvalidEdit, message)
+}
+
+fn value_allowed(property: MotionProperty, value: f32) -> bool {
+    value.is_finite()
+        && match property {
+            MotionProperty::Rotation => value.abs() <= 36_000.0,
+            MotionProperty::ScaleX | MotionProperty::ScaleY => (0.0..=64.0).contains(&value),
+            MotionProperty::TranslateX | MotionProperty::TranslateY => value.abs() <= 10_000.0,
+            MotionProperty::Opacity => (0.0..=1.0).contains(&value),
+        }
+}
+
+fn easing_allowed(easing: &MotionEasing) -> bool {
+    match easing {
+        MotionEasing::Linear => true,
+        MotionEasing::CubicBezier((x1, y1, x2, y2)) => {
+            (0.0..=1.0).contains(x1)
+                && (0.0..=1.0).contains(x2)
+                && y1.is_finite()
+                && y2.is_finite()
+                && y1.abs() <= 4.0
+                && y2.abs() <= 4.0
+        }
+    }
+}
+
+fn check_animation(animation: &MotionAnimation) -> Result<(), HostError> {
+    if animation.tracks.is_empty() || animation.tracks.len() > 6 {
+        return Err(motion_error("an animation needs one to six tracks"));
+    }
+    if animation.duration_ms == 0
+        || animation.duration_ms > MAX_MOTION_MS
+        || animation.delay_ms > MAX_MOTION_MS
+        || animation
+            .iterations
+            .is_some_and(|count| count == 0 || count > 1_000_000)
+    {
+        return Err(host_error(
+            ErrorKind::LimitExceeded,
+            "animation timing exceeds its budget",
+        ));
+    }
+    for (index, track) in animation.tracks.iter().enumerate() {
+        if animation.tracks[..index]
+            .iter()
+            .any(|other| other.property == track.property)
+        {
+            return Err(motion_error("an animation has one track per property"));
+        }
+        let keys = &track.keyframes;
+        if keys.len() < 2 || keys.len() > MAX_KEYFRAMES {
+            return Err(motion_error("a track needs two to sixteen keyframes"));
+        }
+        if keys.first().map(|key| key.offset) != Some(0.0)
+            || keys.last().map(|key| key.offset) != Some(1.0)
+            || keys
+                .windows(2)
+                .any(|pair| !(pair[0].offset <= pair[1].offset))
+            || keys
+                .iter()
+                .any(|key| !value_allowed(track.property, key.value))
+        {
+            return Err(motion_error(
+                "keyframes must run from offset 0 to 1 in order, with values in range",
+            ));
+        }
+        if !easing_allowed(&track.easing) {
+            return Err(motion_error("invalid easing curve"));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Default)]
 pub(super) struct Tree {
     next: u64,
@@ -144,11 +238,168 @@ impl Tree {
                 parent,
                 description,
                 placement: None,
+                motion: UiMotion::default(),
+                shared: None,
             },
         );
         self.sequence.push(node);
         self.dirty = true;
         Ok(node)
+    }
+    /// Publish only an owned root; shared keys never grant cross-instance mutation.
+    pub fn publish_shared(
+        &mut self,
+        node: u64,
+        mut contribution: UiContribution,
+    ) -> Result<(), HostError> {
+        self.budget()?;
+        if contribution.key.is_empty()
+            || contribution.key.len() > 128
+            || contribution.key.contains('\0')
+        {
+            return Err(host_error(ErrorKind::InvalidEdit, "invalid shared UI key"));
+        }
+        if let Some(contexts) = &mut contribution.contexts {
+            if contexts.len() > 256
+                || contexts
+                    .iter()
+                    .any(|value| value.is_empty() || value.len() > 4096 || value.contains('\0'))
+                || contexts.iter().map(String::len).sum::<usize>() > 32768
+            {
+                return Err(host_error(
+                    ErrorKind::LimitExceeded,
+                    "shared UI contexts exceed their budget",
+                ));
+            }
+            contexts.sort();
+            contexts.dedup();
+        }
+        let root = self.nodes.get_mut(&node).ok_or_else(|| {
+            host_error(
+                ErrorKind::ExpiredHandle,
+                "UI node does not belong to this instance",
+            )
+        })?;
+        if !matches!(&root.parent, UiParent::Mount(name) if name == "ui.detached")
+            || !matches!(
+                &root.placement,
+                Some(UiPlacement {
+                    target: UiTarget::PublicId(_),
+                    ..
+                })
+            )
+        {
+            return Err(host_error(
+                ErrorKind::InvalidEdit,
+                "shared UI requires a root placed against a public target",
+            ));
+        }
+        root.shared = Some(contribution);
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Count one operation and find the node a motion request is about.
+    fn motion_node(&mut self, node: u64) -> Result<&mut UiNode, HostError> {
+        self.budget()?;
+        self.nodes.get_mut(&node).ok_or_else(|| {
+            host_error(
+                ErrorKind::ExpiredHandle,
+                "UI node does not belong to this instance",
+            )
+        })
+    }
+    pub fn animate(&mut self, node: u64, animation: MotionAnimation) -> Result<(), HostError> {
+        self.animate_at(node, animation, std::time::Instant::now())
+    }
+    fn animate_at(
+        &mut self,
+        node: u64,
+        animation: MotionAnimation,
+        now: std::time::Instant,
+    ) -> Result<(), HostError> {
+        check_animation(&animation)?;
+        let animated = self
+            .nodes
+            .values()
+            .filter(|other| {
+                other.node != node
+                    && other
+                        .motion
+                        .animation
+                        .as_ref()
+                        .is_some_and(|(_, animation)| {
+                            animation.iterations.is_none_or(|iterations| {
+                                let duration = u64::from(animation.delay_ms)
+                                    + u64::from(animation.duration_ms) * u64::from(iterations);
+                                other.motion.started_at.is_some_and(|start| {
+                                    now.saturating_duration_since(start)
+                                        < std::time::Duration::from_millis(duration)
+                                })
+                            })
+                        })
+            })
+            .count();
+        if animated >= MAX_ANIMATED_NODES {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "too many nodes are animated at once",
+            ));
+        }
+        let target = self.motion_node(node)?;
+        target.motion.revision += 1;
+        target.motion.animation = Some((target.motion.revision, animation));
+        target.motion.started_at = Some(now);
+        self.dirty = true;
+        Ok(())
+    }
+    pub fn stop_motion(&mut self, node: u64) -> Result<(), HostError> {
+        let target = self.motion_node(node)?;
+        if target.motion.animation.take().is_some() {
+            target.motion.started_at = None;
+            target.motion.revision += 1;
+            self.dirty = true;
+        }
+        Ok(())
+    }
+    pub fn set_resting(
+        &mut self,
+        node: u64,
+        property: MotionProperty,
+        value: f32,
+    ) -> Result<(), HostError> {
+        if !value_allowed(property, value) {
+            return Err(motion_error("a motion value is out of range"));
+        }
+        let target = self.motion_node(node)?;
+        match target
+            .motion
+            .resting
+            .iter_mut()
+            .find(|(existing, _)| *existing == property)
+        {
+            Some((_, current)) => *current = value,
+            None => target.motion.resting.push((property, value)),
+        }
+        target.motion.revision += 1;
+        self.dirty = true;
+        Ok(())
+    }
+    pub fn smooth(&mut self, node: u64, smoothing: MotionSmoothing) -> Result<(), HostError> {
+        if smoothing.duration_ms > MAX_MOTION_MS || !easing_allowed(&smoothing.easing) {
+            return Err(motion_error("invalid smoothing"));
+        }
+        let target = self.motion_node(node)?;
+        target
+            .motion
+            .smoothing
+            .retain(|existing| existing.property != smoothing.property);
+        if smoothing.duration_ms > 0 {
+            target.motion.smoothing.push(smoothing);
+        }
+        target.motion.revision += 1;
+        self.dirty = true;
+        Ok(())
     }
     pub fn place(&mut self, node: u64, placement: UiPlacement) -> Result<(), HostError> {
         self.budget()?;
@@ -228,6 +479,12 @@ impl Tree {
         }
         // Reparenting an existing subtree must obey the same depth limit as
         // creation. Validate the proposed graph before changing either map.
+        if self.nodes[&node].shared.is_some() && root_placement.is_none() {
+            return Err(host_error(
+                ErrorKind::InvalidEdit,
+                "a shared root must remain placed against a public target",
+            ));
+        }
         for candidate in self.nodes.keys() {
             let mut current = Some(*candidate);
             let mut depth = 0;
@@ -430,6 +687,170 @@ mod tests {
     }
 
     #[test]
+    fn shared_publication_is_owned_bounded_and_atomic() {
+        let mut tree = Tree::default();
+        let root = tree
+            .create(UiParent::Mount("ui.detached".into()), props("region"))
+            .unwrap();
+        let contribution = || UiContribution {
+            key: "example.region.v1".into(),
+            contexts: Some(vec!["b".into(), "a".into(), "a".into()]),
+            priority: 7,
+        };
+        assert!(
+            tree.publish_shared(root, contribution()).is_err(),
+            "requires explicit placement"
+        );
+        tree.place(
+            root,
+            UiPlacement {
+                target: UiTarget::PublicId("native.anchor".into()),
+                relation: UiRelation::Before,
+                order: 10,
+            },
+        )
+        .unwrap();
+        assert!(tree.publish_shared(999, contribution()).is_err());
+        tree.publish_shared(root, contribution()).unwrap();
+        assert_eq!(
+            tree.nodes[&root]
+                .shared
+                .as_ref()
+                .unwrap()
+                .contexts
+                .as_ref()
+                .unwrap(),
+            &["a", "b"]
+        );
+        let mut bad = contribution();
+        bad.key.clear();
+        assert!(tree.publish_shared(root, bad).is_err());
+        let mut bad = contribution();
+        bad.contexts = Some(vec!["large".repeat(1000)]);
+        assert!(tree.publish_shared(root, bad).is_err());
+        assert_eq!(tree.nodes[&root].shared.as_ref().unwrap().priority, 7);
+        tree.remove(root).unwrap();
+        assert!(tree.nodes.is_empty());
+    }
+
+    fn spin() -> MotionAnimation {
+        MotionAnimation {
+            tracks: vec![MotionTrack {
+                property: MotionProperty::Rotation,
+                keyframes: vec![
+                    MotionKeyframe {
+                        offset: 0.0,
+                        value: 0.0,
+                    },
+                    MotionKeyframe {
+                        offset: 1.0,
+                        value: 360.0,
+                    },
+                ],
+                easing: MotionEasing::Linear,
+            }],
+            duration_ms: 900,
+            delay_ms: 0,
+            iterations: None,
+            direction: MotionDirection::Normal,
+            hold: false,
+        }
+    }
+
+    #[test]
+    fn an_animation_is_checked_whole_and_replaces_the_running_one() {
+        let mut tree = Tree::default();
+        let node = tree
+            .create(UiParent::Mount("ui.detached".into()), props("icon"))
+            .unwrap();
+        tree.animate(node, spin()).unwrap();
+        let started = tree.nodes[&node].motion.animation.as_ref().unwrap().0;
+        tree.animate(node, spin()).unwrap();
+        assert!(tree.nodes[&node].motion.animation.as_ref().unwrap().0 > started);
+
+        let mut bad = spin();
+        bad.tracks[0].keyframes[1].offset = 0.5; // never reaches 1
+        assert!(tree.animate(node, bad).is_err());
+        let mut bad = spin();
+        bad.tracks[0].keyframes[1].value = f32::NAN;
+        assert!(tree.animate(node, bad).is_err());
+        let mut bad = spin();
+        bad.duration_ms = 0;
+        assert!(tree.animate(node, bad).is_err());
+        let mut bad = spin();
+        bad.tracks.push(bad.tracks[0].clone()); // two tracks for one property
+        assert!(tree.animate(node, bad).is_err());
+        let mut bad = spin();
+        bad.tracks[0].easing = MotionEasing::CubicBezier((2.0, 0.0, 0.5, 1.0));
+        assert!(tree.animate(node, bad).is_err());
+        // A refused request leaves the running animation alone.
+        assert!(tree.nodes[&node].motion.animation.is_some());
+
+        tree.stop_motion(node).unwrap();
+        assert!(tree.nodes[&node].motion.animation.is_none());
+        assert!(tree.animate(99, spin()).is_err());
+    }
+
+    #[test]
+    fn resting_values_and_smoothing_are_bounded_and_per_property() {
+        let mut tree = Tree::default();
+        let node = tree
+            .create(UiParent::Mount("ui.detached".into()), props("switch"))
+            .unwrap();
+        tree.set_resting(node, MotionProperty::TranslateX, 12.0)
+            .unwrap();
+        tree.set_resting(node, MotionProperty::TranslateX, 14.0)
+            .unwrap();
+        assert_eq!(tree.nodes[&node].motion.resting.len(), 1);
+        assert!(
+            tree.set_resting(node, MotionProperty::Opacity, 1.5)
+                .is_err()
+        );
+        assert!(
+            tree.set_resting(node, MotionProperty::ScaleX, -1.0)
+                .is_err()
+        );
+        let smoothing = |duration_ms| MotionSmoothing {
+            property: MotionProperty::TranslateX,
+            duration_ms,
+            easing: MotionEasing::Linear,
+        };
+        tree.smooth(node, smoothing(150)).unwrap();
+        tree.smooth(node, smoothing(200)).unwrap();
+        assert_eq!(tree.nodes[&node].motion.smoothing.len(), 1);
+        assert_eq!(tree.nodes[&node].motion.smoothing[0].duration_ms, 200);
+        tree.smooth(node, smoothing(0)).unwrap();
+        assert!(tree.nodes[&node].motion.smoothing.is_empty());
+    }
+
+    #[test]
+    fn only_a_few_nodes_animate_at_once_and_each_request_counts_as_an_operation() {
+        let mut tree = Tree::default();
+        let mut nodes = Vec::new();
+        for index in 0..17 {
+            nodes.push(
+                tree.create(
+                    UiParent::Mount("ui.detached".into()),
+                    props(&format!("n{index}")),
+                )
+                .unwrap(),
+            );
+            tree.begin_round();
+        }
+        for node in &nodes[..16] {
+            tree.animate(*node, spin()).unwrap();
+        }
+        assert!(tree.animate(nodes[16], spin()).is_err());
+        // Replacing an animation does not count as a new animated node.
+        tree.animate(nodes[0], spin()).unwrap();
+        tree.begin_round();
+        for _ in 0..64 {
+            tree.stop_motion(nodes[0]).unwrap();
+        }
+        assert!(tree.stop_motion(nodes[0]).is_err());
+    }
+
+    #[test]
     fn owned_append_orders_by_priority_and_identity_across_moves() {
         let mut tree = Tree::default();
         let root = tree
@@ -550,5 +971,49 @@ mod tests {
         tree.remove(root).unwrap();
         assert!(!tree.nodes.contains_key(&child));
         assert!(tree.nodes.contains_key(&sibling));
+    }
+
+    #[test]
+    fn finished_finite_animations_release_slots_without_losing_the_held_request() {
+        use std::time::{Duration, Instant};
+        let mut tree = Tree::default();
+        let started = Instant::now();
+        let mut nodes = Vec::new();
+        for index in 0..17 {
+            nodes.push(
+                tree.create(
+                    UiParent::Mount("ui.detached".into()),
+                    props(&format!("finite-{index}")),
+                )
+                .unwrap(),
+            );
+        }
+        let finite = || MotionAnimation {
+            duration_ms: 100,
+            delay_ms: 50,
+            iterations: Some(2),
+            hold: true,
+            ..spin()
+        };
+        tree.begin_round();
+        for node in &nodes[..16] {
+            tree.animate_at(*node, finite(), started).unwrap();
+        }
+        assert!(
+            tree.animate_at(nodes[16], spin(), started + Duration::from_millis(249))
+                .is_err()
+        );
+        tree.animate_at(nodes[16], spin(), started + Duration::from_millis(250))
+            .unwrap();
+        assert!(
+            tree.nodes[&nodes[0]]
+                .motion
+                .animation
+                .as_ref()
+                .unwrap()
+                .1
+                .hold
+        );
+        assert_eq!(tree.nodes[&nodes[0]].motion.started_at, Some(started));
     }
 }

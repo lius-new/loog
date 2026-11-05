@@ -6,6 +6,7 @@ pub mod activation;
 pub mod command;
 pub mod lifecycle;
 pub mod manifest;
+pub mod motion;
 pub mod providers;
 pub mod range;
 pub mod registry;

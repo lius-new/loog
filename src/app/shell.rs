@@ -1845,7 +1845,13 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let ui_state = state.clone();
     let extension_layer = crate::ui::extension_widgets::layer(
         vp,
-        s.extension_widgets.roots(),
+        s.extension_widgets.roots_for(
+            s.workspace
+                .active()
+                .and_then(|view| s.workspace.view_meta(view))
+                .map(|meta| meta.path.display().to_string())
+                .as_deref(),
+        ),
         Arc::new(move |origin, payload| {
             if let Some(host) = ui_state.services().and_then(|runtime| runtime.extensions()) {
                 host.ui_event(&ui_state.get(), origin, payload);

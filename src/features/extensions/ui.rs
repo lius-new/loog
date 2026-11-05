@@ -30,6 +30,12 @@ pub enum Attachment {
         relation: Relation,
         order: i32,
     },
+    Shared {
+        key: Arc<str>,
+        contexts: Option<Vec<String>>,
+        priority: i32,
+        placement: Box<Attachment>,
+    },
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Properties {
@@ -69,6 +75,7 @@ mod tests {
                 visible,
                 label: None,
             },
+            motion: Default::default(),
         }
     }
     #[test]
@@ -136,6 +143,58 @@ mod tests {
         };
         assert_ne!(first.public_id(), second.public_id());
     }
+
+    fn candidate(context: &str, priority: i32) -> FlatNode {
+        let mut value = node(1, None, true);
+        value.attachment = Attachment::Shared {
+            key: "example.shared-region.v1".into(),
+            contexts: Some(vec![context.into()]),
+            priority,
+            placement: Box::new(Attachment::Relative {
+                target: "native.anchor".into(),
+                relation: Relation::Before,
+                order: 10,
+            }),
+        };
+        value
+    }
+    #[test]
+    fn shared_regions_select_one_context_match_and_survive_creator_removal() {
+        let mut model = Model::default();
+        model.begin_session(1);
+        model.replace(1, "b".into(), 1, vec![candidate("file-a", 1)]);
+        model.replace(1, "a".into(), 1, vec![candidate("file-a", 1)]);
+        model.replace(1, "c".into(), 1, vec![candidate("file-b", 99)]);
+        assert!(
+            model.roots().is_empty(),
+            "scoped entries do not leak into other contexts"
+        );
+        let roots = model.roots_for(Some("file-a"));
+        assert_eq!(roots.len(), 1);
+        assert_eq!(
+            roots[0].origin.owner.as_ref(),
+            "a",
+            "ties do not depend on arrival order"
+        );
+        assert_eq!(
+            model.roots_for(Some("file-b"))[0].origin.owner.as_ref(),
+            "c"
+        );
+        let old = roots[0].origin.clone();
+        model.remove(1, "a");
+        assert!(!model.owns(&old));
+        assert_eq!(
+            model.roots_for(Some("file-a"))[0].origin.owner.as_ref(),
+            "b"
+        );
+        model.replace(1, "b".into(), 2, vec![candidate("file-a", 2)]);
+        model.replace(1, "b".into(), 1, vec![candidate("file-a", 99)]);
+        assert_eq!(model.roots_for(Some("file-a"))[0].origin.generation, 2);
+        model.remove(1, "b");
+        assert!(model.roots_for(Some("file-a")).is_empty());
+        model.end_session(1);
+        assert!(model.roots_for(Some("file-b")).is_empty());
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Origin {
@@ -171,6 +230,7 @@ pub struct Node {
     pub origin: Origin,
     pub attachment: Attachment,
     pub properties: Properties,
+    pub motion: super::motion::Motion,
     pub children: Vec<Arc<Node>>,
 }
 pub struct FlatNode {
@@ -178,6 +238,7 @@ pub struct FlatNode {
     pub parent: Option<u64>,
     pub attachment: Attachment,
     pub properties: Properties,
+    pub motion: super::motion::Motion,
 }
 #[derive(Clone, Default)]
 struct Owner {
@@ -194,10 +255,43 @@ pub struct Model {
 }
 impl Model {
     pub fn roots(&self) -> Vec<Arc<Node>> {
-        self.owners
-            .values()
-            .flat_map(|owner| owner.roots.iter().cloned())
-            .collect()
+        self.roots_for(None)
+    }
+    /// Materialize one candidate per opaque shared key for the current context.
+    /// All content, eligibility and priority values come from extensions.
+    pub fn roots_for(&self, context: Option<&str>) -> Vec<Arc<Node>> {
+        let mut roots = Vec::new();
+        let mut shared = BTreeMap::<Arc<str>, (i32, Arc<Node>)>::new();
+        for root in self.owners.values().flat_map(|owner| &owner.roots) {
+            let Attachment::Shared {
+                key,
+                contexts,
+                priority,
+                ..
+            } = &root.attachment
+            else {
+                roots.push(root.clone());
+                continue;
+            };
+            if !root.properties.visible
+                || contexts.as_ref().is_some_and(|values| {
+                    !context.is_some_and(|context| values.iter().any(|value| value == context))
+                })
+            {
+                continue;
+            }
+            let replace = shared.get(key).is_none_or(|(old_priority, old)| {
+                priority > old_priority
+                    || (priority == old_priority
+                        && (&root.origin.owner, &root.origin.id)
+                            < (&old.origin.owner, &old.origin.id))
+            });
+            if replace {
+                shared.insert(key.clone(), (*priority, root.clone()));
+            }
+        }
+        roots.extend(shared.into_values().map(|(_, root)| root));
+        roots
     }
     pub fn owns(&self, origin: &Origin) -> bool {
         self.owners.get(&origin.owner).is_some_and(|owner| {
@@ -234,6 +328,13 @@ impl Model {
         nodes: Vec<FlatNode>,
     ) -> Vec<(Origin, Payload)> {
         if !self.active || session != self.session {
+            return vec![];
+        }
+        if self
+            .owners
+            .get(&owner)
+            .is_some_and(|entry| entry.generation > generation)
+        {
             return vec![];
         }
         let previous = self
@@ -276,6 +377,7 @@ impl Model {
                 origin,
                 attachment: node.attachment.clone(),
                 properties: node.properties.clone(),
+                motion: node.motion.clone(),
                 children,
             };
             let shared = previous

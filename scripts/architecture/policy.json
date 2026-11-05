@@ -1116,6 +1116,7 @@
     "src/app/git_view_tests.rs",
     "src/app/search.rs",
     "src/ui/components/loading_indicator.rs",
+    "src/ui/extension_widgets.rs",
     "src/ui/editor/caret.rs",
     "src/app/terminal_view_tests.rs",
     "src/app/terminal_profile_tests.rs"

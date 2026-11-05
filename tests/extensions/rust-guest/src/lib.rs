@@ -51,6 +51,85 @@ fn run(
     precondition: Option<u64>,
 ) {
     match command {
+        "example.tools.motion" => {
+            use loom::extension::types::{UiDescription, UiKind, UiParent};
+            use loom::ui::motion::{
+                self, Animation, Direction, Easing, Keyframe, Property, Smoothing, Track,
+            };
+            let node = host::ui_create(
+                &UiParent::Mount("ui.detached".into()),
+                &UiDescription {
+                    id: "motion-icon".into(),
+                    kind: UiKind::Icon,
+                    text: None,
+                    icon: Some("sync".into()),
+                    foreground: None,
+                    background: None,
+                    width: Some(16.0),
+                    height: Some(16.0),
+                    padding: 0.0,
+                    gap: 0.0,
+                    visible: true,
+                    label: None,
+                },
+            )
+            .unwrap();
+            motion::smooth(
+                node,
+                Smoothing {
+                    property: Property::TranslateX,
+                    duration_ms: 120,
+                    easing: Easing::Linear,
+                },
+            )
+            .unwrap();
+            motion::set(node, Property::TranslateX, 6.0).unwrap();
+            motion::animate(
+                node,
+                &Animation {
+                    tracks: vec![
+                        Track {
+                            property: Property::Rotation,
+                            keyframes: vec![
+                                Keyframe {
+                                    offset: 0.0,
+                                    value: 0.0,
+                                },
+                                Keyframe {
+                                    offset: 1.0,
+                                    value: 360.0,
+                                },
+                            ],
+                            easing: Easing::Linear,
+                        },
+                        Track {
+                            property: Property::Opacity,
+                            keyframes: vec![
+                                Keyframe {
+                                    offset: 0.0,
+                                    value: 1.0,
+                                },
+                                Keyframe {
+                                    offset: 0.5,
+                                    value: 0.5,
+                                },
+                                Keyframe {
+                                    offset: 1.0,
+                                    value: 1.0,
+                                },
+                            ],
+                            easing: Easing::CubicBezier((0.42, 0.0, 0.58, 1.0)),
+                        },
+                    ],
+                    duration_ms: 800,
+                    delay_ms: 0,
+                    iterations: None,
+                    direction: Direction::Normal,
+                    hold: false,
+                },
+            )
+            .unwrap();
+        }
         "example.tools.widget" | "example.tools.relative-widget" => {
             use loom::extension::types::{UiDescription, UiKind, UiParent};
             let relative = command == "example.tools.relative-widget";
@@ -440,6 +519,9 @@ impl Guest for Extension {
         for message in batch {
             match message {
                 Inbound::UiEvent(event) => {
+                    if event.id == "motion-icon" {
+                        loom::ui::motion::stop(event.node).unwrap();
+                    }
                     host::log(
                         0,
                         &format!("ui event {} {} {:?}", event.node, event.id, event.payload),

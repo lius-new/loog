@@ -56,7 +56,7 @@ loom-editor-core = { path = "crates/editor-core", features = ["diagnostics"] }
 
 [dependencies.lgui]
 git = "https://github.com/lius-new/lgui.git"
-rev = "7e6b4067c633adfc5fd065c1d2ce75721d5196b4"
+rev = "a4b53744978eaf11906924e30c9a30e32ead9ec7"
 default-features = false
 features = ["renderer-skia-software", "widgets", "dialogs", "clipboard"]
 

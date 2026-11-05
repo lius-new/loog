@@ -175,9 +175,15 @@ pub fn status_binding(state: &AppContext) -> crate::ui::chrome::StatusBinding {
         move || {
             let app = reader.get();
             StatusFrame {
-                extension_widgets: app.extension_widgets.roots(),
+                extension_widgets: app.extension_widgets.roots_for(
+                    app.workspace
+                        .active()
+                        .and_then(|view| app.workspace.view_meta(view))
+                        .map(|meta| meta.path.display().to_string())
+                        .as_deref(),
+                ),
                 pending: app.keymap.pending().to_vec(),
-                language: syntax_notes(&reader, &app),
+                language: syntax_notes(),
                 vim: crate::app::editor_vim::is_active(&app)
                     .then(|| (app.editor.vim.mode(), app.editor.vim.status())),
                 file: app.workspace.active().map(|id| FileStatus {
@@ -252,11 +258,7 @@ pub fn status_binding(state: &AppContext) -> crate::ui::chrome::StatusBinding {
     )
 }
 
-fn syntax_notes(
-    state: &AppContext,
-    app: &crate::app::state::AppState,
-) -> Vec<crate::ui::chrome::StatusNote> {
-    use crate::app::extensions::host::Suggestion;
+fn syntax_notes() -> Vec<crate::ui::chrome::StatusNote> {
     use crate::ui::chrome::{NoteLevel, StatusNote};
     let mut notes = Vec::new();
     let left_out = crate::infrastructure::language_packs::resources().query_problem_count();
@@ -272,29 +274,6 @@ fn syntax_notes(
             ),
             level: NoteLevel::Warning,
         });
-    }
-    let suggestion = app
-        .workspace
-        .active_document()
-        .and_then(|id| app.workspace.documents.get(&id))
-        .filter(|document| document.is_text() && document.meta.lang.grammar.is_none())
-        .and_then(|document| document.meta.path.file_name())
-        .and_then(|name| {
-            state
-                .services()
-                .and_then(|runtime| runtime.extensions())
-                .and_then(|host| host.suggest_for(&name.to_string_lossy()))
-        });
-    match suggestion {
-        Some(Suggestion::Install { name, .. }) => notes.push(StatusNote {
-            text: format!("{name} syntax is available"),
-            level: NoteLevel::Quiet,
-        }),
-        Some(Suggestion::Restart { name }) => notes.push(StatusNote {
-            text: format!("Restart Loom to use {name} syntax"),
-            level: NoteLevel::Quiet,
-        }),
-        None => {}
     }
     notes
 }

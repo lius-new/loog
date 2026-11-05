@@ -1,5 +1,13 @@
 # Repository instructions
 
+Keep the application/plugin boundary in
+[shared extension UI](docs/architecture/shared-extension-ui.md): application
+capabilities must be generic. Never add plugin IDs, shared keys, server names,
+status text or plugin-specific containers/policies to production application code.
+
+Prefer focused checks for the changed code. Do not run the full regression suite
+on each iteration; explain why broader coverage is necessary before expanding it.
+
 Every commit must contain exactly one `Release Notes:` section in its body.
 Use English release-note bullets for user-facing changes. For internal changes,
 include this explicitly:

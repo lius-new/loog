@@ -18,6 +18,9 @@ Copy `.work/client/extension.wasm`, `build.json` and `licenses/` from the fixtur
 directory here. The builder uses locked Cargo dependencies, componentizes the
 Rust module and records hashes of the fixture, shared client, componentizer and
 WIT inputs in `build.json`. Keep this README's hashes in sync after rebuilding.
+The hashes describe the original build inputs. This pre-motion component is
+intentionally retained to verify that adding the independent motion interface
+does not break existing base/tree components.
 
 - Source fingerprint: `29f898c08584eb9422e2215b1adc67ea0d3bda1b8cd8e447c573b7c03829c63c`
 - WASM SHA-256: `75352739add46bdd3e2efdb305c24db2c68c518008590716c719030b94df3d4f`

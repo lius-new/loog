@@ -59,3 +59,17 @@ fn an_unused_wasi_import_is_allowed_but_stubbed_to_trap() {
     // It reaches linking (so it was not rejected as unsupported) and then lacks the guest export.
     assert_eq!(error.kind, ErrorKind::ExtensionFailed, "{error}");
 }
+
+#[test]
+fn an_unknown_motion_version_is_refused_independently_of_base_and_tree() {
+    let error = outcome(r#"(component (import "loom:ui/motion@0.2.0" (instance)))"#).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::UnsupportedApi);
+    assert!(error.message.contains("loom:ui/motion@0.1.0"));
+}
+
+#[test]
+fn an_unknown_shared_ui_version_is_refused_independently() {
+    let error = outcome(r#"(component (import "loom:ui/shared@0.2.0" (instance)))"#).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::UnsupportedApi);
+    assert!(error.message.contains("loom:ui/shared@0.1.0"));
+}

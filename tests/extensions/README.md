@@ -103,7 +103,7 @@ of the contract (the JavaScript guest is rebuilt by deleting
 | Check | What it covers | Where |
 | --- | --- | --- |
 | Compatibility fixtures | unknown imports, a newer Loom interface, a missing guest export, a wrong export version, an unused WASI import | `crates/extension-host/tests/compatibility.rs` |
-| Rust guest | commands, edits, providers of every kind, tasks, storage, files, network, save participants, file operations | `crates/extension-host/tests/rust_guest.rs`, `src/app/extensions/tests.rs` |
+| Rust guest | commands, edits, providers of every kind, tasks, storage, files, network, save participants, file operations, UI placement and motion | `crates/extension-host/tests/rust_guest.rs`, `src/app/extensions/tests.rs` |
 | JavaScript guest | rounds, suspended callbacks resuming, interrupted loops and microtask floods, providers | `crates/extension-host/tests/js_guest.rs` |
 | Measurements | compile, instantiate and warm round times, component size | `crates/extension-host/tests/measure.rs` (ignored by default) |
 

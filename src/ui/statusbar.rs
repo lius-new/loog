@@ -475,6 +475,7 @@ mod tests {
                             visible: true,
                             label: Some(owner.into()),
                         },
+                        motion: Default::default(),
                         children: vec![],
                     })
                 })
@@ -628,6 +629,501 @@ mod tests {
             commands.lock().unwrap().clear();
             click(&mut session, &context, 2.0, 14.0);
             assert!(commands.lock().unwrap().is_empty());
+        }
+    }
+
+    /// The block a language client draws: a white mark with an icon, then a solid
+    /// state block holding spacers and the text. It must be as wide as its text.
+    #[test]
+    fn an_extension_block_is_as_wide_as_its_text() {
+        use crate::features::extensions::ui::{
+            Attachment, Kind, Node, Origin, Properties, Relation,
+        };
+        let build = |id: &'static str,
+                     kind: Kind,
+                     edit: &dyn Fn(&mut Properties),
+                     children: Vec<Arc<Node>>,
+                     attachment: Attachment| {
+            let mut properties = Properties {
+                id: id.into(),
+                kind,
+                text: None,
+                icon: None,
+                foreground: None,
+                background: None,
+                width: None,
+                height: Some(24.0),
+                padding: 0.0,
+                gap: 0.0,
+                visible: true,
+                label: None,
+            };
+            edit(&mut properties);
+            Arc::new(Node {
+                origin: Origin {
+                    owner: "probe".into(),
+                    session: 1,
+                    generation: 1,
+                    node: 1,
+                    id: id.into(),
+                },
+                attachment,
+                properties,
+                motion: Default::default(),
+                children,
+            })
+        };
+        let spacer = |id: &'static str, width: f32| {
+            build(
+                id,
+                Kind::Text,
+                &|p| {
+                    p.text = Some(String::new());
+                    p.width = Some(width);
+                },
+                vec![],
+                Attachment::Legacy,
+            )
+        };
+        let icon = build(
+            "icon",
+            Kind::Icon,
+            &|p| {
+                p.icon = Some("sync".into());
+                p.foreground = Some(0x818cf8);
+                p.width = Some(14.0);
+                p.height = Some(14.0);
+            },
+            vec![],
+            Attachment::Legacy,
+        );
+        let mark = build(
+            "mark",
+            Kind::Row,
+            &|p| {
+                p.background = Some(0xffffff);
+                p.padding = 5.0;
+            },
+            vec![icon],
+            Attachment::Legacy,
+        );
+        let labeled = |words: &str| {
+            build(
+                "text",
+                Kind::Text,
+                &|p| {
+                    p.text = Some(words.into());
+                    p.foreground = Some(0xffffff);
+                },
+                vec![],
+                Attachment::Legacy,
+            )
+        };
+        let make_root = |children: Vec<Arc<Node>>| {
+            let state = build(
+                "state",
+                Kind::Row,
+                &|p| p.background = Some(0x818cf8),
+                children,
+                Attachment::Legacy,
+            );
+            build(
+                "root",
+                Kind::Row,
+                &|_| {},
+                vec![mark.clone(), state],
+                Attachment::Relative {
+                    target: "statusbar.cursor-position".into(),
+                    relation: Relation::Before,
+                    order: 100,
+                },
+            )
+        };
+        let with = |words: &str| {
+            make_root(vec![
+                spacer("lead", 10.0),
+                labeled(words),
+                spacer("trail", 10.0),
+            ])
+        };
+        let frame = StatusFrame {
+            extension_widgets: Vec::new(),
+            pending: Vec::new(),
+            vim: None,
+            file: Some(FileStatus {
+                indent: "Spaces: 2".into(),
+                line_ending: "LF".into(),
+                encoding: "UTF-8".into(),
+                lang: crate::domain::language::builtin("rust"),
+                missing: false,
+                conflict: false,
+                cursor: Some((0, 0)),
+                is_diff: false,
+                is_file: true,
+            }),
+            // A long note on the left leaves the right side little room.
+            language: vec![StatusNote {
+                text: "Rust syntax is available".into(),
+                level: NoteLevel::Quiet,
+            }],
+        };
+        let binding = StatusBinding::new(move || frame.clone(), |_| {});
+        let context = ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        // The widths of the text and of the whole block in a bar `width` wide.
+        let widths = |width: f32, words: &str| {
+            let rect = UiRect::new(0.0, 0.0, width, 28.0);
+            let roots = vec![with(words)];
+            let binding = binding.clone();
+            let view: AppView = Arc::new(move |_| {
+                lgui::core::group(rect)
+                    .child(render(rect, binding.clone()))
+                    .child(crate::ui::extension_widgets::layer(
+                        rect,
+                        roots.clone(),
+                        Arc::new(|_, _| {}),
+                    ))
+            });
+            let mut session = UiSession::new();
+            session.render_view(&view, rect, UiScale::ONE);
+            let width_of = |id: &str| {
+                let bounds = session
+                    .tree()
+                    .public_node(&format!("ext.5:probe.1.1.{id}"))
+                    .unwrap()
+                    .bounds;
+                bounds.right - bounds.left
+            };
+            (width_of("text"), width_of("root"))
+        };
+        for words in [
+            "Language: Ready",
+            "Language: Working",
+            "Language: Stopped",
+            "Language: Error",
+        ] {
+            let (natural_text, natural_block) = widths(1000.0, words);
+            // Only the shaped advance belongs to layout; paragraph paint slack
+            // must not inflate the text slot or the gap to its neighbour.
+            assert!(
+                (natural_text - measure(words, 400)).abs() < 0.5,
+                "{words}: the layout box is {natural_text} wide, the shaped text needs {}",
+                measure(words, 400)
+            );
+            // Short of room, the block keeps the width its text needs.
+            let (text, block) = widths(440.0, words);
+            assert!(
+                (text - natural_text).abs() < 0.5 && (block - natural_block).abs() < 0.5,
+                "{words}: text {text} of {natural_text}, block {block} of {natural_block}"
+            );
+        }
+    }
+
+    /// The icon of the language block turns inside the real bar, among its native items.
+    #[test]
+    fn a_turning_icon_in_the_bar_is_drawn_whole_in_every_frame() {
+        use crate::features::extensions::motion::{Animation, Ease, Motion, Prop, Track};
+        use crate::features::extensions::ui::{
+            Attachment, Kind, Node, Origin, Properties, Relation,
+        };
+        use lgui::assets::RenderResources;
+        use lgui::core::PhysicalRect;
+        use lgui::render_skia::SkiaSoftwareSurface;
+        use lgui::renderer::{FrameInfo, FrameReason};
+        use std::sync::Mutex;
+        let build = |id: &'static str,
+                     kind: Kind,
+                     edit: &dyn Fn(&mut Properties),
+                     motion: Motion,
+                     children: Vec<Arc<Node>>,
+                     attachment: Attachment| {
+            let mut properties = Properties {
+                id: id.into(),
+                kind,
+                text: None,
+                icon: None,
+                foreground: None,
+                background: None,
+                width: None,
+                height: Some(24.0),
+                padding: 0.0,
+                gap: 0.0,
+                visible: true,
+                label: None,
+            };
+            edit(&mut properties);
+            Arc::new(Node {
+                origin: Origin {
+                    owner: "probe".into(),
+                    session: 1,
+                    generation: 1,
+                    node: 1,
+                    id: id.into(),
+                },
+                attachment,
+                properties,
+                motion,
+                children,
+            })
+        };
+        let turning = Motion {
+            revision: 1,
+            animation: Some((
+                1,
+                Arc::new(Animation {
+                    tracks: vec![Track {
+                        prop: Prop::Rotation,
+                        keys: vec![(0.0, 0.0), (1.0, 360.0)],
+                        ease: Ease::Linear,
+                    }],
+                    duration_ms: 900,
+                    delay_ms: 0,
+                    iterations: None,
+                    alternate: false,
+                    hold: false,
+                }),
+            )),
+            ..Default::default()
+        };
+        let icon = build(
+            "icon",
+            Kind::Icon,
+            &|p| {
+                p.icon = Some("sync".into());
+                p.foreground = Some(0x818cf8);
+                p.width = Some(14.0);
+                p.height = Some(14.0);
+            },
+            turning,
+            vec![],
+            Attachment::Legacy,
+        );
+        let label = build(
+            "text",
+            Kind::Text,
+            &|p| {
+                p.text = Some("Language: Working".into());
+                p.foreground = Some(0xffffff);
+            },
+            Motion::default(),
+            vec![],
+            Attachment::Legacy,
+        );
+        let space = |id, width| {
+            build(
+                id,
+                Kind::Text,
+                &|p| {
+                    p.width = Some(width);
+                    p.text = Some(String::new());
+                },
+                Motion::default(),
+                vec![],
+                Attachment::Legacy,
+            )
+        };
+        let root = build(
+            "root",
+            Kind::Row,
+            &|p| p.background = Some(0xffffff),
+            Motion::default(),
+            // Match the actual clients' flat 24px status row.
+            vec![
+                space("leading", 10.0),
+                icon,
+                space("gap", 6.0),
+                label,
+                space("trailing", 0.0),
+            ],
+            Attachment::Shared {
+                key: "example.state.v1".into(),
+                contexts: None,
+                priority: 10,
+                placement: Box::new(Attachment::Relative {
+                    target: "statusbar.cursor-position".into(),
+                    relation: Relation::Before,
+                    order: 100,
+                }),
+            },
+        );
+        let (width, height) = (700_u32, 28_u32);
+        let rect = UiRect::new(0.0, 0.0, width as f32, height as f32);
+        let frame = StatusFrame {
+            extension_widgets: Vec::new(),
+            pending: Vec::new(),
+            vim: None,
+            file: Some(FileStatus {
+                indent: "Spaces: 2".into(),
+                line_ending: "LF".into(),
+                encoding: "UTF-8".into(),
+                lang: crate::domain::language::builtin("rust"),
+                missing: false,
+                conflict: false,
+                cursor: Some((39, 24)),
+                is_diff: false,
+                is_file: true,
+            }),
+            language: Vec::new(),
+        };
+        let binding = StatusBinding::new(move || frame.clone(), |_| {});
+        let roots = Arc::new(Mutex::new(vec![root]));
+        let read = roots.clone();
+        let view: AppView = Arc::new(move |_| {
+            let binding = binding.clone();
+            lgui::core::component(read.lock().unwrap().clone(), move |_, roots| {
+                lgui::core::group(rect).child(render(rect, binding)).child(
+                    crate::ui::extension_widgets::layer(rect, roots.clone(), Arc::new(|_, _| {})),
+                )
+            })
+        });
+        let context = ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        context
+            .resources()
+            .provide(lgui::icons::IconRegistration(Arc::new(
+                lgui::icons::SvgIconRegistry::new().with_icon("sync", icondata::VsSync),
+            )));
+        // Displays are scaled, and frames are not all as long as the nominal one.
+        for factor in [1.0_f32, 1.25, 1.5, 2.0] {
+            let scale = UiScale::new(factor);
+            let (pw, ph) = (
+                (width as f32 * factor).ceil() as u32,
+                (height as f32 * factor).ceil() as u32,
+            );
+            let mut session = UiSession::new();
+            let mut commit = session.render_view(&view, rect, scale);
+            let viewport = PhysicalRect::new(0, 0, pw as i32, ph as i32);
+            let mut incremental = SkiaSoftwareSurface::new_opaque(64 << 20);
+            let mut whole = SkiaSoftwareSurface::new_opaque(64 << 20);
+            let mut damage = vec![viewport];
+            let (mut differing, mut shown) = (Vec::new(), Vec::new());
+            for index in 0..130_u32 {
+                if index > 0 {
+                    let elapsed = [16.0, 17.0, 36.0, 16.0, 45.0][index as usize % 5];
+                    let output = session.advance(elapsed);
+                    if let Some(bounds) = output.dirty_bounds {
+                        session.invalidations_mut().invalidate_rect(bounds);
+                    }
+                    // Idle animation first, then progress, then pointer activity, then idle again.
+                    if (30..60).contains(&index) {
+                        let mut next = (*roots.lock().unwrap()[0]).clone();
+                        let mut text = (*next.children[3]).clone();
+                        text.properties.text =
+                            Some(format!("Language: Indexing {} files", index * 37));
+                        next.children[3] = Arc::new(text);
+                        *roots.lock().unwrap() = vec![Arc::new(next)];
+                    }
+                    if (60..90).contains(&index) {
+                        let icon = session
+                            .tree()
+                            .public_node("ext.5:probe.1.1.icon")
+                            .unwrap()
+                            .bounds;
+                        let point = if index % 2 == 0 {
+                            lgui::core::Point::new(icon.left + 7.0, icon.top + 7.0)
+                        } else {
+                            lgui::core::Point::new(1.0, 1.0)
+                        };
+                        let pointer = session.handle_input(lgui::core::InputEvent::PointerMove(
+                            lgui::core::PointerData::mouse(point),
+                        ));
+                        if let Some(bounds) = pointer.dirty_bounds {
+                            session.invalidations_mut().invalidate_rect(bounds);
+                        }
+                    }
+                    commit = session.render_view(&view, rect, scale);
+                    let mut rects: Vec<UiRect> = commit.damage.dirty.rects().to_vec();
+                    rects.extend(output.dirty_bounds);
+                    damage = if commit.damage.dirty.is_full() {
+                        vec![viewport]
+                    } else {
+                        rects
+                            .iter()
+                            .map(|r| {
+                                PhysicalRect::new(
+                                    (r.left * factor).floor() as i32,
+                                    (r.top * factor).floor() as i32,
+                                    (r.right * factor).ceil() as i32,
+                                    (r.bottom * factor).ceil() as i32,
+                                )
+                            })
+                            .collect()
+                    };
+                }
+                let label = session
+                    .tree()
+                    .public_node("ext.5:probe.1.1.text")
+                    .unwrap()
+                    .bounds;
+                let cursor = session
+                    .tree()
+                    .public_node("statusbar.cursor-position")
+                    .unwrap()
+                    .bounds;
+                assert!(
+                    (cursor.left - label.right - GAP).abs() < 0.1,
+                    "scale {factor}, frame {index}: shared entry must use only the native gap"
+                );
+                let scene = commit.scene.project_to_physical(scale);
+                let reference = session.tree().scene().project_to_physical(scale);
+                let part = FrameInfo::new(
+                    viewport,
+                    &damage,
+                    scale,
+                    FrameReason::SceneChange,
+                    index == 0,
+                );
+                let all = [viewport];
+                let full = FrameInfo::new(viewport, &all, scale, FrameReason::SceneChange, true);
+                lgui::assets::backend::with_render_resources(
+                    &context,
+                    RenderResources::new(),
+                    || {
+                        incremental.draw(&scene, &part).expect("draw");
+                        whole.draw(&reference, &full).expect("draw");
+                    },
+                );
+                differing.push(
+                    incremental
+                        .pixels()
+                        .iter()
+                        .zip(whole.pixels())
+                        .filter(|(a, b)| a != b)
+                        .count(),
+                );
+                let mark = session
+                    .tree()
+                    .public_node("ext.5:probe.1.1.icon")
+                    .expect("the block is placed")
+                    .bounds
+                    .inflate(3.0, 3.0);
+                let pixels = incremental.pixels();
+                let (left, right) = ((mark.left * factor) as u32, (mark.right * factor) as u32);
+                let (top, bottom) = ((mark.top * factor) as u32, (mark.bottom * factor) as u32);
+                // How much ink the icon puts on the white mark, partial pixels included: it
+                // is the same at every angle when the turned icon is resampled well.
+                shown.push(
+                    (top..bottom)
+                        .flat_map(|y| (left..right).map(move |x| (x, y)))
+                        .map(|(x, y)| 255 - pixels[((y * pw + x) * 4 + 1) as usize] as usize)
+                        .sum::<usize>(),
+                );
+            }
+            assert!(
+                differing.iter().all(|count| *count == 0),
+                "scale {factor}: bytes differing from a full repaint, per frame: {differing:?}"
+            );
+            let (least, most) = (shown.iter().min().unwrap(), shown.iter().max().unwrap());
+            assert!(
+                *least * 10 >= *most * 6,
+                "scale {factor}: the icon is not whole in every frame; pixels per frame: {shown:?}"
+            );
         }
     }
 }

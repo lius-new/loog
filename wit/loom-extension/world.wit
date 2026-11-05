@@ -695,4 +695,6 @@ world extension {
 world extension-ui {
     include extension;
     import loom:ui/tree@0.1.0;
+    import loom:ui/motion@0.1.0;
+    import loom:ui/shared@0.1.0;
 }

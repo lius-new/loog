@@ -1,4 +1,5 @@
 use super::*;
+use crate::features::extensions::motion::{Animation, Ease, Motion, Prop, Smoothing, Track};
 use crate::features::extensions::ui::{
     Attachment, FlatNode, Kind, Origin, Payload, Properties, Relation,
 };
@@ -6,6 +7,64 @@ use loom_extension_host::{
     UiEvent, UiEventPayload, UiKind, UiNode, UiParent, UiRelation, UiTarget,
 };
 use std::sync::Arc;
+
+/// What the extension asked for one node, in the model the renderer plays.
+fn motion_of(asked: &loom_extension_host::UiMotion) -> Motion {
+    use loom_extension_host::{MotionDirection, MotionEasing, MotionProperty};
+    let prop = |property: MotionProperty| match property {
+        MotionProperty::Rotation => Prop::Rotation,
+        MotionProperty::ScaleX => Prop::ScaleX,
+        MotionProperty::ScaleY => Prop::ScaleY,
+        MotionProperty::TranslateX => Prop::TranslateX,
+        MotionProperty::TranslateY => Prop::TranslateY,
+        MotionProperty::Opacity => Prop::Opacity,
+    };
+    let ease = |easing: &MotionEasing| match easing {
+        MotionEasing::Linear => Ease::Linear,
+        MotionEasing::CubicBezier((x1, y1, x2, y2)) => Ease::Bezier(*x1, *y1, *x2, *y2),
+    };
+    let mut motion = Motion {
+        revision: asked.revision,
+        started_at: asked.started_at,
+        ..Default::default()
+    };
+    for (property, value) in &asked.resting {
+        motion.resting[prop(*property).index()] = Some(*value);
+    }
+    for smoothing in &asked.smoothing {
+        motion.smoothing[prop(smoothing.property).index()] = Some(Smoothing {
+            duration_ms: smoothing.duration_ms,
+            ease: ease(&smoothing.easing),
+        });
+    }
+    motion.animation = asked.animation.as_ref().map(|(revision, animation)| {
+        (
+            *revision,
+            Arc::new(Animation {
+                tracks: animation
+                    .tracks
+                    .iter()
+                    .map(|track| Track {
+                        prop: prop(track.property),
+                        keys: track
+                            .keyframes
+                            .iter()
+                            .map(|key| (key.offset, key.value))
+                            .collect(),
+                        ease: ease(&track.easing),
+                    })
+                    .collect(),
+                duration_ms: animation.duration_ms,
+                delay_ms: animation.delay_ms,
+                iterations: animation.iterations,
+                alternate: matches!(animation.direction, MotionDirection::Alternate),
+                hold: animation.hold,
+            }),
+        )
+    });
+    motion
+}
+
 impl ExtensionService {
     pub(super) fn ui_changed(
         &mut self,
@@ -37,7 +96,7 @@ impl ExtensionService {
                 )
             })
             .collect();
-        let nodes = nodes
+        let nodes: Vec<FlatNode> = nodes
             .into_iter()
             .map(|node| {
                 let p = node.description;
@@ -64,6 +123,12 @@ impl ExtensionService {
                     // owned-child handling. No removal version has been scheduled.
                     None => Attachment::Legacy,
                 };
+                let attachment = if let Some(shared) = node.shared {
+                    Attachment::Shared {
+                        key: shared.key.into(), contexts: shared.contexts,
+                        priority: shared.priority, placement: Box::new(attachment),
+                    }
+                } else { attachment };
                 FlatNode {
                     node: node.node,
                     attachment,
@@ -93,6 +158,7 @@ impl ExtensionService {
                         visible: p.visible,
                         label: p.label,
                     },
+                    motion: motion_of(&node.motion),
                 }
             })
             .collect();

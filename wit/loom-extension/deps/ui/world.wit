@@ -1,5 +1,22 @@
 package loom:ui@0.1.0;
 
+/// Opt-in shared regions. Keys, eligibility and ordering are extension policy.
+/// The host mounts one candidate per key, without interpreting its contents.
+interface shared {
+    record contribution {
+        key: string,
+        /// None is global; a list matches the application's current opaque context.
+        /// An empty list is dormant. Document contexts use the DocumentRef path.
+        contexts: option<list<string>>,
+        /// Highest priority wins; ties use stable owner/node identities, never arrival order.
+        priority: s32,
+    }
+    /// Publish or replace this instance's candidate root in a shared region.
+    /// Place the root against a public target first. Removing the root releases
+    /// only this candidate; other participants keep the region alive.
+    publish: func(node: u64, contribution: contribution) -> result<_, string>;
+}
+
 /// Kept separate so old components retain their original host ABI.
 // COMPAT(base-extension-world): An independent interface avoids changing the base host ABI.
 // New SDK components import both. Revisit this separation only with an explicitly
@@ -10,4 +27,51 @@ interface tree {
     record placement { target: target, relation: relation, order: s32 }
     /// Missing public targets remain pending and hidden until they appear.
     place: func(node: u64, placement: placement) -> result<_, string>;
+}
+
+/// Motion of a node, described by the extension and run by the host.
+///
+/// The host has no named effects: an extension says which properties change, through
+/// which values, over how long, and the host interpolates while the node is composited.
+/// Nothing here changes layout, and nothing crosses to the extension while it runs.
+interface motion {
+    /// What is moved. Rotation is in degrees, translations in logical pixels, scales
+    /// are factors, opacity is 0 to 1. Turning and scaling are about the node's center.
+    enum property { rotation, scale-x, scale-y, translate-x, translate-y, opacity }
+
+    variant easing {
+        linear,
+        /// The CSS cubic Bezier curve through (0, 0), (x1, y1), (x2, y2), (1, 1).
+        cubic-bezier(tuple<f32, f32, f32, f32>),
+    }
+
+    /// `offset` runs from 0 (start) to 1 (end); a track needs its first at 0 and last at 1.
+    record keyframe { offset: f32, value: f32 }
+
+    /// One property through its keyframes; `easing` shapes the way between neighbours.
+    record track { property: property, keyframes: list<keyframe>, easing: easing }
+
+    enum direction { normal, alternate }
+
+    record animation {
+        tracks: list<track>,
+        duration-ms: u32,
+        delay-ms: u32,
+        /// `none` repeats until stopped, replaced or the node is removed.
+        iterations: option<u32>,
+        direction: direction,
+        /// Keep the last values once it ends; otherwise return to the resting ones.
+        hold: bool,
+    }
+
+    /// Smooth later changes of one resting value instead of jumping.
+    record smoothing { property: property, duration-ms: u32, easing: easing }
+
+    /// Replace the running animation of `node`, if any, and start this one.
+    animate: func(node: u64, animation: animation) -> result<_, string>;
+    /// End the animation of `node`; its properties return to the resting values.
+    stop: func(node: u64) -> result<_, string>;
+    /// Set the resting value of a property; smoothed when `smooth` asked for it.
+    set: func(node: u64, property: property, value: f32) -> result<_, string>;
+    smooth: func(node: u64, smoothing: smoothing) -> result<_, string>;
 }
