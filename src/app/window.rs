@@ -1,7 +1,7 @@
 //! Window placement persistence and application close event coordination.
 use crate::infrastructure::window_geometry as native;
 use lgui::{WindowOptions, core::UiEventContext};
-pub use native::{is_maximized, observe_viewport, remember_native_window};
+pub use native::{is_maximized, is_minimized, observe_viewport, remember_native_window};
 
 pub fn scale_preference(percent: Option<u16>) -> lgui::platform::dpi::ScalePreference {
     use lgui::platform::dpi::ScalePreference;

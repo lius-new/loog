@@ -795,14 +795,20 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     // pointer event. Each size change reflows the screen and resizes the
     // ConPTY synchronously, which makes the drag feel sticky, so the size is
     // left out of the key until the drag ends and the final size is applied once.
-    let sash_dragging = s.drawer.resizing
+    let hold_terminal_size = s.drawer.resizing
         || s.source_control.resizing
         || s.terminal_chrome.resizing_terminal
         || s.layout.application_sash_drag.is_some()
         || s.terminal.ui.terminal_split_drag.is_some();
+    // A minimized window renders at a tiny client size. Resizing the terminals
+    // to it would push their output into scrollback (one row) and reflow lines
+    // into a few columns, so start nothing until the window returns.
+    if window_geometry::is_minimized() {
+        terminal_starts.clear();
+    }
     let terminal_start_key = terminal_starts
         .iter()
-        .map(|(id, _, cwd, size)| (*id, cwd.clone(), (!sash_dragging).then_some(*size)))
+        .map(|(id, _, cwd, size)| (*id, cwd.clone(), (!hold_terminal_size).then_some(*size)))
         .collect::<Vec<_>>();
     let terminal_start_application = application.clone();
     let active_visible_terminal = active_terminal_id.filter(|id| {

@@ -81,6 +81,20 @@ pub fn is_maximized() -> bool {
     }
 }
 
+/// A minimized window still renders at a tiny client size; callers use this to
+/// avoid treating that size as a real layout.
+pub fn is_minimized() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::IsIconic;
+        main_window().is_some_and(|hwnd| unsafe { IsIconic(hwnd) } != 0)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
 pub fn remember_native_window() {
     #[cfg(target_os = "windows")]
     let _ = main_window();
