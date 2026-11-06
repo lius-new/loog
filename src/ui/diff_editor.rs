@@ -11,9 +11,7 @@ use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel, text};
 use crate::domain::pane_layout::PaneId;
 use crate::features::git::DiffTarget;
 use crate::features::git::actions::BlockAction;
-use crate::features::git::diff_document::{
-    ChangesLayout, DiffDocument, DiffRow, DiffRowKind, SplitDiffRow,
-};
+use crate::features::git::diff_document::{ChangesLayout, DiffDocument, DiffRow, DiffRowKind};
 use crate::ui::chrome::diff_binding::{Binding, Command};
 use crate::ui::diff_selection::Geometry;
 use crate::ui::editor::view::{self as editor_view, SCROLLBAR_SIZE, ScrollMetrics};
@@ -124,9 +122,15 @@ pub fn render(
         pointer_focus.focus();
     });
     let select_state = state.clone();
+    let split_columns = super::diff_split::Columns::new(body_rect, app.editor.diff_split.ratio);
+    let mirrored_scrollbar = split && document.sections.is_none();
     root = root.on_pointer_down_with_button(move |_cx, pointer, button| {
         let point = pointer.point;
         let over_scrollbar = (max_y > 0.0 && point.x >= body_rect.right - SCROLLBAR_SIZE)
+            || (mirrored_scrollbar
+                && max_y > 0.0
+                && point.x >= split_columns.old.right - SCROLLBAR_SIZE
+                && point.x < split_columns.old.right)
             || (max_x > 0.0 && point.y >= body_rect.bottom - SCROLLBAR_SIZE);
         if button == lgui::core::PointerButton::Left && point.y >= body_rect.top && !over_scrollbar
         {
@@ -229,12 +233,13 @@ pub fn render(
             editor_focus,
         ))
     } else if split {
-        root.child(render_split(
+        root.child(super::diff_split::render(
             body_rect,
-            &document.split_rows,
+            document,
             scroll_x,
             scroll_y,
             app.editor.diff_split.ratio,
+            &git_commands,
         ))
     } else {
         root.child(render_inline(body_rect, &document.rows, scroll_x, scroll_y))
@@ -259,7 +264,7 @@ pub fn render(
         ));
     }
 
-    if !document.blocks.is_empty() {
+    if !split && !document.blocks.is_empty() {
         root = root.child(block_buttons(
             body_rect,
             document,
@@ -271,24 +276,46 @@ pub fn render(
     }
 
     if split {
-        let down = state.clone();
-        let moving = state.clone();
-        let up = state.clone();
-        root = root.child(crate::ui::pane_sash::horizontal(
-            format!("git-split-{}", pane.get()),
-            split_middle(body_rect, app.editor.diff_split.ratio),
-            (body_rect.top, body_rect.bottom),
-            app.editor.diff_split.drag == Some(pane),
-            move || {
-                down.run(Command::SplitStart(pane));
+        let columns = super::diff_split::Columns::new(body_rect, app.editor.diff_split.ratio);
+        let sash_offset = columns.gutter.width() / 2.0;
+        // A file heading spans the whole Changes view; the resize divider
+        // belongs only to the code below it.
+        let spans = overview.as_ref().map_or_else(
+            || vec![(body_rect.top, body_rect.bottom)],
+            |layout| {
+                layout
+                    .sections
+                    .iter()
+                    .filter_map(|item| {
+                        let top = body_rect.top + item.body_top as f32 * row_h() - scroll_y;
+                        let bottom = top + item.body_rows as f32 * row_h();
+                        let top = top.max(body_rect.top);
+                        let bottom = bottom.min(body_rect.bottom);
+                        (bottom > top).then_some((top, bottom))
+                    })
+                    .collect()
             },
-            move |x| {
-                moving.run(Command::SplitDrag(pane, body_rect, x));
-            },
-            move || {
-                up.run(Command::SplitEnd);
-            },
-        ));
+        );
+        for (index, span) in spans.into_iter().enumerate() {
+            let down = state.clone();
+            let moving = state.clone();
+            let up = state.clone();
+            root = root.child(crate::ui::pane_sash::horizontal(
+                format!("git-split-{}-{index}", pane.get()),
+                columns.gutter.left,
+                span,
+                app.editor.diff_split.drag == Some(pane),
+                move || {
+                    down.run(Command::SplitStart(pane));
+                },
+                move |x| {
+                    moving.run(Command::SplitDrag(pane, body_rect, x + sash_offset));
+                },
+                move || {
+                    up.run(Command::SplitEnd);
+                },
+            ));
+        }
     }
 
     let emphasized = app.editor.editor_hovered == Some(pane)
@@ -310,6 +337,21 @@ pub fn render(
         }
     }
     if max_y > 0.0 {
+        if split && document.sections.is_none() {
+            let columns = super::diff_split::Columns::new(body_rect, app.editor.diff_split.ratio);
+            root = root.child(
+                editor_view::vertical_scrollbar(
+                    pane,
+                    columns.old,
+                    metrics,
+                    scroll_y,
+                    max_x > 0.0,
+                    emphasized,
+                    scrollbars.clone(),
+                )
+                .key(format!("diff-old-scrollbar-{}", pane.get())),
+            );
+        }
         root = root.child(editor_view::vertical_scrollbar(
             pane,
             body_rect,
@@ -342,7 +384,7 @@ pub fn render(
 pub(crate) fn code_left(rect: UiRect, split: bool) -> f32 {
     rect.left
         + if split {
-            NUMBER_W
+            0.0
         } else {
             NUMBER_W * 2.0 + MARKER_W
         }
@@ -372,8 +414,8 @@ pub(crate) fn scroll_metrics(
             0.0
         };
         viewport_w = (if split {
-            let middle = split_middle(rect, ratio);
-            (middle - rect.left).min(rect.right - middle - reserved) - NUMBER_W
+            let columns = super::diff_split::Columns::new(rect, ratio);
+            columns.old.width().min(columns.new.width()) - reserved
         } else {
             rect.width() - reserved - NUMBER_W * 2.0 - MARKER_W
         })
@@ -812,15 +854,15 @@ fn render_changes(
             ));
         } else {
             file_body = file_body.child(if split {
-                render_split(visible, &document.split_rows, scroll_x, local_y, ratio)
+                super::diff_split::render(visible, document, scroll_x, local_y, ratio, git_commands)
             } else {
                 render_inline(visible, &document.rows, scroll_x, local_y)
             });
-            if !document.blocks.is_empty() {
+            if !split && !document.blocks.is_empty() {
                 file_body = file_body.child(block_buttons(
                     visible,
                     document,
-                    &document.change_starts(split),
+                    &document.change_starts(false),
                     local_y,
                     state,
                     git_commands,
@@ -915,90 +957,18 @@ pub(crate) fn render_inline(
         .child(vertical_rule(text_left, rect))
 }
 
+#[cfg(test)]
 pub(crate) fn render_split(
     rect: UiRect,
-    rows: &[SplitDiffRow],
+    document: &DiffDocument,
     scroll_x: f32,
     scroll_y: f32,
     ratio: f32,
 ) -> Element {
-    let middle = split_middle(rect, ratio);
-    let old_text_left = rect.left + NUMBER_W;
-    let new_text_left = middle + NUMBER_W;
-    let old_viewport = UiRect::new(old_text_left, rect.top, middle, rect.bottom);
-    let new_viewport = UiRect::new(new_text_left, rect.top, rect.right, rect.bottom);
-    let start = (scroll_y / row_h()).floor() as usize;
-    let end = (((scroll_y + rect.height()) / row_h()).ceil() as usize + 1).min(rows.len());
-    let mut body = clip(rect, 0.0, 0.0);
-
-    for (index, row) in rows.iter().enumerate().take(end).skip(start) {
-        let top = rect.top + index as f32 * row_h() - scroll_y;
-        if let Some(hunk) = row.hunk.as_ref() {
-            body = body
-                .child(row_background(
-                    UiRect::new(rect.left, top, rect.right, top + row_h()),
-                    theme::c().surface,
-                ))
-                .child(text(
-                    UiRect::new(rect.left + 10.0, top, rect.right - 10.0, top + row_h()),
-                    hunk.clone(),
-                    theme::mono(theme::c().text_dim, theme::SMALL),
-                ));
-            continue;
-        }
-
-        if row.changed && row.old_text.is_some() {
-            body = body.child(row_background(
-                UiRect::new(rect.left, top, middle, top + row_h()),
-                theme::c().diff.del_bg,
-            ));
-        }
-        if row.changed && row.new_text.is_some() {
-            body = body.child(row_background(
-                UiRect::new(middle, top, rect.right, top + row_h()),
-                theme::c().diff.add_bg,
-            ));
-        }
-
-        let old_color = if row.changed {
-            theme::c().diff.del_fg
-        } else {
-            theme::c().text_soft
-        };
-        let new_color = if row.changed {
-            theme::c().diff.add_fg
-        } else {
-            theme::c().text_soft
-        };
-        body = body
-            .child(line_number(rect.left, top, row.old_line))
-            .child(line_number(middle, top, row.new_line));
-        if let Some(old_text) = row.old_text.as_ref() {
-            body = body.child(code_line(
-                old_viewport,
-                old_text_left + theme::CODE_PAD - scroll_x,
-                top,
-                old_text,
-                old_color,
-            ));
-        }
-        if let Some(new_text) = row.new_text.as_ref() {
-            body = body.child(code_line(
-                new_viewport,
-                new_text_left + theme::CODE_PAD - scroll_x,
-                top,
-                new_text,
-                new_color,
-            ));
-        }
-    }
-
-    body.child(vertical_rule(old_text_left, rect))
-        .child(vertical_rule(middle, rect))
-        .child(vertical_rule(new_text_left, rect))
+    super::diff_split::render_document(rect, document, scroll_x, scroll_y, ratio)
 }
 
-fn row_background(rect: UiRect, color: lgui::core::Color) -> Element {
+pub(super) fn row_background(rect: UiRect, color: lgui::core::Color) -> Element {
     Element::new(move |cx| {
         let scale = cx.context.scale();
         // Adjacent fills must share a physical pixel edge, or antialiasing
@@ -1008,7 +978,7 @@ fn row_background(rect: UiRect, color: lgui::core::Color) -> Element {
     })
 }
 
-fn line_number(left: f32, top: f32, number: Option<usize>) -> Element {
+pub(super) fn line_number(left: f32, top: f32, number: Option<usize>) -> Element {
     text(
         UiRect::new(left, top, left + NUMBER_W - 8.0, top + row_h()),
         number.map(|line| line.to_string()).unwrap_or_default(),
@@ -1017,7 +987,7 @@ fn line_number(left: f32, top: f32, number: Option<usize>) -> Element {
     .into()
 }
 
-fn code_line(
+pub(super) fn code_line(
     viewport: UiRect,
     left: f32,
     top: f32,

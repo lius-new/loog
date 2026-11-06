@@ -467,6 +467,7 @@ mod tests {
         };
         use lgui::session::UiSession;
         use std::sync::{Arc, Mutex};
+        let mut original_chrome: Option<Vec<String>> = None;
         for split in [false, true] {
             let exposed = Arc::new(Mutex::new(None::<AppContext>));
             let output = exposed.clone();
@@ -512,10 +513,86 @@ mod tests {
                     .filter_map(|node| node.text.as_deref())
                     .collect::<Vec<_>>()
             };
+            // Both modes must share the same toolbar geometry and file headings.
+            // Only the Inline/Split button's selected appearance may differ.
+            let mut chrome = session
+                .tree()
+                .nodes()
+                .iter()
+                .filter(|node| node.layout_rect.bottom <= TOOLBAR_H && node.text.is_some())
+                .map(|node| format!("{:?} {:?}", node.layout_rect, node.text))
+                .collect::<Vec<_>>();
             for expected in ["src/app.rs", "src/ui/git_panel.rs", "notes/review.md"] {
                 assert!(texts().contains(&expected), "Missing {expected}");
+                let heading = format!("Collapse {expected}");
+                let headers = session
+                    .tree()
+                    .nodes()
+                    .iter()
+                    .filter(|node| {
+                        node.semantics.as_ref().and_then(|s| s.name.as_deref())
+                            == Some(heading.as_str())
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    headers.len(),
+                    1,
+                    "each file must retain one shared heading, split={split}"
+                );
+                assert_eq!(
+                    (headers[0].layout_rect.left, headers[0].layout_rect.right),
+                    (viewport.left, viewport.right)
+                );
+                assert_eq!(headers[0].style.fill, Some(theme::c().sidebar));
+                let header = headers[0].layout_rect;
+                chrome.extend(session.tree().nodes().iter().filter_map(|node| {
+                    let rect = node.layout_rect;
+                    (rect.top >= header.top && rect.bottom <= header.bottom).then(|| {
+                        // Inline has separate added/deleted rows, so later files
+                        // naturally start lower. Compare within each heading.
+                        let local = UiRect::new(
+                            rect.left,
+                            rect.top - header.top,
+                            rect.right,
+                            rect.bottom - header.top,
+                        );
+                        format!(
+                            "{:?} {:?} {:?} {:?}",
+                            local, node.style, node.text, node.semantics
+                        )
+                    })
+                }));
+                for label in [
+                    format!("Open Changes for {expected}"),
+                    format!("Open File {expected}"),
+                ] {
+                    assert!(
+                        session.tree().nodes().iter().any(|node| node
+                            .semantics
+                            .as_ref()
+                            .and_then(|s| s.name.as_deref())
+                            == Some(label.as_str())),
+                        "existing file action {label} must remain available, split={split}"
+                    );
+                }
             }
-            if !split && let Some(path) = std::env::var_os("LOOM_CHANGES_PREVIEW") {
+            if let Some(original) = &original_chrome {
+                assert_eq!(chrome.len(), original.len(), "existing chrome node count");
+                for (index, (current, original)) in chrome.iter().zip(original).enumerate() {
+                    assert_eq!(
+                        current, original,
+                        "Split must preserve toolbar/file heading node {index}"
+                    );
+                }
+            } else {
+                original_chrome = Some(chrome);
+            }
+            let preview = std::env::var_os(if split {
+                "LOOM_SPLIT_CHANGES_PREVIEW"
+            } else {
+                "LOOM_CHANGES_PREVIEW"
+            });
+            if let Some(path) = preview {
                 use lgui::core::PhysicalRect;
                 use lgui::icons::IconRegistration;
                 use lgui::renderer::{FrameInfo, FrameReason};
@@ -761,6 +838,146 @@ mod tests {
     }
 
     #[test]
+    fn split_diff_keeps_numbers_central_and_updates_curves_while_scrolling() {
+        use crate::features::git::diff::parse_unified;
+        use lgui::application::{AppView, ApplicationContext};
+        use lgui::core::{UiPathCommand, UiScale};
+        use lgui::session::UiSession;
+        use std::sync::{Arc, Mutex};
+        let mut patch = "diff --git a/.env.example b/.env.example\n--- a/.env.example\n+++ b/.env.example\n@@ -1,52 +1,55 @@\n".to_owned();
+        for line in [
+            "# msites — CMS configuration",
+            "# Copy this file to .env.local before starting.",
+            "",
+            "# R2 object storage",
+            "MSITES_CMS_R2_ACCOUNT_ID=",
+            "MSITES_CMS_R2_ACCESS_KEY_ID=",
+            "MSITES_CMS_R2_SECRET_ACCESS_KEY=",
+            "MSITES_CMS_R2_BUCKET=msites",
+            "",
+            "# Public images",
+        ] {
+            patch.push_str(&format!(" {line}\n"));
+        }
+        patch.push_str("-# Optional HTTPS public image domain.\n-# Leave empty to serve private R2 objects through the API.\n+# Required HTTPS public image domain.\n+# Pages use this origin plus the actual object path.\n+# The API does not proxy images.\n+# Image requests go directly to the public origin.\n MSITES_CMS_R2_PUBLIC_URL=\n \n # Uploads\n MSITES_CMS_UPLOAD_MAX_SIZE=10485760\n+# Accepted image formats\n+MSITES_CMS_IMAGE_FORMATS=jpeg,png,webp\n+\n # Image delivery\n-# Proxy image requests through the CMS API.\n-MSITES_CMS_IMAGE_PROXY=true\n \n # Cache policy\n-MSITES_CMS_ASSET_CACHE_TTL=3600\n+MSITES_CMS_ASSET_CACHE_TTL=86400\n");
+        for index in 0..30 {
+            patch.push_str(&format!(" MSITES_CMS_OPTION_{index:02}=default\n"));
+        }
+        let document = DiffDocument::from_unified(
+            "repo".into(),
+            ".env.example".into(),
+            DiffTarget::IndexToWorktree,
+            parse_unified(&patch).unwrap(),
+        );
+        let exposed = Arc::new(Mutex::new(None::<AppContext>));
+        let output = exposed.clone();
+        let viewport = UiRect::new(0.0, 0.0, 1100.0, 440.0);
+        let view: AppView = Arc::new(move |cx| {
+            let state = AppContext::detached(cx.state_with(|| {
+                let mut app = AppState::new();
+                app.git.ui.split_diff = true;
+                app.workspace.open_diff(document.clone());
+                app
+            }));
+            *output.lock().unwrap() = Some(state.clone());
+            let id = cx.use_stable_id();
+            render(
+                state.get().workspace.active_pane(),
+                viewport,
+                state,
+                cx.state_with(GitStoreSnapshot::default),
+                cx.focus_handle(id),
+            )
+        });
+        let context = ApplicationContext::empty(Default::default());
+        let _text = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let mut session = UiSession::new();
+        session.render_view(&view, viewport, UiScale::ONE);
+        let columns = crate::ui::diff_split::Columns::new(viewport, 0.5);
+        let numbers = session
+            .tree()
+            .nodes()
+            .iter()
+            .filter(|node| node.text.as_deref() == Some("1"))
+            .collect::<Vec<_>>();
+        assert_eq!(numbers.len(), 2);
+        assert!(
+            numbers
+                .iter()
+                .all(|node| node.layout_rect.left >= columns.gutter.left
+                    && node.layout_rect.right <= columns.gutter.right)
+        );
+        for label in ["Split", "Inline", "Open File"] {
+            assert!(
+                session
+                    .tree()
+                    .nodes()
+                    .iter()
+                    .any(|node| node.text.as_deref() == Some(label)),
+                "existing control {label} must remain available"
+            );
+        }
+        let slope = |session: &UiSession| {
+            session
+                .tree()
+                .nodes()
+                .iter()
+                .find_map(|node| {
+                    let commands = node.path.as_ref()?.commands();
+                    if let [
+                        UiPathCommand::MoveTo(start),
+                        UiPathCommand::CubicTo { to, .. },
+                        ..,
+                    ] = commands
+                    {
+                        Some(to.y - start.y)
+                    } else {
+                        None
+                    }
+                })
+                .expect("a curved change connector")
+        };
+        let before = slope(&session);
+        let state = exposed.lock().unwrap().clone().unwrap();
+        state.update(|app| app.workspace.set_active_scroll(0.0, 8.0 * row_h()));
+        session.render_view(&view, viewport, UiScale::ONE);
+        assert!(
+            (slope(&session) - before).abs() > 1.0,
+            "the connector must change shape, not just translate"
+        );
+        if let Some(output) = std::env::var_os("LOOM_SPLIT_PREVIEW") {
+            use lgui::core::PhysicalRect;
+            use lgui::renderer::{FrameInfo, FrameReason};
+            let scale = UiScale::new(1.5);
+            let frame = FrameInfo::new(
+                PhysicalRect::new(0, 0, 1650, 660),
+                &[],
+                scale,
+                FrameReason::SceneChange,
+                true,
+            );
+            let mut surface = lgui::render_skia::SkiaSoftwareSurface::new(12 * 1024 * 1024);
+            lgui::assets::backend::with_render_resources(
+                &context,
+                lgui::RenderResources::new(),
+                || {
+                    surface
+                        .draw(&session.tree().scene().project_to_physical(scale), &frame)
+                        .unwrap()
+                },
+            );
+            let mut pixels = surface.pixels().to_vec();
+            for pixel in pixels.as_chunks_mut::<4>().0 {
+                pixel.swap(0, 2);
+            }
+            image::save_buffer(output, &pixels, 1650, 660, image::ColorType::Rgba8).unwrap();
+        }
+    }
+
+    #[test]
     fn inline_diff_expands_tabs_before_rendering() {
         diff_expands_tabs_before_rendering(false);
     }
@@ -791,7 +1008,7 @@ mod tests {
         let viewport = UiRect::new(0.0, 0.0, 600.0, 100.0);
         let view: AppView = Arc::new(move |_| {
             if split {
-                render_split(viewport, &document.split_rows, 0.0, 0.0, 0.5)
+                render_split(viewport, &document, 0.0, 0.0, 0.5)
             } else {
                 render_inline(viewport, &document.rows, 0.0, 0.0)
             }
@@ -891,9 +1108,9 @@ mod tests {
 
         if split {
             let body = UiRect::new(0.0, TOOLBAR_H, viewport.right, viewport.bottom);
-            let middle = split_middle(body, 0.5);
+            let sash = crate::ui::diff_split::Columns::new(body, 0.5).gutter.left;
             send(InputEvent::PointerDown {
-                pointer: pointer(middle, 80.0),
+                pointer: pointer(sash, 80.0),
                 button: PointerButton::Left,
             });
             assert_eq!(state.get().editor.diff_split.drag, Some(PaneId::new(1)));

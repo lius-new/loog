@@ -10,6 +10,7 @@ pub mod diff_editor;
 pub mod diff_selection;
 #[cfg(test)]
 mod diff_selection_tests;
+pub(crate) mod diff_split;
 pub mod drawer;
 pub(crate) mod editor;
 pub(crate) mod editor_binding;

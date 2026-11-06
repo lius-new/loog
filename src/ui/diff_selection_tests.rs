@@ -56,3 +56,33 @@ fn tabs_and_wide_characters_advance_the_highlight() {
     assert_eq!(display_columns("a\tb", 2), 4);
     assert_eq!(display_columns("你a", 1), 2);
 }
+
+#[test]
+fn split_pointer_maps_each_compact_side_back_to_its_selection_row() {
+    use crate::features::git::{DiffTarget, diff::parse_unified, diff_document::DiffDocument};
+    use crate::ui::diff_split::Columns;
+    let document = DiffDocument::from_unified("repo".into(), "a.txt".into(), DiffTarget::IndexToWorktree,
+        parse_unified("diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,5 @@\n start\n-old\n+new\n+extra\n+more\n end\n").unwrap());
+    let body = UiRect::new(0.0, 0.0, 800.0, row_h());
+    let geometry = Geometry {
+        body,
+        split: true,
+        ratio: 0.5,
+        scroll_x: 0.0,
+        scroll_y: 3.0 * row_h(),
+    };
+    let columns = Columns::new(body, 0.5);
+    for (side, expected_row) in [(DiffSide::Old, 4), (DiffSide::New, 3)] {
+        let x = columns.code(side).left + theme::CODE_PAD + fonts::editor().char_w * 1.2;
+        let (actual_side, point, inside) =
+            point_at(&document, None, geometry, None, (x, row_h() * 0.5)).unwrap();
+        assert_eq!(actual_side, side);
+        assert!(inside);
+        assert_eq!((point.row, point.column), (expected_row, 1));
+    }
+    let (_, _, inside) = point_at(&document, None, geometry, None, (400.0, row_h() * 0.5)).unwrap();
+    assert!(
+        !inside,
+        "central line numbers and controls must not start a text selection"
+    );
+}

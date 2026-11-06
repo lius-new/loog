@@ -12,6 +12,7 @@ pub mod model;
 pub mod operation;
 pub mod parser;
 pub mod snapshot;
+pub mod split_layout;
 pub mod types;
 
 pub use self::error::{GitError, GitResult};

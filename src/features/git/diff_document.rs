@@ -90,6 +90,7 @@ pub struct ChangesLayout {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct DiffMetrics {
+    split_projection: super::split_layout::Projection,
     additions: usize,
     deletions: usize,
     longest_inline: usize,
@@ -119,6 +120,7 @@ impl DiffMetrics {
             }
         }
         Self {
+            split_projection: super::split_layout::Projection::new(split_rows),
             inline_marks: inline_marks.into(),
             additions: rows
                 .iter()
@@ -167,6 +169,10 @@ impl DiffMetrics {
 }
 
 impl DiffDocument {
+    pub fn split_projection(&self) -> &super::split_layout::Projection {
+        &self.metrics.split_projection
+    }
+
     pub fn from_content(request: DiffRequest, content: DiffContent) -> Self {
         match content {
             DiffContent::Unified(diff) => {

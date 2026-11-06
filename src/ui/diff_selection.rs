@@ -2,11 +2,13 @@
 use lgui::core::clip;
 use lgui::prelude::{Element, UiRect, VisualStyle, panel};
 
-use crate::features::git::diff_document::{ChangesLayout, DiffDocument};
+use crate::features::git::diff_document::{ChangesLayout, DiffDocument, SectionLayout};
 use crate::features::git::diff_selection::{
     DiffPoint, DiffSelection, DiffSide, row_count, row_text,
 };
-use crate::ui::diff_editor::{NUMBER_W, code_left, row_h, split_middle};
+use crate::features::git::split_layout::{Layout as SplitLayout, side_index};
+use crate::ui::diff_editor::{code_left, row_h, split_middle};
+use crate::ui::diff_split::Columns;
 use crate::ui::editor::view::{display_columns, fallback_hit_column};
 use crate::ui::{fonts, theme};
 
@@ -42,11 +44,8 @@ impl Geometry {
         if !self.split {
             return (code_left(self.body, false), self.body.right);
         }
-        let middle = split_middle(self.body, self.ratio);
-        match side {
-            DiffSide::Old => (self.body.left + NUMBER_W, middle),
-            DiffSide::New => (middle + NUMBER_W, self.body.right),
-        }
+        let rect = Columns::new(self.body, self.ratio).code(side);
+        (rect.left, rect.right)
     }
 
     /// Where the first character of a row is drawn.
@@ -79,6 +78,9 @@ pub fn point_at(
     side: Option<DiffSide>,
     (x, y): (f32, f32),
 ) -> Option<(DiffSide, DiffPoint, bool)> {
+    if geometry.split {
+        return split_point_at(document, layout, geometry, side, (x, y));
+    }
     let row = ((y - geometry.body.top + geometry.scroll_y) / row_h())
         .floor()
         .max(0.0) as usize;
@@ -123,6 +125,9 @@ pub fn layer(
     geometry: Geometry,
     selection: &DiffSelection,
 ) -> Element {
+    if geometry.split {
+        return split_layer(document, layout, geometry, selection);
+    }
     let height = row_h();
     let body = geometry.body;
     let first = (geometry.scroll_y / height).floor() as usize;
@@ -160,6 +165,190 @@ pub fn layer(
                 UiRect::new(left, top, right, top + height),
                 VisualStyle::filled(theme::c().accent).alpha(55),
             ));
+        }
+    }
+    out
+}
+
+fn split_point_at(
+    document: &DiffDocument,
+    overview: Option<&ChangesLayout>,
+    geometry: Geometry,
+    side: Option<DiffSide>,
+    (x, y): (f32, f32),
+) -> Option<(DiffSide, DiffPoint, bool)> {
+    let side = side.unwrap_or_else(|| geometry.side_at(x));
+    if let (Some(overview), Some(files)) = (overview, &document.sections) {
+        let shared = ((y - geometry.body.top + geometry.scroll_y) / row_h())
+            .floor()
+            .max(0.0) as usize;
+        let (section, _, clamp) = locate(overview, shared)?;
+        let item = overview
+            .sections
+            .iter()
+            .find(|item| item.index == section)?;
+        let file = &files[section].document;
+        if matches!(clamp, Clamp::Inside)
+            && let Some(local) = file_geometry(geometry, item)
+        {
+            let (side, mut point, inside) = split_point_at(file, None, local, Some(side), (x, y))?;
+            point.section = section;
+            return Some((side, point, inside));
+        }
+        let layout = SplitLayout::new(file, None);
+        let after = matches!(clamp, Clamp::After);
+        let (_, row, _) = layout.locate(side, if after { usize::MAX } else { 0 })?;
+        let column = if after {
+            row_text(document, true, section, row, side).map_or(0, |text| text.chars().count())
+        } else {
+            0
+        };
+        return Some((
+            side,
+            DiffPoint {
+                section,
+                row,
+                column,
+            },
+            false,
+        ));
+    }
+    let layout = SplitLayout::new(document, overview);
+    let offset = layout.offset(
+        side,
+        geometry.scroll_y / row_h(),
+        geometry.body.height() / row_h(),
+    );
+    let row = ((y - geometry.body.top) / row_h() + offset)
+        .floor()
+        .max(0.0) as usize;
+    let (section, row_in_section, code) = layout.locate(side, row)?;
+    let value = row_text(document, true, section, row_in_section, side);
+    let column = value.map_or(0, |value| {
+        if !code {
+            if row >= layout.rows[side_index(side)] {
+                value.chars().count()
+            } else {
+                0
+            }
+        } else {
+            fallback_hit_column(value, x - geometry.text_origin(side))
+        }
+    });
+    let (left, right) = geometry.code_area(side);
+    let inside =
+        code && x >= left && x < right && y >= geometry.body.top && y < geometry.body.bottom;
+    Some((
+        side,
+        DiffPoint {
+            section,
+            row: row_in_section,
+            column,
+        },
+        inside,
+    ))
+}
+
+fn split_layer(
+    document: &DiffDocument,
+    overview: Option<&ChangesLayout>,
+    geometry: Geometry,
+    selection: &DiffSelection,
+) -> Element {
+    if let (Some(overview), Some(files)) = (overview, &document.sections) {
+        let mut out = clip(geometry.body, 0.0, 0.0);
+        for item in &overview.sections {
+            if let Some(local) = file_geometry(geometry, item) {
+                out = out.child(split_file_layer(
+                    &files[item.index].document,
+                    local,
+                    selection,
+                    document,
+                    item.index,
+                ));
+            }
+        }
+        return out;
+    }
+    split_file_layer(document, geometry, selection, document, 0)
+}
+
+fn file_geometry(geometry: Geometry, item: &SectionLayout) -> Option<Geometry> {
+    if item.body_rows == 0 {
+        return None;
+    }
+    let top = geometry.body.top + item.body_top as f32 * row_h() - geometry.scroll_y;
+    let bottom = top + item.body_rows as f32 * row_h();
+    let visible = UiRect::new(
+        geometry.body.left,
+        top.max(geometry.body.top),
+        geometry.body.right,
+        bottom.min(geometry.body.bottom),
+    );
+    if visible.bottom <= visible.top {
+        return None;
+    }
+    Some(Geometry {
+        body: visible,
+        scroll_y: visible.top - top,
+        ..geometry
+    })
+}
+
+fn split_file_layer(
+    document: &DiffDocument,
+    geometry: Geometry,
+    selection: &DiffSelection,
+    selection_document: &DiffDocument,
+    section: usize,
+) -> Element {
+    let layout = SplitLayout::new(document, None);
+    let side = selection.side;
+    let index = side_index(side);
+    let height = row_h();
+    let offset = layout.offset(
+        side,
+        geometry.scroll_y / height,
+        geometry.body.height() / height,
+    );
+    let code = Columns::new(geometry.body, geometry.ratio).code(side);
+    let origin = geometry.text_origin(side);
+    let first = offset.floor() as usize;
+    let last = (offset + code.height() / height).ceil() as usize;
+    let mut out = clip(code, 0.0, 0.0);
+    let start = layout
+        .sections
+        .partition_point(|item| item.end[index] < first);
+    for item in layout.sections.iter().skip(start) {
+        if item.top[index] > last {
+            break;
+        }
+        if item.closed {
+            continue;
+        }
+        let rows = item.document.split_projection().rows(side);
+        let from = first.saturating_sub(item.body[index]);
+        let to = (last + 1).saturating_sub(item.body[index]).min(rows.len());
+        for (compact, &shared) in rows.iter().enumerate().take(to).skip(from) {
+            let Some(range) = selection.span(selection_document, true, section, shared) else {
+                continue;
+            };
+            let Some(value) = row_text(selection_document, true, section, shared, side) else {
+                continue;
+            };
+            let top = code.top + (item.body[index] as f32 + compact as f32 - offset) * height;
+            let left = (origin
+                + display_columns(value, range.start) as f32 * fonts::editor().char_w)
+                .max(code.left);
+            let right = (origin
+                + display_columns(value, range.end) as f32 * fonts::editor().char_w)
+                .min(code.right);
+            if right > left {
+                out = out.child(panel(
+                    UiRect::new(left, top, right, top + height),
+                    VisualStyle::filled(theme::c().accent).alpha(55),
+                ));
+            }
         }
     }
     out
