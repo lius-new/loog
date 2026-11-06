@@ -35,8 +35,8 @@ const ROOMY: Metrics = Metrics {
 };
 /// Narrowest header that uses the roomy distances.
 const ROOMY_MIN_W: f32 = 560.0;
-/// Narrower headers name only the open panel; the other tabs are icons.
-const ICON_ONLY_BELOW_W: f32 = 840.0;
+/// Narrower headers show the dock's tabs as icons without their names.
+const ICON_ONLY_BELOW_W: f32 = 1100.0;
 /// Space before the category switch on the header's left.
 const INSET: f32 = 8.0;
 const RULE_H: f32 = 14.0;
@@ -245,9 +245,10 @@ pub(super) fn category(
         Badge::Dot => 6.0 + 6.0,
         Badge::Count(_) => 6.0 + measure(&badge_text(badge).unwrap_or_default(), theme::SMALL, 400),
     };
-    // A narrow header keeps only the open tab's name; the others are icons, so
-    // four tabs leave the session tabs their room.
-    let labelled = |tab: PanelTab| header.width() >= ICON_ONLY_BELOW_W || tab == selected;
+    // A narrow header shows every tab as an icon, so four tabs leave the session
+    // tabs their room. Which tab is selected never decides this, so switching tabs
+    // moves nothing.
+    let labelled = |_tab: PanelTab| header.width() >= ICON_ONLY_BELOW_W;
     let slot_w = |tab: PanelTab| {
         let name = if labelled(tab) {
             label_width(tab.label()) + 6.0

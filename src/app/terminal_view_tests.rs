@@ -771,7 +771,9 @@ mod tests {
         ));
         let output = exposed.clone();
         let application = Arc::new(ApplicationHandle::new(|task| task(), || {}));
-        let viewport = UiRect::new(0.0, 0.0, 600.0, 300.0);
+        // Wide enough that the tab names are not squeezed by the dock's own tools,
+        // whatever the platform's fonts measure.
+        let viewport = UiRect::new(0.0, 0.0, 720.0, 300.0);
         let view: AppView = Arc::new(move |cx| {
             let state = AppContext::detached(cx.state_with(|| {
                 let mut app = AppState::new();
@@ -794,7 +796,7 @@ mod tests {
                     Element::new(move |cx| {
                         UiElement::panel(
                             editor_id,
-                            UiRect::new(0.0, 260.0, 600.0, 300.0),
+                            UiRect::new(0.0, 260.0, 720.0, 300.0),
                             VisualStyle::default(),
                         )
                         .children(cx.children)
@@ -802,7 +804,7 @@ mod tests {
                     .event_policy(EventPolicy::INTERACTIVE),
                 )
                 .child(render(
-                    UiRect::new(0.0, 0.0, 600.0, 260.0),
+                    UiRect::new(0.0, 0.0, 720.0, 260.0),
                     state,
                     editor_focus,
                     focus,
@@ -847,8 +849,9 @@ mod tests {
                     theme::c().active_line
                 })
             );
-            assert_eq!(background.layout_rect.left, tab.layout_rect.left);
-            assert_eq!(background.layout_rect.right, tab.layout_rect.right);
+            // The block is snapped to whole pixels; the tab is not.
+            assert!((background.layout_rect.left - tab.layout_rect.left).abs() <= 0.5);
+            assert!((background.layout_rect.right - tab.layout_rect.right).abs() <= 0.5);
             // Centred in the strip and shorter than it; an odd-height strip puts the
             // extra pixel on one side.
             assert!(background.layout_rect.height() <= TAB_BLOCK_H + 1.0);
@@ -875,8 +878,9 @@ mod tests {
             .node(&UiId::new("terminal-tab-link-1"))
             .expect("split members are joined by a line");
         assert_eq!(link.style.fill, Some(theme::c().text_faint));
-        assert_eq!(link.layout_rect.left, first.layout_rect.right);
-        assert_eq!(link.layout_rect.right, second.layout_rect.left);
+        // The line is snapped to whole pixels, the tabs are not.
+        assert!((link.layout_rect.left - first.layout_rect.right).abs() <= 0.5);
+        assert!((link.layout_rect.right - second.layout_rect.left).abs() <= 0.5);
         assert_eq!(link.layout_rect.height(), 1.0);
         let middle = (first.layout_rect.top + first.layout_rect.bottom) / 2.0;
         assert!((link.layout_rect.top - middle).abs() <= 1.0);
@@ -895,7 +899,8 @@ mod tests {
                 .ime_cursor_rect
                 .unwrap()
                 .left,
-            313.0
+            // The second pane starts at half the width, plus the body's padding.
+            720.0 / 2.0 + 13.0
         );
         assert_eq!(
             session
@@ -972,20 +977,21 @@ mod tests {
                 .ime_cursor_rect
                 .unwrap()
         };
-        let divider = PointerData::mouse(Point::new(300.5, 80.0));
+        // The divider sits at half the width; dragging it moves it 50px to the right.
+        let divider = PointerData::mouse(Point::new(360.5, 80.0));
         send(InputEvent::PointerDown {
             pointer: divider,
             button: PointerButton::Left,
         });
         assert_eq!(state.get().terminal.ui.terminal_split_drag, Some(1));
-        let moved = PointerData::mouse(Point::new(350.0, 80.0));
+        let moved = PointerData::mouse(Point::new(410.0, 80.0));
         send(InputEvent::PointerMove(moved));
         assert_eq!(tabs.get().active_id(), Some(2));
         let layout = session_rects(
-            UiRect::new(0.0, 0.0, 600.0, 260.0),
+            UiRect::new(0.0, 0.0, 720.0, 260.0),
             &tabs.get().active_group(),
         );
-        assert_eq!(layout[0].right, 350.0);
+        assert_eq!(layout[0].right, 410.0);
         assert!(pty_size_for_body(layout[0]).cols > pty_size_for_body(layout[1]).cols);
         send(InputEvent::PointerUp {
             pointer: moved,
@@ -1045,11 +1051,11 @@ mod tests {
         assert_eq!(tabs.get().tabs().len(), 3);
         assert_eq!(tabs.get().active_group().len(), 1);
         assert_eq!(tabs.get().saved_groups(), vec![0, 0, 1]);
-        let panes = pane_rects(UiRect::new(0.0, 0.0, 600.0, 260.0), 2);
+        let panes = pane_rects(UiRect::new(0.0, 0.0, 720.0, 260.0), 2);
         assert_eq!(panes.len(), 2);
         assert_eq!(panes[0].right + 1.0, panes[1].left);
         assert!(
-            pty_size_for_body(panes[0]).cols < pty_size(UiRect::new(0.0, 0.0, 600.0, 260.0)).cols
+            pty_size_for_body(panes[0]).cols < pty_size(UiRect::new(0.0, 0.0, 720.0, 260.0)).cols
         );
     }
 
