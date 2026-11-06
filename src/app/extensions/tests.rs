@@ -141,7 +141,11 @@ fn fixture_package(
     package: &Path,
     cache: Option<PathBuf>,
 ) -> Fixture {
-    let event_timeout = Duration::from_secs(if cache.is_some() { 600 } else { 60 });
+    // A full test run starts many fixtures at once, and each compiles the same
+    // component into one shared cache, so the first event can take far longer than
+    // when this test runs alone (about two seconds). A failure here is a hang, not
+    // slowness, so the bound only has to be well beyond a loaded machine.
+    let event_timeout = Duration::from_secs(if cache.is_some() { 600 } else { 300 });
     let (wake_sender, wake) = channel();
     let executor_wake = wake_sender.clone();
     let (sender, events) = channel();
