@@ -84,10 +84,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                 frame.request_frame();
             });
         });
-        crate::features::output::app_log(
-            crate::features::output::Level::Info,
-            "Loom started",
-        );
+        crate::features::output::app_log(crate::features::output::Level::Info, "Loom started");
         || {}
     });
     crate::features::problems::set_error_count(super::log_panel::error_count(&state));

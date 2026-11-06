@@ -35,9 +35,9 @@ pub use bindings::loom::extension::types::{
     FileChange, FileChangeKind, FileChanged, WatchFailure, WatchRequest,
 };
 pub use watches::WatchControl;
+mod findings;
 mod publication_budget;
 mod service;
-mod findings;
 pub use bindings::loom::service::findings::{
     Encoding as FindingEncoding, Finding, Position as FindingPosition,
 };

@@ -48,7 +48,9 @@ fn invalid(value: &str, max: usize) -> bool {
 fn absolute(path: &str) -> bool {
     path.starts_with('/')
         || path.starts_with("\\\\")
-        || (path.len() > 2 && path.as_bytes()[1] == b':' && matches!(path.as_bytes()[2], b'\\' | b'/'))
+        || (path.len() > 2
+            && path.as_bytes()[1] == b':'
+            && matches!(path.as_bytes()[2], b'\\' | b'/'))
 }
 
 impl Findings {
@@ -149,8 +151,14 @@ mod tests {
 
     fn finding(message: &str) -> Finding {
         Finding {
-            start: FindingPosition { line: 1, character: 2 },
-            end: FindingPosition { line: 1, character: 5 },
+            start: FindingPosition {
+                line: 1,
+                character: 2,
+            },
+            end: FindingPosition {
+                line: 1,
+                character: 5,
+            },
             severity: 1,
             message: message.into(),
             source: None,
@@ -163,42 +171,99 @@ mod tests {
     #[test]
     fn a_file_replaces_its_findings_and_an_empty_list_takes_it_out() {
         let mut findings = Findings::default();
-        findings.publish("k", FILE, FindingEncoding::Utf16, vec![finding("one")]).unwrap();
-        findings.publish("k", FILE, FindingEncoding::Utf16, vec![finding("two"), finding("three")]).unwrap();
+        findings
+            .publish("k", FILE, FindingEncoding::Utf16, vec![finding("one")])
+            .unwrap();
+        findings
+            .publish(
+                "k",
+                FILE,
+                FindingEncoding::Utf16,
+                vec![finding("two"), finding("three")],
+            )
+            .unwrap();
         let taken = findings.take().unwrap();
-        assert_eq!(taken.files.len(), 1, "the later publication replaces the earlier");
+        assert_eq!(
+            taken.files.len(),
+            1,
+            "the later publication replaces the earlier"
+        );
         assert_eq!(taken.files[0].items.len(), 2);
-        findings.publish("k", FILE, FindingEncoding::Utf16, vec![]).unwrap();
+        findings
+            .publish("k", FILE, FindingEncoding::Utf16, vec![])
+            .unwrap();
         assert!(findings.take().unwrap().files[0].items.is_empty());
         // Nothing was published for this file, so there is nothing to take out.
-        findings.publish("k", "/work/b.rs", FindingEncoding::Utf16, vec![]).unwrap();
+        findings
+            .publish("k", "/work/b.rs", FindingEncoding::Utf16, vec![])
+            .unwrap();
         assert!(findings.take().is_none());
     }
 
     #[test]
     fn withdrawing_a_key_discards_what_was_waiting_for_it() {
         let mut findings = Findings::default();
-        findings.publish("k", FILE, FindingEncoding::Utf8, vec![finding("x")]).unwrap();
-        findings.publish("other", FILE, FindingEncoding::Utf8, vec![finding("y")]).unwrap();
+        findings
+            .publish("k", FILE, FindingEncoding::Utf8, vec![finding("x")])
+            .unwrap();
+        findings
+            .publish("other", FILE, FindingEncoding::Utf8, vec![finding("y")])
+            .unwrap();
         findings.withdraw("k").unwrap();
-        findings.publish("k", "/work/c.rs", FindingEncoding::Utf8, vec![finding("z")]).unwrap();
+        findings
+            .publish("k", "/work/c.rs", FindingEncoding::Utf8, vec![finding("z")])
+            .unwrap();
         let taken = findings.take().unwrap();
         assert_eq!(taken.withdrawn, ["k"]);
-        let paths = taken.files.iter().map(|f| (f.key.as_str(), f.path.as_str())).collect::<Vec<_>>();
+        let paths = taken
+            .files
+            .iter()
+            .map(|f| (f.key.as_str(), f.path.as_str()))
+            .collect::<Vec<_>>();
         assert_eq!(paths, [("k", "/work/c.rs"), ("other", FILE)]);
     }
 
     #[test]
     fn refused_publications_change_nothing() {
         let mut findings = Findings::default();
-        assert!(findings.publish("", FILE, FindingEncoding::Utf8, vec![]).is_err());
-        assert!(findings.publish("k", "relative.rs", FindingEncoding::Utf8, vec![finding("x")]).is_err());
-        assert!(findings.publish("k", FILE, FindingEncoding::Utf8, vec![finding(&"x".repeat(MAX_MESSAGE + 1))]).is_err());
+        assert!(
+            findings
+                .publish("", FILE, FindingEncoding::Utf8, vec![])
+                .is_err()
+        );
+        assert!(
+            findings
+                .publish(
+                    "k",
+                    "relative.rs",
+                    FindingEncoding::Utf8,
+                    vec![finding("x")]
+                )
+                .is_err()
+        );
+        assert!(
+            findings
+                .publish(
+                    "k",
+                    FILE,
+                    FindingEncoding::Utf8,
+                    vec![finding(&"x".repeat(MAX_MESSAGE + 1))]
+                )
+                .is_err()
+        );
         let mut bad = finding("x");
         bad.severity = 9;
-        assert!(findings.publish("k", FILE, FindingEncoding::Utf8, vec![bad]).is_err());
+        assert!(
+            findings
+                .publish("k", FILE, FindingEncoding::Utf8, vec![bad])
+                .is_err()
+        );
         let many = (0..=MAX_PER_FILE).map(|_| finding("x")).collect();
-        assert!(findings.publish("k", FILE, FindingEncoding::Utf8, many).is_err());
+        assert!(
+            findings
+                .publish("k", FILE, FindingEncoding::Utf8, many)
+                .is_err()
+        );
         assert!(!findings.dirty());
     }
 
@@ -207,22 +272,49 @@ mod tests {
         let mut findings = Findings::default();
         for n in 0..MAX_FILES {
             findings
-                .publish("k", &format!("/w/{n}.rs"), FindingEncoding::Utf8, vec![finding("x")])
+                .publish(
+                    "k",
+                    &format!("/w/{n}.rs"),
+                    FindingEncoding::Utf8,
+                    vec![finding("x")],
+                )
                 .unwrap();
         }
-        assert!(findings.publish("k", "/w/extra.rs", FindingEncoding::Utf8, vec![finding("x")]).is_err());
+        assert!(
+            findings
+                .publish(
+                    "k",
+                    "/w/extra.rs",
+                    FindingEncoding::Utf8,
+                    vec![finding("x")]
+                )
+                .is_err()
+        );
         // A file already held may still be replaced.
-        findings.publish("k", "/w/0.rs", FindingEncoding::Utf8, vec![finding("y")]).unwrap();
+        findings
+            .publish("k", "/w/0.rs", FindingEncoding::Utf8, vec![finding("y")])
+            .unwrap();
 
         let mut findings = Findings::default();
         for n in 0..(MAX_TOTAL / MAX_PER_FILE) {
             findings
-                .publish("k", &format!("/w/{n}.rs"), FindingEncoding::Utf8, (0..MAX_PER_FILE).map(|_| finding("x")).collect())
+                .publish(
+                    "k",
+                    &format!("/w/{n}.rs"),
+                    FindingEncoding::Utf8,
+                    (0..MAX_PER_FILE).map(|_| finding("x")).collect(),
+                )
                 .unwrap();
         }
-        assert!(findings.publish("k", "/w/over.rs", FindingEncoding::Utf8, vec![finding("x")]).is_err());
+        assert!(
+            findings
+                .publish("k", "/w/over.rs", FindingEncoding::Utf8, vec![finding("x")])
+                .is_err()
+        );
         findings.withdraw("k").unwrap();
-        findings.publish("k", "/w/over.rs", FindingEncoding::Utf8, vec![finding("x")]).unwrap();
+        findings
+            .publish("k", "/w/over.rs", FindingEncoding::Utf8, vec![finding("x")])
+            .unwrap();
     }
 
     #[test]

@@ -1236,7 +1236,12 @@ fn findings_in_files_that_are_not_open_are_placed_in_the_services_own_units() {
     use crate::features::language_service::diagnostics::Severity;
     use crate::features::providers::PositionEncoding;
     let mut f = activated("findings");
-    let generation = f.service.package("example.tools").unwrap().lifecycle.generation();
+    let generation = f
+        .service
+        .package("example.tools")
+        .unwrap()
+        .lifecycle
+        .generation();
     let effects = f.service.handle_event(
         &mut f.app,
         Event::Findings {
@@ -1257,7 +1262,12 @@ fn findings_in_files_that_are_not_open_are_placed_in_the_services_own_units() {
 #[test]
 fn findings_from_a_stale_generation_are_ignored() {
     let mut f = activated("findings-stale");
-    let generation = f.service.package("example.tools").unwrap().lifecycle.generation();
+    let generation = f
+        .service
+        .package("example.tools")
+        .unwrap()
+        .lifecycle
+        .generation();
     let effects = f.service.handle_event(
         &mut f.app,
         Event::Findings {
@@ -1272,7 +1282,12 @@ fn findings_from_a_stale_generation_are_ignored() {
 #[test]
 fn a_withdrawn_key_clears_its_source_and_stopping_clears_all_of_them() {
     let mut f = activated("findings-withdraw");
-    let generation = f.service.package("example.tools").unwrap().lifecycle.generation();
+    let generation = f
+        .service
+        .package("example.tools")
+        .unwrap()
+        .lifecycle
+        .generation();
     let effects = f.service.handle_event(
         &mut f.app,
         Event::Findings {
@@ -3156,7 +3171,11 @@ fn saving_a_file_of_another_language_does_not_wake_a_package_for_one_language() 
     let effects = f.service.document_saved(&f.app, saved);
     assert!(effects.is_empty(), "nothing is loaded or sent");
     assert_eq!(
-        f.service.package("example.tools").unwrap().lifecycle.state(),
+        f.service
+            .package("example.tools")
+            .unwrap()
+            .lifecycle
+            .state(),
         State::Dormant
     );
 }

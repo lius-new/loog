@@ -230,7 +230,9 @@ impl LanguageServices {
         }
         by_file
             .into_values()
-            .filter_map(|(path, items)| crate::features::problems::closed_file_problems(path, &items))
+            .filter_map(|(path, items)| {
+                crate::features::problems::closed_file_problems(path, &items)
+            })
             .collect()
     }
 

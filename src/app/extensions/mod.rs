@@ -2459,7 +2459,8 @@ impl ExtensionService {
         if dropped > 0
             && let Some(package) = self.packages.get_mut(id)
         {
-            let note = format!("{dropped} entr(ies) of an answer could not be placed and were dropped");
+            let note =
+                format!("{dropped} entr(ies) of an answer could not be placed and were dropped");
             crate::features::output::extension_log(id, crate::features::output::Level::Warn, &note);
             package.logs.push((1, note));
         }

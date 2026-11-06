@@ -221,7 +221,12 @@ mod tests {
                     // blended with its neighbours at any scale, and with the strip's own
                     // background just above and below it.
                     let bgra = |color: lgui::prelude::Color| {
-                        [color.0 as u8, (color.0 >> 8) as u8, (color.0 >> 16) as u8, 255]
+                        [
+                            color.0 as u8,
+                            (color.0 >> 8) as u8,
+                            (color.0 >> 16) as u8,
+                            255,
+                        ]
                     };
                     let pixel = |x: i32, y: i32| {
                         let offset = (y as usize * physical.width() as usize + x as usize) * 4;

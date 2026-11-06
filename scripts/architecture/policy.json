@@ -76,6 +76,10 @@
       "owner": "ui/keymap_binding KeymapUiState",
       "remove_in": "composition"
     },
+    "log_panel": {
+      "owner": "app/log_panel: LogPanel (Output channel, level, find and scroll; Problems filters, folds and scroll; the scrollbar's hover and drag); channels live in features/output and findings in features/problems",
+      "remove_in": "composition"
+    },
     "palette": {
       "owner": "app/palette: PaletteState (query, selection, focus restoration and recent commands); search rules live in features/palette",
       "remove_in": "composition"
@@ -323,6 +327,14 @@
       "migrated_in": "R5.2",
       "from": "tree_hovered_path"
     },
+    "selection": {
+      "owner": "ui/explorer/state",
+      "migrated_in": "multi-select"
+    },
+    "selection_anchor": {
+      "owner": "ui/explorer/state",
+      "migrated_in": "multi-select"
+    },
     "menu": {
       "owner": "ui/explorer/state",
       "migrated_in": "R5.2",
@@ -449,6 +461,14 @@
       "owner": "ui/git/state",
       "migrated_in": "R6.3",
       "from": "git_sidebar_hovered"
+    },
+    "selection": {
+      "owner": "ui/git/state",
+      "migrated_in": "multi-select"
+    },
+    "selection_anchor": {
+      "owner": "ui/git/state",
+      "migrated_in": "multi-select"
     },
     "hover": {
       "owner": "ui/git/state",

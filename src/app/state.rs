@@ -536,7 +536,9 @@ impl AppState {
                     self.git.ui.select_panel_tab(crate::ui::git::panel::HISTORY);
                 }
             }
-            Action::ToggleOutput => self.toggle_log_panel(crate::ui::terminal::state::PanelTab::Output),
+            Action::ToggleOutput => {
+                self.toggle_log_panel(crate::ui::terminal::state::PanelTab::Output)
+            }
             Action::ToggleProblemsPanel => {
                 self.toggle_log_panel(crate::ui::terminal::state::PanelTab::Problems)
             }

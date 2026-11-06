@@ -47,7 +47,11 @@ fn files_that_are_not_open_keep_their_findings_per_source_and_yield_to_open_ones
 #[test]
 fn clearing_an_external_source_takes_its_closed_findings_too() {
     let services = LanguageServices::new();
-    services.publish_findings(7, PathBuf::from("/w/a.rs"), vec![closed(1, Severity::Error)]);
+    services.publish_findings(
+        7,
+        PathBuf::from("/w/a.rs"),
+        vec![closed(1, Severity::Error)],
+    );
     services.clear_external(7);
     assert!(services.closed_problems(&Default::default()).is_empty());
 }

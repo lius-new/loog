@@ -26,7 +26,13 @@ pub(crate) enum Level {
 }
 
 impl Level {
-    pub const ALL: [Self; 5] = [Self::Trace, Self::Debug, Self::Info, Self::Warn, Self::Error];
+    pub const ALL: [Self; 5] = [
+        Self::Trace,
+        Self::Debug,
+        Self::Info,
+        Self::Warn,
+        Self::Error,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             Self::Trace => "TRACE",
@@ -453,7 +459,10 @@ mod tests {
             ["row 3", "row 4", "row 5", "row 6"]
         );
         assert_eq!(hub.window(&id, Level::Info, "ROW 9", 0, 5).0, 1);
-        assert_eq!(hub.window(&ChannelId::new("none"), Level::Info, "", 0, 5).0, 0);
+        assert_eq!(
+            hub.window(&ChannelId::new("none"), Level::Info, "", 0, 5).0,
+            0
+        );
     }
 
     #[test]

@@ -9,10 +9,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use lgui::core::{
-    CursorIcon, EventPolicy, IconStyle, LogicalKey, NamedKey, PointerButton, SemanticRole, Semantics, UiElement, UiEventKind,
-    UiEventPayload, UiFocusHandle, UiId, WheelUnit, clip,
+    CursorIcon, EventPolicy, IconStyle, LogicalKey, NamedKey, PointerButton, SemanticRole,
+    Semantics, UiElement, UiEventKind, UiEventPayload, UiFocusHandle, UiId, WheelUnit, clip,
 };
-use lgui::prelude::{Color, Element, ShadowStyle, TextAlign, UiRect, VisualStyle, group, panel, text};
+use lgui::prelude::{
+    Color, Element, ShadowStyle, TextAlign, UiRect, VisualStyle, group, panel, text,
+};
 
 use lgui::ApplicationHandle;
 
@@ -153,7 +155,8 @@ fn severity_icon(severity: Severity) -> &'static str {
 pub(crate) fn readable_path(roots: &[PathBuf], path: &std::path::Path) -> String {
     let plain = |p: &std::path::Path| {
         let text = p.to_string_lossy().replace('\\', "/");
-        text.strip_prefix("//?/").map_or(text.clone(), str::to_owned)
+        text.strip_prefix("//?/")
+            .map_or(text.clone(), str::to_owned)
     };
     let full = plain(path);
     for root in roots {
@@ -181,7 +184,10 @@ pub(crate) fn collect(state: &AppContext) -> Vec<FileProblems> {
         if !doc.is_text() || (only_current && current.as_deref() != Some(doc.meta.path.as_path())) {
             continue;
         }
-        let Some(found) = services.results(&doc.meta.path, &doc.stamp(*id)).diagnostics else {
+        let Some(found) = services
+            .results(&doc.meta.path, &doc.stamp(*id))
+            .diagnostics
+        else {
             continue;
         };
         if found.is_empty() {
@@ -236,8 +242,17 @@ pub(crate) fn error_count(state: &AppContext) -> usize {
         .documents
         .iter()
         .filter(|(_, doc)| doc.is_text())
-        .filter_map(|(id, doc)| services.results(&doc.meta.path, &doc.stamp(*id)).diagnostics)
-        .map(|found| found.iter().filter(|d| d.severity == Severity::Error).count())
+        .filter_map(|(id, doc)| {
+            services
+                .results(&doc.meta.path, &doc.stamp(*id))
+                .diagnostics
+        })
+        .map(|found| {
+            found
+                .iter()
+                .filter(|d| d.severity == Severity::Error)
+                .count()
+        })
         .sum::<usize>();
     open + services.closed_error_count(&open_files(&app))
 }
@@ -300,8 +315,14 @@ pub(crate) fn render(
     let (binding, _, _) = super::terminal_view::binding(&state, &terminal_tabs, &application);
     let panel_state = state.get().log_panel;
     // The dock header, as `commits_header` lays it out.
-    let bar = UiRect::new(rect.left, rect.top + 1.0, rect.right, rect.top + theme::TABS_H);
-    let (content, toolbar): (Element, Box<dyn FnOnce(UiRect) -> Element>) = if tab == PanelTab::Output
+    let bar = UiRect::new(
+        rect.left,
+        rect.top + 1.0,
+        rect.right,
+        rect.top + theme::TABS_H,
+    );
+    let (content, toolbar): (Element, Box<dyn FnOnce(UiRect) -> Element>) = if tab
+        == PanelTab::Output
     {
         let channels = output::hub().channels();
         let shown = panel_state.shown(&channels);
@@ -373,9 +394,18 @@ fn chip(
     .cursor(CursorIcon::Pointer)
     .semantics(Semantics::new(SemanticRole::Button).name(label.clone()))
     .on_click(click);
-    let label_right = if chevron { rect.right - 18.0 } else { rect.right - 6.0 };
+    let label_right = if chevron {
+        rect.right - 18.0
+    } else {
+        rect.right - 6.0
+    };
     button = button.child(text(
-        UiRect::new(rect.left + 8.0, rect.top, label_right.max(rect.left + 8.0), rect.bottom),
+        UiRect::new(
+            rect.left + 8.0,
+            rect.top,
+            label_right.max(rect.left + 8.0),
+            rect.bottom,
+        ),
         label,
         theme::sans(color, theme::UI_SIZE),
     ));
@@ -550,7 +580,12 @@ fn output_body(
     let backdrop = panel(body, VisualStyle::filled(c.bg)).key("log-output-body");
     let Some(id) = shown else {
         return backdrop.child(text(
-            UiRect::new(body.left + 12.0, body.top + 8.0, body.right - 12.0, body.top + 28.0),
+            UiRect::new(
+                body.left + 12.0,
+                body.top + 8.0,
+                body.right - 12.0,
+                body.top + 28.0,
+            ),
             "No output yet",
             theme::sans(c.text_faint, theme::UI_SIZE),
         ));
@@ -562,13 +597,7 @@ fn output_body(
     let (scroll, max_scroll) =
         scroll_extent(total, body.height(), panel_state.scroll, panel_state.follow);
     let first = ((scroll - PAD_Y) / ROW_H).floor().max(0.0) as usize;
-    let (_, lines) = output::hub().window(
-        &id,
-        level,
-        panel_state.needle(),
-        first,
-        visible,
-    );
+    let (_, lines) = output::hub().window(&id, level, panel_state.needle(), first, visible);
 
     let time_w = if panel_state.show_time { 74.0 } else { 0.0 };
     let level_w = 44.0;
@@ -590,7 +619,11 @@ fn output_body(
             theme::mono(level_color(line.level), theme::SMALL),
         ));
         x += level_w + 6.0;
-        let message = if line.level <= Level::Debug { c.text_muted } else { c.text };
+        let message = if line.level <= Level::Debug {
+            c.text_muted
+        } else {
+            c.text
+        };
         content = content.child(text(
             // The scrollbar draws over the text's right edge and takes no room.
             UiRect::new(x, top, body.right - 6.0, top + ROW_H),
@@ -617,7 +650,12 @@ fn output_body(
         });
     if total == 0 {
         viewport = viewport.child(text(
-            UiRect::new(body.left + 12.0, body.top + 8.0, body.right - 12.0, body.top + 28.0),
+            UiRect::new(
+                body.left + 12.0,
+                body.top + 8.0,
+                body.right - 12.0,
+                body.top + 28.0,
+            ),
             if panel_state.needle().is_empty() {
                 "No lines at this level"
             } else {
@@ -687,7 +725,11 @@ fn scrollbar(
         scroll,
     );
     let travel = track.height() - geometry.length;
-    let alpha = if panel_state.hovered || dragging { 0xb8 } else { 0x68 };
+    let alpha = if panel_state.hovered || dragging {
+        0xb8
+    } else {
+        0x68
+    };
     // The thumb stays in the tree while it is dragged, even if the list shrinks
     // under it; an empty rectangle paints nothing.
     let thumb_rect = if max_scroll <= 0.0 {
@@ -787,7 +829,12 @@ pub(crate) fn track_hover(root: Element, state: &AppContext, body: Option<UiRect
     })
 }
 
-fn find_box(body: UiRect, state: &AppContext, total: usize, editor_focus: UiFocusHandle) -> Element {
+fn find_box(
+    body: UiRect,
+    state: &AppContext,
+    total: usize,
+    editor_focus: UiFocusHandle,
+) -> Element {
     let c = theme::c();
     let width = 300.0_f32.min((body.width() - 28.0).max(0.0));
     let card = UiRect::new(
@@ -798,11 +845,26 @@ fn find_box(body: UiRect, state: &AppContext, total: usize, editor_focus: UiFocu
     );
     let close_state = state.clone();
     let close_focus = editor_focus.clone();
-    let close_rect = UiRect::new(card.right - 26.0, card.top + 4.0, card.right - 4.0, card.bottom - 4.0);
-    let count_rect = UiRect::new(close_rect.left - 72.0, card.top, close_rect.left - 2.0, card.bottom);
+    let close_rect = UiRect::new(
+        card.right - 26.0,
+        card.top + 4.0,
+        card.right - 4.0,
+        card.bottom - 4.0,
+    );
+    let count_rect = UiRect::new(
+        close_rect.left - 72.0,
+        card.top,
+        close_rect.left - 2.0,
+        card.bottom,
+    );
     let mut count_style = theme::sans(c.text_muted, theme::SMALL + 1.0);
     count_style.align = TextAlign::Right;
-    let field = UiRect::new(card.left + 8.0, card.top + 3.0, count_rect.left - 4.0, card.bottom - 3.0);
+    let field = UiRect::new(
+        card.left + 8.0,
+        card.top + 3.0,
+        count_rect.left - 4.0,
+        card.bottom - 3.0,
+    );
     let input_state = state.clone();
     let submit_state = state.clone();
     let cancel_state = state.clone();
@@ -931,7 +993,8 @@ fn severity_toggle(
     .on_click(click)
     .child(
         Element::new(move |cx| {
-            UiElement::icon(cx.id, theme::icon_rect(icon_slot), icon).icon_style(IconStyle::new(color))
+            UiElement::icon(cx.id, theme::icon_rect(icon_slot), icon)
+                .icon_style(IconStyle::new(color))
         })
         .key(format!("{key}-icon")),
     )
@@ -958,7 +1021,10 @@ fn digits_centered(rect: UiRect, value: &str, style: lgui::prelude::TextStyle) -
     // The baseline the layout reports lies a little below where the glyphs are
     // painted; the rendered pixels of a 10px count were measured one pixel high
     // without this (see `the_count_is_painted_on_the_togglers_middle_line`).
-    rect.translate(0.0, wanted - baseline + DIGIT_BASELINE_BIAS * style.height / 10.0)
+    rect.translate(
+        0.0,
+        wanted - baseline + DIGIT_BASELINE_BIAS * style.height / 10.0,
+    )
 }
 
 fn problems_toolbar(
@@ -979,10 +1045,38 @@ fn problems_toolbar(
     // tools, rather than labelled chips on the left: right to left, so the order on
     // screen is errors, warnings, information.
     let mut right = tools.slots[0].left - 6.0;
-    let kinds: [(&str, &'static str, &'static str, usize, Color, fn(&mut Filter) -> &mut bool); 3] = [
-        ("Information", "problems-infos", "info", counts.infos, c.accent, |f| &mut f.infos),
-        ("Warnings", "problems-warnings", "warning", counts.warnings, c.warning, |f| &mut f.warnings),
-        ("Errors", "problems-errors", "problem-error", counts.errors, c.error_text, |f| &mut f.errors),
+    let kinds: [(
+        &str,
+        &'static str,
+        &'static str,
+        usize,
+        Color,
+        fn(&mut Filter) -> &mut bool,
+    ); 3] = [
+        (
+            "Information",
+            "problems-infos",
+            "info",
+            counts.infos,
+            c.accent,
+            |f| &mut f.infos,
+        ),
+        (
+            "Warnings",
+            "problems-warnings",
+            "warning",
+            counts.warnings,
+            c.warning,
+            |f| &mut f.warnings,
+        ),
+        (
+            "Errors",
+            "problems-errors",
+            "problem-error",
+            counts.errors,
+            c.error_text,
+            |f| &mut f.errors,
+        ),
     ];
     for (name, key, icon, count, color, field) in kinds {
         let mut filter = panel_state.severities;
@@ -1039,7 +1133,12 @@ fn problems_body(
     let backdrop = panel(body, VisualStyle::filled(c.bg)).key("log-problems-body");
     if rows.is_empty() {
         return backdrop.child(text(
-            UiRect::new(body.left + 12.0, body.top + 8.0, body.right - 12.0, body.top + 28.0),
+            UiRect::new(
+                body.left + 12.0,
+                body.top + 8.0,
+                body.right - 12.0,
+                body.top + 28.0,
+            ),
             if groups.is_empty() {
                 "No problems in the open files"
             } else {
@@ -1048,7 +1147,12 @@ fn problems_body(
             theme::sans(c.text_faint, theme::UI_SIZE),
         ));
     }
-    let (scroll, max_scroll) = scroll_extent(rows.len(), body.height(), panel_state.problems_scroll, false);
+    let (scroll, max_scroll) = scroll_extent(
+        rows.len(),
+        body.height(),
+        panel_state.problems_scroll,
+        false,
+    );
     let first = ((scroll - PAD_Y) / ROW_H).floor().max(0.0) as usize;
     let last = (first + (body.height() / ROW_H).ceil() as usize + 2).min(rows.len());
     let mut content = clip(body, 0.0, -scroll);
@@ -1057,8 +1161,14 @@ fn problems_body(
         let top = body.top + PAD_Y + index as f32 * ROW_H;
         let rect = UiRect::new(body.left, top, body.right, top + ROW_H);
         content = content.child(match row {
-            Row::File { path, count, collapsed } => {
-                let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            Row::File {
+                path,
+                count,
+                collapsed,
+            } => {
+                let name = path
+                    .file_name()
+                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
                 // The folder the file is in, relative to the open folder.
                 let relative = readable_path(&roots, path);
                 let dir = relative
@@ -1072,7 +1182,11 @@ fn problems_body(
                     format!("problems-file-{index}"),
                     rect,
                     (
-                        if *collapsed { "chevron-right" } else { "chevron-down" },
+                        if *collapsed {
+                            "chevron-right"
+                        } else {
+                            "chevron-down"
+                        },
                         c.text_soft,
                     ),
                     &name,
@@ -1095,7 +1209,12 @@ fn problems_body(
                 let jump = state.clone();
                 let focus = editor_focus.clone();
                 let (path, offset, span) = (path.clone(), problem.offset, problem.span);
-                let mut message = problem.message.lines().next().unwrap_or_default().to_owned();
+                let mut message = problem
+                    .message
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned();
                 if let Some(source) = &problem.source {
                     message = match &problem.code {
                         Some(code) => format!("{message}  {source}({code})"),
@@ -1105,7 +1224,10 @@ fn problems_body(
                 data_row(
                     format!("problems-item-{index}"),
                     rect,
-                    (severity_icon(problem.severity), severity_color(problem.severity)),
+                    (
+                        severity_icon(problem.severity),
+                        severity_color(problem.severity),
+                    ),
                     &message,
                     None,
                     format!("{}:{}", problem.line, problem.column),
@@ -1202,7 +1324,12 @@ fn data_row(
     };
     let (glyph, glyph_color) = icon;
     let (icon_rect, glyph) = (
-        theme::icon_rect(UiRect::new(rect.left + 10.0, rect.top, rect.left + 28.0, rect.bottom)),
+        theme::icon_rect(UiRect::new(
+            rect.left + 10.0,
+            rect.top,
+            rect.left + 28.0,
+            rect.bottom,
+        )),
         glyph,
     );
     row = row
@@ -1231,7 +1358,12 @@ fn data_row(
     note_style.align = TextAlign::Right;
     row.child(text(
         // Over the scrollbar's lane: it overlays the row and takes no room.
-        UiRect::new(rect.right - note_w - 8.0, rect.top, rect.right - 8.0, rect.bottom),
+        UiRect::new(
+            rect.right - note_w - 8.0,
+            rect.top,
+            rect.right - 8.0,
+            rect.bottom,
+        ),
         note,
         note_style,
     ))
@@ -1379,7 +1511,9 @@ pub(crate) fn menu_overlay(viewport: UiRect, state: &AppContext, narrow: bool) -
         _ => anchor.0 - width,
     }
     .clamp(viewport.left, (viewport.right - width).max(viewport.left));
-    let top = anchor.1.clamp(viewport.top, (viewport.bottom - height).max(viewport.top));
+    let top = anchor
+        .1
+        .clamp(viewport.top, (viewport.bottom - height).max(viewport.top));
     let card = UiRect::new(left, top, left + width, top + height);
     let dismiss = state.clone();
     let escape = state.clone();
@@ -1414,12 +1548,13 @@ pub(crate) fn menu_overlay(viewport: UiRect, state: &AppContext, narrow: bool) -
     );
     for (index, item) in list.into_iter().enumerate() {
         let row_top = card.top + MENU_PAD + MENU_ITEM_H * index as f32;
-        let row = UiRect::new(card.left + 1.0, row_top, card.right - 1.0, row_top + MENU_ITEM_H);
-        let label = format!(
-            "{}{}",
-            if item.checked { "✓ " } else { "  " },
-            item.label
+        let row = UiRect::new(
+            card.left + 1.0,
+            row_top,
+            card.right - 1.0,
+            row_top + MENU_ITEM_H,
         );
+        let label = format!("{}{}", if item.checked { "✓ " } else { "  " }, item.label);
         if item.heading {
             surface = surface.child(text(
                 UiRect::new(row.left + 10.0, row.top, row.right - 10.0, row.bottom),
@@ -1588,7 +1723,12 @@ mod tests {
     #[test]
     fn both_panels_render_at_wide_and_narrow_sizes() {
         output::app_log(Level::Error, "render smoke");
-        for (width, height) in [(900.0, 260.0), (520.0, 200.0), (300.0, 120.0), (900.0, 30.0)] {
+        for (width, height) in [
+            (900.0, 260.0),
+            (520.0, 200.0),
+            (300.0, 120.0),
+            (900.0, 30.0),
+        ] {
             for tab in [PanelTab::Output, PanelTab::Problems] {
                 let names = render_names(tab, width, height, false);
                 assert!(
@@ -1602,7 +1742,12 @@ mod tests {
     #[test]
     fn output_header_keeps_every_tool_when_roomy_and_folds_some_when_narrow() {
         let roomy = render_names(PanelTab::Output, 900.0, 260.0, false);
-        for tool in ["Lowest level shown", "Clear this channel", "Filter lines", "More actions"] {
+        for tool in [
+            "Lowest level shown",
+            "Clear this channel",
+            "Filter lines",
+            "More actions",
+        ] {
             assert!(roomy.iter().any(|n| n == tool), "missing {tool}: {roomy:?}");
         }
         let narrow = render_names(PanelTab::Output, 520.0, 260.0, false);
@@ -1684,9 +1829,11 @@ mod tests {
         let mut surface = lgui::render_skia::SkiaSoftwareSurface::new(4 * 1024 * 1024);
         let dirty = [PhysicalRect::new(0, 0, physical.right, physical.bottom)];
         let frame = FrameInfo::new(physical, &dirty, scale, FrameReason::SceneChange, true);
-        lgui::assets::backend::with_render_resources(&context, lgui::RenderResources::new(), || {
-            surface.draw(&session.tree().scene().project_to_physical(scale), &frame)
-        })
+        lgui::assets::backend::with_render_resources(
+            &context,
+            lgui::RenderResources::new(),
+            || surface.draw(&session.tree().scene().project_to_physical(scale), &frame),
+        )
         .unwrap();
         let width = physical.width() as usize;
         let pixel = |x: u32, y: u32| {
@@ -1714,7 +1861,10 @@ mod tests {
                 columns.push(x);
             }
         }
-        let ink = (*columns.first().unwrap_or(&0), *columns.last().unwrap_or(&0));
+        let ink = (
+            *columns.first().unwrap_or(&0),
+            *columns.last().unwrap_or(&0),
+        );
         (toggle, digits, ink)
     }
 
@@ -1741,14 +1891,21 @@ mod tests {
             lgui::render_skia::skia_text_system_handle(),
         );
         let style = theme::mono(theme::c().text, theme::SMALL);
-        assert_eq!(style.height, theme::SMALL, "the style's height is the font size");
+        assert_eq!(
+            style.height,
+            theme::SMALL,
+            "the style's height is the font size"
+        );
         let rect = UiRect::new(10.0, 0.0, 60.0, 22.0);
         let moved = digits_centered(rect, "12", style);
         let baseline = shaping::layout(&TextLayoutRequest::for_style("12", moved, &style))
             .and_then(|layout| layout.lines().first().map(|line| line.baseline))
             .expect("the text lays out");
         let expected = 11.0 + theme::SMALL * 0.72 / 2.0 + DIGIT_BASELINE_BIAS;
-        assert!((baseline - expected).abs() < 0.01, "{baseline} vs {expected}");
+        assert!(
+            (baseline - expected).abs() < 0.01,
+            "{baseline} vs {expected}"
+        );
         // Only vertical movement: the digits keep their column.
         assert_eq!((moved.left, moved.right), (rect.left, rect.right));
     }
@@ -1765,13 +1922,19 @@ mod tests {
     fn paths_lose_the_windows_prefix_and_are_relative_to_the_open_folder() {
         let roots = vec![PathBuf::from(r"D:\Documents\cprojects\loom")];
         assert_eq!(
-            readable_path(&roots, std::path::Path::new(r"\\?\D:\Documents\cprojects\loom\src\main.rs")),
+            readable_path(
+                &roots,
+                std::path::Path::new(r"\\?\D:\Documents\cprojects\loom\src\main.rs")
+            ),
             "src/main.rs"
         );
         // A verbatim root matches a plain path too.
         let verbatim = vec![PathBuf::from(r"\\?\D:\Documents\cprojects\loom")];
         assert_eq!(
-            readable_path(&verbatim, std::path::Path::new(r"D:\Documents\cprojects\loom\a.rs")),
+            readable_path(
+                &verbatim,
+                std::path::Path::new(r"D:\Documents\cprojects\loom\a.rs")
+            ),
             "a.rs"
         );
         // Outside every folder: the whole path, cleaned.
@@ -1781,7 +1944,10 @@ mod tests {
         );
         // A sibling folder with the same prefix is not inside the root.
         assert_eq!(
-            readable_path(&roots, std::path::Path::new(r"D:\Documents\cprojects\loom2\c.rs")),
+            readable_path(
+                &roots,
+                std::path::Path::new(r"D:\Documents\cprojects\loom2\c.rs")
+            ),
             "D:/Documents/cprojects/loom2/c.rs"
         );
     }
@@ -1969,11 +2135,20 @@ mod tests {
             info("proc", output::Group::Process),
         ];
         let mut panel = LogPanel::default();
-        assert_eq!(panel.level(&channels, Some(&ChannelId::new("ext"))), Level::Info);
-        assert_eq!(panel.level(&channels, Some(&ChannelId::new("proc"))), Level::Trace);
+        assert_eq!(
+            panel.level(&channels, Some(&ChannelId::new("ext"))),
+            Level::Info
+        );
+        assert_eq!(
+            panel.level(&channels, Some(&ChannelId::new("proc"))),
+            Level::Trace
+        );
         assert_eq!(panel.level(&channels, None), Level::Info);
         panel.min_level = Some(Level::Warn);
-        assert_eq!(panel.level(&channels, Some(&ChannelId::new("proc"))), Level::Warn);
+        assert_eq!(
+            panel.level(&channels, Some(&ChannelId::new("proc"))),
+            Level::Warn
+        );
     }
 
     #[test]

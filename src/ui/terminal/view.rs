@@ -1169,8 +1169,7 @@ pub(crate) fn render_terminal_tabs(
             links.push(
                 Element::new(move |cx| {
                     let scale = cx.context.scale();
-                    let middle =
-                        scale.physical_value((block_rect.top + block_rect.bottom) / 2.0);
+                    let middle = scale.physical_value((block_rect.top + block_rect.bottom) / 2.0);
                     let line = scale.logical_rect(PhysicalRect::new(
                         scale.physical_value(block_rect.right),
                         middle,
@@ -1285,7 +1284,9 @@ pub(crate) fn render_terminal_tabs(
                     UiElement::panel(
                         UiId::owned(format!("terminal-tab-background-{tab_id}")),
                         scale.logical_rect(scale.physical_rect(block_rect)),
-                        VisualStyle::filled(fill).alpha(alpha).radius(TAB_BLOCK_RADIUS),
+                        VisualStyle::filled(fill)
+                            .alpha(alpha)
+                            .radius(TAB_BLOCK_RADIUS),
                     )
                     .hit_rect(UiRect::new(
                         block_rect.left,
@@ -1471,7 +1472,13 @@ pub(crate) fn render_terminal_tabs(
                 move || {
                     state.ui.update(|ui| {
                         let current = ui.tab_scroll(strip_key);
-                        let next = strip::reveal(current, &layout, active_index, TAB_STRIP_PAD, TAB_STRIP_GAP);
+                        let next = strip::reveal(
+                            current,
+                            &layout,
+                            active_index,
+                            TAB_STRIP_PAD,
+                            TAB_STRIP_GAP,
+                        );
                         ui.set_tab_scroll(strip_key, next);
                     });
                 },

@@ -64,7 +64,11 @@ pub(crate) fn closed_file_problems(path: PathBuf, findings: &[Finding]) -> Optio
 pub(crate) fn file_key(path: &Path) -> String {
     let text = path.to_string_lossy().replace('\\', "/");
     let text = text.strip_prefix("//?/").unwrap_or(&text).to_owned();
-    if cfg!(windows) { text.to_lowercase() } else { text }
+    if cfg!(windows) {
+        text.to_lowercase()
+    } else {
+        text
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -173,11 +177,7 @@ pub(crate) fn order(groups: &mut [FileProblems]) {
             .filter(|p| p.severity == Severity::Error)
             .count()
     };
-    groups.sort_by(|a, b| {
-        errors(b)
-            .cmp(&errors(a))
-            .then_with(|| a.path.cmp(&b.path))
-    });
+    groups.sort_by(|a, b| errors(b).cmp(&errors(a)).then_with(|| a.path.cmp(&b.path)));
 }
 
 /// The same findings seen through a filter. Files left empty disappear.
@@ -207,7 +207,10 @@ static ERRORS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(
 /// How many errors the open documents have, for the tab's badge. Written once
 /// per frame by the shell; read by the dock's header.
 pub(crate) fn set_error_count(count: usize) {
-    ERRORS.store(count.min(u32::MAX as usize) as u32, std::sync::atomic::Ordering::Relaxed);
+    ERRORS.store(
+        count.min(u32::MAX as usize) as u32,
+        std::sync::atomic::Ordering::Relaxed,
+    );
 }
 
 pub(crate) fn error_count() -> u32 {
@@ -255,7 +258,11 @@ mod tests {
             ],
         )
         .unwrap();
-        let messages = file.items.iter().map(|p| p.message.as_str()).collect::<Vec<_>>();
+        let messages = file
+            .items
+            .iter()
+            .map(|p| p.message.as_str())
+            .collect::<Vec<_>>();
         assert_eq!(messages, ["early error", "late error", "w"]);
         assert_eq!((file.items[1].line, file.items[1].column), (2, 1));
     }
@@ -278,10 +285,18 @@ mod tests {
         };
         let file = closed_file_problems(
             "b.rs".into(),
-            &[finding(9, Severity::Warning), finding(20, Severity::Error), finding(2, Severity::Error)],
+            &[
+                finding(9, Severity::Warning),
+                finding(20, Severity::Error),
+                finding(2, Severity::Error),
+            ],
         )
         .unwrap();
-        let places = file.items.iter().map(|p| (p.line, p.column)).collect::<Vec<_>>();
+        let places = file
+            .items
+            .iter()
+            .map(|p| (p.line, p.column))
+            .collect::<Vec<_>>();
         // Errors first, then by place; lines and columns count from one.
         assert_eq!(places, [(3, 5), (21, 5), (10, 5)]);
         assert!(file.items.iter().all(|p| p.span.is_some()));

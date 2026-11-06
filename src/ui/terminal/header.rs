@@ -233,15 +233,17 @@ pub(super) fn category(
         _ => Badge::None,
     };
     let badge_text = |badge: Badge| match badge {
-        Badge::Count(n) => Some(if n > 99 { "99+".to_owned() } else { n.to_string() }),
+        Badge::Count(n) => Some(if n > 99 {
+            "99+".to_owned()
+        } else {
+            n.to_string()
+        }),
         _ => None,
     };
     let badge_w = |badge: Badge| match badge {
         Badge::None => 0.0,
         Badge::Dot => 6.0 + 6.0,
-        Badge::Count(_) => {
-            6.0 + measure(&badge_text(badge).unwrap_or_default(), theme::SMALL, 400)
-        }
+        Badge::Count(_) => 6.0 + measure(&badge_text(badge).unwrap_or_default(), theme::SMALL, 400),
     };
     // A narrow header keeps only the open tab's name; the others are icons, so
     // four tabs leave the session tabs their room.
@@ -329,7 +331,11 @@ pub(super) fn category(
         .semantics(semantics)
         .on_click(move || click(tab));
         let shows_label = labelled(tab);
-        let label_w = if shows_label { label_width(label) } else { -6.0 };
+        let label_w = if shows_label {
+            label_width(label)
+        } else {
+            -6.0
+        };
         let content_w = 14.0
             + 6.0
             + label_w
@@ -349,19 +355,17 @@ pub(super) fn category(
         // Every tab uses the selected one's weight, so choosing a tab changes
         // its colour and fill but never the width of its name.
         let label_style = theme::sans_semibold(color, size);
-        button = button
-            .child(super::view::icon(
-                id,
-                glyph,
-                UiRect::new(
-                    icon_left,
-                    slot.top + 2.0,
-                    icon_left + 14.0,
-                    slot.bottom - 2.0,
-                ),
-                color,
-            ))
-            ;
+        button = button.child(super::view::icon(
+            id,
+            glyph,
+            UiRect::new(
+                icon_left,
+                slot.top + 2.0,
+                icon_left + 14.0,
+                slot.bottom - 2.0,
+            ),
+            color,
+        ));
         if shows_label {
             button = button.child(lgui::prelude::text(label_rect, label, label_style));
         }
