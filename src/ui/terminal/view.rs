@@ -24,9 +24,7 @@ use crate::features::terminal::{TerminalRun, TerminalSize};
 use crate::ui::components::scrollbar;
 use crate::ui::editor::view::{scroll_from_thumb, thumb_geometry};
 use crate::ui::fonts;
-use crate::ui::tabs::{
-    GAP as TAB_CONTENT_GAP, PAD as TAB_PAD, TAB_GAP, TABS_PAD, TEXT_MARGIN, ellipsize, measure,
-};
+use crate::ui::tabs::{GAP as TAB_CONTENT_GAP, PAD as TAB_PAD, TEXT_MARGIN, ellipsize, measure};
 use crate::ui::terminal::layout_binding::StripDrag;
 use crate::ui::terminal::state::SelectionDrag;
 use crate::ui::theme;
@@ -39,7 +37,17 @@ const PANEL_TOOLS_MIN_W: f32 = 640.0;
 /// Status glyph at the start of a session tab, and its gap to the name.
 const GLYPH: f32 = 14.0;
 const GLYPH_GAP: f32 = 6.0;
-const SPLIT_TAB_RULE_H: f32 = 14.0;
+/// Room before the first session tab and between tabs. Each tab is a rounded
+/// block, so neighbours need space between them; a split group's members are
+/// joined by a line across that space.
+pub(crate) const TAB_STRIP_PAD: f32 = 6.0;
+pub(crate) const TAB_STRIP_GAP: f32 = 6.0;
+/// A tab's rounded background is shorter than the strip, which stays the hit
+/// area of the whole tab.
+pub(crate) const TAB_BLOCK_H: f32 = 20.0;
+pub(crate) const TAB_BLOCK_RADIUS: f32 = 5.0;
+/// Opacity of an unselected, unhovered tab's block.
+pub(crate) const TAB_BLOCK_REST_ALPHA: u8 = 110;
 const BODY_PAD_X: f32 = 12.0;
 /// The right edge is nearly flush: the overlay scrollbar draws over the text
 /// instead of reserving columns, as in the editor.
@@ -469,7 +477,6 @@ pub(crate) fn render_view(
         tab_strip,
         &tab_items,
         active_tab_id,
-        terminal_focused,
         terminal_tabs.clone(),
         state.clone(),
         map.clone(),
@@ -1076,7 +1083,6 @@ pub(crate) fn render_terminal_tabs(
     rect: UiRect,
     tabs: &[TerminalTab],
     active_id: u64,
-    region_focused: bool,
     terminal_tabs: Sessions,
     state: Binding,
     map: MapBinding,
@@ -1093,10 +1099,6 @@ pub(crate) fn render_terminal_tabs(
     }
 
     let labels = tabs.iter().map(TerminalTab::label).collect::<Vec<_>>();
-    let active_group = tabs
-        .iter()
-        .find(|tab| tab.id == active_id)
-        .map(|tab| tab.group_id);
     let close_width = measure("✕", theme::SMALL, 400);
     // A tab is as wide as its name asks, between the minimum and the maximum
     // width. The name leaves out the running program, so selecting, hovering or
@@ -1107,7 +1109,7 @@ pub(crate) fn render_terminal_tabs(
         .iter()
         .map(|tab| fixed_width + measure(&stable_name(tab), theme::UI_SIZE, 400))
         .collect::<Vec<_>>();
-    let metrics = strip::layout(rect.width(), &naturals, TABS_PAD, TAB_GAP);
+    let metrics = strip::layout(rect.width(), &naturals, TAB_STRIP_PAD, TAB_STRIP_GAP);
     let strip_key = tabs[0].id;
     let scroll = state
         .get()
@@ -1130,60 +1132,22 @@ pub(crate) fn render_terminal_tabs(
     );
     let mut tips: Vec<(UiId, UiId, UiId, Element)> = Vec::new();
     let strip_drag = {
-        let mut left = rect.left + TABS_PAD - scroll;
+        let mut left = rect.left + TAB_STRIP_PAD - scroll;
         let slots = tabs
             .iter()
             .zip(&widths)
             .map(|(tab, width)| {
                 let slot = (tab.id, left, left + width);
-                left += width + TAB_GAP;
+                left += width + TAB_STRIP_GAP;
                 slot
             })
             .collect();
         StripDrag { rect, tabs: slots }
     };
-    // A continuous group background avoids anti-aliased seams where adjacent
-    // tab rectangles meet at fractional physical pixels. Only short rules
-    // should separate members of the same split group.
-    let mut start = 0;
-    while start < tabs.len() {
-        let mut end = start + 1;
-        while end < tabs.len() && tabs[end].group_id == tabs[start].group_id {
-            end += 1;
-        }
-        if end - start > 1 {
-            let bounds = UiRect::new(
-                strip_drag.tabs[start].1,
-                rect.top,
-                strip_drag.tabs[end - 1].2,
-                rect.bottom,
-            );
-            let group_id = tabs[start].id;
-            let inverted = region_focused && active_group == Some(tabs[start].group_id);
-            strip = strip.child(
-                Element::new(move |_| {
-                    UiElement::panel(
-                        UiId::owned(format!("terminal-tab-group-{group_id}")),
-                        bounds,
-                        VisualStyle::filled(if inverted {
-                            theme::c().active_tab
-                        } else {
-                            theme::c().sidebar
-                        }),
-                    )
-                    .hit_rect(UiRect::new(
-                        bounds.left,
-                        bounds.top,
-                        bounds.left,
-                        bounds.top,
-                    ))
-                })
-                .key(format!("terminal-tab-group-{group_id}")),
-            );
-        }
-        start = end;
-    }
-    let mut left = rect.left + TABS_PAD - scroll;
+    // Lines that join the members of a split group across the gap between their
+    // rounded blocks; added after the tabs.
+    let mut links: Vec<Element> = Vec::new();
+    let mut left = rect.left + TAB_STRIP_PAD - scroll;
     for (index, tab) in tabs.iter().enumerate() {
         let name = &labels[index];
         let active = tab.id == active_id;
@@ -1192,27 +1156,37 @@ pub(crate) fn render_terminal_tabs(
         let joins_next = tabs
             .get(index + 1)
             .is_some_and(|next| next.group_id == tab.group_id);
-        let split_tab = joins_next
-            || index
-                .checked_sub(1)
-                .is_some_and(|previous| tabs[previous].group_id == tab.group_id);
-        let inverted = split_tab && region_focused && active_group == Some(tab.group_id);
-        let background_rect = if split_tab {
-            UiRect::new(
-                tab_rect.left + 4.0,
-                tab_rect.top + 3.0,
-                tab_rect.right - 4.0,
-                tab_rect.bottom - 3.0,
-            )
-        } else {
-            tab_rect
-        };
-        let background_radius = if split_tab { 4.0 } else { 0.0 };
-        let separator_inset = if joins_next {
-            (tab_rect.height() - SPLIT_TAB_RULE_H).max(0.0) / 2.0
-        } else {
-            0.0
-        };
+        // The rounded block, centred in the strip and shorter than it.
+        let block_inset = ((tab_rect.height() - TAB_BLOCK_H) / 2.0).max(0.0);
+        let block_rect = UiRect::new(
+            tab_rect.left,
+            tab_rect.top + block_inset,
+            tab_rect.right,
+            tab_rect.bottom - block_inset,
+        );
+        if joins_next {
+            let link_id = tab.id;
+            links.push(
+                Element::new(move |cx| {
+                    let scale = cx.context.scale();
+                    let middle =
+                        scale.physical_value((block_rect.top + block_rect.bottom) / 2.0);
+                    let line = scale.logical_rect(PhysicalRect::new(
+                        scale.physical_value(block_rect.right),
+                        middle,
+                        scale.physical_value(block_rect.right + TAB_STRIP_GAP),
+                        middle + scale.physical_length(1.0),
+                    ));
+                    UiElement::panel(
+                        UiId::owned(format!("terminal-tab-link-{link_id}")),
+                        line,
+                        VisualStyle::filled(theme::c().text_faint),
+                    )
+                    .hit_rect(UiRect::new(line.left, line.top, line.left, line.top))
+                })
+                .key(format!("terminal-tab-link-{link_id}")),
+            );
+        }
         let name_left = tab_rect.left + TAB_PAD + GLYPH + GLYPH_GAP;
         let close_left = tab_rect.right - TAB_PAD - close_width;
         let close_rect = UiRect::new(
@@ -1249,18 +1223,14 @@ pub(crate) fn render_terminal_tabs(
         let editing = renaming == Some(tab.id);
         if editing {
             visual = visual.child(theme::bordered(
-                background_rect,
-                if inverted {
-                    theme::c().sidebar
-                } else {
-                    theme::c().active_tab
-                },
+                block_rect,
+                theme::c().active_tab,
                 theme::c().accent,
-                background_radius,
+                TAB_BLOCK_RADIUS,
                 1.0,
             ));
         }
-        // Editing a name leaves only the field inside a rectangular focus border.
+        // Editing a name leaves only the field inside a focus border.
         if !editing {
             let glyph_top = tab_rect.top + (tab_rect.height() - GLYPH) / 2.0;
             let glyph_left = tab_rect.left + TAB_PAD;
@@ -1299,47 +1269,32 @@ pub(crate) fn render_terminal_tabs(
             let hovered = cx.context.interaction_flags(&id).hovered
                 || cx.context.interaction_flags(&select_node_id).hovered
                 || cx.context.interaction_flags(&close_node_id).hovered;
-            let inactive_fill = if inverted {
-                theme::c().active_tab
-            } else {
-                theme::c().sidebar
-            };
-            let fill = if active || editing {
-                if inverted {
-                    theme::c().sidebar
-                } else {
-                    theme::c().active_tab
-                }
+            // Every tab is a rounded block: the selected one in the strong fill, a
+            // hovered one in the hover fill and the rest faintly, so a split
+            // group's line always joins two visible blocks.
+            let (fill, alpha) = if active || editing {
+                (theme::c().active_tab, 255)
             } else if hovered {
-                theme::c().active_line
+                (theme::c().active_line, 255)
             } else {
-                inactive_fill
+                (theme::c().active_line, TAB_BLOCK_REST_ALPHA)
             };
-            let mut node = UiElement::panel(
-                id,
-                tab_rect,
-                if split_tab {
-                    VisualStyle::default()
-                } else {
-                    VisualStyle::filled(fill)
-                },
-            );
-            if split_tab {
-                node = node.child(
+            let scale = cx.context.scale();
+            UiElement::panel(id, tab_rect, VisualStyle::default())
+                .child(
                     UiElement::panel(
                         UiId::owned(format!("terminal-tab-background-{tab_id}")),
-                        background_rect,
-                        VisualStyle::filled(fill).radius(background_radius),
+                        scale.logical_rect(scale.physical_rect(block_rect)),
+                        VisualStyle::filled(fill).alpha(alpha).radius(TAB_BLOCK_RADIUS),
                     )
                     .hit_rect(UiRect::new(
-                        background_rect.left,
-                        background_rect.top,
-                        background_rect.left,
-                        background_rect.top,
+                        block_rect.left,
+                        block_rect.top,
+                        block_rect.left,
+                        block_rect.top,
                     )),
-                );
-            }
-            node.children(cx.children)
+                )
+                .children(cx.children)
         })
         .key(format!("terminal-tab-{tab_id}"))
         .event_policy(EventPolicy {
@@ -1361,30 +1316,7 @@ pub(crate) fn render_terminal_tabs(
                 cx.stop_propagation();
             }
         })
-        .child(visual)
-        .child(
-            Element::new(move |cx| {
-                let scale = cx.context.scale();
-                let right = scale.physical_value(tab_rect.right);
-                let line = scale.logical_rect(PhysicalRect::new(
-                    right - scale.physical_length(1.0),
-                    scale.physical_value(tab_rect.top + separator_inset),
-                    right,
-                    scale.physical_value(tab_rect.bottom - separator_inset),
-                ));
-                UiElement::panel(
-                    UiId::owned(format!("terminal-tab-separator-{tab_id}")),
-                    line,
-                    VisualStyle::filled(if joins_next {
-                        theme::c().text_faint
-                    } else {
-                        theme::c().border
-                    }),
-                )
-                .hit_rect(UiRect::new(line.left, line.top, line.left, line.top))
-            })
-            .key(format!("terminal-tab-separator-{tab_id}")),
-        );
+        .child(visual);
         if renaming == Some(tab_id) {
             // Renaming replaces selecting and closing: the field fills the tab.
             tab_element = tab_element.child(super::rename::input(
@@ -1398,7 +1330,7 @@ pub(crate) fn render_terminal_tabs(
                 terminal_focus.clone(),
             ));
             strip = strip.child(tab_element);
-            left += tab_width + TAB_GAP;
+            left += tab_width + TAB_STRIP_GAP;
             continue;
         }
         let select_rect = UiRect::new(
@@ -1493,7 +1425,10 @@ pub(crate) fn render_terminal_tabs(
         );
 
         strip = strip.child(tab_element);
-        left += tab_width + TAB_GAP;
+        left += tab_width + TAB_STRIP_GAP;
+    }
+    for link in links {
+        strip = strip.child(link);
     }
 
     if metrics.scrolls() {
@@ -1536,7 +1471,7 @@ pub(crate) fn render_terminal_tabs(
                 move || {
                     state.ui.update(|ui| {
                         let current = ui.tab_scroll(strip_key);
-                        let next = strip::reveal(current, &layout, active_index, TABS_PAD, TAB_GAP);
+                        let next = strip::reveal(current, &layout, active_index, TAB_STRIP_PAD, TAB_STRIP_GAP);
                         ui.set_tab_scroll(strip_key, next);
                     });
                 },

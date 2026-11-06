@@ -217,46 +217,40 @@ mod tests {
                         || surface.draw(&session.tree().scene().project_to_physical(scale), &frame),
                     )
                     .unwrap();
-                    let color = theme::c().active_tab.0;
-                    let expected = [color as u8, (color >> 8) as u8, (color >> 16) as u8, 255];
+                    // The line that joins split members is one solid row of pixels: not
+                    // blended with its neighbours at any scale, and with the strip's own
+                    // background just above and below it.
+                    let bgra = |color: lgui::prelude::Color| {
+                        [color.0 as u8, (color.0 >> 8) as u8, (color.0 >> 16) as u8, 255]
+                    };
+                    let pixel = |x: i32, y: i32| {
+                        let offset = (y as usize * physical.width() as usize + x as usize) * 4;
+                        surface.pixels()[offset..offset + 4].to_vec()
+                    };
                     for member in [1, 2] {
-                        let rule = session
+                        let link = session
                             .tree()
-                            .node(&UiId::owned(format!("terminal-tab-separator-{member}")))
+                            .node(&UiId::owned(format!("terminal-tab-link-{member}")))
                             .unwrap();
-                        let boundary = scale.physical_value(rule.layout_rect.right);
-                        let center = scale
-                            .physical_value((rule.layout_rect.top + rule.layout_rect.bottom) / 2.0);
-                        let offset = (center as usize * physical.width() as usize
-                            + (boundary - 1) as usize)
-                            * 4;
-                        let line_color = theme::c().text_faint.0;
-                        let expected_line = [
-                            line_color as u8,
-                            (line_color >> 8) as u8,
-                            (line_color >> 16) as u8,
-                            255,
-                        ];
-                        assert_eq!(
-                            &surface.pixels()[offset..offset + 4],
-                            &expected_line,
-                            "{} line, scale={factor}, fraction={fraction}, member={member}",
-                            theme_id.id()
-                        );
-                        for x in [boundary - 1, boundary] {
-                            for y in [
-                                scale.physical_value(header.top) + 2,
-                                scale.physical_value(header.bottom) - 3,
-                            ] {
-                                let offset =
-                                    (y as usize * physical.width() as usize + x as usize) * 4;
-                                assert_eq!(
-                                    &surface.pixels()[offset..offset + 4],
-                                    &expected,
-                                    "{} background, scale={factor}, fraction={fraction}, member={member}, x={x}, y={y}",
-                                    theme_id.id()
-                                );
-                            }
+                        let x = scale
+                            .physical_value((link.layout_rect.left + link.layout_rect.right) / 2.0);
+                        let top = scale.physical_value(link.layout_rect.top);
+                        let rows = scale.physical_length(1.0).max(1);
+                        for row in 0..rows {
+                            assert_eq!(
+                                pixel(x, top + row),
+                                bgra(theme::c().text_faint),
+                                "{} line, scale={factor}, fraction={fraction}, member={member}, row={row}",
+                                theme_id.id()
+                            );
+                        }
+                        for y in [top - 1, top + rows] {
+                            assert_eq!(
+                                pixel(x, y),
+                                bgra(theme::c().sidebar),
+                                "{} beside the line, scale={factor}, fraction={fraction}, member={member}, y={y}",
+                                theme_id.id()
+                            );
                         }
                     }
                 }
@@ -818,58 +812,76 @@ mod tests {
         let mut session = UiSession::new();
         session.render_view(&view, viewport, UiScale::ONE);
         let (state, tabs) = exposed.lock().unwrap().clone().unwrap();
+        // Each tab is a rounded block shorter than the strip: the selected one in the
+        // strong fill, the other faintly. There is no group background or per-tab
+        // separator.
+        let active = tabs.get().active_id().unwrap();
         for id in [1, 2] {
             let tab = session
                 .tree()
                 .node(&UiId::owned(format!("terminal-tab-{id}")))
                 .unwrap();
-            let rule = session
-                .tree()
-                .node(&UiId::owned(format!("terminal-tab-separator-{id}")))
-                .unwrap();
             assert_eq!(tab.style.radius, 0.0);
             assert_eq!(tab.style.fill, None);
-            assert_eq!(
+            assert!(
                 session
                     .tree()
-                    .node(&UiId::new("terminal-tab-group-1"))
-                    .unwrap()
-                    .style
-                    .fill,
-                Some(theme::c().active_tab)
+                    .node(&UiId::owned(format!("terminal-tab-separator-{id}")))
+                    .is_none()
             );
             let background = session
                 .tree()
                 .node(&UiId::owned(format!("terminal-tab-background-{id}")))
-                .unwrap();
-            assert_eq!(background.style.radius, 4.0);
-            assert_eq!(background.layout_rect.left, tab.layout_rect.left + 4.0);
-            assert_eq!(background.layout_rect.right, tab.layout_rect.right - 4.0);
-            assert_eq!(background.layout_rect.top, tab.layout_rect.top + 3.0);
-            assert_eq!(background.layout_rect.bottom, tab.layout_rect.bottom - 3.0);
+                .expect("every tab has a block");
+            assert_eq!(background.style.radius, TAB_BLOCK_RADIUS);
             assert_eq!(
                 background.style.fill,
-                Some(if id == 2 {
-                    theme::c().sidebar
-                } else {
+                Some(if id == active {
                     theme::c().active_tab
+                } else {
+                    theme::c().active_line
                 })
             );
-            if id == 1 {
-                assert_eq!(rule.layout_rect.height(), 14.0);
-                // An odd-height header needs one extra pixel on one side.
-                assert!(
-                    ((rule.layout_rect.top - tab.layout_rect.top)
-                        - (tab.layout_rect.bottom - rule.layout_rect.bottom))
-                        .abs()
-                        <= 1.0
-                );
-            } else {
-                assert_eq!(rule.layout_rect.top, tab.layout_rect.top);
-                assert_eq!(rule.layout_rect.bottom, tab.layout_rect.bottom);
-            }
-            assert_eq!(rule.layout_rect.width(), 1.0);
+            assert_eq!(background.layout_rect.left, tab.layout_rect.left);
+            assert_eq!(background.layout_rect.right, tab.layout_rect.right);
+            // Centred in the strip and shorter than it; an odd-height strip puts the
+            // extra pixel on one side.
+            assert!(background.layout_rect.height() <= TAB_BLOCK_H + 1.0);
+            assert!(background.layout_rect.height() < tab.layout_rect.height());
+            assert!(
+                ((background.layout_rect.top - tab.layout_rect.top)
+                    - (tab.layout_rect.bottom - background.layout_rect.bottom))
+                    .abs()
+                    <= 1.0
+            );
         }
+        assert!(
+            session
+                .tree()
+                .node(&UiId::new("terminal-tab-group-1"))
+                .is_none(),
+            "no background joins a split group"
+        );
+        // A line across the gap joins the two members, at the blocks' middle.
+        let first = session.tree().node(&UiId::new("terminal-tab-1")).unwrap();
+        let second = session.tree().node(&UiId::new("terminal-tab-2")).unwrap();
+        let link = session
+            .tree()
+            .node(&UiId::new("terminal-tab-link-1"))
+            .expect("split members are joined by a line");
+        assert_eq!(link.style.fill, Some(theme::c().text_faint));
+        assert_eq!(link.layout_rect.left, first.layout_rect.right);
+        assert_eq!(link.layout_rect.right, second.layout_rect.left);
+        assert_eq!(link.layout_rect.height(), 1.0);
+        let middle = (first.layout_rect.top + first.layout_rect.bottom) / 2.0;
+        assert!((link.layout_rect.top - middle).abs() <= 1.0);
+        assert!(
+            session
+                .tree()
+                .node(&UiId::new("terminal-tab-link-2"))
+                .is_none(),
+            "the last member joins nothing"
+        );
         assert_eq!(
             session
                 .tree()
@@ -1766,13 +1778,14 @@ mod tests {
         let tree = session.tree();
         assert!(tree.node(&UiId::new("terminal-session-1")).is_some());
         assert!(tree.node(&UiId::new("terminal-session-2")).is_some());
-        assert!(tree.node(&UiId::new("terminal-tab-separator-1")).is_some());
+        assert!(tree.node(&UiId::new("terminal-tab-link-1")).is_some());
+        // The new split is the selected tab, drawn as a filled rounded block.
         assert_eq!(
             tree.node(&UiId::new("terminal-tab-background-2"))
                 .unwrap()
                 .style
                 .fill,
-            Some(theme::c().sidebar)
+            Some(theme::c().active_tab)
         );
 
         // The collapse icon at the end hides the panel, like the app's own toggle.
@@ -2035,80 +2048,65 @@ mod tests {
         let mut sibling = None;
         tabs.update(|tabs| sibling = tabs.split(1));
         let sibling = sibling.unwrap();
+        let contrast = |a: lgui::prelude::Color, b: lgui::prelude::Color| {
+            let (a, b) = (luminance(a), luminance(b));
+            (a.max(b) + 0.05) / (a.min(b) + 0.05)
+        };
         for id in theme::ThemeId::all() {
             theme::set(id);
-            state.update(|app| app.terminal.ui.terminal_focused = true);
             let palette = theme::c();
-            tabs.update(|tabs| tabs.select(3));
-            session.render_view(&view, viewport, UiScale::ONE);
-            let fill = |session: &lgui::session::UiSession, name: &str| {
-                session
-                    .tree()
-                    .node(&UiId::owned(name))
-                    .unwrap()
-                    .style
-                    .fill
-                    .unwrap()
-            };
-            let selected = fill(&session, "terminal-tab-3");
-            let inactive = fill(&session, "terminal-tab-2");
-            let a = luminance(selected);
-            let b = luminance(inactive);
+            // The selected tab's block is the strong fill and the others' the faint
+            // one, in every theme and whether or not the terminal has focus.
+            for focused in [true, false] {
+                state.update(|app| app.terminal.ui.terminal_focused = focused);
+                for (selected, others) in [(3, vec![1, sibling, 2]), (sibling, vec![1, 3, 2])] {
+                    tabs.update(|tabs| tabs.select(selected));
+                    session.render_view(&view, viewport, UiScale::ONE);
+                    let block = |tab: u64| {
+                        session
+                            .tree()
+                            .node(&UiId::owned(format!("terminal-tab-background-{tab}")))
+                            .map(|node| node.style.fill)
+                    };
+                    assert_eq!(
+                        block(selected),
+                        Some(Some(palette.active_tab)),
+                        "{} selected tab {selected}, focused {focused}",
+                        id.id()
+                    );
+                    for other in others {
+                        assert_eq!(
+                            block(other),
+                            Some(Some(palette.active_line)),
+                            "{} unselected tab {other} has the faint block",
+                            id.id()
+                        );
+                    }
+                    assert!(
+                        session
+                            .tree()
+                            .node(&UiId::new("terminal-tab-group-1"))
+                            .is_none(),
+                        "no background joins a split group"
+                    );
+                }
+            }
             assert!(
-                (a.max(b) + 0.05) / (a.min(b) + 0.05) >= 1.1,
-                "{} tab backgrounds are indistinguishable",
+                contrast(palette.active_tab, palette.sidebar) >= 1.1,
+                "{} the selected block is indistinguishable from the strip",
                 id.id()
             );
-            assert_eq!(
-                selected,
-                palette.active_tab,
-                "{} ordinary selection",
-                id.id()
-            );
-            assert_eq!(inactive, palette.sidebar);
-            assert_eq!(
-                fill(&session, "terminal-tab-group-1"),
-                inactive,
-                "{} unselected split group",
-                id.id()
-            );
-            let separator = fill(&session, "terminal-tab-separator-1");
-            let line_luminance = luminance(separator);
+            let link = session
+                .tree()
+                .node(&UiId::new("terminal-tab-link-1"))
+                .expect("split members are joined by a line")
+                .style
+                .fill
+                .unwrap();
             assert!(
-                (line_luminance.max(a) + 0.05) / (line_luminance.min(a) + 0.05) >= 1.5,
-                "{} split separator blends into the group background",
+                contrast(link, palette.sidebar) >= 1.5,
+                "{} the split line blends into the strip",
                 id.id()
-            );
-            tabs.update(|tabs| tabs.select(sibling));
-            session.render_view(&view, viewport, UiScale::ONE);
-            assert_eq!(fill(&session, "terminal-tab-3"), inactive);
-            assert_eq!(fill(&session, "terminal-tab-group-1"), selected);
-            assert_eq!(
-                fill(&session, &format!("terminal-tab-background-{sibling}")),
-                inactive,
-                "{} split selection",
-                id.id()
-            );
-            assert_eq!(fill(&session, "terminal-tab-background-1"), selected);
-            state.update(|app| app.terminal.ui.terminal_focused = false);
-            session.render_view(&view, viewport, UiScale::ONE);
-            assert_eq!(
-                fill(&session, "terminal-tab-group-1"),
-                inactive,
-                "{} unfocused region",
-                id.id()
-            );
-            assert_eq!(
-                fill(&session, &format!("terminal-tab-background-{sibling}")),
-                selected
-            );
-            assert_eq!(fill(&session, "terminal-tab-background-1"), inactive);
-            state.update(|app| app.terminal.ui.terminal_focused = true);
-            session.render_view(&view, viewport, UiScale::ONE);
-            assert_eq!(fill(&session, "terminal-tab-group-1"), selected);
-            assert_eq!(
-                fill(&session, &format!("terminal-tab-background-{sibling}")),
-                inactive
             );
         }
     }
@@ -2119,11 +2117,11 @@ mod tests {
         let (mut session, view, state, tabs, viewport) = strip_harness(1400.0, 4);
         let ids = [1_u64, 2, 3, 4];
         let baseline = tab_rects(&session, &ids);
-        // Short names all get the minimum width, 100px apart, equal selecting areas.
+        // Short names all get the minimum width, a gap apart, equal selecting areas.
         assert!(
             baseline
                 .windows(2)
-                .all(|w| (w[1].left - w[0].left - 100.0).abs() < 0.01)
+                .all(|w| (w[1].left - w[0].left - (100.0 + TAB_STRIP_GAP)).abs() < 0.01)
         );
         assert!(
             baseline
@@ -2199,20 +2197,21 @@ mod tests {
         assert!(
             rects
                 .windows(2)
-                .all(|w| (w[1].left - w[0].left - 100.0).abs() < 0.01)
+                .all(|w| (w[1].left - w[0].left - (100.0 + TAB_STRIP_GAP)).abs() < 0.01)
         );
         assert!(
             named_try(&session, "All terminals").is_none(),
             "no list while everything fits"
         );
 
-        // Twelve tabs cannot squeeze to the floor: the strip scrolls at 100px each and shows a list.
+        // Twelve tabs cannot squeeze to the floor: the strip scrolls at 100px each,
+        // a gap apart, and shows a list.
         let (mut session, view, state, tabs, viewport) = strip_harness(1200.0, 12);
         let rects = tab_rects(&session, &[1, 2, 3, 4, 5, 6]);
         assert!(
             rects
                 .windows(2)
-                .all(|w| (w[1].left - w[0].left - 100.0).abs() < 0.01)
+                .all(|w| (w[1].left - w[0].left - (100.0 + TAB_STRIP_GAP)).abs() < 0.01)
         );
         let list = named_point(&session, "All terminals");
         let click = |session: &mut lgui::session::UiSession, point: Point| {
