@@ -138,9 +138,13 @@ pub(crate) fn item(label: &str, action: MenuAction) -> Entry {
 }
 
 /// The selected files when `(section, path)` is one of several.
-fn batch_items(app: &GitPanelState, section: u8, path: &PathBuf) -> Option<Vec<(u8, PathBuf)>> {
+fn batch_items(
+    app: &GitPanelState,
+    section: u8,
+    path: &std::path::Path,
+) -> Option<Vec<(u8, PathBuf)>> {
     let selection = &app.ui.selection;
-    (selection.len() > 1 && selection.contains(&(section, path.clone())))
+    (selection.len() > 1 && selection.contains(&(section, path.to_path_buf())))
         .then(|| selection.iter().cloned().collect())
 }
 

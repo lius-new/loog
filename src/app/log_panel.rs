@@ -943,6 +943,17 @@ fn find_box(
 
 // ---- Problems ----------------------------------------------------------------
 
+/// One severity's toggle: its name, node key, icon, count, colour, and the
+/// filter flag it switches.
+type SeverityKind = (
+    &'static str,
+    &'static str,
+    &'static str,
+    usize,
+    Color,
+    fn(&mut Filter) -> &mut bool,
+);
+
 const SEVERITY_PAD: f32 = 6.0;
 const SEVERITY_ICON: f32 = 16.0;
 
@@ -1045,14 +1056,7 @@ fn problems_toolbar(
     // tools, rather than labelled chips on the left: right to left, so the order on
     // screen is errors, warnings, information.
     let mut right = tools.slots[0].left - 6.0;
-    let kinds: [(
-        &str,
-        &'static str,
-        &'static str,
-        usize,
-        Color,
-        fn(&mut Filter) -> &mut bool,
-    ); 3] = [
+    let kinds: [SeverityKind; 3] = [
         (
             "Information",
             "problems-infos",

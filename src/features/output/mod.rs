@@ -144,11 +144,14 @@ struct Inner {
     revision: u64,
 }
 
+/// Asks the window for a frame.
+type Wake = Arc<dyn Fn() + Send + Sync>;
+
 /// All channels. Cloning shares the same logs.
 #[derive(Clone)]
 pub(crate) struct LogHub {
     inner: Arc<Mutex<Inner>>,
-    wake: Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>,
+    wake: Arc<Mutex<Option<Wake>>>,
 }
 
 impl Default for LogHub {

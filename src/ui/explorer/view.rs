@@ -783,9 +783,9 @@ fn file_row(
     let icon = crate::ui::file_icons::icon_for_file(&name);
     let decoration = (tree.frame.decorate)(entry_path);
     let label_color = tree_label_color(decoration, theme::c().text_muted);
-    let row_style = if tree.panel.ui.selection.contains(entry_path) {
-        VisualStyle::filled(theme::c().active_line)
-    } else if tree.frame.active_path == Some(entry_path) {
+    let row_style = if tree.panel.ui.selection.contains(entry_path)
+        || tree.frame.active_path == Some(entry_path)
+    {
         VisualStyle::filled(theme::c().active_line)
     } else if tree.panel.ui.hovered_path.as_deref() == Some(key) {
         VisualStyle::filled(theme::c().surface)

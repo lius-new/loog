@@ -105,10 +105,7 @@ pub(crate) fn url_span(cells: &[String], col: usize) -> Option<(u16, u16, String
         return None;
     }
     let mut url = &token[scheme.0..];
-    loop {
-        let Some(last) = url.chars().last() else {
-            break;
-        };
+    while let Some(last) = url.chars().last() {
         let unbalanced = |open: char, close: char| {
             last == close && url.matches(open).count() < url.matches(close).count()
         };
