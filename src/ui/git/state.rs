@@ -101,6 +101,10 @@ pub struct GitUiState {
     pub split_diff: bool,
     /// Blame the caret line in the editor.
     pub inline_blame: bool,
+    /// Changed files picked with Ctrl/Shift-click, as `(section, path)`.
+    pub selection: HashSet<(u8, PathBuf)>,
+    /// Last plain or Ctrl-clicked row; Shift-click extends from it.
+    pub selection_anchor: Option<(u8, PathBuf)>,
     pub menu: Option<GitMenu>,
     pub confirm: Option<GitConfirm>,
     pub tag_input: InputState,
@@ -172,6 +176,8 @@ impl Default for GitUiState {
             tree_view: false,
             split_diff: false,
             inline_blame: false,
+            selection: HashSet::new(),
+            selection_anchor: None,
             menu: None,
             confirm: None,
             tag_input: InputState::default(),
@@ -230,6 +236,8 @@ impl GitUiState {
         self.details_scroll = 0.0;
         self.history_summary_scroll = 0.0;
         self.summary_scrollbar_dragging = false;
+        self.selection.clear();
+        self.selection_anchor = None;
         self.hover = None;
         self.clear_hover_cards();
     }

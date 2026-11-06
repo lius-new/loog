@@ -37,6 +37,10 @@ pub enum Command {
         request: DiffRequest,
         untracked: bool,
         point: (f32, f32),
+        /// The row's section and that section's visible files in row order,
+        /// for Ctrl/Shift multi-selection.
+        section: u8,
+        order: Arc<Vec<PathBuf>>,
     },
     OpenFile {
         path: PathBuf,

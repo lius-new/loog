@@ -12,7 +12,7 @@ use lgui::services::ServicesContextExt;
 use crate::features::git::operation::operation_text;
 use crate::features::git::{ConflictSide, DiffRequest, DiffTarget, GitStoreSnapshot};
 use crate::ui::git::commands::{Binding, Command, Snapshot};
-use crate::ui::git::panel::{CONFLICTS, STAGED, UNTRACKED};
+use crate::ui::git::panel::{CONFLICTS, STAGED, UNSTAGED, UNTRACKED};
 use crate::ui::git::state::GitPanelState;
 use crate::ui::theme;
 
@@ -137,12 +137,37 @@ pub(crate) fn item(label: &str, action: MenuAction) -> Entry {
     }
 }
 
+/// The selected files when `(section, path)` is one of several.
+fn batch_items(app: &GitPanelState, section: u8, path: &PathBuf) -> Option<Vec<(u8, PathBuf)>> {
+    let selection = &app.ui.selection;
+    (selection.len() > 1 && selection.contains(&(section, path.clone())))
+        .then(|| selection.iter().cloned().collect())
+}
+
 pub(crate) fn entries(
     target: &GitMenuTarget,
     app: &GitPanelState,
     git: &GitStoreSnapshot,
 ) -> Vec<Entry> {
     match target {
+        GitMenuTarget::File { section, path, .. } if batch_items(app, *section, path).is_some() => {
+            // A multi-selection offers only what applies to every file.
+            let items = batch_items(app, *section, path).unwrap_or_default();
+            let mut entries = Vec::new();
+            if items.iter().any(|(section, _)| *section != STAGED) {
+                entries.push(item("Stage Changes", MenuAction::Stage));
+            }
+            if items.iter().any(|(section, _)| *section == STAGED) {
+                entries.push(item("Unstage Changes", MenuAction::Unstage));
+            }
+            if items
+                .iter()
+                .any(|(section, _)| matches!(*section, UNSTAGED | UNTRACKED))
+            {
+                entries.push(item("Discard Changes", MenuAction::Discard));
+            }
+            entries
+        }
         GitMenuTarget::File { section, .. } => {
             let mut entries = vec![
                 item("Open Changes", MenuAction::OpenChanges),
@@ -286,6 +311,39 @@ pub(crate) fn perform(
         section,
     } = target
     {
+        if let Some(items) = batch_items(&state.get(), *section, path) {
+            let in_sections = |wanted: &dyn Fn(u8) -> bool| {
+                items
+                    .iter()
+                    .filter(|(section, _)| wanted(*section))
+                    .map(|(_, path)| path.clone())
+                    .collect::<Vec<_>>()
+            };
+            match action {
+                MenuAction::Stage => {
+                    state.dispatch(Command::StagePaths {
+                        paths: in_sections(&|section| section != STAGED),
+                    });
+                }
+                MenuAction::Unstage => {
+                    state.dispatch(Command::UnstagePaths {
+                        paths: in_sections(&|section| section == STAGED),
+                    });
+                }
+                MenuAction::Discard => {
+                    state.dispatch(Command::RequestDiscard {
+                        tracked: in_sections(&|section| section == UNSTAGED),
+                        untracked: in_sections(&|section| section == UNTRACKED),
+                    });
+                }
+                _ => return,
+            }
+            state.update(|app| {
+                app.ui.selection.clear();
+                app.ui.selection_anchor = None;
+            });
+            return;
+        }
         let absolute = repository.join(path);
         let paths = vec![path.clone()];
         match action {

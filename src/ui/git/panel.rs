@@ -382,6 +382,14 @@ pub fn render(
             continue;
         }
         let rows_top = y;
+        let order = std::sync::Arc::new(
+            rows.iter()
+                .filter_map(|row| match row {
+                    OwnedChangeRow::File { path, .. } => Some(path.clone()),
+                    OwnedChangeRow::Folder { .. } => None,
+                })
+                .collect::<Vec<_>>(),
+        );
         let visible = visible_rows_with_height(
             rows_top,
             content_rect.top + scroll,
@@ -435,6 +443,8 @@ pub fn render(
                         target,
                         active,
                         hovered,
+                        app.ui.selection.contains(&(filter, path.clone())),
+                        order.clone(),
                         repository.worktree_root.clone(),
                         state.clone(),
                         store.clone(),
@@ -2382,6 +2392,10 @@ pub(crate) fn file_row(
     target: DiffTarget,
     active: bool,
     hovered: bool,
+    // Picked with Ctrl/Shift-click, together with `order`: the section's
+    // visible files in row order, for Shift range selection.
+    selected: bool,
+    order: std::sync::Arc<Vec<PathBuf>>,
     repository_root: PathBuf,
     state: Binding,
     store: Snapshot,
@@ -2424,7 +2438,7 @@ pub(crate) fn file_row(
     let menu_repository = repository_root.clone();
     let menu_path = path.clone();
     let row = Element::new(move |cx| {
-        let style = if active {
+        let style = if active || selected {
             VisualStyle::filled(theme::c().active_line)
         } else if hovered {
             VisualStyle::filled(theme::c().surface)
@@ -2451,6 +2465,8 @@ pub(crate) fn file_row(
                     request,
                     untracked: section == UNTRACKED,
                     point,
+                    section,
+                    order: order.clone(),
                 });
             }
             PointerButton::Right => {
@@ -2459,7 +2475,13 @@ pub(crate) fn file_row(
                     path: menu_path.clone(),
                     section,
                 };
+                let selection_key = (section, menu_path.clone());
                 menu_state.update(move |app| {
+                    // Right-clicking outside the selection starts over.
+                    if !app.ui.selection.contains(&selection_key) {
+                        app.ui.selection.clear();
+                        app.ui.selection_anchor = None;
+                    }
                     app.ui.menu = Some(GitMenu {
                         pos: (pointer.point.x, pointer.point.y),
                         target,

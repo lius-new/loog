@@ -251,9 +251,49 @@ pub(crate) fn run(state: &AppContext, store: &State<GitStoreSnapshot>, command: 
             request,
             untracked,
             point,
+            section,
+            order,
         } => {
             state.update(|app| {
                 app.git.ui.menu = None;
+                let ctrl = app.editor.modifiers.ctrl() || app.editor.modifiers.meta();
+                let shift = app.editor.modifiers.shift();
+                let key = (section, request.path.clone());
+                let ui = &mut app.git.ui;
+                if ctrl || shift {
+                    // Multi-select only changes the selection: no diff opens
+                    // and no drag starts.
+                    let range = shift
+                        .then(|| {
+                            let anchor = ui.selection_anchor.as_ref().filter(|a| a.0 == section)?;
+                            let from = order.iter().position(|p| *p == anchor.1)?;
+                            let to = order.iter().position(|p| *p == request.path)?;
+                            Some(from.min(to)..=from.max(to))
+                        })
+                        .flatten();
+                    match range {
+                        Some(range) => {
+                            if !ctrl {
+                                ui.selection.clear();
+                            }
+                            ui.selection
+                                .extend(order[range].iter().map(|p| (section, p.clone())));
+                        }
+                        None if shift => {
+                            ui.selection.insert(key.clone());
+                            ui.selection_anchor = Some(key);
+                        }
+                        None => {
+                            if !ui.selection.remove(&key) {
+                                ui.selection.insert(key.clone());
+                            }
+                            ui.selection_anchor = Some(key);
+                        }
+                    }
+                    return;
+                }
+                ui.selection.clear();
+                ui.selection_anchor = Some(key);
                 app.editor.tabs.file_drag = Some(FileDragState {
                     path: request.repository_root.join(&request.path),
                     source: FileDragSource::Changes { request, untracked },
@@ -450,6 +490,8 @@ mod tests {
             request: request.clone(),
             untracked: false,
             point: (13.0, 29.0),
+            section: 0,
+            order: Default::default(),
         });
         let app = state.get();
         let drag = app.editor.tabs.file_drag.as_ref().unwrap();
