@@ -167,6 +167,7 @@ pub fn render(
         path_label,
         additions,
         deletions,
+        document.loading.is_some(),
         split,
         starts.clone(),
         current_change,
@@ -447,6 +448,7 @@ fn toolbar(
     path: String,
     additions: usize,
     deletions: usize,
+    loading: bool,
     split: bool,
     starts: std::sync::Arc<Vec<usize>>,
     current_change: Option<usize>,
@@ -555,7 +557,11 @@ fn toolbar(
         theme::mono_right(theme::c().text_faint, theme::SMALL),
     ));
 
-    let stats = format!("+{additions}  −{deletions}");
+    let stats = if loading {
+        "…".into()
+    } else {
+        format!("+{additions}  −{deletions}")
+    };
     let stats_w = if compact { 62.0 } else { 82.0 };
     let stats_rect = UiRect::new(right - stats_w, rect.top, right, rect.bottom);
     right -= stats_w + 8.0;
@@ -752,7 +758,9 @@ fn render_changes(
             .icon_style(IconStyle::new(theme::c().text_dim)),
         ));
         if stats_w > 0.0 {
-            let stats = if document.binary {
+            let stats = if section.loading {
+                "…".into()
+            } else if document.binary {
                 "Binary".into()
             } else {
                 format!("+{}  −{}", document.additions(), document.deletions())
@@ -839,7 +847,9 @@ fn render_changes(
             panel(visible, VisualStyle::default()).key(format!("changes-body-{}", item.index));
         if document.rows.is_empty() {
             let message = section.error.clone().unwrap_or_else(|| {
-                if document.binary {
+                if section.loading {
+                    "Loading changes…".into()
+                } else if document.binary {
                     "Binary file changed.".into()
                 } else if section.group == crate::features::git::ChangeGroup::Conflicts {
                     "Matches the current version. Mark it as resolved to finish.".into()

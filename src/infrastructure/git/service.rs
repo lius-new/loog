@@ -417,6 +417,7 @@ impl GitService {
     /// context is reserved for the explicitly opened single-file view.
     pub fn changes(&self, repository: &RepositorySnapshot) -> DiffContent {
         let root = &repository.worktree_root;
+        let entries = repository.change_entries();
         let mut files = Vec::new();
         for (group, target) in [
             (ChangeGroup::Conflicts, DiffTarget::HeadToWorktree),
@@ -424,25 +425,10 @@ impl GitService {
             (ChangeGroup::Unstaged, DiffTarget::IndexToWorktree),
             (ChangeGroup::Untracked, DiffTarget::IndexToWorktree),
         ] {
-            let paths: Vec<_> = repository
-                .files
+            let paths: Vec<_> = entries
                 .iter()
-                .filter(|(_, file)| match group {
-                    ChangeGroup::Conflicts => file.conflict.is_some(),
-                    ChangeGroup::Staged => {
-                        file.conflict.is_none() && file.index != ChangeKind::Unmodified
-                    }
-                    ChangeGroup::Unstaged => {
-                        file.conflict.is_none()
-                            && !matches!(
-                                file.worktree,
-                                ChangeKind::Unmodified | ChangeKind::Untracked
-                            )
-                    }
-                    ChangeGroup::Untracked => file.worktree == ChangeKind::Untracked,
-                    ChangeGroup::Commit => false,
-                })
-                .map(|(path, _)| path.clone())
+                .filter(|entry| entry.group == group)
+                .map(|entry| entry.request.path.clone())
                 .collect();
             if paths.is_empty() {
                 continue;

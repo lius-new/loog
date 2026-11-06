@@ -24,7 +24,7 @@ use crate::ui::git::confirm::{GitConfirm, GitConfirmAction};
 use crate::ui::git::stash_switch::StashSwitchRequest;
 
 pub fn open_diff(state: &AppContext, request: crate::features::git::DiffRequest, untracked: bool) {
-    open_diff_with_focus(state, request, untracked, None, None);
+    open_diff_to(state, request, untracked, None);
 }
 
 pub(crate) fn open_diff_at(
@@ -33,41 +33,22 @@ pub(crate) fn open_diff_at(
     untracked: bool,
     drop: TabDrop,
 ) -> bool {
-    open_diff_with_focus(state, request, untracked, None, Some(drop))
+    open_diff_to(state, request, untracked, Some(drop))
 }
 
-pub fn open_changes(state: &AppContext, file: crate::features::git::DiffRequest) {
-    let mut revealed = false;
-    state.update(|app| {
-        if let Some(id) = app.workspace.diff_id_for(
-            &file.repository_root,
-            Path::new(""),
-            crate::features::git::DiffTarget::Changes,
-        ) && let Some(pane) = app.workspace.pane_of(id)
-        {
-            app.workspace.activate(pane, id);
-            app.workspace
-                .focus_diff_section(&file, app.git.ui.split_diff);
-            // Invalidate a slower single-file open still in flight.
-            app.git.model.cancel_diff_open();
-            revealed = true;
-        }
-    });
-    if !revealed {
-        let request = crate::features::git::DiffRequest {
-            repository_root: file.repository_root.clone(),
-            path: PathBuf::new(),
-            target: crate::features::git::DiffTarget::Changes,
-        };
-        open_diff_with_focus(state, request, false, Some(file), None);
-    }
+pub fn open_changes(
+    state: &AppContext,
+    file: crate::features::git::DiffRequest,
+    untracked: bool,
+    snapshot: GitStoreSnapshot,
+) {
+    super::git_diff::open_changes(state, file, untracked, snapshot);
 }
 
-fn open_diff_with_focus(
+fn open_diff_to(
     state: &AppContext,
     request: crate::features::git::DiffRequest,
     untracked: bool,
-    focus: Option<crate::features::git::DiffRequest>,
     drop: Option<TabDrop>,
 ) -> bool {
     let app = state.get();
@@ -139,10 +120,6 @@ fn open_diff_with_focus(
                                 app.workspace.open_prepared_diff(document);
                             } else {
                                 app.workspace.open_prepared_file_changes(document);
-                            }
-                            if let Some(focus) = &focus {
-                                app.workspace
-                                    .focus_diff_section(focus, app.git.ui.split_diff);
                             }
                         }
                         Err(error) => app.show_error(error.user_message()),
@@ -1424,21 +1401,16 @@ pub fn open_commit_diff(state: &AppContext, root: PathBuf, oid: String, path: Pa
 
 /// Open every file of commit `oid` in one tab, scrolled to `focus` if given.
 pub fn open_commit_changes(state: &AppContext, root: PathBuf, oid: String, focus: Option<PathBuf>) {
-    let focus = focus.map(|path| crate::features::git::DiffRequest {
-        repository_root: root.clone(),
-        path,
-        target: crate::features::git::DiffTarget::Commit,
-    });
+    if let Some(path) = focus {
+        super::git_diff::open_commit_file(state, root, oid, path);
+        return;
+    }
     let mut revealed = false;
     state.update(|app| {
         if let Some(id) = app.workspace.commit_changes_id(&root, &oid)
             && let Some(pane) = app.workspace.pane_of(id)
         {
             app.workspace.activate(pane, id);
-            if let Some(focus) = &focus {
-                app.workspace
-                    .focus_diff_section(focus, app.git.ui.split_diff);
-            }
             // Invalidate a slower open still in flight.
             app.git.model.cancel_diff_open();
             revealed = true;
@@ -1476,10 +1448,6 @@ pub fn open_commit_changes(state: &AppContext, root: PathBuf, oid: String, focus
                     match result.take().unwrap() {
                         Ok(document) => {
                             app.workspace.open_prepared_commit_changes(document);
-                            if let Some(focus) = &focus {
-                                app.workspace
-                                    .focus_diff_section(focus, app.git.ui.split_diff);
-                            }
                         }
                         Err(error) => app.show_error(error.user_message()),
                     }

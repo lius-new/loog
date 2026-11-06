@@ -309,5 +309,8 @@ mod tests {
         backend.commit(&directory, "convert", false, false).unwrap();
         let commit = backend.commit_full_diff(&directory, "HEAD", &path).unwrap();
         assert!(commit.files[0].format_change.is_some());
+        let preview = backend.commit_file_diff(&directory, "HEAD", &path).unwrap();
+        assert!(preview.files[0].format_change.is_some());
+        assert!(preview.files[0].encoded);
     }
 }

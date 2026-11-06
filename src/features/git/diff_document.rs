@@ -50,6 +50,8 @@ pub struct DiffDocument {
     /// Present only for the repository-wide Changes tab and a commit's
     /// all-files tab.
     pub sections: Option<Vec<DiffSection>>,
+    /// Identity of a progressive overview read. Completed documents have none.
+    pub loading: Option<u64>,
     metrics: DiffMetrics,
 }
 
@@ -67,6 +69,7 @@ pub struct DiffSection {
     pub document: Arc<DiffDocument>,
     pub group: ChangeGroup,
     pub error: Option<String>,
+    pub loading: bool,
 }
 
 impl DiffSection {
@@ -104,7 +107,15 @@ struct DiffMetrics {
 impl DiffMetrics {
     fn new(rows: &[DiffRow], split_rows: &[SplitDiffRow]) -> Self {
         let mut inline_marks: Vec<(usize, usize, LineChange)> = Vec::new();
+        let (mut longest_inline, mut longest_split) = (0, 0);
         for (index, row) in rows.iter().enumerate() {
+            let width = display_width(&row.text);
+            longest_inline = longest_inline.max(width);
+            // Split reuses these same code strings; its hunk headings do not
+            // occupy either code column. Measure the text only once.
+            if row.kind != DiffRowKind::Hunk {
+                longest_split = longest_split.max(width);
+            }
             let change = match row.kind {
                 DiffRowKind::Addition => LineChange::Added,
                 DiffRowKind::Deletion => LineChange::Deleted,
@@ -130,18 +141,8 @@ impl DiffMetrics {
                 .iter()
                 .filter(|row| row.kind == DiffRowKind::Deletion)
                 .count(),
-            longest_inline: rows
-                .iter()
-                .map(|row| display_width(&row.text))
-                .max()
-                .unwrap_or_default(),
-            longest_split: split_rows
-                .iter()
-                .flat_map(|row| [row.old_text.as_deref(), row.new_text.as_deref()])
-                .flatten()
-                .map(display_width)
-                .max()
-                .unwrap_or_default(),
+            longest_inline,
+            longest_split,
             inline_starts: rows
                 .iter()
                 .enumerate()
@@ -205,6 +206,7 @@ impl DiffDocument {
                             document: Arc::new(document),
                             group: file.group,
                             error,
+                            loading: false,
                         }
                     })
                     .collect();
@@ -392,6 +394,7 @@ impl DiffDocument {
             revision: None,
             blocks,
             sections: None,
+            loading: None,
             metrics,
         }
     }
@@ -443,6 +446,7 @@ impl DiffDocument {
             revision: None,
             blocks: Vec::new(),
             sections: None,
+            loading: None,
             metrics,
         }
     }
@@ -733,6 +737,16 @@ mod tests {
         assert_eq!(added.longest_line(false), 9);
         assert_eq!(added.longest_line(true), 9);
         assert_eq!(added.rows[0].text, "a\t中\tb");
+    }
+
+    #[test]
+    fn split_width_excludes_hunk_headings() {
+        let document = DiffDocument::from_unified(
+            "repo".into(), "a.txt".into(), DiffTarget::IndexToWorktree,
+            parse_unified("diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -10,1 +10,1 @@ region\n-x\n+y\n").unwrap(),
+        );
+        assert_eq!(document.longest_line(false), 24);
+        assert_eq!(document.longest_line(true), 1);
     }
 
     #[test]

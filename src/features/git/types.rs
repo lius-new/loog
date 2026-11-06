@@ -222,6 +222,45 @@ pub struct RepositoryFeatures {
 }
 
 impl RepositorySnapshot {
+    /// File identities in the same group/path order used by the Changes view.
+    /// This needs no patch reads and can seed a view before its bodies load.
+    pub fn change_entries(&self) -> Vec<ChangeEntry> {
+        let mut entries = Vec::new();
+        for (group, target) in [
+            (ChangeGroup::Conflicts, DiffTarget::HeadToWorktree),
+            (ChangeGroup::Staged, DiffTarget::HeadToIndex),
+            (ChangeGroup::Unstaged, DiffTarget::IndexToWorktree),
+            (ChangeGroup::Untracked, DiffTarget::IndexToWorktree),
+        ] {
+            entries.extend(self.files.iter().filter_map(|(path, file)| {
+                let included = match group {
+                    ChangeGroup::Conflicts => file.conflict.is_some(),
+                    ChangeGroup::Staged => {
+                        file.conflict.is_none() && file.index != ChangeKind::Unmodified
+                    }
+                    ChangeGroup::Unstaged => {
+                        file.conflict.is_none()
+                            && !matches!(
+                                file.worktree,
+                                ChangeKind::Unmodified | ChangeKind::Untracked
+                            )
+                    }
+                    ChangeGroup::Untracked => file.worktree == ChangeKind::Untracked,
+                    ChangeGroup::Commit => false,
+                };
+                included.then(|| ChangeEntry {
+                    request: DiffRequest {
+                        repository_root: self.worktree_root.clone(),
+                        path: path.clone(),
+                        target,
+                    },
+                    group,
+                })
+            }));
+        }
+        entries
+    }
+
     /// Equal apart from `generation`, which every scan bumps. Destructured so
     /// a new field cannot be left out of the comparison.
     pub fn same_state(&self, other: &Self) -> bool {
@@ -426,6 +465,12 @@ pub struct ChangeDiff {
     pub target: DiffTarget,
     pub group: ChangeGroup,
     pub content: GitResult<DiffContent>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ChangeEntry {
+    pub request: DiffRequest,
+    pub group: ChangeGroup,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

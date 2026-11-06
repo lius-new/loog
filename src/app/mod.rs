@@ -15,6 +15,7 @@ pub(crate) mod explorer;
 pub(crate) mod explorer_view;
 pub(crate) mod extensions;
 pub(crate) mod git;
+mod git_diff;
 mod git_poll;
 mod git_tasks;
 #[cfg(test)]

@@ -1281,9 +1281,10 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         }
     });
     let st_file_drop = state.clone();
+    let file_drop_store = git_store.clone();
     let file_drop_focus = editor_focus.clone();
     root = root.on_event_capture(UiEventKind::PointerUp, move |_ctx, _payload| {
-        if crate::app::explorer::finish_drawer_file_drag(&st_file_drop) {
+        if crate::app::explorer::finish_drawer_file_drag(&st_file_drop, file_drop_store.get()) {
             file_drop_focus.focus();
         }
     });

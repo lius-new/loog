@@ -180,6 +180,45 @@ impl Workspace {
         diffs: &std::collections::BTreeMap<DiffRequest, Arc<DiffDocument>>,
         split: bool,
     ) -> Vec<Arc<DiffDocument>> {
+        self.replace_prepared_diffs(diffs, split, |_| true)
+    }
+
+    pub fn loading_diff(
+        &self,
+        request: &DiffRequest,
+        revision: Option<&str>,
+        sequence: u64,
+    ) -> Option<Arc<DiffDocument>> {
+        self.core.diffs.values().find_map(|record| {
+            let doc = &record.content;
+            (doc.loading == Some(sequence)
+                && doc.request() == *request
+                && doc.revision.as_deref() == revision)
+                .then(|| doc.clone())
+        })
+    }
+
+    /// Fill an existing progressive tab without reopening it or taking focus.
+    /// A closed, refreshed or superseded tab rejects the old worker's result.
+    pub fn update_loading_diff(
+        &mut self,
+        next: Arc<DiffDocument>,
+        sequence: u64,
+        split: bool,
+    ) -> Vec<Arc<DiffDocument>> {
+        let revision = next.revision.clone();
+        let diffs = [(next.request(), next)].into_iter().collect();
+        self.replace_prepared_diffs(&diffs, split, |current| {
+            current.loading == Some(sequence) && current.revision == revision
+        })
+    }
+
+    fn replace_prepared_diffs(
+        &mut self,
+        diffs: &std::collections::BTreeMap<DiffRequest, Arc<DiffDocument>>,
+        split: bool,
+        accept: impl Fn(&DiffDocument) -> bool,
+    ) -> Vec<Arc<DiffDocument>> {
         let mut retired = Vec::new();
         let core = &mut self.core;
         for document in core.diffs.values_mut() {
@@ -190,6 +229,7 @@ impl Workspace {
                 target: current.target,
             };
             if let Some(next) = diffs.get(&request)
+                && accept(current)
                 && !Arc::ptr_eq(current, next)
             {
                 if let (Some(old_sections), Some(new_sections)) =

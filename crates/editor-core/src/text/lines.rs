@@ -24,6 +24,11 @@ pub fn grapheme_width_with_tab_width(grapheme: &str, column: usize, width: usize
 
 /// Display columns `s` occupies when it starts at column 0.
 pub fn display_width(s: &str) -> usize {
+    // These ASCII graphemes have the same width as their byte length.
+    // Keep tabs and CR on the grapheme path for tab stops and CRLF pairs.
+    if s.is_ascii() && !s.as_bytes().contains(&b'\t') && !s.as_bytes().contains(&b'\r') {
+        return s.len();
+    }
     s.graphemes(true).fold(0, |column, grapheme| {
         column + grapheme_width(grapheme, column)
     })
@@ -489,6 +494,33 @@ mod tests {
     use super::super::buffer::apply;
     use super::super::change::{Edit, validate};
     use super::*;
+
+    #[test]
+    fn display_width_preserves_ascii_controls_and_unicode_sequences() {
+        let reference = |text: &str| {
+            text.graphemes(true).fold(0, |column, grapheme| {
+                column + grapheme_width(grapheme, column)
+            })
+        };
+        for left in 0..=127u8 {
+            for right in 0..=127u8 {
+                let text = String::from_utf8(vec![left, right]).unwrap();
+                assert_eq!(display_width(&text), reference(&text), "{text:?}");
+            }
+        }
+        for text in [
+            "",
+            "ordinary ASCII text",
+            "a\tbb\tccc",
+            "a\r\nb\n",
+            "中文\tend",
+            "e\u{301}x",
+            "👩\u{200d}💻\t🇨🇳",
+            "a\u{fe0f}\u{20e3}",
+        ] {
+            assert_eq!(display_width(text), reference(text), "{text:?}");
+        }
+    }
 
     #[test]
     fn lines_split_on_lf_and_crlf_and_measure_tabs_and_wide_characters() {

@@ -2814,7 +2814,10 @@ mod panel_action_tests {
                         }
                     })
                     .on_event_capture(UiEventKind::PointerUp, move |_cx, _payload| {
-                        crate::app::explorer::finish_drawer_file_drag(&release);
+                        crate::app::explorer::finish_drawer_file_drag(
+                            &release,
+                            GitStoreSnapshot::default(),
+                        );
                     })
                     .child(file_row(
                         UiRect::new(600.0, 0.0, 900.0, ROW_H),

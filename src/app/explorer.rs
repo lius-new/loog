@@ -200,7 +200,10 @@ fn finish_file_drag_with(
 }
 
 /// Dispatch a drawer-file release without doing Git reads on the UI thread.
-pub(crate) fn finish_drawer_file_drag(state: &AppContext) -> bool {
+pub(crate) fn finish_drawer_file_drag(
+    state: &AppContext,
+    snapshot: crate::features::git::GitStoreSnapshot,
+) -> bool {
     let loader = state.services().and_then(|r| r.file_loader());
     let mut changes = None;
     let mut focus = false;
@@ -223,7 +226,7 @@ pub(crate) fn finish_drawer_file_drag(state: &AppContext) -> bool {
             unreachable!("only changes drags are dispatched here");
         };
         if !drag.active {
-            crate::app::git::open_changes(state, request);
+            crate::app::git::open_changes(state, request, untracked, snapshot);
             return true;
         }
         if let Some(drop) = drag.drop {

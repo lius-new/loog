@@ -226,6 +226,26 @@ impl CliGitBackend {
         self.commit_diff(repository, commit, &[path.to_path_buf()], Some(1_000_000))
     }
 
+    /// Read one overview body using the same plain-text path as a batch.
+    /// Special encodings, binary files and header-only changes retain the
+    /// object-aware comparison used by the full-file view.
+    pub fn commit_file_diff(
+        &self,
+        repository: &Path,
+        commit: &str,
+        path: &Path,
+    ) -> GitResult<UnifiedDiff> {
+        validate_ref(commit)?;
+        let paths = [path.to_path_buf()];
+        if let Some(file) = self
+            .commit_batch(repository, commit, None, &paths)?
+            .remove(path)
+        {
+            return Ok(UnifiedDiff { files: vec![file] });
+        }
+        self.commit_diff(repository, commit, &paths, None)
+    }
+
     /// `commit`'s diff against its first parent, limited to `paths` unless
     /// empty, with git's default context unless `context` is given.
     pub fn commit_diff(
@@ -240,7 +260,7 @@ impl CliGitBackend {
             // One `git show` serves every file that needs no special decoding;
             // only binary, BOM-marked or non-UTF-8 files take the per-file
             // route, which costs several Git processes each.
-            let mut batch = self.commit_batch(repository, commit, context)?;
+            let mut batch = self.commit_batch(repository, commit, context, &[])?;
             let mut result = UnifiedDiff::default();
             for (_, path) in self.commit_files(repository, commit)? {
                 if let Some(file) = batch.remove(&path) {
@@ -283,7 +303,7 @@ impl CliGitBackend {
         parse_unified(&text)
     }
 
-    /// The text diffs of all of `commit`'s files from a single `git show`,
+    /// The text diffs of `commit`'s requested files from a single `git show`,
     /// keyed by path. Files whose patch may need encoding-aware handling are
     /// left out so the caller can read them individually.
     fn commit_batch(
@@ -291,6 +311,7 @@ impl CliGitBackend {
         repository: &Path,
         commit: &str,
         context: Option<usize>,
+        paths: &[PathBuf],
     ) -> GitResult<std::collections::HashMap<PathBuf, FileDiff>> {
         let mut args = vec![
             OsString::from("show"),
@@ -303,6 +324,7 @@ impl CliGitBackend {
         args.push(OsString::from("--diff-merges=first-parent"));
         args.push(OsString::from(commit));
         args.push(OsString::from("--"));
+        args.extend(paths.iter().map(|path| path.as_os_str().to_owned()));
         let output = self
             .runner
             .run(GitCommand::new().cwd(repository).args(args).read_only())?;
@@ -315,7 +337,7 @@ impl CliGitBackend {
                     .flat_map(|hunk| &hunk.lines)
                     .all(|line| match line {
                         DiffLine::Context(s) | DiffLine::Addition(s) | DiffLine::Deletion(s) => {
-                            !s.contains(['\u{feff}', '\u{fffd}'])
+                            !s.contains('\u{feff}') && !s.contains('\u{fffd}')
                         }
                         DiffLine::NoNewline => true,
                     })
@@ -2668,6 +2690,22 @@ X2
         );
         assert_eq!(file("gone.txt").document.deletions(), 1);
         assert!(file("binary.dat").document.binary);
+        let preview = service
+            .backend()
+            .commit_file_diff(&root, &head, Path::new("kept.txt"))
+            .unwrap();
+        assert!(
+            preview.files[0]
+                .hunks
+                .iter()
+                .flat_map(|h| &h.lines)
+                .any(|line| matches!(line, DiffLine::Addition(text) if text == "two"))
+        );
+        let binary = service
+            .backend()
+            .commit_file_diff(&root, &head, Path::new("binary.dat"))
+            .unwrap();
+        assert!(binary.files[0].binary);
         file("renamed.txt");
         let _ = std::fs::remove_dir_all(root);
     }
