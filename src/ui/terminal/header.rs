@@ -301,20 +301,13 @@ pub(super) fn category(
             let background_id = UiId::owned(format!("{id}-background"));
             let button = UiElement::panel(node_id, slot, VisualStyle::default());
             if active {
-                // Match the prototype's 1px outline outside the selected segment.
-                let outline = UiRect::new(
-                    slot.left - 1.0,
-                    slot.top - 1.0,
-                    slot.right + 1.0,
-                    slot.bottom + 1.0,
-                );
+                // The selected segment stands out by its fill alone, without an outline.
+                let painted = scale.logical_rect(scale.physical_rect(slot));
                 return button
-                    .child(category_frame(
+                    .child(UiElement::panel(
                         background_id,
-                        outline,
-                        theme::c().surface,
-                        3.0,
-                        scale,
+                        painted,
+                        VisualStyle::filled(theme::c().surface).radius(3.0),
                     ))
                     .children(cx.children);
             }
@@ -353,11 +346,9 @@ pub(super) fn category(
             icon_left + 20.0 + label_w + 2.0,
             slot.bottom,
         );
-        let label_style = if active {
-            theme::sans_semibold(color, size)
-        } else {
-            theme::sans(color, size)
-        };
+        // Every tab uses the selected one's weight, so choosing a tab changes
+        // its colour and fill but never the width of its name.
+        let label_style = theme::sans_semibold(color, size);
         button = button
             .child(super::view::icon(
                 id,

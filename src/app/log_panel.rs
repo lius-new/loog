@@ -360,6 +360,9 @@ fn chip(
         let flags = cx.context.interaction_flags(&node_id);
         let style = if active || flags.hovered || flags.pressed {
             VisualStyle::filled(theme::c().surface).radius(3.0)
+        } else if chevron {
+            // A dropdown shows that it is one even at rest.
+            VisualStyle::filled(theme::c().active_line).radius(3.0)
         } else {
             VisualStyle::default()
         };
@@ -878,6 +881,86 @@ fn find_box(body: UiRect, state: &AppContext, total: usize, editor_focus: UiFocu
 
 // ---- Problems ----------------------------------------------------------------
 
+const SEVERITY_PAD: f32 = 6.0;
+const SEVERITY_ICON: f32 = 16.0;
+
+/// A severity's icon and count, which shows or hides that severity. Lit while
+/// the severity is shown and dim while it is hidden; a fill appears only under
+/// the pointer, so the row stays quiet.
+#[allow(clippy::too_many_arguments)]
+fn severity_toggle(
+    key: &'static str,
+    rect: UiRect,
+    icon: &'static str,
+    name: String,
+    count: usize,
+    color: Color,
+    on: bool,
+    click: impl Fn() + Send + Sync + 'static,
+) -> Element {
+    let node_id = UiId::owned(key);
+    let mut semantics = Semantics::new(SemanticRole::Button).name(name);
+    semantics.state.selected = on;
+    let icon_slot = UiRect::new(
+        rect.left + SEVERITY_PAD,
+        rect.top,
+        rect.left + SEVERITY_PAD + SEVERITY_ICON,
+        rect.bottom,
+    );
+    let mut count_style = theme::mono(color, theme::SMALL);
+    count_style.align = TextAlign::Left;
+    let value = count.to_string();
+    let count_rect = digits_centered(
+        UiRect::new(icon_slot.right + 4.0, rect.top, rect.right, rect.bottom),
+        &value,
+        count_style,
+    );
+    Element::new(move |cx| {
+        let flags = cx.context.interaction_flags(&node_id);
+        let style = if flags.hovered || flags.pressed {
+            VisualStyle::filled(theme::c().surface).radius(3.0)
+        } else {
+            VisualStyle::default()
+        };
+        UiElement::panel(node_id.clone(), rect, style).children(cx.children)
+    })
+    .key(key)
+    .event_policy(EventPolicy::INTERACTIVE)
+    .cursor(CursorIcon::Pointer)
+    .semantics(semantics)
+    .on_click(click)
+    .child(
+        Element::new(move |cx| {
+            UiElement::icon(cx.id, theme::icon_rect(icon_slot), icon).icon_style(IconStyle::new(color))
+        })
+        .key(format!("{key}-icon")),
+    )
+    .child(text(count_rect, value, count_style))
+}
+
+/// Logical pixels, per 10px of font size, that digits are moved down from the
+/// layout's own baseline so their painted ink is centred.
+const DIGIT_BASELINE_BIAS: f32 = 1.0;
+
+/// `rect` moved vertically so the digits of `value` sit on the rectangle's
+/// middle line. A box centred around the font's whole line puts digits high or
+/// low, because they have neither ascenders nor descenders; this places them by
+/// their own height, so they line up with an icon beside them.
+fn digits_centered(rect: UiRect, value: &str, style: lgui::prelude::TextStyle) -> UiRect {
+    use lgui::text::{self as shaping, TextLayoutRequest};
+    let Some(baseline) = shaping::layout(&TextLayoutRequest::for_style(value, rect, &style))
+        .and_then(|layout| layout.lines().first().map(|line| line.baseline))
+    else {
+        return rect;
+    };
+    // Digits are about as tall as capitals: 0.72 of the font size.
+    let wanted = (rect.top + rect.bottom) / 2.0 + style.height * 0.72 / 2.0;
+    // The baseline the layout reports lies a little below where the glyphs are
+    // painted; the rendered pixels of a 10px count were measured one pixel high
+    // without this (see `the_count_is_painted_on_the_togglers_middle_line`).
+    rect.translate(0.0, wanted - baseline + DIGIT_BASELINE_BIAS * style.height / 10.0)
+}
+
 fn problems_toolbar(
     free: UiRect,
     bar: UiRect,
@@ -890,32 +973,35 @@ fn problems_toolbar(
     let mut root = group(bar)
         .key("problems-toolbar")
         .child(header::rule(bar, tools.rule));
-    let top = free.top + (free.height() - 22.0) / 2.0;
-    let mut left = free.left;
-    let compact = (tools.left - free.left) < 300.0;
-    let kinds: [(&str, &'static str, usize, Color, fn(&mut Filter) -> &mut bool); 3] = [
-        ("Errors", "problems-errors", counts.errors, c.error_text, |f| &mut f.errors),
-        ("Warnings", "problems-warnings", counts.warnings, c.warning, |f| &mut f.warnings),
-        ("Info", "problems-infos", counts.infos, c.accent, |f| &mut f.infos),
+    let _ = free;
+    let top = bar.top + (bar.height() - 22.0) / 2.0;
+    // The three severities are icons with their counts at the right end, beside the
+    // tools, rather than labelled chips on the left: right to left, so the order on
+    // screen is errors, warnings, information.
+    let mut right = tools.slots[0].left - 6.0;
+    let kinds: [(&str, &'static str, &'static str, usize, Color, fn(&mut Filter) -> &mut bool); 3] = [
+        ("Information", "problems-infos", "info", counts.infos, c.accent, |f| &mut f.infos),
+        ("Warnings", "problems-warnings", "warning", counts.warnings, c.warning, |f| &mut f.warnings),
+        ("Errors", "problems-errors", "problem-error", counts.errors, c.error_text, |f| &mut f.errors),
     ];
-    for (name, key, count, color, field) in kinds {
+    for (name, key, icon, count, color, field) in kinds {
         let mut filter = panel_state.severities;
         let on = *field(&mut filter);
-        let label = if compact { format!("{count}") } else { format!("{name} {count}") };
-        let width = crate::ui::tabs::measure(&label, theme::UI_SIZE, 400) + 22.0;
-        if left + width > tools.left - 8.0 {
-            break;
-        }
-        let rect = UiRect::new(left, top, left + width, top + 22.0);
-        left = rect.right + 2.0;
+        let width = SEVERITY_PAD * 2.0
+            + SEVERITY_ICON
+            + 4.0
+            + crate::ui::tabs::measure(&count.to_string(), theme::SMALL, 400);
+        let rect = UiRect::new(right - width, top, right, top + 22.0);
+        right = rect.left - 2.0;
         let click = state.clone();
-        root = root.child(chip(
-            key.into(),
+        root = root.child(severity_toggle(
+            key,
             rect,
-            label,
-            false,
-            on,
+            icon,
+            format!("{name}: {count}"),
+            count,
             if on { color } else { c.text_faint },
+            on,
             move || {
                 set(&click, move |p| {
                     let flag = field(&mut p.severities);
@@ -1523,6 +1609,148 @@ mod tests {
         assert!(narrow.iter().any(|n| n == "Filter lines"));
         assert!(narrow.iter().any(|n| n == "More actions"));
         assert!(!narrow.iter().any(|n| n == "Clear this channel"));
+    }
+
+    #[test]
+    fn problems_shows_its_three_severities_as_icons_at_the_right_end() {
+        for width in [900.0, 400.0] {
+            let names = render_names(PanelTab::Problems, width, 260.0, false);
+            for severity in ["Errors:", "Warnings:", "Information:"] {
+                assert!(
+                    names.iter().any(|n| n.starts_with(severity)),
+                    "{severity} at {width}: {names:?}"
+                );
+            }
+            assert!(names.iter().any(|n| n == "Only the active file"));
+        }
+    }
+
+    /// Renders the Problems header and returns, for the toggle called `name`, its
+    /// rectangle and the vertical extent of the pixels its count painted.
+    fn painted_digits(name: &str) -> (UiRect, (u32, u32), (u32, u32)) {
+        use crate::app::state::AppState;
+        use crate::app::terminal_binding::TerminalTabs;
+        use lgui::application::{AppView, ApplicationContext};
+        use lgui::core::{PhysicalRect, UiScale};
+        use lgui::renderer::{FrameInfo, FrameReason};
+        use lgui::session::UiSession;
+        let context = ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let viewport = UiRect::new(0.0, 0.0, 600.0, 140.0);
+        let dock = UiRect::new(0.0, 40.0, 600.0, 140.0);
+        let view: AppView = Arc::new(move |cx| {
+            let state = AppContext::detached(cx.state_with(|| {
+                let mut app = AppState::new();
+                app.terminal_chrome.show_terminal = true;
+                app.terminal.ui.panel_tab = PanelTab::Problems;
+                app
+            }));
+            let tabs = crate::app::terminal_binding::test_store(
+                cx,
+                Some(state.clone()),
+                TerminalTabs::new,
+            );
+            let id = cx.use_stable_id();
+            let focus = cx.focus_handle(id);
+            let editor_id = cx.use_stable_id();
+            let editor_focus = cx.focus_handle(editor_id);
+            lgui::prelude::group(viewport).child(render(
+                dock,
+                PanelTab::Problems,
+                state,
+                tabs,
+                editor_focus,
+                focus,
+                Arc::new(ApplicationHandle::new(|task| task(), || {})),
+                None,
+                100.0,
+                UiRect::new(0.0, 0.0, 600.0, 40.0),
+            ))
+        });
+        let mut session = UiSession::new();
+        let scale = UiScale::ONE;
+        session.render_view(&view, viewport, scale);
+        let toggle = session
+            .tree()
+            .nodes()
+            .iter()
+            .find(|n| n.semantics.as_ref().and_then(|s| s.name.as_deref()) == Some(name))
+            .unwrap_or_else(|| panic!("missing {name}"))
+            .layout_rect;
+        let physical = scale.physical_rect(viewport);
+        let mut surface = lgui::render_skia::SkiaSoftwareSurface::new(4 * 1024 * 1024);
+        let dirty = [PhysicalRect::new(0, 0, physical.right, physical.bottom)];
+        let frame = FrameInfo::new(physical, &dirty, scale, FrameReason::SceneChange, true);
+        lgui::assets::backend::with_render_resources(&context, lgui::RenderResources::new(), || {
+            surface.draw(&session.tree().scene().project_to_physical(scale), &frame)
+        })
+        .unwrap();
+        let width = physical.width() as usize;
+        let pixel = |x: u32, y: u32| {
+            let at = (y as usize * width + x as usize) * 4;
+            [
+                surface.pixels()[at],
+                surface.pixels()[at + 1],
+                surface.pixels()[at + 2],
+            ]
+        };
+        // The count sits right of the 16px icon slot that starts 6px in; anything that
+        // differs from the header's fill there is the digits.
+        let (left, right) = ((toggle.left + 6.0 + 16.0 + 3.0) as u32, toggle.right as u32);
+        let fill = pixel(left, toggle.top as u32 + 1);
+        let mut rows = Vec::new();
+        for y in toggle.top as u32..toggle.bottom as u32 {
+            if (left..right).any(|x| pixel(x, y) != fill) {
+                rows.push(y);
+            }
+        }
+        let digits = (*rows.first().unwrap_or(&0), *rows.last().unwrap_or(&0));
+        let mut columns = Vec::new();
+        for x in left..right {
+            if (toggle.top as u32..toggle.bottom as u32).any(|y| pixel(x, y) != fill) {
+                columns.push(x);
+            }
+        }
+        let ink = (*columns.first().unwrap_or(&0), *columns.last().unwrap_or(&0));
+        (toggle, digits, ink)
+    }
+
+    #[test]
+    fn the_count_is_painted_on_the_togglers_middle_line() {
+        for name in ["Errors: 0", "Warnings: 0", "Information: 0"] {
+            let (toggle, (top, bottom), _) = painted_digits(name);
+            let middle = (toggle.top + toggle.bottom) / 2.0;
+            let painted = (top + bottom + 1) as f32 / 2.0;
+            assert!(
+                (painted - middle).abs() <= 0.5,
+                "{name}: digits span rows {top}..={bottom}, centre {painted}; toggle {toggle:?}, middle {middle}"
+            );
+        }
+    }
+
+    #[test]
+    fn digits_are_placed_by_their_own_height_on_the_middle_line() {
+        use lgui::application::ApplicationContext;
+        use lgui::text::{self as shaping, TextLayoutRequest};
+        let context = ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let style = theme::mono(theme::c().text, theme::SMALL);
+        assert_eq!(style.height, theme::SMALL, "the style's height is the font size");
+        let rect = UiRect::new(10.0, 0.0, 60.0, 22.0);
+        let moved = digits_centered(rect, "12", style);
+        let baseline = shaping::layout(&TextLayoutRequest::for_style("12", moved, &style))
+            .and_then(|layout| layout.lines().first().map(|line| line.baseline))
+            .expect("the text lays out");
+        let expected = 11.0 + theme::SMALL * 0.72 / 2.0 + DIGIT_BASELINE_BIAS;
+        assert!((baseline - expected).abs() < 0.01, "{baseline} vs {expected}");
+        // Only vertical movement: the digits keep their column.
+        assert_eq!((moved.left, moved.right), (rect.left, rect.right));
     }
 
     #[test]
