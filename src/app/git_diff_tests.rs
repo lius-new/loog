@@ -293,6 +293,8 @@ fn progressive_diff_shows_selected_code_and_retains_headers_and_controls() {
 #[test]
 fn progressive_diff_actual_open_publishes_selected_file_before_completion() {
     let (root, backend) = crate::infrastructure::git::backend::tests::required_repository();
+    // Discovery canonicalizes roots; temp paths may contain aliases or short names.
+    let root = std::fs::canonicalize(root).expect("canonicalize Git fixture path");
     for path in ["a.txt", "b.txt"] {
         std::fs::write(root.join(path), "before\n").unwrap();
     }
@@ -307,7 +309,7 @@ fn progressive_diff_actual_open_publishes_selected_file_before_completion() {
     let snapshot = service.refresh(std::slice::from_ref(&root), None).unwrap();
     let root = snapshot
         .repository_for_path(&root)
-        .unwrap()
+        .expect("canonicalized Git fixture must be in the snapshot")
         .worktree_root
         .clone();
     let context = ApplicationContext::empty(Default::default());
@@ -431,6 +433,7 @@ fn progressive_diff_first_visible_benchmark() {
 #[test]
 fn progressive_diff_unreadable_selected_file_does_not_block_other_files() {
     let (root, backend) = crate::infrastructure::git::backend::tests::required_repository();
+    let root = std::fs::canonicalize(root).expect("canonicalize Git fixture path");
     std::fs::write(root.join("b.txt"), "before\n").unwrap();
     backend.stage(&root, &["b.txt".into()]).unwrap();
     backend.commit(&root, "base", false, false).unwrap();
@@ -440,7 +443,7 @@ fn progressive_diff_unreadable_selected_file_does_not_block_other_files() {
     let snapshot = service.refresh(std::slice::from_ref(&root), None).unwrap();
     let root = snapshot
         .repository_for_path(&root)
-        .unwrap()
+        .expect("canonicalized Git fixture must be in the snapshot")
         .worktree_root
         .clone();
     std::fs::remove_file(root.join("a.txt")).unwrap();
