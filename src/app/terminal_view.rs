@@ -241,9 +241,13 @@ pub(crate) fn run(
             fraction,
         } => commands::resize_pair(tabs, left, right, fraction),
         Command::Mouse { target, row, col } => commands::mouse_position(tabs, target, row, col),
-        Command::BeginSelection { target, row, col } => {
-            commands::begin_selection(tabs, target, row, col)
-        }
+        Command::PressSelection {
+            target,
+            row,
+            col,
+            cell,
+            extend,
+        } => commands::press_selection(tabs, target, row, col, cell, extend),
         Command::ExtendSelection { target, row, col } => {
             commands::extend_selection(tabs, target, row, col)
         }

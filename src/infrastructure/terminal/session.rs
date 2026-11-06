@@ -35,6 +35,8 @@ struct TerminalInner {
     detected_name: Mutex<Option<String>>,
     status: Mutex<TerminalStatus>,
     selection: Mutex<Option<Selection>>,
+    /// Time, cell and count of the last left press, for double/triple click.
+    last_click: Mutex<Option<(std::time::Instant, u16, u16, u8)>>,
     /// The text being searched for and the match shown, counted from 0.
     search: Mutex<(String, usize)>,
     mouse: Mutex<crate::features::terminal::mouse::TerminalMouse>,
@@ -66,6 +68,7 @@ impl TerminalController {
                 }),
                 status: Mutex::new(TerminalStatus::Idle),
                 selection: Mutex::new(None),
+                last_click: Mutex::new(None),
                 search: Mutex::new((String::new(), 0)),
                 mouse: Mutex::new(crate::features::terminal::mouse::TerminalMouse::default()),
                 generation: AtomicU64::new(0),
@@ -405,6 +408,56 @@ impl TerminalController {
             anchor: point,
             head: point,
         });
+    }
+
+    /// Handles a left press: shift extends the current selection, a second
+    /// quick click on the same cell selects the word and a third the line.
+    /// `col` is the nearest cell boundary, `cell` the cell under the pointer.
+    pub fn press_selection(&self, row: u16, col: u16, cell: u16, extend: bool) {
+        if extend {
+            let mut selection = lock(&self.inner.selection);
+            if let Some(selection) = selection.as_mut() {
+                selection.head = self.grid_point(row, col);
+                *lock(&self.inner.last_click) = None;
+                return;
+            }
+        }
+        let clicks = {
+            let mut last = lock(&self.inner.last_click);
+            let now = std::time::Instant::now();
+            let count = last
+                .filter(|(time, r, c, _)| {
+                    *r == row && *c == cell && now.duration_since(*time).as_millis() < 500
+                })
+                .map_or(1, |(_, _, _, count)| count % 3 + 1);
+            *last = Some((now, row, cell, count));
+            count
+        };
+        if clicks == 1 {
+            self.begin_selection(row, col);
+            return;
+        }
+        let cells: Vec<String> = {
+            let parser = lock(&self.inner.parser);
+            let screen = parser.screen();
+            let (_, cols) = screen.size();
+            (0..cols)
+                .map(|c| {
+                    screen
+                        .cell(row, c)
+                        .map(|cell| cell.contents().to_owned())
+                        .unwrap_or_default()
+                })
+                .collect()
+        };
+        let (from, to) = if clicks == 2 {
+            crate::features::terminal::screen::word_range(&cells, usize::from(cell))
+        } else {
+            (0, crate::features::terminal::screen::line_end(&cells))
+        };
+        let anchor = self.grid_point(row, from);
+        let head = self.grid_point(row, to);
+        *lock(&self.inner.selection) = Some(Selection { anchor, head });
     }
 
     /// Moves the free end of the selection to a visible cell boundary.

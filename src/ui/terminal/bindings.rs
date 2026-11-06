@@ -247,10 +247,14 @@ pub enum Command {
         row: u16,
         col: u16,
     },
-    BeginSelection {
+    /// Left press: starts, extends (shift) or widens (double/triple click) the
+    /// selection. `col` is the nearest cell boundary, `cell` the cell hit.
+    PressSelection {
         target: SessionId,
         row: u16,
         col: u16,
+        cell: u16,
+        extend: bool,
     },
     ExtendSelection {
         target: SessionId,
@@ -325,8 +329,21 @@ pub fn write(tabs: &Sessions, target: SessionId, bytes: &[u8]) {
 pub fn mouse_position(tabs: &Sessions, target: SessionId, row: u16, col: u16) {
     tabs.run(Command::Mouse { target, row, col });
 }
-pub fn begin_selection(tabs: &Sessions, target: SessionId, row: u16, col: u16) {
-    tabs.run(Command::BeginSelection { target, row, col });
+pub fn press_selection(
+    tabs: &Sessions,
+    target: SessionId,
+    row: u16,
+    col: u16,
+    cell: u16,
+    extend: bool,
+) {
+    tabs.run(Command::PressSelection {
+        target,
+        row,
+        col,
+        cell,
+        extend,
+    });
 }
 pub fn extend_selection(tabs: &Sessions, target: SessionId, row: u16, col: u16) {
     tabs.run(Command::ExtendSelection { target, row, col });

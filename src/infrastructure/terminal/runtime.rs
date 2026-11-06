@@ -213,6 +213,9 @@ impl TerminalHandle {
     pub fn begin_selection(&self, row: u16, col: u16) {
         self.with(|c| c.begin_selection(row, col));
     }
+    pub fn press_selection(&self, row: u16, col: u16, cell: u16, extend: bool) {
+        self.with(|c| c.press_selection(row, col, cell, extend));
+    }
     pub fn extend_selection(&self, row: u16, col: u16) {
         self.with(|c| c.extend_selection(row, col));
     }

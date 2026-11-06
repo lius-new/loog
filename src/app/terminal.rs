@@ -620,6 +620,18 @@ pub(crate) fn begin_selection(tabs: &TerminalStore, id: SessionId, row: u16, col
         tab.controller.begin_selection(row, col);
     }
 }
+pub(crate) fn press_selection(
+    tabs: &TerminalStore,
+    id: SessionId,
+    row: u16,
+    col: u16,
+    cell: u16,
+    extend: bool,
+) {
+    if let Some(tab) = target(tabs, id) {
+        tab.controller.press_selection(row, col, cell, extend);
+    }
+}
 pub(crate) fn extend_selection(tabs: &TerminalStore, id: SessionId, row: u16, col: u16) {
     if let Some(tab) = target(tabs, id) {
         tab.controller.extend_selection(row, col);

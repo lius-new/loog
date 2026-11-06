@@ -787,7 +787,9 @@ pub(crate) fn render_session(
         let (row, col) = cell_at(content, pointer.point, screen_rows, screen_cols);
         match button {
             PointerButton::Left => {
-                commands::begin_selection(&select_input_tabs, session_id, row, col);
+                let (_, cell) = mouse_cell_at(content, pointer.point, screen_rows, screen_cols);
+                let extend = select_state.get().modifiers.shift();
+                commands::press_selection(&select_input_tabs, session_id, row, col, cell, extend);
                 select_state.ui.update(|app| {
                     app.selecting_terminal = true;
                     app.selection_drag = Some(SelectionDrag {

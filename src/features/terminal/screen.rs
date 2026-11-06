@@ -32,6 +32,53 @@ impl Selection {
     }
 }
 
+/// Characters that keep a double-click word together, so paths, flags and
+/// URLs select whole.
+const WORD_PUNCTUATION: &str = "_-./\\:~@%+=?&#";
+
+fn char_class(cell: &str) -> u8 {
+    let Some(c) = cell.chars().next() else {
+        return 0;
+    };
+    if c.is_whitespace() {
+        0
+    } else if c.is_alphanumeric() || WORD_PUNCTUATION.contains(c) {
+        1
+    } else {
+        2
+    }
+}
+
+/// Cell range `[start, end)` of the word, blank run or single symbol under
+/// `col` in one row of cell contents.
+pub(crate) fn word_range(cells: &[String], col: usize) -> (u16, u16) {
+    if cells.is_empty() {
+        return (0, 0);
+    }
+    let col = col.min(cells.len() - 1);
+    let class = char_class(&cells[col]);
+    if class == 2 {
+        return (col as u16, col as u16 + 1);
+    }
+    let mut start = col;
+    while start > 0 && char_class(&cells[start - 1]) == class {
+        start -= 1;
+    }
+    let mut end = col + 1;
+    while end < cells.len() && char_class(&cells[end]) == class {
+        end += 1;
+    }
+    (start as u16, end as u16)
+}
+
+/// End of the text in a row, so a line selection skips trailing blanks.
+pub(crate) fn line_end(cells: &[String]) -> u16 {
+    cells
+        .iter()
+        .rposition(|cell| char_class(cell) != 0)
+        .map_or(0, |last| last as u16 + 1)
+}
+
 pub(crate) fn visible_selection(
     start: GridPoint,
     end: GridPoint,
@@ -428,6 +475,15 @@ mod tests {
         assert_eq!(found.len(), 2);
         assert_eq!((found[0].0.col, found[0].1.col), (5, 7));
         assert_eq!((found[1].0.col, found[1].1.col), (7, 9));
+    }
+
+    #[test]
+    fn word_range_keeps_paths_together_and_splits_on_blanks() {
+        let cells: Vec<String> = "cd src/app  x(y)".chars().map(|c| c.to_string()).collect();
+        assert_eq!(word_range(&cells, 4), (3, 10));
+        assert_eq!(word_range(&cells, 10), (10, 12));
+        assert_eq!(word_range(&cells, 13), (13, 14));
+        assert_eq!(line_end(&cells), 16);
     }
 
     #[test]
