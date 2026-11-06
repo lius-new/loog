@@ -620,6 +620,14 @@ pub(crate) fn begin_selection(tabs: &TerminalStore, id: SessionId, row: u16, col
         tab.controller.begin_selection(row, col);
     }
 }
+/// The link at a cell of the session's screen, if there is one.
+pub(crate) fn url_at(tabs: &TerminalStore, id: SessionId, row: u16, cell: u16) -> Option<String> {
+    target(tabs, id)?.controller.url_at(row, cell)
+}
+/// Underlines the link at `cell`, or none. Returns whether anything changed.
+pub(crate) fn link_hover(tabs: &TerminalStore, id: SessionId, cell: Option<(u16, u16)>) -> bool {
+    target(tabs, id).is_some_and(|tab| tab.controller.set_link_hover(cell))
+}
 pub(crate) fn press_selection(
     tabs: &TerminalStore,
     id: SessionId,

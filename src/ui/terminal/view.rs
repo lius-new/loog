@@ -767,9 +767,17 @@ pub(crate) fn render_session(
     // lgui wheel payloads contain the delta only. Retain the latest pointer
     // cell in the session controller across redraws for application reports.
     let mouse_tabs = terminal_tabs.clone();
+    let mouse_state = state.clone();
+    let mouse_application = application.clone();
     terminal = terminal.on_pointer_move(move |_cx, pointer| {
         let (row, col) = mouse_cell_at(content, pointer.point, screen_rows, screen_cols);
         commands::mouse_position(&mouse_tabs, session_id, row, col);
+        // Underline the link under the pointer while Ctrl (Cmd) is held.
+        let modifiers = mouse_state.get().modifiers;
+        let hover = (modifiers.ctrl() || modifiers.meta()).then_some((row, col));
+        if commands::link_hover(&mouse_tabs, session_id, hover) {
+            mouse_application.request_frame();
+        }
     });
     let select_input_tabs = terminal_tabs.clone();
     let select_tabs = terminal_tabs.clone();
@@ -787,7 +795,16 @@ pub(crate) fn render_session(
         let (row, col) = cell_at(content, pointer.point, screen_rows, screen_cols);
         match button {
             PointerButton::Left => {
-                let (_, cell) = mouse_cell_at(content, pointer.point, screen_rows, screen_cols);
+                let (cell_row, cell) =
+                    mouse_cell_at(content, pointer.point, screen_rows, screen_cols);
+                let modifiers = select_state.get().modifiers;
+                // Ctrl-click (Cmd on macOS) opens a link; elsewhere it selects.
+                if (modifiers.ctrl() || modifiers.meta())
+                    && commands::open_link(&select_input_tabs, session_id, cell_row, cell)
+                {
+                    cx.stop_propagation();
+                    return;
+                }
                 let extend = select_state.get().modifiers.shift();
                 commands::press_selection(&select_input_tabs, session_id, row, col, cell, extend);
                 select_state.ui.update(|app| {
@@ -868,8 +885,14 @@ pub(crate) fn render_session(
 
     // Default cursors inherit in lgui, so keep the text cursor off the
     // scrollbar's ancestors and apply it only to the screen content.
+    // A hand over a Ctrl-hovered link shows that a click opens it.
+    let screen_cursor = if snapshot.link.is_some() {
+        CursorIcon::Pointer
+    } else {
+        CursorIcon::Text
+    };
     terminal = terminal.child(
-        render_screen(content, &snapshot, focused, cursor_blink_visible).cursor(CursorIcon::Text),
+        render_screen(content, &snapshot, focused, cursor_blink_visible).cursor(screen_cursor),
     );
     let ui = state.get().ui;
     let emphasized = ui.hovered_terminal == Some(session_id)
@@ -1724,6 +1747,21 @@ pub(crate) fn render_screen(
                 }
             }
         }
+    }
+
+    if let Some((row, start, end)) = snapshot.link {
+        let top = content.top + f32::from(row) * terminal_line_h();
+        let left = content.left + f32::from(start) * terminal_cell_width();
+        let right = (content.left + f32::from(end) * terminal_cell_width()).min(content.right);
+        screen = screen.child(panel(
+            UiRect::new(
+                left,
+                top + terminal_line_h() - 3.0,
+                right,
+                top + terminal_line_h() - 2.0,
+            ),
+            VisualStyle::filled(theme::c().text),
+        ));
     }
 
     if cursor_is_drawn(snapshot.cursor_visible, focused, cursor_blink_visible) {

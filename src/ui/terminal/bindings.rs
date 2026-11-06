@@ -247,6 +247,18 @@ pub enum Command {
         row: u16,
         col: u16,
     },
+    /// Pointer cell to underline a link at while Ctrl is held; `None` clears.
+    /// `applied` reports whether the underline changed.
+    LinkHover {
+        target: SessionId,
+        cell: Option<(u16, u16)>,
+    },
+    /// Ctrl-click: opens the link at the cell; `applied` is false without one.
+    OpenLink {
+        target: SessionId,
+        row: u16,
+        cell: u16,
+    },
     /// Left press: starts, extends (shift) or widens (double/triple click) the
     /// selection. `col` is the nearest cell boundary, `cell` the cell hit.
     PressSelection {
@@ -328,6 +340,14 @@ pub fn write(tabs: &Sessions, target: SessionId, bytes: &[u8]) {
 }
 pub fn mouse_position(tabs: &Sessions, target: SessionId, row: u16, col: u16) {
     tabs.run(Command::Mouse { target, row, col });
+}
+/// Returns whether the underlined link changed.
+pub fn link_hover(tabs: &Sessions, target: SessionId, cell: Option<(u16, u16)>) -> bool {
+    tabs.run(Command::LinkHover { target, cell }).applied
+}
+/// Opens the link under the pointer; returns whether there was one.
+pub fn open_link(tabs: &Sessions, target: SessionId, row: u16, cell: u16) -> bool {
+    tabs.run(Command::OpenLink { target, row, cell }).applied
 }
 pub fn press_selection(
     tabs: &Sessions,

@@ -71,6 +71,67 @@ pub(crate) fn word_range(cells: &[String], col: usize) -> (u16, u16) {
     (start as u16, end as u16)
 }
 
+/// The `http(s)` link under `col` in one row of cell contents, without the
+/// punctuation that usually trails a link in prose or logs.
+pub(crate) fn url_at(cells: &[String], col: usize) -> Option<String> {
+    url_span(cells, col).map(|(_, _, url)| url)
+}
+
+/// Like [`url_at`], with the link's cell range `[start, end)`.
+pub(crate) fn url_span(cells: &[String], col: usize) -> Option<(u16, u16, String)> {
+    let mut text = String::new();
+    let mut starts = Vec::with_capacity(cells.len());
+    for cell in cells {
+        starts.push(text.len());
+        text.push_str(if cell.is_empty() { " " } else { cell });
+    }
+    let at = *starts.get(col)?;
+    if text[at..].chars().next().is_none_or(char::is_whitespace) {
+        return None;
+    }
+    let begin = text[..at].rfind(char::is_whitespace).map_or(0, |i| {
+        i + text[i..].chars().next().map_or(1, char::len_utf8)
+    });
+    let end = text[at..]
+        .find(char::is_whitespace)
+        .map_or(text.len(), |i| at + i);
+    let token = &text[begin..end];
+    let lower = token.to_ascii_lowercase();
+    let scheme = ["https://", "http://"]
+        .iter()
+        .filter_map(|scheme| lower.find(scheme).map(|i| (i, scheme.len())))
+        .min()?;
+    if begin + scheme.0 > at {
+        return None;
+    }
+    let mut url = &token[scheme.0..];
+    loop {
+        let Some(last) = url.chars().last() else {
+            break;
+        };
+        let unbalanced = |open: char, close: char| {
+            last == close && url.matches(open).count() < url.matches(close).count()
+        };
+        if ".,;:!?'\"".contains(last)
+            || unbalanced('(', ')')
+            || unbalanced('[', ']')
+            || unbalanced('{', '}')
+            || last == '>'
+        {
+            url = &url[..url.len() - last.len_utf8()];
+        } else {
+            break;
+        }
+    }
+    if url.len() <= scheme.1 {
+        return None;
+    }
+    let from = begin + scheme.0;
+    let first = starts.partition_point(|&start| start < from);
+    let last = starts.partition_point(|&start| start < from + url.len());
+    Some((first as u16, last as u16, url.to_owned()))
+}
+
 /// End of the text in a row, so a line selection skips trailing blanks.
 pub(crate) fn line_end(cells: &[String]) -> u16 {
     cells
@@ -484,6 +545,21 @@ mod tests {
         assert_eq!(word_range(&cells, 10), (10, 12));
         assert_eq!(word_range(&cells, 13), (13, 14));
         assert_eq!(line_end(&cells), 16);
+    }
+
+    #[test]
+    fn url_at_finds_links_and_drops_trailing_punctuation() {
+        let cells = |text: &str| text.chars().map(|c| c.to_string()).collect::<Vec<_>>();
+        let row = cells("see (https://a.io/x_(1)).  ok http://b.c, end");
+        assert_eq!(url_at(&row, 10).as_deref(), Some("https://a.io/x_(1)"));
+        assert_eq!(url_at(&row, 4), None);
+        assert_eq!(url_at(&row, 3), None);
+        assert_eq!(url_at(&row, 32).as_deref(), Some("http://b.c"));
+        assert_eq!(url_at(&cells("http://"), 2), None);
+        assert_eq!(
+            url_span(&row, 10),
+            Some((5, 23, "https://a.io/x_(1)".into()))
+        );
     }
 
     #[test]

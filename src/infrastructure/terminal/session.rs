@@ -19,6 +19,19 @@ use std::thread;
 use std::time::Duration;
 const SCROLLBACK_ROWS: usize = 2_000;
 
+/// Contents of every cell in a visible row of `screen`.
+fn screen_cells(screen: &vt100::Screen, row: u16) -> Vec<String> {
+    let (_, cols) = screen.size();
+    (0..cols)
+        .map(|c| {
+            screen
+                .cell(row, c)
+                .map(|cell| cell.contents().to_owned())
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct TerminalController {
     inner: Arc<TerminalInner>,
@@ -37,6 +50,8 @@ struct TerminalInner {
     selection: Mutex<Option<Selection>>,
     /// Time, cell and count of the last left press, for double/triple click.
     last_click: Mutex<Option<(std::time::Instant, u16, u16, u8)>>,
+    /// Row and cell under the pointer while Ctrl is held, for link underline.
+    link_hover: Mutex<Option<(u16, u16)>>,
     /// The text being searched for and the match shown, counted from 0.
     search: Mutex<(String, usize)>,
     mouse: Mutex<crate::features::terminal::mouse::TerminalMouse>,
@@ -69,6 +84,7 @@ impl TerminalController {
                 status: Mutex::new(TerminalStatus::Idle),
                 selection: Mutex::new(None),
                 last_click: Mutex::new(None),
+                link_hover: Mutex::new(None),
                 search: Mutex::new((String::new(), 0)),
                 mouse: Mutex::new(crate::features::terminal::mouse::TerminalMouse::default()),
                 generation: AtomicU64::new(0),
@@ -437,19 +453,7 @@ impl TerminalController {
             self.begin_selection(row, col);
             return;
         }
-        let cells: Vec<String> = {
-            let parser = lock(&self.inner.parser);
-            let screen = parser.screen();
-            let (_, cols) = screen.size();
-            (0..cols)
-                .map(|c| {
-                    screen
-                        .cell(row, c)
-                        .map(|cell| cell.contents().to_owned())
-                        .unwrap_or_default()
-                })
-                .collect()
-        };
+        let cells = self.row_cells(row);
         let (from, to) = if clicks == 2 {
             crate::features::terminal::screen::word_range(&cells, usize::from(cell))
         } else {
@@ -458,6 +462,16 @@ impl TerminalController {
         let anchor = self.grid_point(row, from);
         let head = self.grid_point(row, to);
         *lock(&self.inner.selection) = Some(Selection { anchor, head });
+    }
+
+    /// Contents of every cell in a visible row.
+    fn row_cells(&self, row: u16) -> Vec<String> {
+        screen_cells(lock(&self.inner.parser).screen(), row)
+    }
+
+    /// The `http(s)` link shown at a visible cell, if any.
+    pub fn url_at(&self, row: u16, cell: u16) -> Option<String> {
+        crate::features::terminal::screen::url_at(&self.row_cells(row), usize::from(cell))
     }
 
     /// Moves the free end of the selection to a visible cell boundary.
@@ -567,7 +581,20 @@ impl TerminalController {
             cursor_visible: !screen.hide_cursor() && screen.scrollback() == 0,
             application_cursor: screen.application_cursor(),
             selection,
+            link: (*lock(&self.inner.link_hover)).and_then(|(row, cell)| {
+                let cells = screen_cells(screen, row);
+                crate::features::terminal::screen::url_span(&cells, usize::from(cell))
+                    .map(|(start, end, _)| (row, start, end))
+            }),
         }
+    }
+
+    /// Sets the cell whose link is underlined; returns whether it changed.
+    pub fn set_link_hover(&self, cell: Option<(u16, u16)>) -> bool {
+        let mut hover = lock(&self.inner.link_hover);
+        let changed = *hover != cell;
+        *hover = cell;
+        changed
     }
 
     fn kill_current(&self) {

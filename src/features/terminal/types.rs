@@ -132,6 +132,8 @@ pub struct TerminalSnapshot {
     pub application_cursor: bool,
     /// Selected cells per visible row as `(row, start_col, end_col)`, end exclusive.
     pub selection: Vec<(u16, u16, u16)>,
+    /// Link under the pointer while Ctrl is held, as `(row, start_col, end_col)`.
+    pub link: Option<(u16, u16, u16)>,
 }
 
 #[cfg(test)]

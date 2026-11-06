@@ -175,7 +175,12 @@ impl TerminalHandle {
                 cursor_visible: false,
                 application_cursor: false,
                 selection: vec![],
+                link: None,
             })
+    }
+    /// Sets the cell whose link is underlined; returns whether it changed.
+    pub fn set_link_hover(&self, cell: Option<(u16, u16)>) -> bool {
+        self.with(|c| c.set_link_hover(cell)).unwrap_or(false)
     }
     pub fn write(&self, bytes: &[u8]) {
         self.with(|c| c.write(bytes));
@@ -212,6 +217,9 @@ impl TerminalHandle {
     }
     pub fn begin_selection(&self, row: u16, col: u16) {
         self.with(|c| c.begin_selection(row, col));
+    }
+    pub fn url_at(&self, row: u16, cell: u16) -> Option<String> {
+        self.with(|c| c.url_at(row, cell)).flatten()
     }
     pub fn press_selection(&self, row: u16, col: u16, cell: u16, extend: bool) {
         self.with(|c| c.press_selection(row, col, cell, extend));

@@ -241,6 +241,15 @@ pub(crate) fn run(
             fraction,
         } => commands::resize_pair(tabs, left, right, fraction),
         Command::Mouse { target, row, col } => commands::mouse_position(tabs, target, row, col),
+        Command::LinkHover { target, cell } => {
+            result.applied = commands::link_hover(tabs, target, cell)
+        }
+        Command::OpenLink { target, row, cell } => {
+            match commands::url_at(tabs, target, row, cell) {
+                Some(url) => crate::app::language_ui::open_link(state, url),
+                None => result.applied = false,
+            }
+        }
         Command::PressSelection {
             target,
             row,
