@@ -238,6 +238,28 @@ impl Inner {
                         services.publish_external(source, &path, stamp, text, items.into());
                     }
                 }
+                Effect::PublishFindings {
+                    source,
+                    path,
+                    items,
+                } => {
+                    if let Some(services) = self
+                        .context
+                        .services()
+                        .and_then(|runtime| runtime.language_services())
+                    {
+                        services.publish_findings(source, path, items);
+                    }
+                }
+                Effect::ClearFindings { source } => {
+                    if let Some(services) = self
+                        .context
+                        .services()
+                        .and_then(|runtime| runtime.language_services())
+                    {
+                        services.clear_findings(source);
+                    }
+                }
                 Effect::ClearDiagnostics { source } => {
                     if let Some(services) = self
                         .context

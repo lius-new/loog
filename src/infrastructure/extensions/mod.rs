@@ -241,11 +241,11 @@ pub enum Event {
         generation: u64,
         reports: Vec<loom_extension_host::ServiceReport>,
     },
-    /// What the extension wrote to its Output channels.
-    Output {
+    /// What the extension found in files that are not open.
+    Findings {
         id: String,
         generation: u64,
-        changes: Vec<loom_extension_host::OutputChange>,
+        changes: loom_extension_host::FindingChanges,
     },
     WatchControls {
         id: String,
@@ -850,9 +850,8 @@ impl Worker {
                     reports,
                 });
             }
-            // Lines go as they are too: the panel that shows them paces itself.
-            if let Some(changes) = slot.instance.take_output() {
-                (self.sink)(Event::Output {
+            if let Some(changes) = slot.instance.take_findings() {
+                (self.sink)(Event::Findings {
                     id: id.clone(),
                     generation: slot.generation,
                     changes,

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use lgui::core::{
-    CursorIcon, EventPolicy, IconStyle, LogicalKey, NamedKey, SemanticRole, Semantics, UiElement, UiEventKind,
+    CursorIcon, EventPolicy, IconStyle, LogicalKey, NamedKey, PointerButton, SemanticRole, Semantics, UiElement, UiEventKind,
     UiEventPayload, UiFocusHandle, UiId, WheelUnit, clip,
 };
 use lgui::prelude::{Color, Element, ShadowStyle, TextAlign, UiRect, VisualStyle, group, panel, text};
@@ -46,7 +46,8 @@ pub enum Menu {
 #[derive(Clone)]
 pub struct LogPanel {
     pub channel: Option<ChannelId>,
-    pub min_level: Level,
+    /// The lowest level the person chose; none lets each channel use its own default.
+    pub min_level: Option<Level>,
     pub follow: bool,
     pub show_time: bool,
     pub find_open: bool,
@@ -57,13 +58,17 @@ pub struct LogPanel {
     pub collapsed: BTreeSet<PathBuf>,
     pub problems_scroll: f32,
     pub menu: Option<Menu>,
+    /// The pointer is over the list, so its scrollbar shows more strongly.
+    pub hovered: bool,
+    /// While the thumb is dragged: where in the thumb it was taken hold of.
+    pub scrollbar_drag: Option<f32>,
 }
 
 impl Default for LogPanel {
     fn default() -> Self {
         Self {
             channel: None,
-            min_level: Level::Info,
+            min_level: None,
             follow: true,
             show_time: true,
             find_open: false,
@@ -74,6 +79,8 @@ impl Default for LogPanel {
             collapsed: BTreeSet::new(),
             problems_scroll: 0.0,
             menu: None,
+            hovered: false,
+            scrollbar_drag: None,
         }
     }
 }
@@ -86,6 +93,18 @@ impl LogPanel {
             .filter(|id| channels.iter().any(|c| &c.id == *id))
             .cloned()
             .or_else(|| channels.first().map(|c| c.id.clone()))
+    }
+
+    /// The lowest level shown for `shown`. Unless the person chose one, a
+    /// channel of a process opens at everything, since what a process says on
+    /// its own streams is what it is there to read; the others open at Info.
+    pub fn level(&self, channels: &[ChannelInfo], shown: Option<&ChannelId>) -> Level {
+        self.min_level.unwrap_or_else(|| {
+            let process = shown
+                .and_then(|id| channels.iter().find(|c| &c.id == id))
+                .is_some_and(|c| c.group == output::Group::Process);
+            if process { Level::Trace } else { Level::Info }
+        })
     }
 
     /// The text rows are filtered by while the find box is open.
@@ -173,8 +192,37 @@ pub(crate) fn collect(state: &AppContext) -> Vec<FileProblems> {
             groups.push(file);
         }
     }
+    // Files that are not open are what the services found by themselves, such as
+    // the output of a build; an open file shows its own document's findings.
+    if !only_current {
+        groups.extend(services.closed_problems(&open_files(&app)));
+    }
     problems::order(&mut groups);
     groups
+}
+
+/// The path to open for a file a service named. An open document keeps its own
+/// spelling, so the jump finds it instead of opening the file a second time;
+/// otherwise the canonical path, which is how files are opened elsewhere.
+fn open_spelling(state: &AppContext, path: &std::path::Path) -> PathBuf {
+    let key = problems::file_key(path);
+    let app = state.get();
+    app.workspace
+        .documents
+        .values()
+        .find(|doc| problems::file_key(&doc.meta.path) == key)
+        .map(|doc| doc.meta.path.clone())
+        .unwrap_or_else(|| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned()))
+}
+
+/// Every open text document, by file key.
+fn open_files(app: &super::state::AppState) -> BTreeSet<String> {
+    app.workspace
+        .documents
+        .values()
+        .filter(|doc| doc.is_text())
+        .map(|doc| problems::file_key(&doc.meta.path))
+        .collect()
 }
 
 /// Errors in open documents, without building any rows.
@@ -183,13 +231,15 @@ pub(crate) fn error_count(state: &AppContext) -> usize {
         return 0;
     };
     let app = state.get();
-    app.workspace
+    let open = app
+        .workspace
         .documents
         .iter()
         .filter(|(_, doc)| doc.is_text())
         .filter_map(|(id, doc)| services.results(&doc.meta.path, &doc.stamp(*id)).diagnostics)
         .map(|found| found.iter().filter(|d| d.severity == Severity::Error).count())
-        .sum()
+        .sum::<usize>();
+    open + services.closed_error_count(&open_files(&app))
 }
 
 enum Row {
@@ -454,7 +504,7 @@ fn output_toolbar(
             level,
             "filter",
             "Lowest level shown",
-            panel_state.min_level != Level::Info,
+            panel_state.min_level.is_some(),
             tone,
             move || {
                 let anchor = (level.right, level.bottom + 2.0);
@@ -504,13 +554,14 @@ fn output_body(
     };
     output::hub().mark_seen(&id);
     let visible = (body.height() / ROW_H).ceil() as usize + 2;
-    let (total, _) = output::hub().window(&id, panel_state.min_level, panel_state.needle(), 0, 0);
+    let level = panel_state.level(&output::hub().channels(), Some(&id));
+    let (total, _) = output::hub().window(&id, level, panel_state.needle(), 0, 0);
     let (scroll, max_scroll) =
         scroll_extent(total, body.height(), panel_state.scroll, panel_state.follow);
     let first = ((scroll - PAD_Y) / ROW_H).floor().max(0.0) as usize;
     let (_, lines) = output::hub().window(
         &id,
-        panel_state.min_level,
+        level,
         panel_state.needle(),
         first,
         visible,
@@ -538,7 +589,8 @@ fn output_body(
         x += level_w + 6.0;
         let message = if line.level <= Level::Debug { c.text_muted } else { c.text };
         content = content.child(text(
-            UiRect::new(x, top, body.right - 14.0, top + ROW_H),
+            // The scrollbar draws over the text's right edge and takes no room.
+            UiRect::new(x, top, body.right - 6.0, top + ROW_H),
             line.text.to_string(),
             theme::mono(message, theme::UI_SIZE - 1.0),
         ));
@@ -571,35 +623,165 @@ fn output_body(
             theme::sans(c.text_faint, theme::UI_SIZE),
         ));
     }
-    if max_scroll > 0.0 {
-        viewport = viewport.child(thumb(body, scroll, max_scroll));
-    }
+    viewport = viewport.child(scrollbar(
+        body,
+        state,
+        Pane::Output,
+        scroll,
+        max_scroll,
+        panel_state,
+    ));
     if panel_state.find_open {
         viewport = viewport.child(find_box(body, state, total, editor_focus.clone()));
     }
     viewport
 }
 
-/// A passive bar showing where the view sits in a long list.
-fn thumb(body: UiRect, scroll: f32, max_scroll: f32) -> Element {
-    let track = UiRect::new(
-        body.right - 10.0,
-        body.top + 4.0,
-        body.right - 2.0,
-        body.bottom - 4.0,
-    );
-    let content = max_scroll + body.height();
-    // A dock too short for a thumb gets none.
-    if track.height() < 24.0 {
+/// Which of the two lists a scrollbar belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Pane {
+    Output,
+    Problems,
+}
+
+/// Scrolls `pane` to `value` pixels. Output follows its newest line again once
+/// it reaches the bottom, and stops following when it leaves it.
+fn scroll_to(state: &AppContext, pane: Pane, value: f32, max_scroll: f32) {
+    set(state, move |p| match pane {
+        Pane::Output => {
+            p.scroll = value;
+            p.follow = value >= max_scroll - 1.0;
+        }
+        Pane::Problems => p.problems_scroll = value,
+    });
+}
+
+/// The overlay scrollbar of a list, as the terminal's: a transparent track along
+/// the right edge that takes no room from the text, and a thumb that is faint at
+/// rest and stronger while the pointer is over the list or the thumb is dragged.
+/// Pressing the track jumps there with the thumb under the pointer, and a drag
+/// keeps going wherever the pointer leaves to.
+fn scrollbar(
+    body: UiRect,
+    state: &AppContext,
+    pane: Pane,
+    scroll: f32,
+    max_scroll: f32,
+    panel_state: &LogPanel,
+) -> Element {
+    use crate::ui::components::scrollbar as bar;
+    use crate::ui::editor::view::{scroll_from_thumb, thumb_geometry};
+    let track = UiRect::new(body.right - bar::SIZE, body.top, body.right, body.bottom);
+    let dragging = panel_state.scrollbar_drag.is_some();
+    if track.height() < 1.0 || (max_scroll <= 0.0 && !dragging) {
         return group(track);
     }
-    let height = (track.height() * body.height() / content).clamp(24.0, track.height());
-    let top = track.top + (track.height() - height) * (scroll / max_scroll);
-    crate::ui::components::scrollbar::thumb(
-        UiRect::new(track.left + 2.0, top, track.right - 2.0, top + height),
-        0x90,
-    )
-    .key("log-scroll-thumb")
+    let geometry = thumb_geometry(
+        track.top,
+        track.height(),
+        body.height(),
+        max_scroll + body.height(),
+        scroll,
+    );
+    let travel = track.height() - geometry.length;
+    let alpha = if panel_state.hovered || dragging { 0xb8 } else { 0x68 };
+    // The thumb stays in the tree while it is dragged, even if the list shrinks
+    // under it; an empty rectangle paints nothing.
+    let thumb_rect = if max_scroll <= 0.0 {
+        UiRect::new(track.right, track.top, track.right, track.top)
+    } else {
+        UiRect::new(
+            track.left + bar::INSET,
+            geometry.start,
+            track.right - bar::INSET,
+            geometry.start + geometry.length,
+        )
+    };
+    let move_to = {
+        let state = state.clone();
+        move |pointer_y: f32, offset: f32| {
+            let value = scroll_from_thumb(pointer_y - track.top - offset, travel, max_scroll);
+            scroll_to(&state, pane, value, max_scroll);
+        }
+    };
+    let press = {
+        let state = state.clone();
+        let move_to = move_to.clone();
+        move |cx: &mut lgui::core::UiEventContext, pointer_y: f32, offset: f32, jump: bool| {
+            set(&state, move |p| p.scrollbar_drag = Some(offset));
+            if jump {
+                move_to(pointer_y, offset);
+            }
+            cx.stop_propagation();
+        }
+    };
+    let drag = {
+        let state = state.clone();
+        move |cx: &mut lgui::core::UiEventContext, pointer_y: f32| {
+            if let Some(offset) = state.get().log_panel.scrollbar_drag
+                && travel > 0.0
+            {
+                move_to(pointer_y, offset);
+                cx.stop_propagation();
+            }
+        }
+    };
+    let release = {
+        let state = state.clone();
+        move |cx: &mut lgui::core::UiEventContext| {
+            set(&state, |p| p.scrollbar_drag = None);
+            cx.stop_propagation();
+        }
+    };
+    let policy = EventPolicy {
+        hover: true,
+        press: true,
+        focus: false,
+    };
+    let (track_press, track_drag, track_release) = (press.clone(), drag.clone(), release.clone());
+    let track_hit = bar::track(track)
+        .key("log-scrollbar-track")
+        .event_policy(policy)
+        .on_pointer_down_with_button(move |cx, pointer, button| {
+            if button == PointerButton::Left {
+                track_press(cx, pointer.point.y, geometry.length / 2.0, true);
+            }
+        })
+        .on_pointer_drag(move |cx, pointer| track_drag(cx, pointer.point.y))
+        .on_pointer_up(move |cx, _| track_release(cx));
+    let thumb = bar::thumb(thumb_rect, alpha)
+        .key("log-scrollbar-thumb")
+        .event_policy(policy)
+        .on_pointer_down_with_button(move |cx, pointer, button| {
+            if button == PointerButton::Left {
+                press(cx, pointer.point.y, pointer.point.y - geometry.start, false);
+            }
+        })
+        .on_pointer_drag(move |cx, pointer| drag(cx, pointer.point.y))
+        .on_pointer_up(move |cx, _| release(cx));
+    group(track)
+        .key("log-scrollbar")
+        .child(track_hit)
+        .child(thumb)
+}
+
+/// Follows the pointer over the whole window, so leaving the list also fades
+/// the scrollbar. `body` is where the list is drawn, if one is on screen.
+pub(crate) fn track_hover(root: Element, state: &AppContext, body: Option<UiRect>) -> Element {
+    let Some(body) = body else {
+        return root;
+    };
+    let state = state.clone();
+    root.on_event_capture(UiEventKind::PointerMove, move |_, payload| {
+        if let UiEventPayload::PointerMove { pointer } = payload {
+            let hovered = body.contains(pointer.point);
+            state.model().try_update(|app| {
+                let changed = app.log_panel.hovered != hovered;
+                app.log_panel.hovered = hovered;
+                changed
+            });
+        }
+    })
 }
 
 fn find_box(body: UiRect, state: &AppContext, total: usize, editor_focus: UiFocusHandle) -> Element {
@@ -826,7 +1008,7 @@ fn problems_body(
             Row::Item { path, problem } => {
                 let jump = state.clone();
                 let focus = editor_focus.clone();
-                let (path, offset) = (path.clone(), problem.offset);
+                let (path, offset, span) = (path.clone(), problem.offset, problem.span);
                 let mut message = problem.message.lines().next().unwrap_or_default().to_owned();
                 if let Some(source) = &problem.source {
                     message = match &problem.code {
@@ -844,12 +1026,18 @@ fn problems_body(
                     c.text,
                     false,
                     move || {
-                        super::language_ui::navigate::go(
-                            &jump,
-                            super::language_ui::navigate::Place::bytes(path.clone(), offset..offset),
-                            editor,
-                            true,
-                        );
+                        let place = match span {
+                            // A file that is not open: go there in the service's own terms.
+                            Some(span) => super::language_ui::navigate::Place::span(
+                                open_spelling(&jump, &path),
+                                span,
+                            ),
+                            None => super::language_ui::navigate::Place::bytes(
+                                path.clone(),
+                                offset..offset,
+                            ),
+                        };
+                        super::language_ui::navigate::go(&jump, place, editor, true);
                         // The caret shows only in the focused editor.
                         focus.focus();
                     },
@@ -858,7 +1046,7 @@ fn problems_body(
         });
     }
     let wheel_state = state.clone();
-    let mut viewport = backdrop
+    let viewport = backdrop
         .child(content)
         .on_event(UiEventKind::Wheel, move |cx, payload| {
             if let UiEventPayload::Wheel { delta } = payload {
@@ -872,10 +1060,14 @@ fn problems_body(
                 cx.stop_propagation();
             }
         });
-    if max_scroll > 0.0 {
-        viewport = viewport.child(thumb(body, scroll, max_scroll));
-    }
-    viewport
+    viewport.child(scrollbar(
+        body,
+        state,
+        Pane::Problems,
+        scroll,
+        max_scroll,
+        panel_state,
+    ))
 }
 
 /// One clickable row: leading text (tinted by `tint`), an optional dimmer
@@ -916,7 +1108,7 @@ fn data_row(
     let note_w = crate::ui::tabs::measure(&note, theme::SMALL, 400) + 12.0;
     let lead_w = crate::ui::tabs::measure(lead, theme::UI_SIZE, if bold { 600 } else { 400 });
     let text_left = rect.left + 12.0 + 22.0;
-    let text_right = (rect.right - note_w - 16.0).max(text_left);
+    let text_right = (rect.right - note_w - 10.0).max(text_left);
     let style = if bold {
         theme::sans_semibold(tint, theme::UI_SIZE)
     } else {
@@ -952,7 +1144,8 @@ fn data_row(
     let mut note_style = theme::mono(c.text_muted, theme::SMALL);
     note_style.align = TextAlign::Right;
     row.child(text(
-        UiRect::new(rect.right - note_w - 14.0, rect.top, rect.right - 14.0, rect.bottom),
+        // Over the scrollbar's lane: it overlays the row and takes no room.
+        UiRect::new(rect.right - note_w - 8.0, rect.top, rect.right - 8.0, rect.bottom),
         note,
         note_style,
     ))
@@ -969,6 +1162,8 @@ struct Item {
 }
 
 fn items(state: &AppContext, panel_state: &LogPanel, menu: Menu, narrow: bool) -> Vec<Item> {
+    let channels = output::hub().channels();
+    let current = panel_state.level(&channels, panel_state.shown(&channels).as_ref());
     let level_items = |out: &mut Vec<Item>| {
         for (label, level) in [
             ("Trace and above", Level::Trace),
@@ -980,11 +1175,11 @@ fn items(state: &AppContext, panel_state: &LogPanel, menu: Menu, narrow: bool) -
             let state = state.clone();
             out.push(Item {
                 label: label.into(),
-                checked: panel_state.min_level == level,
+                checked: current == level,
                 heading: false,
                 run: Some(Arc::new(move || {
                     set(&state, move |p| {
-                        p.min_level = level;
+                        p.min_level = Some(level);
                         p.menu = None;
                     })
                 })),
@@ -1233,6 +1428,7 @@ mod tests {
                 line: 1,
                 column: 1,
                 offset: 0,
+                span: None,
             }],
         };
         let groups = [file("a.rs"), file("b.rs")];
@@ -1360,6 +1556,196 @@ mod tests {
             readable_path(&roots, std::path::Path::new(r"D:\Documents\cprojects\loom2\c.rs")),
             "D:/Documents/cprojects/loom2/c.rs"
         );
+    }
+
+    /// Renders the Output panel on `channel` in a 600x300 dock below a 40px editor
+    /// strip, with the window-level hover tracker, and hands back what drives it.
+    fn scroll_fixture(
+        channel: &'static str,
+    ) -> (
+        lgui::application::AppView,
+        std::sync::Arc<std::sync::Mutex<Option<AppContext>>>,
+    ) {
+        use crate::app::state::AppState;
+        use crate::app::terminal_binding::TerminalTabs;
+        use lgui::application::AppView;
+        let exposed = Arc::new(std::sync::Mutex::new(None));
+        let output = exposed.clone();
+        let viewport = UiRect::new(0.0, 0.0, 600.0, 340.0);
+        let dock = UiRect::new(0.0, 40.0, 600.0, 340.0);
+        let body = UiRect::new(0.0, 40.0 + theme::TABS_H, 600.0, 340.0);
+        let view: AppView = Arc::new(move |cx| {
+            let state = AppContext::detached(cx.state_with(|| {
+                let mut app = AppState::new();
+                app.terminal_chrome.show_terminal = true;
+                app.terminal.ui.panel_tab = PanelTab::Output;
+                app.log_panel.channel = Some(ChannelId::new(channel));
+                app.log_panel.min_level = Some(Level::Trace);
+                app
+            }));
+            *output.lock().unwrap() = Some(state.clone());
+            let tabs = crate::app::terminal_binding::test_store(
+                cx,
+                Some(state.clone()),
+                TerminalTabs::new,
+            );
+            let id = cx.use_stable_id();
+            let focus = cx.focus_handle(id);
+            let editor_id = cx.use_stable_id();
+            let editor_focus = cx.focus_handle(editor_id);
+            let root = lgui::prelude::group(viewport).child(render(
+                dock,
+                PanelTab::Output,
+                state.clone(),
+                tabs,
+                editor_focus,
+                focus,
+                Arc::new(ApplicationHandle::new(|task| task(), || {})),
+                None,
+                300.0,
+                UiRect::new(0.0, 0.0, 600.0, 40.0),
+            ));
+            track_hover(root, &state, Some(body))
+        });
+        (view, exposed)
+    }
+
+    #[test]
+    fn the_scrollbar_overlays_fades_with_the_pointer_and_drags_beyond_the_list() {
+        use lgui::application::ApplicationContext;
+        use lgui::core::{InputEvent, Point, PointerData, UiScale, dispatch_runtime_output};
+        use lgui::session::UiSession;
+        let long = ChannelId::new("scroll-test-long");
+        let short = ChannelId::new("scroll-test-short");
+        for n in 0..300 {
+            output::hub().append(&long, Level::Info, &format!("line {n}"));
+        }
+        output::hub().append(&short, Level::Info, "only");
+
+        let (view, exposed) = scroll_fixture("scroll-test-long");
+        let viewport = UiRect::new(0.0, 0.0, 600.0, 340.0);
+        let mut session = UiSession::new();
+        session.render_view(&view, viewport, UiScale::ONE);
+        let state = exposed.lock().unwrap().clone().unwrap();
+        let context = ApplicationContext::empty(Default::default());
+        let send = |session: &mut UiSession, input| {
+            dispatch_runtime_output(
+                session.handle_input(input),
+                &context,
+                &lgui::window::WindowId::new("log-scrollbar-test"),
+                |action| session.handle_default_action(action),
+                |_| {},
+            );
+            session.render_view(&view, viewport, UiScale::ONE);
+        };
+        // The thumb is the filled node 8px wide, inset 2px from the right edge.
+        let thumb = |session: &UiSession| {
+            session
+                .tree()
+                .nodes()
+                .iter()
+                .find(|node| {
+                    let rect = node.layout_rect;
+                    node.style.fill.is_some()
+                        && (rect.right - 598.0).abs() < 0.01
+                        && (rect.width() - 8.0).abs() < 0.01
+                })
+                .map(|node| node.layout_rect)
+        };
+        let body_top = 40.0 + theme::TABS_H;
+
+        // Following the newest line puts the thumb at the bottom of a track that
+        // lies along the right edge and takes no room from the text.
+        let at_bottom = thumb(&session).expect("a long list has a scrollbar");
+        assert!(at_bottom.right <= 600.0 && at_bottom.right > 600.0 - 12.0);
+        assert!(at_bottom.bottom > 330.0, "{at_bottom:?}");
+        assert!(!state.get().log_panel.hovered);
+
+        // The scrollbar is stronger while the pointer is over the list.
+        let inside = PointerData::mouse(Point::new(300.0, body_top + 40.0));
+        send(&mut session, InputEvent::PointerMove(inside));
+        assert!(state.get().log_panel.hovered);
+        send(
+            &mut session,
+            InputEvent::PointerMove(PointerData::mouse(Point::new(300.0, 10.0))),
+        );
+        assert!(!state.get().log_panel.hovered, "leaving the list fades it");
+
+        // Taking hold of the thumb and dragging above the list scrolls to the top
+        // and stops following; the drag survives the pointer leaving the list.
+        let grab = PointerData::mouse(Point::new(
+            (at_bottom.left + at_bottom.right) * 0.5,
+            at_bottom.top + 4.0,
+        ));
+        send(
+            &mut session,
+            InputEvent::PointerDown {
+                pointer: grab,
+                button: PointerButton::Left,
+            },
+        );
+        assert!(state.get().log_panel.scrollbar_drag.is_some());
+        send(
+            &mut session,
+            InputEvent::PointerMove(PointerData::mouse(Point::new(300.0, 0.0))),
+        );
+        let panel = state.get().log_panel;
+        assert_eq!(panel.scroll, 0.0);
+        assert!(!panel.follow);
+        assert!(thumb(&session).unwrap().top < at_bottom.top);
+        send(
+            &mut session,
+            InputEvent::PointerUp {
+                pointer: grab,
+                button: PointerButton::Left,
+            },
+        );
+        assert!(state.get().log_panel.scrollbar_drag.is_none());
+
+        // Pressing the empty track jumps there, thumb under the pointer, and
+        // reaching the bottom follows the newest line again.
+        let press = PointerData::mouse(Point::new(599.0, 335.0));
+        send(
+            &mut session,
+            InputEvent::PointerDown {
+                pointer: press,
+                button: PointerButton::Left,
+            },
+        );
+        assert!(state.get().log_panel.follow);
+        send(
+            &mut session,
+            InputEvent::PointerUp {
+                pointer: press,
+                button: PointerButton::Left,
+            },
+        );
+
+        // A list that fits has no scrollbar.
+        state.update(|app| app.log_panel.channel = Some(short.clone()));
+        session.render_view(&view, viewport, UiScale::ONE);
+        assert!(thumb(&session).is_none());
+    }
+
+    #[test]
+    fn a_process_channel_opens_at_everything_until_the_person_chooses() {
+        let info = |id: &str, group| ChannelInfo {
+            id: ChannelId::new(id),
+            title: id.into(),
+            group,
+            unread_error: false,
+            len: 0,
+        };
+        let channels = [
+            info("ext", output::Group::Extension),
+            info("proc", output::Group::Process),
+        ];
+        let mut panel = LogPanel::default();
+        assert_eq!(panel.level(&channels, Some(&ChannelId::new("ext"))), Level::Info);
+        assert_eq!(panel.level(&channels, Some(&ChannelId::new("proc"))), Level::Trace);
+        assert_eq!(panel.level(&channels, None), Level::Info);
+        panel.min_level = Some(Level::Warn);
+        assert_eq!(panel.level(&channels, Some(&ChannelId::new("proc"))), Level::Warn);
     }
 
     #[test]

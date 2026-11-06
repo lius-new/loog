@@ -35,3 +35,40 @@ interface status {
     /// Remove the report of one session.
     withdraw: func(key: string) -> result<_, string>;
 }
+
+/// What a service found in files that are not open, for the Problems panel.
+///
+/// The findings of an open document stay with that document and follow its
+/// edits; this is for the rest of the workspace. A finding names a place the
+/// way the service counts it, so the host needs no text to keep it. When the
+/// document is open the host shows the document's own findings instead.
+interface findings {
+    /// How a position's `character` counts the text of its line.
+    enum encoding {
+        utf8,
+        utf16,
+    }
+
+    /// Zero-based line and character.
+    record position {
+        line: u32,
+        character: u32,
+    }
+
+    record finding {
+        start: position,
+        end: position,
+        /// 1 error, 2 warning, 3 information, 4 hint.
+        severity: u8,
+        message: string,
+        source: option<string>,
+        code: option<string>,
+    }
+
+    /// Replace what `key` found in the file at the absolute `path`. An empty list
+    /// takes the file out. `key` names one session of the service, like a status
+    /// report's key.
+    publish: func(key: string, path: string, encoding: encoding, items: list<finding>) -> result<_, string>;
+    /// Remove everything `key` found. Everything goes too when the extension stops.
+    withdraw: func(key: string) -> result<_, string>;
+}

@@ -37,6 +37,12 @@ pub(crate) struct LanguageServices {
     external: Mutex<Option<Arc<dyn ExternalAnswers>>>,
     highlights: Mutex<std::collections::BTreeMap<(PathBuf, u64), HighlightPublication>>,
     results: Mutex<ResultStore>,
+    /// What services found in files that are not open, by file and source.
+    closed: Mutex<std::collections::BTreeMap<(String, u64), ClosedFindings>>,
+}
+struct ClosedFindings {
+    path: PathBuf,
+    items: Arc<[crate::features::problems::Finding]>,
 }
 struct HighlightPublication {
     stamp: crate::domain::document::DocumentStamp,
@@ -161,7 +167,75 @@ impl LanguageServices {
             .unwrap()
             .publish(source, path.into(), stamp, text, diagnostics);
     }
+    /// Replace what `source` found in a file that is not open; none removes it.
+    pub fn publish_findings(
+        &self,
+        source: u64,
+        path: PathBuf,
+        items: Vec<crate::features::problems::Finding>,
+    ) {
+        let key = (crate::features::problems::file_key(&path), source);
+        let mut closed = self.closed.lock().unwrap();
+        if items.is_empty() {
+            closed.remove(&key);
+        } else {
+            closed.insert(
+                key,
+                ClosedFindings {
+                    path,
+                    items: items.into(),
+                },
+            );
+        }
+    }
+
+    /// Errors in files that are not open, for the Problems badge.
+    pub fn closed_error_count(&self, open: &std::collections::BTreeSet<String>) -> usize {
+        use crate::features::language_service::diagnostics::Severity;
+        self.closed
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|((key, _), _)| !open.contains(key))
+            .map(|(_, file)| {
+                file.items
+                    .iter()
+                    .filter(|f| f.severity == Severity::Error)
+                    .count()
+            })
+            .sum()
+    }
+
+    /// Everything `source` found in files that are not open.
+    pub fn clear_findings(&self, source: u64) {
+        self.closed
+            .lock()
+            .unwrap()
+            .retain(|(_, owner), _| *owner != source);
+    }
+
+    /// Problems of files that are not open. A file that is open keeps the
+    /// findings of its document, which follow its edits, so `open` leaves it out.
+    pub fn closed_problems(
+        &self,
+        open: &std::collections::BTreeSet<String>,
+    ) -> Vec<crate::features::problems::FileProblems> {
+        let closed = self.closed.lock().unwrap();
+        let mut by_file: std::collections::BTreeMap<&str, (PathBuf, Vec<_>)> = Default::default();
+        for ((key, _), file) in closed.iter().filter(|((key, _), _)| !open.contains(key)) {
+            let entry = by_file
+                .entry(key.as_str())
+                .or_insert_with(|| (file.path.clone(), Vec::new()));
+            entry.1.extend(file.items.iter().cloned());
+        }
+        by_file
+            .into_values()
+            .filter_map(|(path, items)| crate::features::problems::closed_file_problems(path, &items))
+            .collect()
+    }
+
     pub fn clear_external(&self, source: u64) {
+        self.clear_findings(source);
         self.results.lock().unwrap().clear(source);
         self.highlights
             .lock()

@@ -37,9 +37,11 @@ pub use bindings::loom::extension::types::{
 pub use watches::WatchControl;
 mod publication_budget;
 mod service;
-mod output;
-pub use bindings::loom::log::output::Level as OutputLevel;
-pub use output::OutputChange;
+mod findings;
+pub use bindings::loom::service::findings::{
+    Encoding as FindingEncoding, Finding, Position as FindingPosition,
+};
+pub use findings::{FileFindings, FindingChanges};
 mod ui;
 pub use bindings::loom::extension::types::{
     UiDescription, UiEvent, UiEventPayload, UiKind, UiParent,
@@ -289,7 +291,7 @@ pub struct HostState {
     watches: watches::Watches,
     ui: ui::Tree,
     service: service::Reports,
-    output: output::Channels,
+    findings: findings::Findings,
     documents: Option<documents::Documents>,
     limits: StoreLimits,
     pending_limit: usize,
@@ -471,7 +473,7 @@ impl HostState {
             watches: Default::default(),
             ui: Default::default(),
             service: Default::default(),
-            output: Default::default(),
+            findings: Default::default(),
             documents: None,
             started_tasks: Vec::new(),
             started_file_ops: Vec::new(),
@@ -563,23 +565,23 @@ impl bindings::loom::service::status::Host for HostState {
     }
 }
 
-impl bindings::loom::log::output::Host for HostState {
-    fn channel(&mut self, key: String, name: String) -> Result<(), String> {
-        self.unrestricted("writing output")
+impl bindings::loom::service::findings::Host for HostState {
+    fn publish(
+        &mut self,
+        key: String,
+        path: String,
+        encoding: FindingEncoding,
+        items: Vec<Finding>,
+    ) -> Result<(), String> {
+        self.unrestricted("reporting findings")
             .map_err(|error| error.message)?;
-        self.output.declare(&key, &name)
+        self.findings.publish(&key, &path, encoding, items)
     }
 
-    fn append(&mut self, key: String, level: OutputLevel, text: String) -> Result<(), String> {
-        self.unrestricted("writing output")
+    fn withdraw(&mut self, key: String) -> Result<(), String> {
+        self.unrestricted("reporting findings")
             .map_err(|error| error.message)?;
-        self.output.append(&key, level, &text)
-    }
-
-    fn clear(&mut self, key: String) -> Result<(), String> {
-        self.unrestricted("writing output")
-            .map_err(|error| error.message)?;
-        self.output.clear(&key)
+        self.findings.withdraw(&key)
     }
 }
 
@@ -1178,7 +1180,7 @@ pub const KNOWN_IMPORTS: &[&str] = &[
     "loom:ui/motion@0.1.0",
     "loom:ui/shared@0.1.0",
     "loom:service/status@0.1.0",
-    "loom:log/output@0.1.0",
+    "loom:service/findings@0.1.0",
 ];
 
 /// Length of one epoch tick.
@@ -1556,12 +1558,9 @@ impl Instance {
     pub fn service_dirty(&self) -> bool {
         self.store.data().service.dirty()
     }
-    /// What the extension wrote to its Output channels since the last call.
-    pub fn take_output(&mut self) -> Option<Vec<OutputChange>> {
-        self.store.data_mut().output.take()
-    }
-    pub fn output_dirty(&self) -> bool {
-        self.store.data().output.dirty()
+    /// What the extension found in files that are not open, since the last call.
+    pub fn take_findings(&mut self) -> Option<FindingChanges> {
+        self.store.data_mut().findings.take()
     }
     pub fn watch_ended(&mut self, watch: u64) {
         self.store.data_mut().watches.ended(watch);

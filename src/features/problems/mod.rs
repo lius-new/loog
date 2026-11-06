@@ -3,10 +3,11 @@
 //! Only documents that are open have diagnostics, so this is never a
 //! workspace-wide list. The module is independent of who produced a finding.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::features::language_service::diagnostics::{Diagnostic, Severity};
+use crate::features::language_service::reply::Span;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Problem {
@@ -16,10 +17,54 @@ pub(crate) struct Problem {
     pub code: Option<String>,
     /// 1-based.
     pub line: usize,
-    /// 1-based, in characters.
+    /// 1-based. In characters for an open document; as the service counted
+    /// them for a file that is not open.
     pub column: usize,
-    /// Byte offset of the start, for jumping to the spot.
+    /// Byte offset of the start, for jumping to the spot in an open document.
     pub offset: usize,
+    /// Where a file that is not open was reported, in the service's units. Such
+    /// a problem has no text here to turn it into bytes.
+    pub span: Option<Span>,
+}
+
+/// A finding in a file that is not open, as the service placed it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Finding {
+    pub severity: Severity,
+    pub message: String,
+    pub source: Option<String>,
+    pub code: Option<String>,
+    pub span: Span,
+}
+
+/// Findings of a file that is not open, worst first within the file.
+pub(crate) fn closed_file_problems(path: PathBuf, findings: &[Finding]) -> Option<FileProblems> {
+    let mut items = findings
+        .iter()
+        .map(|f| Problem {
+            severity: f.severity,
+            message: f.message.clone(),
+            source: f.source.clone(),
+            code: f.code.clone(),
+            line: f.span.start.line as usize + 1,
+            column: f.span.start.character as usize + 1,
+            offset: 0,
+            span: Some(f.span),
+        })
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        return None;
+    }
+    items.sort_by_key(|p| (p.severity, p.line, p.column));
+    Some(FileProblems { path, items })
+}
+
+/// What names a file regardless of how its path is spelled: without Windows'
+/// `\\?\` prefix, with forward slashes, and case-folded on Windows.
+pub(crate) fn file_key(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    let text = text.strip_prefix("//?/").unwrap_or(&text).to_owned();
+    if cfg!(windows) { text.to_lowercase() } else { text }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -108,6 +153,7 @@ pub(crate) fn file_problems(
                 line,
                 column,
                 offset: d.range.start,
+                span: None,
             }
         })
         .collect::<Vec<_>>();
@@ -212,6 +258,42 @@ mod tests {
         let messages = file.items.iter().map(|p| p.message.as_str()).collect::<Vec<_>>();
         assert_eq!(messages, ["early error", "late error", "w"]);
         assert_eq!((file.items[1].line, file.items[1].column), (2, 1));
+    }
+
+    #[test]
+    fn closed_files_keep_the_services_own_positions() {
+        use crate::features::providers::PositionEncoding;
+        use crate::features::providers::position::Position;
+        let at = |line, character| Position { line, character };
+        let finding = |line, severity| Finding {
+            severity,
+            message: "m".into(),
+            source: Some("rustc".into()),
+            code: None,
+            span: Span {
+                start: at(line, 4),
+                end: at(line, 9),
+                encoding: PositionEncoding::Utf16,
+            },
+        };
+        let file = closed_file_problems(
+            "b.rs".into(),
+            &[finding(9, Severity::Warning), finding(20, Severity::Error), finding(2, Severity::Error)],
+        )
+        .unwrap();
+        let places = file.items.iter().map(|p| (p.line, p.column)).collect::<Vec<_>>();
+        // Errors first, then by place; lines and columns count from one.
+        assert_eq!(places, [(3, 5), (21, 5), (10, 5)]);
+        assert!(file.items.iter().all(|p| p.span.is_some()));
+        assert_eq!(closed_file_problems("c.rs".into(), &[]), None);
+    }
+
+    #[test]
+    fn one_file_has_one_key_however_its_path_is_spelled() {
+        let plain = file_key(Path::new(r"D:\Work\src\main.rs"));
+        let verbatim = file_key(Path::new(r"\\?\D:\Work\src\main.rs"));
+        assert_eq!(plain, verbatim);
+        assert_ne!(plain, file_key(Path::new(r"D:\Work\src\lib.rs")));
     }
 
     #[test]

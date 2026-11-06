@@ -114,6 +114,9 @@ struct Fixture {
         Vec<crate::features::language_service::diagnostics::Diagnostic>,
     )>,
     cleared: Vec<u64>,
+    /// What services found in files that are not open, and the sources withdrawn.
+    findings: Vec<(u64, PathBuf, Vec<crate::features::problems::Finding>)>,
+    findings_cleared: Vec<u64>,
     offered: Vec<OfferedList>,
     ready: Vec<(u64, bool, Option<String>)>,
     changed: Vec<String>,
@@ -200,6 +203,8 @@ fn fixture_package(
         path,
         published: Vec::new(),
         cleared: Vec::new(),
+        findings: Vec::new(),
+        findings_cleared: Vec::new(),
         offered: Vec::new(),
         ready: Vec::new(),
         changed: Vec::new(),
@@ -353,6 +358,12 @@ impl Fixture {
                     self.published.push((source, items))
                 }
                 Effect::ClearDiagnostics { source } => self.cleared.push(source),
+                Effect::PublishFindings {
+                    source,
+                    path,
+                    items,
+                } => self.findings.push((source, path, items)),
+                Effect::ClearFindings { source } => self.findings_cleared.push(source),
                 Effect::SaveReady { chain, ok, message } => self.ready.push((chain, ok, message)),
                 Effect::RunFileOps { key, ops } => {
                     // The host runs this on a background thread; here it runs inline.
@@ -1185,6 +1196,110 @@ fn a_language_without_a_provider_is_left_to_the_language_server() {
             .state(),
         State::Dormant
     );
+}
+
+/// A fixture whose extension has started, so its events are accepted.
+fn activated(name: &str) -> Fixture {
+    let mut f = fixture(name, "x", 0..1);
+    f.run("example.tools.uppercase");
+    f.pump(|_, event| matches!(event, Event::Log { text, .. } if text.contains("committed as")));
+    f
+}
+
+fn finding_changes(
+    key: &str,
+    path: &str,
+    severity: u8,
+    line: u32,
+) -> loom_extension_host::FindingChanges {
+    use loom_extension_host::{FileFindings, Finding, FindingEncoding, FindingPosition};
+    loom_extension_host::FindingChanges {
+        withdrawn: Vec::new(),
+        files: vec![FileFindings {
+            key: key.into(),
+            path: path.into(),
+            encoding: FindingEncoding::Utf16,
+            items: vec![Finding {
+                start: FindingPosition { line, character: 3 },
+                end: FindingPosition { line, character: 7 },
+                severity,
+                message: "boom".into(),
+                source: Some("check".into()),
+                code: Some("E1".into()),
+            }],
+        }],
+    }
+}
+
+#[test]
+fn findings_in_files_that_are_not_open_are_placed_in_the_services_own_units() {
+    use crate::features::language_service::diagnostics::Severity;
+    use crate::features::providers::PositionEncoding;
+    let mut f = activated("findings");
+    let generation = f.service.package("example.tools").unwrap().lifecycle.generation();
+    let effects = f.service.handle_event(
+        &mut f.app,
+        Event::Findings {
+            id: "example.tools".into(),
+            generation,
+            changes: finding_changes("session-1", "/work/a.rs", 1, 4),
+        },
+    );
+    f.apply(effects);
+    let (_, path, items) = &f.findings[0];
+    assert_eq!(path, &PathBuf::from("/work/a.rs"));
+    assert_eq!(items[0].severity, Severity::Error);
+    assert_eq!(items[0].span.start.line, 4);
+    assert_eq!(items[0].span.encoding, PositionEncoding::Utf16);
+    assert_eq!(items[0].code.as_deref(), Some("E1"));
+}
+
+#[test]
+fn findings_from_a_stale_generation_are_ignored() {
+    let mut f = activated("findings-stale");
+    let generation = f.service.package("example.tools").unwrap().lifecycle.generation();
+    let effects = f.service.handle_event(
+        &mut f.app,
+        Event::Findings {
+            id: "example.tools".into(),
+            generation: generation + 1,
+            changes: finding_changes("session-1", "/work/a.rs", 1, 0),
+        },
+    );
+    assert!(effects.is_empty());
+}
+
+#[test]
+fn a_withdrawn_key_clears_its_source_and_stopping_clears_all_of_them() {
+    let mut f = activated("findings-withdraw");
+    let generation = f.service.package("example.tools").unwrap().lifecycle.generation();
+    let effects = f.service.handle_event(
+        &mut f.app,
+        Event::Findings {
+            id: "example.tools".into(),
+            generation,
+            changes: finding_changes("session-1", "/work/a.rs", 2, 1),
+        },
+    );
+    f.apply(effects);
+    let source = f.findings[0].0;
+    let mut withdraw = finding_changes("session-1", "/work/a.rs", 2, 1);
+    withdraw.files.clear();
+    withdraw.withdrawn.push("session-1".into());
+    let effects = f.service.handle_event(
+        &mut f.app,
+        Event::Findings {
+            id: "example.tools".into(),
+            generation,
+            changes: withdraw,
+        },
+    );
+    f.apply(effects);
+    assert_eq!(f.findings_cleared, [source]);
+    // The extension's findings go when it stops, with its other results.
+    let effects = f.service.stop("example.tools");
+    f.apply(effects);
+    assert!(f.cleared.contains(&source));
 }
 
 #[test]
@@ -3023,6 +3138,27 @@ fn a_saved_event_wakes_the_guest_with_the_saved_version_even_after_more_typing()
     f.apply(effects);
     f.wait_for_log("saved 1 v0 \"old\"");
     assert_eq!(f.text(), "oldnew");
+}
+
+#[test]
+fn saving_a_file_of_another_language_does_not_wake_a_package_for_one_language() {
+    // The package names a language no document here has, so it is not about this file.
+    let scoped = EVENT_MANIFEST
+        .replace("\"document.close\"", "\"document.save\"")
+        .replace("[\"events\"]", "[\"events\",\"documents.read\"]")
+        .replace(
+            "\"activation\": [",
+            "\"activation\": [\n        { \"kind\": \"document\", \"selector\": { \"languages\": [\"no-such-language\"] } },",
+        );
+    let mut f = fixture_with("saved-other-language", "old", 0..0, &scoped);
+    let file = f.app.workspace.active_document().unwrap();
+    let saved = f.app.workspace.shared_save_snapshot(file).unwrap();
+    let effects = f.service.document_saved(&f.app, saved);
+    assert!(effects.is_empty(), "nothing is loaded or sent");
+    assert_eq!(
+        f.service.package("example.tools").unwrap().lifecycle.state(),
+        State::Dormant
+    );
 }
 
 #[test]

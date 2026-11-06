@@ -221,36 +221,44 @@ impl ExtensionService {
     }
 }
 
-/// Applies what an extension wrote to its own Output channels. The channel's
-/// id is the extension's id and the key it chose, so two extensions can use the
-/// same key without meeting.
-pub(super) fn record_extension_output(
-    extension: &str,
-    changes: Vec<loom_extension_host::OutputChange>,
-) {
-    use crate::features::output::{self, ChannelId, Group, Level};
-    use loom_extension_host::{OutputChange, OutputLevel};
-    let hub = output::hub();
-    let channel = |key: &str| ChannelId::new(format!("ext:{extension}/log:{key}"));
-    for change in changes {
-        match change {
-            OutputChange::Declare { key, name } => {
-                hub.declare(&channel(&key), &name, Group::Extension);
-            }
-            OutputChange::Append { key, level, text } => hub.append(
-                &channel(&key),
-                match level {
-                    OutputLevel::Trace => Level::Trace,
-                    OutputLevel::Debug => Level::Debug,
-                    OutputLevel::Info => Level::Info,
-                    OutputLevel::Warn => Level::Warn,
-                    OutputLevel::Error => Level::Error,
+/// The findings of one file as the problems list keeps them. A finding whose
+/// severity is not 1 to 4 was refused earlier, so each one is placed.
+pub(super) fn closed_findings(
+    file: &loom_extension_host::FileFindings,
+) -> Vec<crate::features::problems::Finding> {
+    use crate::features::language_service::diagnostics::Severity;
+    use crate::features::providers::PositionEncoding;
+    use crate::features::providers::position::Position;
+    use loom_extension_host::FindingEncoding;
+    let encoding = match file.encoding {
+        FindingEncoding::Utf8 => PositionEncoding::Utf8,
+        FindingEncoding::Utf16 => PositionEncoding::Utf16,
+    };
+    file.items
+        .iter()
+        .map(|f| crate::features::problems::Finding {
+            severity: match f.severity {
+                1 => Severity::Error,
+                2 => Severity::Warning,
+                3 => Severity::Information,
+                _ => Severity::Hint,
+            },
+            message: f.message.clone(),
+            source: f.source.clone(),
+            code: f.code.clone(),
+            span: crate::features::language_service::reply::Span {
+                start: Position {
+                    line: f.start.line,
+                    character: f.start.character,
                 },
-                &text,
-            ),
-            OutputChange::Clear { key } => hub.clear(&channel(&key)),
-        }
-    }
+                end: Position {
+                    line: f.end.line,
+                    character: f.end.character,
+                },
+                encoding,
+            },
+        })
+        .collect()
 }
 
 /// Copies what an extension's process says into its Output channel, before the
@@ -258,21 +266,20 @@ pub(super) fn record_extension_output(
 /// to the process pipeline, and a full channel just drops its oldest lines.
 fn record_output(extension: &str, event: &ProcessEvent) {
     use crate::features::output::Level;
-    /// Longest chunk copied at once; the rest of a burst is not kept.
-    const MAX_CHUNK: usize = 16 * 1024;
-    let chunk = |bytes: &[u8]| String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_CHUNK)]).into_owned();
     let (level, text) = match event {
         ProcessEvent::Output {
             channel: tasks::Channel::Stderr,
             bytes,
+            text,
             ..
-        } => (Level::Warn, chunk(bytes)),
+        } => (Level::Warn, stream_text(bytes, text.as_deref())),
         // Protocol traffic is kept for debugging, below the default level.
         ProcessEvent::Output {
             channel: tasks::Channel::Stdout,
             bytes,
+            text,
             ..
-        } => (Level::Debug, chunk(bytes)),
+        } => (Level::Debug, stream_text(bytes, text.as_deref())),
         ProcessEvent::Exited {
             code,
             killed,
@@ -288,6 +295,15 @@ fn record_output(extension: &str, event: &ProcessEvent) {
         ProcessEvent::Writable { .. } => return,
     };
     record_process_line(extension, level, &text);
+}
+
+/// What a chunk of process output says. A framed stream (such as a language
+/// server's) arrives as `text` with no raw bytes; a raw one as bytes only.
+fn stream_text(bytes: &[u8], text: Option<&str>) -> String {
+    /// Longest chunk copied at once; the rest of a burst is not kept.
+    const MAX_CHUNK: usize = 16 * 1024;
+    let raw = text.map_or(bytes, str::as_bytes);
+    String::from_utf8_lossy(&raw[..raw.len().min(MAX_CHUNK)]).into_owned()
 }
 
 /// One line in the process channel of an extension; blank text is not kept.
@@ -306,40 +322,15 @@ fn record_process_line(extension: &str, level: crate::features::output::Level, t
 mod output_tests {
     use super::*;
     use crate::features::output::{self, ChannelId, Level};
-    use loom_extension_host::{OutputChange, OutputLevel};
 
     #[test]
-    fn extension_lines_land_in_a_channel_owned_by_that_extension() {
-        record_extension_output(
-            "test.one",
-            vec![
-                OutputChange::Declare {
-                    key: "main".into(),
-                    name: "Main".into(),
-                },
-                OutputChange::Append {
-                    key: "main".into(),
-                    level: OutputLevel::Warn,
-                    text: "careful".into(),
-                },
-            ],
-        );
-        // Another extension using the same key has its own channel.
-        record_extension_output(
-            "test.two",
-            vec![OutputChange::Declare {
-                key: "main".into(),
-                name: "Main".into(),
-            }],
-        );
-        let hub = output::hub();
-        let one = ChannelId::new("ext:test.one/log:main");
-        let lines = hub.lines(&one, Level::Trace, "");
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].level, Level::Warn);
-        assert!(hub
-            .lines(&ChannelId::new("ext:test.two/log:main"), Level::Trace, "")
-            .is_empty());
+    fn framed_output_is_read_from_its_text_and_raw_output_from_its_bytes() {
+        // A language server's stdout is framed: text, and no raw bytes.
+        assert_eq!(stream_text(&[], Some(r#"{"id":1}"#)), r#"{"id":1}"#);
+        assert_eq!(stream_text(b"raw", None), "raw");
+        assert_eq!(stream_text(&[0xff, b'a'], None), "\u{fffd}a");
+        let long = "é".repeat(20_000);
+        assert!(stream_text(&[], Some(&long)).len() <= 16 * 1024 + 2);
     }
 
     #[test]

@@ -1108,6 +1108,15 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         terminal_hover_sessions,
     );
 
+    // Output and Problems fade their scrollbar when the pointer leaves the list.
+    root = super::log_panel::track_hover(
+        root,
+        &state,
+        s.log_panel_visible()
+            .and(dock_rect.or(fallback_commits_rect))
+            .map(|dock| UiRect::new(dock.left, dock.top + theme::TABS_H, dock.right, dock.bottom)),
+    );
+
     // Track the whole drawer at the root so moving into sibling regions or
     // overlays hides its scrollbar immediately.
     let st_hover = state.clone();

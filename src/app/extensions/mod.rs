@@ -202,6 +202,16 @@ pub enum Effect {
     ClearDiagnostics {
         source: u64,
     },
+    /// What a service found in a file that is not open; none removes the file.
+    PublishFindings {
+        source: u64,
+        path: PathBuf,
+        items: Vec<crate::features::problems::Finding>,
+    },
+    /// Everything one session of a service found in files that are not open.
+    ClearFindings {
+        source: u64,
+    },
     /// Run these file operations on a background thread, then call `file_ops_done`.
     RunFileOps {
         key: u64,
@@ -1394,19 +1404,32 @@ impl ExtensionService {
                 }
                 vec![]
             }
-            Event::Output {
+            Event::Findings {
                 id,
                 generation,
                 changes,
             } => {
-                if self
+                if !self
                     .packages
                     .get(&id)
                     .is_some_and(|package| package.lifecycle.accepts(generation))
                 {
-                    processes::record_extension_output(&id, changes);
+                    return vec![];
                 }
-                vec![]
+                let mut effects = Vec::new();
+                for key in changes.withdrawn {
+                    let source = self.source_for(&id, &format!("findings:{key}"));
+                    effects.push(Effect::ClearFindings { source });
+                }
+                for file in changes.files {
+                    let source = self.source_for(&id, &format!("findings:{}", file.key));
+                    effects.push(Effect::PublishFindings {
+                        source,
+                        path: PathBuf::from(&file.path),
+                        items: processes::closed_findings(&file),
+                    });
+                }
+                effects
             }
             Event::WatchControls {
                 id,
@@ -1492,6 +1515,17 @@ impl ExtensionService {
                 id, level, text, ..
             } => {
                 if let Some(package) = self.packages.get_mut(&id) {
+                    // What an extension logs is what the person reads in Output.
+                    // Levels are the host's: 0 information, 1 warning, 2 error.
+                    crate::features::output::extension_log(
+                        &id,
+                        match level {
+                            0 => crate::features::output::Level::Info,
+                            1 => crate::features::output::Level::Warn,
+                            _ => crate::features::output::Level::Error,
+                        },
+                        &text,
+                    );
                     if package.logs.len() >= LOG_LIMIT {
                         package.logs.remove(0);
                     }
@@ -2425,10 +2459,9 @@ impl ExtensionService {
         if dropped > 0
             && let Some(package) = self.packages.get_mut(id)
         {
-            package.logs.push((
-                1,
-                format!("{dropped} entr(ies) of an answer could not be placed and were dropped"),
-            ));
+            let note = format!("{dropped} entr(ies) of an answer could not be placed and were dropped");
+            crate::features::output::extension_log(id, crate::features::output::Level::Warn, &note);
+            package.logs.push((1, note));
         }
         let source = self.source_for(&call.extension, &call.provider);
         Some(LanguageAnswer {
@@ -2507,10 +2540,13 @@ impl ExtensionService {
             .count();
         if open >= MAX_PROVIDER_CALLS {
             if let Some(package) = self.packages.get_mut(owner) {
-                package.logs.push((
-                    1,
-                    format!("too many open requests; {provider} was not asked"),
-                ));
+                let note = format!("too many open requests; {provider} was not asked");
+                crate::features::output::extension_log(
+                    owner,
+                    crate::features::output::Level::Warn,
+                    &note,
+                );
+                package.logs.push((1, note));
             }
             return;
         }
@@ -3220,13 +3256,16 @@ impl ExtensionService {
                 if converted.dropped > 0
                     && let Some(package) = self.packages.get_mut(id)
                 {
-                    package.logs.push((
-                        1,
-                        format!(
-                            "{} diagnostic(s) could not be placed and were dropped",
-                            converted.dropped
-                        ),
-                    ));
+                    let note = format!(
+                        "{} diagnostic(s) could not be placed and were dropped",
+                        converted.dropped
+                    );
+                    crate::features::output::extension_log(
+                        id,
+                        crate::features::output::Level::Warn,
+                        &note,
+                    );
+                    package.logs.push((1, note));
                 }
                 effects.shrink_to_fit();
                 effects

@@ -124,11 +124,23 @@ impl ExtensionService {
         saved: crate::domain::document::SaveSnapshot,
     ) -> Vec<Effect> {
         let mut effects = Vec::new();
+        // A package for some languages hears only about their documents, as it does
+        // for every other document event: saving a file of another language neither
+        // tells it nor wakes it.
+        let language = app
+            .workspace
+            .documents
+            .get(&saved.stamp.document)
+            .map(|document| document.meta.lang.definition().name.to_string());
         let owners = self
             .packages
             .iter()
             .filter(|(_, p)| {
-                wants(&p.manifest, "document.save") && documents::allowed(&self.grants, p)
+                wants(&p.manifest, "document.save")
+                    && documents::allowed(&self.grants, p)
+                    && language
+                        .as_deref()
+                        .is_none_or(|language| serves(&p.manifest, language))
             })
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
