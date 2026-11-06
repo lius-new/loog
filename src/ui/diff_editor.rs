@@ -883,7 +883,7 @@ pub(crate) fn render_inline(
             DiffRowKind::Hunk => (Some(theme::c().surface), theme::c().text_dim, ""),
         };
         if let Some(background) = background {
-            body = body.child(panel(row_rect, VisualStyle::filled(background)));
+            body = body.child(row_background(row_rect, background));
         }
         if row.kind == DiffRowKind::Hunk {
             body = body.child(text(
@@ -935,9 +935,9 @@ pub(crate) fn render_split(
         let top = rect.top + index as f32 * row_h() - scroll_y;
         if let Some(hunk) = row.hunk.as_ref() {
             body = body
-                .child(panel(
+                .child(row_background(
                     UiRect::new(rect.left, top, rect.right, top + row_h()),
-                    VisualStyle::filled(theme::c().surface),
+                    theme::c().surface,
                 ))
                 .child(text(
                     UiRect::new(rect.left + 10.0, top, rect.right - 10.0, top + row_h()),
@@ -948,15 +948,15 @@ pub(crate) fn render_split(
         }
 
         if row.changed && row.old_text.is_some() {
-            body = body.child(panel(
+            body = body.child(row_background(
                 UiRect::new(rect.left, top, middle, top + row_h()),
-                VisualStyle::filled(theme::c().diff.del_bg),
+                theme::c().diff.del_bg,
             ));
         }
         if row.changed && row.new_text.is_some() {
-            body = body.child(panel(
+            body = body.child(row_background(
                 UiRect::new(middle, top, rect.right, top + row_h()),
-                VisualStyle::filled(theme::c().diff.add_bg),
+                theme::c().diff.add_bg,
             ));
         }
 
@@ -996,6 +996,16 @@ pub(crate) fn render_split(
     body.child(vertical_rule(old_text_left, rect))
         .child(vertical_rule(middle, rect))
         .child(vertical_rule(new_text_left, rect))
+}
+
+fn row_background(rect: UiRect, color: lgui::core::Color) -> Element {
+    Element::new(move |cx| {
+        let scale = cx.context.scale();
+        // Adjacent fills must share a physical pixel edge, or antialiasing
+        // exposes the surface beneath them as a horizontal seam.
+        let rect = scale.logical_rect(scale.physical_rect(rect));
+        UiElement::panel(cx.id, rect, VisualStyle::filled(color))
+    })
 }
 
 fn line_number(left: f32, top: f32, number: Option<usize>) -> Element {
