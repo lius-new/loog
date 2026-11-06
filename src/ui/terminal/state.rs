@@ -5,6 +5,52 @@ pub enum PanelTab {
     #[default]
     Terminal,
     Commits,
+    Output,
+    Problems,
+}
+impl PanelTab {
+    /// Every panel of the default bottom dock, in tab order.
+    pub const ALL: [Self; 4] = [Self::Terminal, Self::Commits, Self::Output, Self::Problems];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Terminal => "Terminal",
+            Self::Commits => "Commits",
+            Self::Output => "Output",
+            Self::Problems => "Problems",
+        }
+    }
+    /// Registered icon key.
+    pub fn glyph(self) -> &'static str {
+        match self {
+            Self::Terminal => "terminal",
+            Self::Commits => "git-commit",
+            Self::Output => "output",
+            Self::Problems => "warning",
+        }
+    }
+    /// Stable node id of the tab button.
+    pub fn node_id(self) -> &'static str {
+        match self {
+            Self::Terminal => "bottom-panel-terminal",
+            Self::Commits => "bottom-panel-commits",
+            Self::Output => "bottom-panel-output",
+            Self::Problems => "bottom-panel-problems",
+        }
+    }
+    /// Panels whose body is drawn by the dock itself rather than by a terminal
+    /// or the commit history.
+    pub fn is_log(self) -> bool {
+        matches!(self, Self::Output | Self::Problems)
+    }
+}
+/// What a tab shows beside its label.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Badge {
+    #[default]
+    None,
+    /// Something new happened while the panel was in the background.
+    Dot,
+    Count(u32),
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct TerminalTabContextMenuState {

@@ -21,6 +21,7 @@ mod git_tasks;
 #[cfg(test)]
 mod language_packages_tests;
 pub(crate) mod language_services;
+pub(crate) mod log_panel;
 pub(crate) mod language_ui;
 pub(crate) mod palette;
 #[cfg(test)]

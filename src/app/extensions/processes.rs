@@ -155,6 +155,7 @@ impl ExtensionService {
             return vec![];
         };
         let (id, generation, local) = (record.extension.clone(), record.generation, record.local);
+        record_output(&id, &event);
         let (message, credit) = match event {
             ProcessEvent::Output {
                 channel,
@@ -217,5 +218,150 @@ impl ExtensionService {
             message,
             credit,
         })]
+    }
+}
+
+/// Applies what an extension wrote to its own Output channels. The channel's
+/// id is the extension's id and the key it chose, so two extensions can use the
+/// same key without meeting.
+pub(super) fn record_extension_output(
+    extension: &str,
+    changes: Vec<loom_extension_host::OutputChange>,
+) {
+    use crate::features::output::{self, ChannelId, Group, Level};
+    use loom_extension_host::{OutputChange, OutputLevel};
+    let hub = output::hub();
+    let channel = |key: &str| ChannelId::new(format!("ext:{extension}/log:{key}"));
+    for change in changes {
+        match change {
+            OutputChange::Declare { key, name } => {
+                hub.declare(&channel(&key), &name, Group::Extension);
+            }
+            OutputChange::Append { key, level, text } => hub.append(
+                &channel(&key),
+                match level {
+                    OutputLevel::Trace => Level::Trace,
+                    OutputLevel::Debug => Level::Debug,
+                    OutputLevel::Info => Level::Info,
+                    OutputLevel::Warn => Level::Warn,
+                    OutputLevel::Error => Level::Error,
+                },
+                &text,
+            ),
+            OutputChange::Clear { key } => hub.clear(&channel(&key)),
+        }
+    }
+}
+
+/// Copies what an extension's process says into its Output channel, before the
+/// extension sees it. Nothing is held back or waited for: flow control belongs
+/// to the process pipeline, and a full channel just drops its oldest lines.
+fn record_output(extension: &str, event: &ProcessEvent) {
+    use crate::features::output::Level;
+    /// Longest chunk copied at once; the rest of a burst is not kept.
+    const MAX_CHUNK: usize = 16 * 1024;
+    let chunk = |bytes: &[u8]| String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_CHUNK)]).into_owned();
+    let (level, text) = match event {
+        ProcessEvent::Output {
+            channel: tasks::Channel::Stderr,
+            bytes,
+            ..
+        } => (Level::Warn, chunk(bytes)),
+        // Protocol traffic is kept for debugging, below the default level.
+        ProcessEvent::Output {
+            channel: tasks::Channel::Stdout,
+            bytes,
+            ..
+        } => (Level::Debug, chunk(bytes)),
+        ProcessEvent::Exited {
+            code,
+            killed,
+            error,
+            ..
+        } => match (error, code, killed) {
+            (Some(error), ..) => (Level::Error, format!("process failed: {error}")),
+            (None, _, true) => (Level::Info, "process stopped".to_owned()),
+            (None, Some(0), _) => (Level::Info, "process exited".to_owned()),
+            (None, Some(code), _) => (Level::Warn, format!("process exited with code {code}")),
+            (None, None, _) => (Level::Info, "process exited".to_owned()),
+        },
+        ProcessEvent::Writable { .. } => return,
+    };
+    record_process_line(extension, level, &text);
+}
+
+/// One line in the process channel of an extension; blank text is not kept.
+fn record_process_line(extension: &str, level: crate::features::output::Level, text: &str) {
+    use crate::features::output::{self, ChannelId, Group};
+    if text.trim().is_empty() {
+        return;
+    }
+    let channel = ChannelId::new(format!("ext:{extension}/process"));
+    let hub = output::hub();
+    hub.declare(&channel, &format!("{extension} (process)"), Group::Process);
+    hub.append(&channel, level, text);
+}
+
+#[cfg(test)]
+mod output_tests {
+    use super::*;
+    use crate::features::output::{self, ChannelId, Level};
+    use loom_extension_host::{OutputChange, OutputLevel};
+
+    #[test]
+    fn extension_lines_land_in_a_channel_owned_by_that_extension() {
+        record_extension_output(
+            "test.one",
+            vec![
+                OutputChange::Declare {
+                    key: "main".into(),
+                    name: "Main".into(),
+                },
+                OutputChange::Append {
+                    key: "main".into(),
+                    level: OutputLevel::Warn,
+                    text: "careful".into(),
+                },
+            ],
+        );
+        // Another extension using the same key has its own channel.
+        record_extension_output(
+            "test.two",
+            vec![OutputChange::Declare {
+                key: "main".into(),
+                name: "Main".into(),
+            }],
+        );
+        let hub = output::hub();
+        let one = ChannelId::new("ext:test.one/log:main");
+        let lines = hub.lines(&one, Level::Trace, "");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].level, Level::Warn);
+        assert!(hub
+            .lines(&ChannelId::new("ext:test.two/log:main"), Level::Trace, "")
+            .is_empty());
+    }
+
+    #[test]
+    fn process_output_is_copied_by_stream() {
+        let exited = |code, killed, error: Option<&str>| ProcessEvent::Exited {
+            process: 1,
+            code,
+            killed,
+            error: error.map(str::to_owned),
+        };
+        record_output("test.proc", &exited(Some(0), false, None));
+        record_output("test.proc", &exited(Some(3), false, None));
+        record_output("test.proc", &exited(None, false, Some("spawn failed")));
+        record_process_line("test.proc", Level::Debug, "   ");
+        let id = ChannelId::new("ext:test.proc/process");
+        let hub = output::hub();
+        let lines = hub.lines(&id, Level::Trace, "");
+        // A clean exit is Info, a non-zero code Warn, a failure Error; blanks are not kept.
+        assert_eq!(
+            lines.iter().map(|l| l.level).collect::<Vec<_>>(),
+            [Level::Info, Level::Warn, Level::Error]
+        );
+        assert!(hub.channels().iter().any(|c| c.id == id && c.unread_error));
     }
 }

@@ -78,6 +78,26 @@ interface keep publishing their own status region, which the shared-region rules
 still mount; no removal of that path is scheduled by this change, and it disappears as
 those extensions are replaced by versions that report instead.
 
+## Output is data, not UI
+
+An extension writes lines for the Output panel with `loom:log/output@0.1.0`:
+`channel(key, name)` declares one of its channels, `append(key, level, text)` adds
+a line (`trace`, `debug`, `info`, `warn`, `error`) and `clear(key)` empties it. The
+application owns the panel, the channel list, the level filter and the words
+around them; an extension creates no node for them. Nothing crosses back to the
+extension when the person selects, filters or clears a channel.
+
+A channel belongs to the extension that declared it, so two extensions may use
+the same key. At most 8 channels per extension, names of one line and at most 64
+bytes, lines of at most 8 KiB. Output is handed to the application after each
+round; a burst beyond the budget is refused with an error the extension can see,
+never dropped silently. Each channel keeps its newest lines only (10,000 lines or
+4 MiB). Unavailable during save participation, like service status.
+
+The application also records, without any plugin-specific rule, the stderr and
+stdout of an extension's processes and the extension's own lifecycle (activated,
+could not start, stopped) in channels named after the extension.
+
 ## Bounds and compatibility
 
 Only an instance-owned detached root placed against a public target can be

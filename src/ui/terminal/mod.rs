@@ -1,6 +1,6 @@
 pub(crate) mod bindings;
 mod find;
-mod header;
+pub(crate) mod header;
 pub(crate) mod keys;
 pub(crate) mod layout;
 pub(crate) mod layout_binding;

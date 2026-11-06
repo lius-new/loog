@@ -92,6 +92,8 @@ actions! {
     OpenSourceControl => "workspace::OpenSourceControl", "Show the Source Control panel";
     ToggleSourceControl => "workspace::ToggleSourceControl", "Show or hide the Source Control panel";
     ToggleGitPanel => "workspace::ToggleGitPanel", "Show or hide commit history in the bottom panel";
+    ToggleOutput => "workspace::ToggleOutput", "Show or hide the Output panel";
+    ToggleProblemsPanel => "workspace::ToggleProblemsPanel", "Show or hide the Problems panel";
     ToggleTerminal => "workspace::ToggleTerminal", "Show or hide the terminal panel";
     OpenSettings => "workspace::OpenSettings", "Open the Settings page";
     OpenCommandPalette => "workspace::OpenCommandPalette", "Search and run any command";

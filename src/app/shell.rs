@@ -69,6 +69,28 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         )));
         || {}
     });
+    // Output channels are written from any thread. One frame request is held
+    // back at a time, so a burst of lines costs one repaint, not one each.
+    let log_application = application.as_ref().clone();
+    cx.use_effect((), move || {
+        let pending = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        crate::features::output::hub().on_change(move || {
+            if pending.swap(true, std::sync::atomic::Ordering::AcqRel) {
+                return;
+            }
+            let (pending, frame) = (pending.clone(), log_application.clone());
+            log_application.post(move || {
+                pending.store(false, std::sync::atomic::Ordering::Release);
+                frame.request_frame();
+            });
+        });
+        crate::features::output::app_log(
+            crate::features::output::Level::Info,
+            "Loom started",
+        );
+        || {}
+    });
+    crate::features::problems::set_error_count(super::log_panel::error_count(&state));
     cx.use_effect((), move || {
         let restore = crate::app::workspace_restore::SessionRestore::new(
             loading_state.clone(),
@@ -536,7 +558,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         .map(|(_, _, rect)| UiRect::from(*rect));
     // History uses the same dock as terminals. With no sessions, reserve it
     // below the editor without manufacturing or starting a shell.
-    let (editor_area, fallback_commits_rect) = if s.git_panel_visible() && dock_rect.is_none() {
+    let (editor_area, fallback_commits_rect) = if s.dock_other_visible() && dock_rect.is_none() {
         crate::ui::git::workbench::split(editor_region, true, Some(s.terminal_chrome.terminal_h))
     } else {
         (editor_region, None)
@@ -786,7 +808,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         &terminal_tab_snapshot,
         &terminal_cwd,
     );
-    if s.git_panel_visible() {
+    if s.dock_other_visible() {
         terminal_starts.retain(|(id, _, _, _)| {
             application_layout.terminal_region(*id) != default_terminal_region
         });
@@ -813,7 +835,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let terminal_start_application = application.clone();
     let active_visible_terminal = active_terminal_id.filter(|id| {
         application_layout.terminal_visible(*id, layout_visibility)
-            && (!s.git_panel_visible()
+            && (!s.dock_other_visible()
                 || application_layout.terminal_region(*id) != default_terminal_region)
     });
     let terminal_visible = active_visible_terminal.is_some();
@@ -1059,7 +1081,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         .regions
         .iter()
         .flat_map(|(region, content, rect)| {
-            if s.git_panel_visible() && Some(*region) == default_terminal_region {
+            if s.dock_other_visible() && Some(*region) == default_terminal_region {
                 return Vec::new();
             }
             let Content::Terminal { tabs, active } = content else {
@@ -1440,18 +1462,33 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         root = root.child(super::pane_chrome::render(sash, state.clone()));
     }
     if let Some(rect) = fallback_commits_rect {
-        root = root.child(terminal::render_commits(
-            rect,
-            state.clone(),
-            terminal_tabs.clone(),
-            git_store.clone(),
-            editor_focus.clone(),
-            terminal_focus.clone(),
-            application.clone(),
-            None,
-            editor_region.height(),
-            history_query_focus.clone(),
-        ));
+        if let Some(tab) = s.log_panel_visible() {
+            root = root.child(super::log_panel::render(
+                rect,
+                tab,
+                state.clone(),
+                terminal_tabs.clone(),
+                editor_focus.clone(),
+                terminal_focus.clone(),
+                application.clone(),
+                None,
+                editor_region.height(),
+                editor_area,
+            ));
+        } else {
+            root = root.child(terminal::render_commits(
+                rect,
+                state.clone(),
+                terminal_tabs.clone(),
+                git_store.clone(),
+                editor_focus.clone(),
+                terminal_focus.clone(),
+                application.clone(),
+                None,
+                editor_region.height(),
+                history_query_focus.clone(),
+            ));
+        }
     }
     if source_control_left {
         root = root.child(git_panel::render(
@@ -1510,6 +1547,23 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
 
     for (region, content, rect) in &application_snapshot.regions {
         if !matches!(content, Content::Terminal { .. }) {
+            continue;
+        }
+        if let Some(tab) = s.log_panel_visible()
+            && Some(*region) == default_terminal_region
+        {
+            root = root.child(super::log_panel::render(
+                (*rect).into(),
+                tab,
+                state.clone(),
+                terminal_tabs.clone(),
+                editor_focus.clone(),
+                terminal_focus.clone(),
+                application.clone(),
+                Some(*region),
+                editor_region.height(),
+                editor_region,
+            ));
             continue;
         }
         if s.git_panel_visible() && Some(*region) == default_terminal_region {
@@ -1581,6 +1635,14 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     }
 
     // ---- Overlays ------------------------------------------------------
+    if s.log_panel_visible().is_some() {
+        let narrow = dock_rect
+            .or(fallback_commits_rect)
+            .is_some_and(|rect| rect.width() < 560.0);
+        if let Some(menu) = super::log_panel::menu_overlay(vp, &state, narrow) {
+            root = root.child(menu);
+        }
+    }
     let image_menu = s.editor.images.menu.filter(|menu| {
         s.workspace.active() == Some(menu.view)
             && s.workspace

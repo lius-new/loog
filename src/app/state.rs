@@ -63,6 +63,8 @@ pub struct AppState {
     pub layout: layout::ApplicationLayoutState,
     pub terminal_chrome: chrome::TerminalChrome,
     pub terminal: TerminalPanelState,
+    /// The Output and Problems panels of the bottom dock.
+    pub log_panel: super::log_panel::LogPanel,
     /// Right-hand drawer shared by Explorer and Search.
     pub drawer: DrawerChrome,
     /// Explorer business model and view state.
@@ -125,6 +127,7 @@ impl AppState {
             layout: Default::default(),
             terminal_chrome: Default::default(),
             terminal: Default::default(),
+            log_panel: Default::default(),
             workspace: Workspace::new(),
             search: Default::default(),
 
@@ -444,10 +447,41 @@ impl AppState {
             .unwrap_or_else(|| kind.label().into())
     }
 
+    /// Whether the shared default dock is showing something other than its
+    /// terminals: the commit history, Output or Problems.
+    pub fn dock_other_visible(&self) -> bool {
+        self.terminal_chrome.show_terminal
+            && self.terminal.ui.panel_tab != crate::ui::terminal::state::PanelTab::Terminal
+    }
+
+    /// Shows `tab` in the dock, or hides the dock when it already shows it.
+    pub fn toggle_log_panel(&mut self, tab: crate::ui::terminal::state::PanelTab) {
+        let opening = self.log_panel_visible() != Some(tab);
+        self.terminal.ui.panel_tab = tab;
+        self.terminal_chrome.show_terminal = opening;
+        self.terminal.ui.terminal_focused = false;
+        self.terminal.ui.terminal_tab_context_menu = None;
+        self.terminal.ui.terminal_shell_menu = false;
+        self.terminal.ui.terminal_workspace_picker = None;
+        self.log_panel.menu = None;
+        self.git.ui.menu = None;
+        self.git.ui.hover = None;
+        self.git.ui.scroll_hover = None;
+        self.git.ui.clear_hover_cards();
+    }
+
+    /// Output or Problems, while the dock shows one of them.
+    pub fn log_panel_visible(&self) -> Option<crate::ui::terminal::state::PanelTab> {
+        self.terminal_chrome
+            .show_terminal
+            .then_some(self.terminal.ui.panel_tab)
+            .filter(|tab| tab.is_log())
+    }
+
     /// Whether the shared default dock is open with terminal or commit content.
     pub fn default_terminal_open(&self) -> bool {
         self.terminal_chrome.show_terminal
-            && (self.terminal.ui.panel_tab == crate::ui::terminal::state::PanelTab::Commits
+            && (self.terminal.ui.panel_tab != crate::ui::terminal::state::PanelTab::Terminal
                 || self
                     .layout
                     .application_layout
@@ -501,6 +535,10 @@ impl AppState {
                 } else {
                     self.git.ui.select_panel_tab(crate::ui::git::panel::HISTORY);
                 }
+            }
+            Action::ToggleOutput => self.toggle_log_panel(crate::ui::terminal::state::PanelTab::Output),
+            Action::ToggleProblemsPanel => {
+                self.toggle_log_panel(crate::ui::terminal::state::PanelTab::Problems)
             }
             Action::MenuSelectNext if self.palette.visible => self.palette.move_selection(1),
             Action::MenuSelectPrevious if self.palette.visible => self.palette.move_selection(-1),

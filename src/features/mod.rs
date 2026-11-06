@@ -10,8 +10,10 @@ pub(crate) mod language_service;
 pub(crate) mod language_services_menu;
 pub(crate) mod markdown;
 pub(crate) mod outline;
+pub(crate) mod output;
 pub(crate) mod palette;
 pub(crate) mod process_framing;
+pub(crate) mod problems;
 pub(crate) mod providers;
 
 pub(crate) mod search;

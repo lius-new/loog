@@ -698,4 +698,5 @@ world extension-ui {
     import loom:ui/motion@0.1.0;
     import loom:ui/shared@0.1.0;
     import loom:service/status@0.1.0;
+    import loom:log/output@0.1.0;
 }

@@ -241,6 +241,12 @@ pub enum Event {
         generation: u64,
         reports: Vec<loom_extension_host::ServiceReport>,
     },
+    /// What the extension wrote to its Output channels.
+    Output {
+        id: String,
+        generation: u64,
+        changes: Vec<loom_extension_host::OutputChange>,
+    },
     WatchControls {
         id: String,
         generation: u64,
@@ -842,6 +848,14 @@ impl Worker {
                     id: id.clone(),
                     generation: slot.generation,
                     reports,
+                });
+            }
+            // Lines go as they are too: the panel that shows them paces itself.
+            if let Some(changes) = slot.instance.take_output() {
+                (self.sink)(Event::Output {
+                    id: id.clone(),
+                    generation: slot.generation,
+                    changes,
                 });
             }
             if !slot.instance.ui_dirty() {

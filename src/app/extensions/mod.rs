@@ -1394,6 +1394,20 @@ impl ExtensionService {
                 }
                 vec![]
             }
+            Event::Output {
+                id,
+                generation,
+                changes,
+            } => {
+                if self
+                    .packages
+                    .get(&id)
+                    .is_some_and(|package| package.lifecycle.accepts(generation))
+                {
+                    processes::record_extension_output(&id, changes);
+                }
+                vec![]
+            }
             Event::WatchControls {
                 id,
                 generation,
@@ -1503,6 +1517,11 @@ impl ExtensionService {
         match result {
             Ok(()) => {
                 let _ = package.lifecycle.active();
+                crate::features::output::extension_log(
+                    id,
+                    crate::features::output::Level::Info,
+                    "activated",
+                );
                 let (commands, _, _) = package.pending.drain();
                 // The guest can read its settings before it handles anything.
                 let initial = Effect::Submit(Job::Settings {
@@ -1554,6 +1573,11 @@ impl ExtensionService {
             Err(error) => {
                 package.lifecycle.fail(FailureStage::Activation);
                 package.last_error = Some(error.to_string());
+                crate::features::output::extension_log(
+                    id,
+                    crate::features::output::Level::Error,
+                    &format!("could not start: {error}"),
+                );
                 let waiting = package.pending.fail_all();
                 for pending in &waiting {
                     self.calls.remove(&pending.call);
@@ -1579,6 +1603,11 @@ impl ExtensionService {
         };
         package.lifecycle.fail(stage);
         package.last_error = Some(error.to_string());
+        crate::features::output::extension_log(
+            id,
+            crate::features::output::Level::Error,
+            &format!("stopped: {error}"),
+        );
         self.calls.retain(|_, call| call.extension != id);
         let mut effects = self.clear_sources(id);
         effects.extend(self.cancel_tasks_of(id));

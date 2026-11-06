@@ -25,6 +25,7 @@
       "secondary-shift-f": "workspace::OpenSearch",
       "secondary-shift-g": "workspace::ToggleSourceControl",
       "secondary-shift-h": "workspace::ToggleGitPanel",
+      "secondary-shift-u": "workspace::ToggleOutput",
       "secondary-`": "workspace::ToggleTerminal",
       "secondary-,": "workspace::OpenSettings",
       "secondary-shift-p": "workspace::OpenCommandPalette",

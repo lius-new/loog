@@ -627,6 +627,20 @@ pub(crate) fn categories(
         header,
         sessions,
         selected,
+        [
+            // Errors nobody has looked at yet; the open channel counts as seen.
+            if selected != super::state::PanelTab::Output
+                && crate::features::output::hub().any_unread_error()
+            {
+                super::state::Badge::Dot
+            } else {
+                super::state::Badge::None
+            },
+            match crate::features::problems::error_count() {
+                0 => super::state::Badge::None,
+                n => super::state::Badge::Count(n),
+            },
+        ],
         std::sync::Arc::new(move |panel| {
             if state.get().ui.panel_tab != panel {
                 state.run(Command::SelectPanel(panel));

@@ -37,6 +37,9 @@ pub use bindings::loom::extension::types::{
 pub use watches::WatchControl;
 mod publication_budget;
 mod service;
+mod output;
+pub use bindings::loom::log::output::Level as OutputLevel;
+pub use output::OutputChange;
 mod ui;
 pub use bindings::loom::extension::types::{
     UiDescription, UiEvent, UiEventPayload, UiKind, UiParent,
@@ -286,6 +289,7 @@ pub struct HostState {
     watches: watches::Watches,
     ui: ui::Tree,
     service: service::Reports,
+    output: output::Channels,
     documents: Option<documents::Documents>,
     limits: StoreLimits,
     pending_limit: usize,
@@ -467,6 +471,7 @@ impl HostState {
             watches: Default::default(),
             ui: Default::default(),
             service: Default::default(),
+            output: Default::default(),
             documents: None,
             started_tasks: Vec::new(),
             started_file_ops: Vec::new(),
@@ -555,6 +560,26 @@ impl bindings::loom::service::status::Host for HostState {
         self.unrestricted("reporting service status")
             .map_err(|error| error.message)?;
         self.service.withdraw(&key)
+    }
+}
+
+impl bindings::loom::log::output::Host for HostState {
+    fn channel(&mut self, key: String, name: String) -> Result<(), String> {
+        self.unrestricted("writing output")
+            .map_err(|error| error.message)?;
+        self.output.declare(&key, &name)
+    }
+
+    fn append(&mut self, key: String, level: OutputLevel, text: String) -> Result<(), String> {
+        self.unrestricted("writing output")
+            .map_err(|error| error.message)?;
+        self.output.append(&key, level, &text)
+    }
+
+    fn clear(&mut self, key: String) -> Result<(), String> {
+        self.unrestricted("writing output")
+            .map_err(|error| error.message)?;
+        self.output.clear(&key)
     }
 }
 
@@ -1153,6 +1178,7 @@ pub const KNOWN_IMPORTS: &[&str] = &[
     "loom:ui/motion@0.1.0",
     "loom:ui/shared@0.1.0",
     "loom:service/status@0.1.0",
+    "loom:log/output@0.1.0",
 ];
 
 /// Length of one epoch tick.
@@ -1529,6 +1555,13 @@ impl Instance {
     }
     pub fn service_dirty(&self) -> bool {
         self.store.data().service.dirty()
+    }
+    /// What the extension wrote to its Output channels since the last call.
+    pub fn take_output(&mut self) -> Option<Vec<OutputChange>> {
+        self.store.data_mut().output.take()
+    }
+    pub fn output_dirty(&self) -> bool {
+        self.store.data().output.dirty()
     }
     pub fn watch_ended(&mut self, watch: u64) {
         self.store.data_mut().watches.ended(watch);
