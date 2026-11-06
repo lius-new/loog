@@ -197,6 +197,11 @@ impl ExplorerModel {
         self.tree.is_expanded(key)
     }
 
+    /// Visible file paths in row order.
+    pub fn visible_files(&self) -> Vec<PathBuf> {
+        self.tree.visible_files(&self.roots)
+    }
+
     /// Show or hide a loaded directory's children without reading it.
     pub fn set_expanded(&mut self, key: &str, expanded: bool) {
         if expanded {

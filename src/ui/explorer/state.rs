@@ -1,5 +1,8 @@
 //! Explorer pointer, menu, inline-edit input and viewport state; owned
 //! separately from the business model.
+use std::collections::HashSet;
+use std::path::PathBuf;
+
 use crate::features::explorer::ExplorerContextTarget;
 use crate::features::explorer::model::ExplorerModel;
 use crate::ui::components::input::InputState;
@@ -29,6 +32,10 @@ pub struct ExplorerUiState {
     /// Text of the inline create/rename row.
     pub create_input: InputState,
     pub create_error: Option<String>,
+    /// Files picked with ctrl/shift-click.
+    pub selection: HashSet<PathBuf>,
+    /// Last plain or ctrl-clicked file; shift-click extends from it.
+    pub selection_anchor: Option<PathBuf>,
     pub scroll: f32,
     pub scroll_x: f32,
     pub scrollbar_dragging: bool,

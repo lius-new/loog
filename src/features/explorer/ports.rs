@@ -21,6 +21,6 @@ pub trait FileOpsPort {
     fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()>;
     /// Returns `Ok(false)` when the user cancelled the platform operation.
     fn move_to_trash(&self, path: &Path) -> Result<bool, String>;
-    fn set_file_clipboard(&self, path: &Path, cut: bool) -> Result<(), String>;
+    fn set_file_clipboard(&self, paths: &[&Path], cut: bool) -> Result<(), String>;
     fn reveal(&self, path: &Path, kind: ExplorerTargetKind) -> std::io::Result<()>;
 }

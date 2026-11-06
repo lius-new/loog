@@ -136,6 +136,34 @@ impl TreeCache {
         None
     }
 
+    /// Visible file paths in row order, for range selection.
+    pub fn visible_files(&self, roots: &[PathBuf]) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for root in roots {
+            let key = key(root);
+            if self.expanded.contains(&key) {
+                self.collect_visible_files(&key, &mut out);
+            }
+        }
+        out
+    }
+
+    fn collect_visible_files(&self, directory_key: &str, out: &mut Vec<PathBuf>) {
+        let Some(entries) = self.listings.get(directory_key) else {
+            return;
+        };
+        for entry in entries.iter() {
+            if entry.is_dir {
+                let key = key(&entry.path());
+                if self.expanded.contains(&key) {
+                    self.collect_visible_files(&key, out);
+                }
+            } else {
+                out.push(entry.path());
+            }
+        }
+    }
+
     fn visible_descendant_index(
         &self,
         directory_key: &str,

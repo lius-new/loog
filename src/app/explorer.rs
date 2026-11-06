@@ -362,16 +362,94 @@ pub fn cancel_edit(state: &AppContext) {
 }
 
 pub fn copy_item(state: &AppContext, path: &Path, cut: bool) {
+    copy_items(state, &[path.to_path_buf()], cut);
+}
+
+/// Put one or more items on the system file clipboard.
+pub fn copy_items(state: &AppContext, paths: &[PathBuf], cut: bool) {
     let action = if cut { "Cut" } else { "Copied" };
-    match ExplorerFilesystem.set_file_clipboard(path, cut) {
+    let refs: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+    match ExplorerFilesystem.set_file_clipboard(&refs, cut) {
         Ok(()) => {
-            let name = path
-                .file_name()
-                .map(|value| value.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.display().to_string());
+            let name = match paths {
+                [path] => path
+                    .file_name()
+                    .map(|value| value.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string()),
+                _ => format!("{} items", paths.len()),
+            };
             state.update(move |app| app.show_success(format!("{action} {name}.")));
         }
         Err(error) => state.update(move |app| app.show_error(error)),
+    }
+}
+
+/// Move every path to the Trash. Nothing is deleted when any of them has
+/// unsaved changes.
+pub fn delete_items(state: &AppContext, paths: Vec<PathBuf>) {
+    let dirty = {
+        let snapshot = state.get();
+        paths
+            .iter()
+            .any(|path| snapshot.workspace.has_dirty_paths_under(path))
+    };
+    if dirty {
+        state.update(|app| {
+            app.show_toast("Save or close modified files before deleting these items.")
+        });
+        return;
+    }
+    let mut moved = 0usize;
+    for path in paths {
+        match move_path_to_trash(&path) {
+            Ok(false) => {}
+            Ok(true) => {
+                moved += 1;
+                tell_servers(
+                    state,
+                    crate::features::providers::FileChange::Deleted(path.clone()),
+                );
+                state.update(move |app| apply_deleted_path_state(app, &path));
+            }
+            Err(error) => {
+                state.update(move |app| app.show_error(error));
+                break;
+            }
+        }
+    }
+    if moved > 1 {
+        state.update(move |app| app.show_success(format!("Moved {moved} items to Trash.")));
+    }
+}
+
+/// Copy the paths of several items, one per line.
+pub(crate) fn copy_paths(
+    state: &AppContext,
+    clipboard: &dyn lgui::services::Clipboard,
+    targets: &[PathBuf],
+    relative: bool,
+) {
+    let snapshot = state.get();
+    let mut lines = Vec::with_capacity(targets.len());
+    for target in targets {
+        if relative {
+            let Some(root) = snapshot.explorer.model.root_for_path(target) else {
+                drop(snapshot);
+                state.update(|app| app.show_toast("Path is outside the workspace."));
+                return;
+            };
+            lines.push(crate::ui::display_path(
+                target.strip_prefix(root).unwrap_or(target),
+            ));
+        } else {
+            lines.push(crate::ui::display_path(target));
+        }
+    }
+    drop(snapshot);
+    let label = if relative { "relative paths" } else { "paths" };
+    match clipboard.write_text(&lines.join("\n")) {
+        Ok(()) => state.update(move |app| app.show_success(format!("Copied {label}."))),
+        Err(error) => state.update(move |app| app.show_error(format!("Clipboard: {error}"))),
     }
 }
 

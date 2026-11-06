@@ -140,11 +140,54 @@ fn run(state: &AppContext, services: &Services, command: Command) {
         }
         Command::OpenMenu { point, target } => state.update(move |app| {
             app.editor.tabs.tab_context_menu = None;
+            // Right-clicking outside the selection starts over; inside it the
+            // menu applies to the whole selection.
+            let keeps = target.as_ref().is_some_and(|target| {
+                target.kind == ExplorerTargetKind::File
+                    && app.explorer.ui.selection.contains(&target.path)
+            });
+            if !keeps {
+                app.explorer.ui.selection.clear();
+                app.explorer.ui.selection_anchor = None;
+            }
             app.explorer.ui.menu = Some(point);
             app.explorer.ui.menu_target = target;
             app.explorer.ui.menu_hover = None;
         }),
         Command::PressFile { path, point } => state.update(move |app| {
+            let ctrl = app.editor.modifiers.ctrl() || app.editor.modifiers.meta();
+            let shift = app.editor.modifiers.shift();
+            if ctrl || shift {
+                // Multi-select only changes the selection; it never opens
+                // the file or starts a drag.
+                let ui = &mut app.explorer.ui;
+                if shift {
+                    let files = app.explorer.model.visible_files();
+                    let from = ui
+                        .selection_anchor
+                        .as_ref()
+                        .and_then(|anchor| files.iter().position(|p| p == anchor));
+                    let to = files.iter().position(|p| *p == path);
+                    if let (Some(from), Some(to)) = (from, to) {
+                        let (lo, hi) = (from.min(to), from.max(to));
+                        if !ctrl {
+                            ui.selection.clear();
+                        }
+                        ui.selection.extend(files[lo..=hi].iter().cloned());
+                    } else {
+                        ui.selection.insert(path.clone());
+                        ui.selection_anchor = Some(path);
+                    }
+                } else {
+                    if !ui.selection.remove(&path) {
+                        ui.selection.insert(path.clone());
+                    }
+                    ui.selection_anchor = Some(path);
+                }
+                return;
+            }
+            app.explorer.ui.selection.clear();
+            app.explorer.ui.selection_anchor = Some(path.clone());
             let clicks = app.editor.tree_click_count(&path, point.0, point.1);
             app.editor.tabs.file_drag = Some(FileDragState {
                 path,
@@ -194,6 +237,37 @@ fn run(state: &AppContext, services: &Services, command: Command) {
     }
 }
 
+/// The selected files, in tree order, when `target` is one of several.
+fn batch_paths(
+    state: &AppContext,
+    target: &ExplorerContextTarget,
+) -> Option<Vec<std::path::PathBuf>> {
+    use std::path::PathBuf;
+    let app = state.get();
+    let selection = &app.explorer.ui.selection;
+    if target.kind != ExplorerTargetKind::File
+        || selection.len() < 2
+        || !selection.contains(&target.path)
+    {
+        return None;
+    }
+    let ordered: Vec<PathBuf> = app
+        .explorer
+        .model
+        .visible_files()
+        .into_iter()
+        .filter(|path| selection.contains(path))
+        .collect();
+    // Files hidden by a collapsed folder stay selected: append them last.
+    let mut rest: Vec<PathBuf> = selection
+        .iter()
+        .filter(|path| !ordered.contains(path))
+        .cloned()
+        .collect();
+    rest.sort();
+    Some(ordered.into_iter().chain(rest).collect())
+}
+
 fn run_menu(
     state: &AppContext,
     services: &Services,
@@ -208,6 +282,34 @@ fn run_menu(
     let Some(target) = target else {
         return;
     };
+    // Acting on a member of a multi-selection applies to every selected file.
+    let batch = batch_paths(state, &target);
+    if let Some(paths) = batch {
+        match action {
+            MenuAction::Cut | MenuAction::Copy => {
+                explorer::copy_items(state, &paths, action == MenuAction::Cut);
+                return;
+            }
+            MenuAction::Delete => {
+                state.update(|app| {
+                    app.explorer.ui.selection.clear();
+                    app.explorer.ui.selection_anchor = None;
+                });
+                explorer::delete_items(state, paths);
+                return;
+            }
+            MenuAction::CopyPath | MenuAction::CopyRelativePath => {
+                explorer::copy_paths(
+                    state,
+                    services.application.clipboard().as_ref(),
+                    &paths,
+                    action == MenuAction::CopyRelativePath,
+                );
+                return;
+            }
+            _ => {}
+        }
+    }
     match action {
         MenuAction::NewFile => explorer::begin_create(state, target.path, ExplorerCreateKind::File),
         MenuAction::NewFolder => {

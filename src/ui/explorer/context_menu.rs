@@ -95,6 +95,17 @@ const FILE_ENTRIES: &[Entry] = &[
     item("Delete", MenuAction::Delete),
 ];
 
+/// Shown on a multi-selection: only actions that apply to every item.
+const BATCH_ENTRIES: &[Entry] = &[
+    item("Cut", MenuAction::Cut),
+    item("Copy", MenuAction::Copy),
+    Entry::Separator,
+    item("Copy Path", MenuAction::CopyPath),
+    item("Copy Relative Path", MenuAction::CopyRelativePath),
+    Entry::Separator,
+    item("Delete", MenuAction::Delete),
+];
+
 /// Appended to a Markdown file's menu.
 const MARKDOWN_ENTRIES: &[Entry] = &[
     Entry::Separator,
@@ -165,7 +176,15 @@ pub fn render(
     let s = state.get();
     let target = context_target(&s, active_path);
     let has_item_target = s.ui.menu_target.is_some();
-    let entries = entries_for(target.as_ref());
+    let batch = s.ui.selection.len() > 1
+        && target.as_ref().is_some_and(|target| {
+            target.kind == ExplorerTargetKind::File && s.ui.selection.contains(&target.path)
+        });
+    let entries: Vec<&'static Entry> = if batch {
+        BATCH_ENTRIES.iter().collect()
+    } else {
+        entries_for(target.as_ref())
+    };
     let can_remove = target.as_ref().is_some_and(|target| {
         target.kind == ExplorerTargetKind::Directory && s.model.is_root(&target.path)
     });

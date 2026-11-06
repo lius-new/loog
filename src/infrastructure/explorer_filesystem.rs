@@ -71,8 +71,8 @@ impl FileOpsPort for ExplorerFilesystem {
         move_to_trash(path)
     }
 
-    fn set_file_clipboard(&self, path: &Path, cut: bool) -> Result<(), String> {
-        set_file_clipboard(path, cut)
+    fn set_file_clipboard(&self, paths: &[&Path], cut: bool) -> Result<(), String> {
+        set_file_clipboard(paths, cut)
     }
 
     fn reveal(&self, path: &Path, kind: ExplorerTargetKind) -> std::io::Result<()> {
@@ -147,12 +147,13 @@ fn move_to_trash(path: &Path) -> Result<bool, String> {
 }
 
 #[cfg(target_os = "windows")]
-fn set_file_clipboard(path: &Path, cut: bool) -> Result<(), String> {
-    let path = shell_path(path);
+fn set_file_clipboard(paths: &[&Path], cut: bool) -> Result<(), String> {
+    let paths: Vec<String> = paths.iter().map(|path| shell_path(path)).collect();
+    let list: Vec<&str> = paths.iter().map(String::as_str).collect();
     let _clipboard = clipboard_win::Clipboard::new_attempts(10)
         .map_err(|error| format!("Could not open the clipboard: {error}"))?;
     clipboard_win::empty().map_err(|error| format!("Could not clear the clipboard: {error}"))?;
-    clipboard_win::raw::set_file_list(&[path.as_str()])
+    clipboard_win::raw::set_file_list(&list)
         .map_err(|error| format!("Could not copy the folder: {error}"))?;
 
     let format = clipboard_win::register_format("Preferred DropEffect")
@@ -163,7 +164,7 @@ fn set_file_clipboard(path: &Path, cut: bool) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn set_file_clipboard(_path: &Path, _cut: bool) -> Result<(), String> {
+fn set_file_clipboard(_paths: &[&Path], _cut: bool) -> Result<(), String> {
     Err("Copying file-system items is not supported on this platform yet.".to_owned())
 }
 
