@@ -2,22 +2,22 @@
   {
     "file": "android-chrome-192x192.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       192,
       192
     ],
-    "bytes": 32490
+    "bytes": 3707
   },
   {
     "file": "android-chrome-512x512.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       512,
       512
     ],
-    "bytes": 200865
+    "bytes": 9807
   },
   {
     "file": "app-icon-transparent-1024.png",
@@ -27,7 +27,7 @@
       1024,
       1024
     ],
-    "bytes": 578291
+    "bytes": 26164
   },
   {
     "file": "app-icon-transparent-128.png",
@@ -37,7 +37,7 @@
       128,
       128
     ],
-    "bytes": 16464
+    "bytes": 2708
   },
   {
     "file": "app-icon-transparent-16.png",
@@ -47,7 +47,7 @@
       16,
       16
     ],
-    "bytes": 823
+    "bytes": 466
   },
   {
     "file": "app-icon-transparent-256.png",
@@ -57,7 +57,7 @@
       256,
       256
     ],
-    "bytes": 48589
+    "bytes": 5297
   },
   {
     "file": "app-icon-transparent-32.png",
@@ -67,7 +67,7 @@
       32,
       32
     ],
-    "bytes": 2156
+    "bytes": 858
   },
   {
     "file": "app-icon-transparent-48.png",
@@ -77,7 +77,7 @@
       48,
       48
     ],
-    "bytes": 3879
+    "bytes": 1143
   },
   {
     "file": "app-icon-transparent-512.png",
@@ -87,7 +87,7 @@
       512,
       512
     ],
-    "bytes": 162001
+    "bytes": 11191
   },
   {
     "file": "app-icon-transparent-64.png",
@@ -97,127 +97,127 @@
       64,
       64
     ],
-    "bytes": 5852
+    "bytes": 1434
   },
   {
     "file": "app-icon-white-1024.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       1024,
       1024
     ],
-    "bytes": 637226
+    "bytes": 24162
   },
   {
     "file": "app-icon-white-128.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       128,
       128
     ],
-    "bytes": 15903
+    "bytes": 2402
   },
   {
     "file": "app-icon-white-150.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       150,
       150
     ],
-    "bytes": 21086
+    "bytes": 2821
   },
   {
     "file": "app-icon-white-16.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       16,
       16
     ],
-    "bytes": 662
+    "bytes": 440
   },
   {
     "file": "app-icon-white-180.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       180,
       180
     ],
-    "bytes": 29026
+    "bytes": 3388
   },
   {
     "file": "app-icon-white-192.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       192,
       192
     ],
-    "bytes": 32490
+    "bytes": 3707
   },
   {
     "file": "app-icon-white-256.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       256,
       256
     ],
-    "bytes": 55626
+    "bytes": 4918
   },
   {
     "file": "app-icon-white-32.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       32,
       32
     ],
-    "bytes": 1748
+    "bytes": 694
   },
   {
     "file": "app-icon-white-48.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       48,
       48
     ],
-    "bytes": 3220
+    "bytes": 970
   },
   {
     "file": "app-icon-white-512.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       512,
       512
     ],
-    "bytes": 200865
+    "bytes": 9807
   },
   {
     "file": "app-icon-white-64.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       64,
       64
     ],
-    "bytes": 5042
+    "bytes": 1366
   },
   {
     "file": "apple-touch-icon.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       180,
       180
     ],
-    "bytes": 29026
+    "bytes": 3388
   },
   {
     "file": "favicon-16x16.png",
@@ -227,7 +227,7 @@
       16,
       16
     ],
-    "bytes": 823
+    "bytes": 466
   },
   {
     "file": "favicon-32x32.png",
@@ -237,26 +237,26 @@
       32,
       32
     ],
-    "bytes": 2156
+    "bytes": 858
   },
   {
     "file": "favicon.ico",
     "format": "ICO",
     "mode": "RGBA",
     "size": [
-      256,
-      256
+      48,
+      48
     ],
-    "bytes": 82776
+    "bytes": 2521
   },
   {
     "file": "mstile-150x150.png",
     "format": "PNG",
-    "mode": "RGB",
+    "mode": "RGBA",
     "size": [
       150,
       150
     ],
-    "bytes": 21086
+    "bytes": 2821
   }
 ]

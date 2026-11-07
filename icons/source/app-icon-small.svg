@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 120 120" fill="none">
+  <title>Loom (small sizes)</title>
+  <rect width="120" height="120" rx="28" fill="#1C1917"/>
+  <g transform="translate(60 60) scale(1.15) translate(-57 -53.5)" stroke-width="11.3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 30V64C32 72 36 77 42 77M22 30H42" stroke="#FFF7ED"/>
+    <path d="M42 77C52 77 54 58 66 58C78 58 80 77 92 77" stroke="#FB7185"/>
+  </g>
+</svg>

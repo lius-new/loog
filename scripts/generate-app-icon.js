@@ -373,9 +373,13 @@ function main() {
   console.log(`Generated ${outputPath} with sizes: ${options.sizes.join(', ')}`);
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(`Failed to generate app icon: ${error.message}`);
-  process.exitCode = 1;
+module.exports = { encodeIco };
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(`Failed to generate app icon: ${error.message}`);
+    process.exitCode = 1;
+  }
 }

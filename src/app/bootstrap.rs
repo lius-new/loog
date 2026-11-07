@@ -3,8 +3,6 @@ use crate::app::window as window_geometry;
 use crate::infrastructure::launch;
 use crate::ui;
 use crate::ui::file_icons;
-#[cfg(not(target_os = "windows"))]
-use image::imageops::FilterType;
 use lgui::icons::SvgIconRegistry;
 use lgui::prelude::*;
 use lgui::{WinitApplication, WinitWindowIcon, WinitWindowOptions};
@@ -196,12 +194,13 @@ fn native_window_options() -> Result<WinitWindowOptions, Box<dyn std::error::Err
 
     #[cfg(not(target_os = "windows"))]
     {
-        let source = image::load_from_memory_with_format(
-            include_bytes!("../../icons/source/app-icon-transparent-1024.png"),
+        // The 32 px export uses artwork tuned for small sizes, so it is used as is
+        // instead of downscaling the 1024 px image.
+        let window_pixels = image::load_from_memory_with_format(
+            include_bytes!("../../icons/source/app-icon-transparent-32.png"),
             image::ImageFormat::Png,
         )?
         .into_rgba8();
-        let window_pixels = image::imageops::resize(&source, 32, 32, FilterType::Lanczos3);
         let window_icon = WinitWindowIcon::from_rgba(window_pixels.into_raw(), 32, 32)?;
         Ok(WinitWindowOptions::new().window_icon(window_icon))
     }
