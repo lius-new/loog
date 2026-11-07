@@ -654,12 +654,7 @@ pub(crate) fn commits_header(
     toolbar: impl FnOnce(UiRect) -> Element,
 ) -> Element {
     let header = UiRect::new(rect.left, rect.top + 1.0, rect.right, rect.top + HEADER_H);
-    let (category, right) = categories(
-        header,
-        state.clone(),
-        terminal_focus,
-        editor_focus.clone(),
-    );
+    let (category, right) = categories(header, state.clone(), terminal_focus, editor_focus.clone());
     let tools = header::layout(
         header,
         header::Spec {

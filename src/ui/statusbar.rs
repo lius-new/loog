@@ -520,7 +520,13 @@ fn service_entry(
 /// key and color. A severity with none found is drawn quietly.
 fn problem_entries(
     counts: crate::ui::chrome::ProblemCounts,
-) -> [(&'static str, &'static str, usize, &'static str, lgui::prelude::Color); 3] {
+) -> [(
+    &'static str,
+    &'static str,
+    usize,
+    &'static str,
+    lgui::prelude::Color,
+); 3] {
     let palette = theme::c();
     let tint = |count: usize, color| if count > 0 { color } else { palette.text_faint };
     [

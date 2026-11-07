@@ -263,9 +263,8 @@ pub fn status_binding(state: &AppContext) -> crate::ui::chrome::StatusBinding {
                     crate::app::highlight_menu::open(&writer);
                 }
             }
-            StatusCommand::Problems => writer.update(|app| {
-                app.toggle_log_panel(crate::ui::terminal::state::PanelTab::Problems)
-            }),
+            StatusCommand::Problems => writer
+                .update(|app| app.toggle_log_panel(crate::ui::terminal::state::PanelTab::Problems)),
             StatusCommand::LanguageServices => {
                 if writer.get().language_services_menu.visible {
                     writer.update(|app| app.language_services_menu.close());
