@@ -190,7 +190,7 @@ fn compact_search_keeps_the_complete_text_line_inside_its_clip() {
             ))
             .unwrap();
             if query == "rust gyp" && scale == 1.0 {
-                if let Ok(directory) = std::env::var("LOOM_PREVIEW_DIR") {
+                if let Ok(directory) = std::env::var("LOOG_PREVIEW_DIR") {
                     use lgui::{
                         core::PhysicalRect,
                         renderer::{FrameInfo, FrameReason},
@@ -466,7 +466,7 @@ fn assert_search_caret_is_visible(session: &lgui::session::UiSession) {
         &expected,
         "Caret pixels must be visible"
     );
-    if let Ok(directory) = std::env::var("LOOM_PREVIEW_DIR") {
+    if let Ok(directory) = std::env::var("LOOG_PREVIEW_DIR") {
         let mut rgba = surface.pixels().to_vec();
         for pixel in rgba.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);

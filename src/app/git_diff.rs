@@ -150,7 +150,7 @@ fn open(
     };
     let worker_state = state.clone();
     let spawned = thread::Builder::new()
-        .name("loom-git-priority-diff".into())
+        .name("loog-git-priority-diff".into())
         .spawn(move || {
             let result = crate::infrastructure::git::service().map(|service| {
                 let (ready, error) =
@@ -337,7 +337,7 @@ fn complete(
     let failure_state = state.clone();
     let failure_load = load.clone();
     let spawned = thread::Builder::new()
-        .name("loom-git-complete-diff".into())
+        .name("loog-git-complete-diff".into())
         .spawn(move || {
             let result = if let Some(oid) = &load.revision {
                 service
@@ -412,7 +412,7 @@ fn load_section(state: &AppContext, load: Load, request: DiffRequest, untracked:
     };
     let state = state.clone();
     let _ = thread::Builder::new()
-        .name("loom-git-next-diff".into())
+        .name("loog-git-next-diff".into())
         .spawn(move || {
             let result = crate::infrastructure::git::service()
                 .and_then(|service| {

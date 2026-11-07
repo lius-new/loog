@@ -178,8 +178,8 @@ impl Inner {
                                                 }
                                             }
                                             Err(message) => Outcome::Failed(
-                                                loom_extension_api::ExtensionError::new(
-                                                    loom_extension_api::ErrorKind::InvalidEdit,
+                                                loog_extension_api::ExtensionError::new(
+                                                    loog_extension_api::ErrorKind::InvalidEdit,
                                                     message,
                                                 ),
                                             ),
@@ -764,7 +764,7 @@ impl ExtensionHost {
         let root = app.explorer.model.roots().first().cloned();
         let project = root
             .as_ref()
-            .and_then(|root| read_json(&root.join(".loom/extension-settings.json")));
+            .and_then(|root| read_json(&root.join(".loog/extension-settings.json")));
         let trusted = root
             .as_ref()
             .is_some_and(|root| self.inner.trust.is_trusted(root));
@@ -1154,7 +1154,7 @@ impl ExtensionHost {
                             done.name,
                             done.version,
                             if done.needs_restart {
-                                " (restart Loom to use its language)"
+                                " (restart Loog to use its language)"
                             } else {
                                 ""
                             }
@@ -1217,7 +1217,7 @@ impl ExtensionHost {
     }
 
     /// Stop an installed extension and delete its folder. A package loaded from
-    /// anywhere else is left alone: only what Loom installed is Loom's to delete.
+    /// anywhere else is left alone: only what Loog installed is Loog's to delete.
     pub(crate) fn uninstall(&self, context: &AppContext, id: &str) {
         context.update(|app| {
             let Some(directory) = self.directory().map(Path::to_path_buf) else {
@@ -1238,7 +1238,7 @@ impl ExtensionHost {
             {
                 let place = package.dir.display().to_string();
                 return app.show_error(format!(
-                    "{name} was not installed by Loom; delete {place} yourself"
+                    "{name} was not installed by Loog; delete {place} yourself"
                 ));
             }
             // Another extension that requires this one keeps it installed.
@@ -1362,7 +1362,7 @@ mod lifetime_tests {
         let cache = super::super::tests::precompiled_cache().clone();
         let mut app = AppState::new();
         let path =
-            std::env::temp_dir().join(format!("loom-provider-native-{}.txt", std::process::id()));
+            std::env::temp_dir().join(format!("loog-provider-native-{}.txt", std::process::id()));
         let file = app.workspace.open_path(path.clone(), "lo".into());
         app.workspace.active_editor_mut().unwrap().set_cursor(2);
         app.preferences.values_mut().file_associations.push(
@@ -1403,7 +1403,7 @@ mod lifetime_tests {
             None,
         )
         .unwrap();
-        let manifest = serde_json::json!({"schema":1,"id":"example.tools","version":"0.1.0","api":"loom:extension@0.1.0","component":"extension.wasm","activation":[],"capabilities":["documents.read","languages"],"contributes":{"language_service":{"providers":[{"id":"example.tools.complete","kind":"completion","selector":{"languages":[language]}}]}}}).to_string();
+        let manifest = serde_json::json!({"schema":1,"id":"example.tools","version":"0.1.0","api":"loog:extension@0.1.0","component":"extension.wasm","activation":[],"capabilities":["documents.read","languages"],"contributes":{"language_service":{"providers":[{"id":"example.tools.complete","kind":"completion","selector":{"languages":[language]}}]}}}).to_string();
         host.load_package(&super::super::tests::package_dir_with(
             "native-completion",
             &manifest,
@@ -1435,7 +1435,7 @@ mod lifetime_tests {
             let index = session
                 .shown
                 .iter()
-                .position(|shown| session.data.entries[shown.entry].item.label == "loom_world")
+                .position(|shown| session.data.entries[shown.entry].item.label == "loog_world")
                 .unwrap();
             session.set_selected(index);
             crate::app::language_ui::completion::resolve_selected(&ui.state, app);
@@ -1482,7 +1482,7 @@ mod lifetime_tests {
         let host = ExtensionHost::start(
             state,
             queue.application(),
-            std::env::temp_dir().join("loom-host-lifetime-cache"),
+            std::env::temp_dir().join("loog-host-lifetime-cache"),
             Arc::new(TrustStore::default()),
             None,
         )

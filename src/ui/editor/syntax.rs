@@ -4,7 +4,7 @@ use crate::{
     ui::theme,
 };
 use lgui::prelude::Color;
-use loom_editor_core::text::TextBuffer;
+use loog_editor_core::text::TextBuffer;
 use std::ops::Range;
 type ColoredSpans = Vec<(String, Color)>;
 

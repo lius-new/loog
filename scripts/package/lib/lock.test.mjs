@@ -20,13 +20,13 @@ function archive(id, root = id) {
 }
 
 function fixture(t, packages) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-lock-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loog-lock-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   const served = new Map();
   const lock = {
     schema: 1, index: {sequence: 1, keyId: 'k', sha256: '0'.repeat(64)},
     extensions: packages.map(({id, bytes, platform = 'any', size}) => {
-      const url = `https://example.com/${id}.loomext`;
+      const url = `https://example.com/${id}.loogext`;
       served.set(url, bytes);
       return {id, version: '1.0.0', artifacts: [{platform, url, sha256: sha(bytes), size: size ?? bytes.length}]};
     }),
@@ -36,9 +36,9 @@ function fixture(t, packages) {
 }
 
 test('locked packages are downloaded, checked against the lock and staged like bundled ones', async t => {
-  const {root, lock, fetchBytes} = fixture(t, [{id: 'loom.look', bytes: archive('loom.look')}]);
+  const {root, lock, fetchBytes} = fixture(t, [{id: 'loog.look', bytes: archive('loog.look')}]);
   const locked = path.join(root, 'locked');
-  assert.deepEqual(await fetchLocked({lock, destination: locked, fetchBytes}), ['loom.look']);
+  assert.deepEqual(await fetchLocked({lock, destination: locked, fetchBytes}), ['loog.look']);
 
   const registry = path.join(root, 'registry');
   fs.mkdirSync(registry);
@@ -47,33 +47,33 @@ test('locked packages are downloaded, checked against the lock and staged like b
   fs.writeFileSync(path.join(registry, 'index.snapshot.json.sig'), '{}');
   const destination = path.join(root, 'app/extensions');
   stageBundled({destination, lock: path.join(registry, 'extensions.lock'), locked, registry});
-  assert.equal(fs.readFileSync(path.join(destination, 'loom.look/a.json'), 'utf8'), '{}');
+  assert.equal(fs.readFileSync(path.join(destination, 'loog.look/a.json'), 'utf8'), '{}');
   // The lock and the snapshot go beside the extensions folder.
   assert.equal(fs.readFileSync(path.join(root, 'app/registry/index.snapshot.json'), 'utf8'), '{}');
 });
 
 test('a package that is not what the lock says stops the release', async t => {
-  const good = archive('loom.look');
+  const good = archive('loog.look');
   for (const [problem, entry, expected] of [
-    ['other bytes', {id: 'loom.look', bytes: good, size: good.length + 1}, /does not match|expected/],
-    ['another root folder', {id: 'loom.look', bytes: archive('loom.look', 'loom.other')}, /unexpected entry/],
-    ['a platform build', {id: 'loom.look', bytes: good, platform: 'linux-x86_64'}, /every platform/],
+    ['other bytes', {id: 'loog.look', bytes: good, size: good.length + 1}, /does not match|expected/],
+    ['another root folder', {id: 'loog.look', bytes: archive('loog.look', 'loog.other')}, /unexpected entry/],
+    ['a platform build', {id: 'loog.look', bytes: good, platform: 'linux-x86_64'}, /every platform/],
   ]) {
     const {root, lock, fetchBytes} = fixture(t, [entry]);
     await assert.rejects(fetchLocked({lock, destination: path.join(root, 'locked'), fetchBytes}), expected, problem);
   }
-  const damaged = fixture(t, [{id: 'loom.look', bytes: good}]);
+  const damaged = fixture(t, [{id: 'loog.look', bytes: good}]);
   damaged.lock.extensions[0].artifacts[0].sha256 = '1'.repeat(64);
   await assert.rejects(fetchLocked({lock: damaged.lock, destination: path.join(damaged.root, 'locked'), fetchBytes: damaged.fetchBytes}), /does not match the lock/);
 });
 
 test('a release needs a lock, and a lock needs its packages fetched', t => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-lock-none-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loog-lock-none-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   assert.equal(readLock(path.join(root, 'missing.lock')), null);
   assert.throws(() => stageBundled({destination: path.join(root, 'out/extensions'), lock: path.join(root, 'missing.lock')}), /is missing; run node scripts\/package\/refresh-lock\.mjs/);
   const file = path.join(root, 'extensions.lock');
-  fs.writeFileSync(file, JSON.stringify({schema: 1, extensions: [{id: 'loom.look', version: '1.0.0', artifacts: []}]}));
+  fs.writeFileSync(file, JSON.stringify({schema: 1, extensions: [{id: 'loog.look', version: '1.0.0', artifacts: []}]}));
   assert.throws(() => stageBundled({destination: path.join(root, 'out/extensions'), lock: file, locked: path.join(root, 'none'), registry: root}), /not fetched/);
   fs.writeFileSync(file, '{"schema":2}');
   assert.throws(() => readLock(file), /not a usable lock/);

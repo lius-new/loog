@@ -10,7 +10,7 @@ import {execFileSync} from 'node:child_process';
 import {prepareDependencies} from './ensure.mjs';
 
 const prepared = await prepareDependencies({offline: true});
-const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-managed-cmake-'));
+const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'loog-managed-cmake-'));
 try {
   const script = path.join(directory, 'probe.cmake');
   fs.writeFileSync(script, 'message(STATUS "Managed CMake: ${CMAKE_COMMAND}")\n');

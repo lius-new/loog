@@ -1,18 +1,18 @@
-# Extension validation with Loom's loaders
+# Extension validation with Loog's loaders
 
-`loom-ext-validate` checks an unpacked extension using the production manifest
+`loog-ext-validate` checks an unpacked extension using the production manifest
 rules, WebAssembly language loader and query compilers. It has no GUI or concrete
-grammar dependency. Those modules are compiled directly from Loom's `src/`.
+grammar dependency. Those modules are compiled directly from Loog's `src/`.
 
 ```sh
-cargo build --locked --manifest-path tools/ext-validate/Cargo.toml --bin loom-ext-validate
-tools/ext-validate/target/debug/loom-ext-validate <extension-folder> --samples samples.json
+cargo build --locked --manifest-path tools/ext-validate/Cargo.toml --bin loog-ext-validate
+tools/ext-validate/target/debug/loog-ext-validate <extension-folder> --samples samples.json
 cargo test --locked --manifest-path tools/ext-validate/Cargo.toml --test cli
 cargo fmt --manifest-path tools/ext-validate/Cargo.toml -- --check
 ```
 
 On Windows the executable ends in `.exe`. Native build prerequisites follow
-[Building Loom](../../docs/building.md); no Skia or application build is needed.
+[Building Loog](../../docs/building.md); no Skia or application build is needed.
 Pass `--offline` to Cargo when its dependencies are already cached.
 
 The optional samples file is a JSON array. Each entry needs a grammar name and
@@ -38,7 +38,7 @@ invalid modules and queries, malformed samples and parse failures. They use
 sources change, or during full validation.
 
 Application releases include the validator for Windows x64, Linux x64 and macOS
-arm64. The independent [extensions repository](https://github.com/lius-new/loom-extensions)
+arm64. The independent [extensions repository](https://github.com/lius-new/loog-extensions)
 pins published binaries in `tools/validator.lock`, or uses a local build named by
-`LOOM_EXT_VALIDATE`. Packaging and publication live in that repository; the
+`LOOG_EXT_VALIDATE`. Packaging and publication live in that repository; the
 retired language-pack producer and runtime suites are not part of this tool.

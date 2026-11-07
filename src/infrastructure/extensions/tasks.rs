@@ -3,7 +3,7 @@
 //! A task is a program and an argument list, never a shell command line. It
 //! runs with a small allow-listed environment, in a directory inside the
 //! granted root, and is owned by a kill-on-close job so that cancelling,
-//! timing out or closing Loom ends the whole process tree. This is not an
+//! timing out or closing Loog ends the whole process tree. This is not an
 //! operating system sandbox: the program can still touch whatever the user can.
 use crate::infrastructure::process_job::Job;
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ const CHUNK: usize = 8 * 1024;
 /// How often a running task is checked for cancellation and its deadline.
 const POLL: Duration = Duration::from_millis(15);
 
-/// Environment variables passed through from Loom's own environment.
+/// Environment variables passed through from Loog's own environment.
 const INHERITED: &[&str] = &[
     "PATH",
     "PATHEXT",
@@ -126,7 +126,7 @@ impl Runner {
         );
         let (sink, running) = (self.sink.clone(), self.running.clone());
         let spawned = std::thread::Builder::new()
-            .name("loom-extension-task".into())
+            .name("loog-extension-task".into())
             .spawn({
                 let (sink, running) = (sink.clone(), running.clone());
                 move || {
@@ -442,7 +442,7 @@ mod tests {
         runner.start(
             4,
             Spec {
-                program: "loom-no-such-program".into(),
+                program: "loog-no-such-program".into(),
                 ..shell("")
             },
         );
@@ -453,7 +453,7 @@ mod tests {
         assert!(
             error
                 .as_deref()
-                .is_some_and(|e| e.contains("loom-no-such-program")),
+                .is_some_and(|e| e.contains("loog-no-such-program")),
             "{error:?}"
         );
         assert!(code.is_none());
@@ -462,11 +462,11 @@ mod tests {
     #[test]
     fn the_environment_is_cleared_except_what_is_allowed() {
         // SAFETY: tests in this module only read this variable through the child.
-        unsafe { std::env::set_var("LOOM_TASK_SECRET", "leaked") };
+        unsafe { std::env::set_var("LOOG_TASK_SECRET", "leaked") };
         let script = if cfg!(windows) {
-            "echo [%LOOM_TASK_SECRET%][%NO_COLOR%]"
+            "echo [%LOOG_TASK_SECRET%][%NO_COLOR%]"
         } else {
-            "echo [$LOOM_TASK_SECRET][$NO_COLOR]"
+            "echo [$LOOG_TASK_SECRET][$NO_COLOR]"
         };
         let (runner, events) = runner();
         let mut spec = shell(script);

@@ -69,7 +69,7 @@ impl SessionRestore {
             let worker_application = application.clone();
             let retry = work.clone();
             std::thread::Builder::new()
-                .name("loom-session-restore".into())
+                .name("loog-session-restore".into())
                 .spawn(move || {
                     while let Ok(Some((id, path))) = receiver.recv() {
                         if !worker_alive.load(Ordering::Acquire) {
@@ -108,7 +108,7 @@ impl SessionRestore {
                 .expect("could not start session restore");
             let timer_alive = alive.clone();
             std::thread::Builder::new()
-                .name("loom-session-restore-delay".into())
+                .name("loog-session-restore-delay".into())
                 .spawn(move || {
                     if matches!(
                         delay.recv_timeout(crate::app::file_loading::INDICATOR_DELAY),

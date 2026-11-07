@@ -82,7 +82,7 @@ fn verify_file(path: &Path, artifact: &Artifact) -> Result<(), String> {
 pub fn install(
     root: &Path,
     steps: &[Step],
-    loom_version: &str,
+    loog_version: &str,
     fetch: &Fetch,
 ) -> Result<Vec<Imported>, String> {
     fs::create_dir_all(root).map_err(|e| e.to_string())?;
@@ -97,14 +97,14 @@ pub fn install(
     for step in steps {
         let file = scratch
             .0
-            .join(format!("{}-{}.loomext", step.id, step.version));
+            .join(format!("{}-{}.loogext", step.id, step.version));
         let result = fetch(&step.artifact, &file)
             .and_then(|()| verify_file(&file, &step.artifact))
             .and_then(|()| {
                 import_expecting(
                     &file,
                     root,
-                    loom_version,
+                    loog_version,
                     Some(&Expected {
                         id: step.id.clone(),
                         version: step.version.clone(),
@@ -141,7 +141,7 @@ pub fn download(artifact: &Artifact, target: &Path) -> Result<(), String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(15))
         .timeout_read(Duration::from_secs(60))
-        .user_agent(concat!("Loom/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Loog/", env!("CARGO_PKG_VERSION")))
         .https_only(true)
         .build();
     // A connection that fails to open is tried once more; an answer from the server,
@@ -185,7 +185,7 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("loom-install-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loog-install-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -194,10 +194,10 @@ mod tests {
     /// A package of extension `id` at `version`, with the root folder the format asks for.
     fn package(id: &str, version: &str, requires: &[&str]) -> Vec<u8> {
         let manifest = serde_json::json!({
-            "schema": 1, "id": id, "version": version, "name": id, "publisher": "Loom",
+            "schema": 1, "id": id, "version": version, "name": id, "publisher": "Loog",
             "description": "A test extension.", "categories": ["Other"], "license": "MIT",
             "repository": "https://example.com/x", "icon": "icon.svg", "readme": "README.md",
-            "changelog": "CHANGELOG.md", "engines": { "loom": ">=0.1.0" }, "requires": requires,
+            "changelog": "CHANGELOG.md", "engines": { "loog": ">=0.1.0" }, "requires": requires,
         });
         let mut tar = tar::Builder::new(Vec::new());
         for (name, bytes) in [
@@ -247,11 +247,11 @@ mod tests {
     #[test]
     fn a_plan_is_installed_in_order_and_recorded_as_coming_from_the_index() {
         let root = temp("plan");
-        let node = package("loom.runtime.node", "22.4.0", &[]);
-        let bash = package("loom.lsp.bash", "1.0.0", &["loom.runtime.node@^22"]);
+        let node = package("loog.runtime.node", "22.4.0", &[]);
+        let bash = package("loog.lsp.bash", "1.0.0", &["loog.runtime.node@^22"]);
         let steps = [
-            step("loom.runtime.node", "22.4.0", &node),
-            step("loom.lsp.bash", "1.0.0", &bash),
+            step("loog.runtime.node", "22.4.0", &node),
+            step("loog.lsp.bash", "1.0.0", &bash),
         ];
         let fetch = server(vec![
             (steps[0].artifact.url.clone(), node),
@@ -261,10 +261,10 @@ mod tests {
         assert_eq!(done.len(), 2);
         let state = state::read(&root);
         assert!(
-            matches!(&state.extensions["loom.lsp.bash"].source, Source::Index { url, .. } if url.ends_with("loom.lsp.bash-1.0.0"))
+            matches!(&state.extensions["loog.lsp.bash"].source, Source::Index { url, .. } if url.ends_with("loog.lsp.bash-1.0.0"))
         );
         assert!(
-            root.join("loom.runtime.node/22.4.0/manifest.json")
+            root.join("loog.runtime.node/22.4.0/manifest.json")
                 .is_file()
         );
         // The download folder is gone, and what is installed knows what it requires.
@@ -275,18 +275,18 @@ mod tests {
                 .starts_with(".download")
         }));
         assert_eq!(
-            installed(&root)["loom.lsp.bash"].requires,
-            ["loom.runtime.node@^22"]
+            installed(&root)["loog.lsp.bash"].requires,
+            ["loog.runtime.node@^22"]
         );
         // The runtime cannot be removed while the server uses it; the server can, and frees the runtime.
         assert!(
-            removal_check(&root, "loom.runtime.node")
+            removal_check(&root, "loog.runtime.node")
                 .unwrap_err()
-                .contains("loom.lsp.bash")
+                .contains("loog.lsp.bash")
         );
         assert_eq!(
-            removal_check(&root, "loom.lsp.bash").unwrap(),
-            ["loom.runtime.node"]
+            removal_check(&root, "loog.lsp.bash").unwrap(),
+            ["loog.runtime.node"]
         );
         let _ = fs::remove_dir_all(&root);
     }
@@ -295,17 +295,17 @@ mod tests {
     fn a_failing_step_undoes_the_steps_before_it_and_restores_the_old_version() {
         let root = temp("rollback");
         // An older runtime is installed first.
-        let old = package("loom.runtime.node", "22.1.0", &[]);
-        let first = [step("loom.runtime.node", "22.1.0", &old)];
+        let old = package("loog.runtime.node", "22.1.0", &[]);
+        let first = [step("loog.runtime.node", "22.1.0", &old)];
         let fetch = server(vec![(first[0].artifact.url.clone(), old)]);
         install(&root, &first, "0.1.8", &fetch).unwrap();
 
         // Updating it succeeds, then the server package is damaged in transit.
-        let new = package("loom.runtime.node", "22.4.0", &[]);
-        let bash = package("loom.lsp.bash", "1.0.0", &["loom.runtime.node@^22"]);
+        let new = package("loog.runtime.node", "22.4.0", &[]);
+        let bash = package("loog.lsp.bash", "1.0.0", &["loog.runtime.node@^22"]);
         let steps = [
-            step("loom.runtime.node", "22.4.0", &new),
-            step("loom.lsp.bash", "1.0.0", &bash),
+            step("loog.runtime.node", "22.4.0", &new),
+            step("loog.lsp.bash", "1.0.0", &bash),
         ];
         let mut damaged = bash.clone();
         damaged.push(0);
@@ -317,12 +317,12 @@ mod tests {
         assert!(error.contains("does not match the registry"), "{error}");
 
         let state = state::read(&root);
-        assert_eq!(state.extensions["loom.runtime.node"].version, "22.1.0");
-        assert!(!state.extensions.contains_key("loom.lsp.bash"));
-        assert!(!root.join("loom.runtime.node/22.4.0").exists());
-        assert!(!root.join("loom.lsp.bash").exists());
+        assert_eq!(state.extensions["loog.runtime.node"].version, "22.1.0");
+        assert!(!state.extensions.contains_key("loog.lsp.bash"));
+        assert!(!root.join("loog.runtime.node/22.4.0").exists());
+        assert!(!root.join("loog.lsp.bash").exists());
         assert!(
-            root.join("loom.runtime.node/22.1.0/manifest.json")
+            root.join("loog.runtime.node/22.1.0/manifest.json")
                 .is_file()
         );
         let _ = fs::remove_dir_all(&root);
@@ -332,22 +332,22 @@ mod tests {
     fn a_package_that_is_not_what_the_index_promised_is_refused() {
         let root = temp("promise");
         // The right bytes for the listed hash, but another extension inside.
-        let other = package("loom.lsp.other", "1.0.0", &[]);
-        let promised = step("loom.lsp.bash", "1.0.0", &other);
+        let other = package("loog.lsp.other", "1.0.0", &[]);
+        let promised = step("loog.lsp.bash", "1.0.0", &other);
         let fetch = server(vec![(promised.artifact.url.clone(), other.clone())]);
         let error = install(&root, std::slice::from_ref(&promised), "0.1.8", &fetch).unwrap_err();
         assert!(
-            error.contains("loom.lsp.bash") && error.contains("offered"),
+            error.contains("loog.lsp.bash") && error.contains("offered"),
             "{error}"
         );
         // Another version than the one listed.
-        let wrong = step("loom.lsp.other", "2.0.0", &other);
+        let wrong = step("loog.lsp.other", "2.0.0", &other);
         let fetch = server(vec![(wrong.artifact.url.clone(), other)]);
         let error = install(&root, &[wrong], "0.1.8", &fetch).unwrap_err();
         assert!(error.contains("offered"), "{error}");
         assert!(state::read(&root).extensions.is_empty());
         // A download that fails leaves nothing either.
-        let missing = step("loom.lsp.gone", "1.0.0", b"x");
+        let missing = step("loog.lsp.gone", "1.0.0", b"x");
         let fetch = server(vec![]);
         assert!(
             install(&root, &[missing], "0.1.8", &fetch)
@@ -383,11 +383,11 @@ mod tests {
         );
         assert!(!loaded.expired);
         let platform = current_platform().unwrap();
-        let loom = env!("CARGO_PKG_VERSION");
-        for id in ["loom.lang.json", "loom.lang.markdown", "loom.theme.aura"] {
-            let steps = plan_install(&loaded.index, &installed(&root), id, loom, platform).unwrap();
+        let loog = env!("CARGO_PKG_VERSION");
+        for id in ["loog.lang.json", "loog.lang.markdown", "loog.theme.aura"] {
+            let steps = plan_install(&loaded.index, &installed(&root), id, loog, platform).unwrap();
             assert_eq!(steps.len(), 1, "{id}");
-            let done = install(&root, &steps, loom, &download).unwrap();
+            let done = install(&root, &steps, loog, &download).unwrap();
             assert_eq!(done[0].id, id);
             assert!(done[0].directory.join("manifest.json").is_file());
         }
@@ -395,13 +395,13 @@ mod tests {
         let again = plan_install(
             &loaded.index,
             &installed(&root),
-            "loom.lang.json",
-            loom,
+            "loog.lang.json",
+            loog,
             platform,
         );
         assert!(again.unwrap().is_empty());
         // Every highlight extension the registry offers installs, and the grammars built
-        // by its CI load in Loom's loader together, with no clash over names or file types.
+        // by its CI load in Loog's loader together, with no clash over names or file types.
         let languages: Vec<String> = loaded
             .index
             .extensions
@@ -410,8 +410,8 @@ mod tests {
             .map(|entry| entry.id.clone())
             .collect();
         for id in &languages {
-            let steps = plan_install(&loaded.index, &installed(&root), id, loom, platform).unwrap();
-            install(&root, &steps, loom, &download).unwrap();
+            let steps = plan_install(&loaded.index, &installed(&root), id, loog, platform).unwrap();
+            install(&root, &steps, loog, &download).unwrap();
         }
         let packs = crate::infrastructure::language_packs::extension_packs(&root);
         let packages = crate::infrastructure::language_packs::Packages::from_directories(packs);
@@ -438,27 +438,27 @@ mod tests {
         // A language server brings the runtime it requires, if the registry has them.
         if loaded
             .index
-            .entry("loom.lsp.bash-language-server")
+            .entry("loog.lsp.bash-language-server")
             .is_some()
         {
             let steps = plan_install(
                 &loaded.index,
                 &installed(&root),
-                "loom.lsp.bash-language-server",
-                loom,
+                "loog.lsp.bash-language-server",
+                loog,
                 platform,
             )
             .unwrap();
             let ids: Vec<_> = steps.iter().map(|step| step.id.as_str()).collect();
-            assert_eq!(ids, ["loom.runtime.node", "loom.lsp.bash-language-server"]);
-            install(&root, &steps, loom, &download).unwrap();
+            assert_eq!(ids, ["loog.runtime.node", "loog.lsp.bash-language-server"]);
+            install(&root, &steps, loog, &download).unwrap();
             let node = installed(&root);
             assert_eq!(
-                crate::features::extensions::registry::dependents(&node, "loom.runtime.node"),
-                ["loom.lsp.bash-language-server"]
+                crate::features::extensions::registry::dependents(&node, "loog.runtime.node"),
+                ["loog.lsp.bash-language-server"]
             );
             // Keep the result to look at, when asked to.
-            if let Some(keep) = std::env::var_os("LOOM_KEEP_LIVE_INSTALL") {
+            if let Some(keep) = std::env::var_os("LOOG_KEEP_LIVE_INSTALL") {
                 let _ = fs::remove_dir_all(&keep);
                 fs::rename(&root, keep).unwrap();
                 return;
@@ -471,30 +471,30 @@ mod tests {
     fn rolling_back_switches_to_the_previous_version_and_back_again() {
         let root = temp("back");
         for version in ["1.0.0", "1.1.0"] {
-            let bytes = package("loom.lsp.bash", version, &[]);
-            let steps = [step("loom.lsp.bash", version, &bytes)];
+            let bytes = package("loog.lsp.bash", version, &[]);
+            let steps = [step("loog.lsp.bash", version, &bytes)];
             let fetch = server(vec![(steps[0].artifact.url.clone(), bytes)]);
             install(&root, &steps, "0.1.8", &fetch).unwrap();
         }
         assert_eq!(
-            state::roll_back(&root, "loom.lsp.bash").unwrap(),
+            state::roll_back(&root, "loog.lsp.bash").unwrap(),
             ("1.1.0".into(), "1.0.0".into())
         );
         assert_eq!(
-            state::read(&root).extensions["loom.lsp.bash"].version,
+            state::read(&root).extensions["loog.lsp.bash"].version,
             "1.0.0"
         );
         assert_eq!(
-            state::roll_back(&root, "loom.lsp.bash").unwrap(),
+            state::roll_back(&root, "loog.lsp.bash").unwrap(),
             ("1.0.0".into(), "1.1.0".into())
         );
-        assert!(state::roll_back(&root, "loom.lsp.nope").is_err());
+        assert!(state::roll_back(&root, "loog.lsp.nope").is_err());
         // A pinned extension is not offered an update, and the pin follows the version change.
-        state::set_pinned(&root, "loom.lsp.bash", true).unwrap();
-        assert!(installed(&root)["loom.lsp.bash"].pinned);
-        state::set_pinned(&root, "loom.lsp.bash", false).unwrap();
-        assert!(!installed(&root)["loom.lsp.bash"].pinned);
-        assert!(state::set_pinned(&root, "loom.lsp.nope", true).is_err());
+        state::set_pinned(&root, "loog.lsp.bash", true).unwrap();
+        assert!(installed(&root)["loog.lsp.bash"].pinned);
+        state::set_pinned(&root, "loog.lsp.bash", false).unwrap();
+        assert!(!installed(&root)["loog.lsp.bash"].pinned);
+        assert!(state::set_pinned(&root, "loog.lsp.nope", true).is_err());
         let _ = fs::remove_dir_all(&root);
     }
 }

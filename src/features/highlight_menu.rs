@@ -1,11 +1,11 @@
-//! What the language panel offers: the languages in use, every language Loom has
+//! What the language panel offers: the languages in use, every language Loog has
 //! syntax for, the ones worth installing for the files that are open, and the rest
 //! the registry has.
 //!
 //! Pure: the application collects what is installed, what is open and what the
 //! registry lists, and this decides the four groups.
 
-/// A language Loom has syntax for.
+/// A language Loog has syntax for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Installed {
     /// The canonical name, such as `rust`.
@@ -25,7 +25,7 @@ pub struct Candidate {
     /// The file types it recognizes, lowercase and without the dot.
     pub file_types: Vec<String>,
     pub installed: bool,
-    /// The registry has a version for this Loom and this computer.
+    /// The registry has a version for this Loog and this computer.
     pub installable: bool,
     pub installing: bool,
 }
@@ -74,7 +74,7 @@ pub struct Menu {
     pub more: Vec<Offer>,
     /// How many there are before the filter.
     pub more_total: usize,
-    /// Installed, but read only when Loom starts.
+    /// Installed, but read only when Loog starts.
     pub restart: Vec<String>,
 }
 
@@ -271,9 +271,9 @@ mod tests {
     #[test]
     fn a_language_is_recommended_when_open_files_have_its_types_and_the_rest_are_more() {
         let candidates = [
-            candidate("loom.lang.yaml", "YAML", &["yaml", "yml"]),
-            candidate("loom.lang.toml", "TOML", &["toml"]),
-            candidate("loom.lang.go", "Go", &["go"]),
+            candidate("loog.lang.yaml", "YAML", &["yaml", "yml"]),
+            candidate("loog.lang.toml", "TOML", &["toml"]),
+            candidate("loog.lang.go", "Go", &["go"]),
         ];
         let menu = build(Input {
             installed: &[],
@@ -298,8 +298,8 @@ mod tests {
     #[test]
     fn the_filter_narrows_only_the_more_group() {
         let candidates = [
-            candidate("loom.lang.go", "Go", &["go"]),
-            candidate("loom.lang.python", "Python", &["py"]),
+            candidate("loog.lang.go", "Go", &["go"]),
+            candidate("loog.lang.python", "Python", &["py"]),
         ];
         let menu = build(Input {
             installed: &[],
@@ -320,9 +320,9 @@ mod tests {
 
     #[test]
     fn an_installed_extension_whose_language_is_not_loaded_waits_for_a_restart() {
-        let mut waiting = candidate("loom.lang.yaml", "YAML", &["yaml"]);
+        let mut waiting = candidate("loog.lang.yaml", "YAML", &["yaml"]);
         waiting.installed = true;
-        let mut loaded = candidate("loom.lang.rust", "Rust", &["rs"]);
+        let mut loaded = candidate("loog.lang.rust", "Rust", &["rs"]);
         loaded.installed = true;
         let installed = [installed("rust", "Rust", "RS")];
         let menu = build(Input {
@@ -338,9 +338,9 @@ mod tests {
 
     #[test]
     fn what_the_registry_has_no_version_of_is_not_offered_and_one_being_installed_is() {
-        let mut none = candidate("loom.lang.a", "Alpha", &["a"]);
+        let mut none = candidate("loog.lang.a", "Alpha", &["a"]);
         none.installable = false;
-        let mut busy = candidate("loom.lang.b", "Beta", &["b"]);
+        let mut busy = candidate("loog.lang.b", "Beta", &["b"]);
         busy.installable = false;
         busy.installing = true;
         let menu = build(Input {

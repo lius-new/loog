@@ -12,7 +12,7 @@ import {fileURLToPath} from 'node:url';
 import {BUNDLED, LOCK_FILE, REGISTRY_DIR} from './lock.mjs';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
-const REGISTRY_URL = 'https://github.com/lius-new/loom-extensions/releases/download/registry';
+const REGISTRY_URL = 'https://github.com/lius-new/loog-extensions/releases/download/registry';
 const KEYS_SOURCE = path.join(ROOT, 'src/infrastructure/extensions/registry.rs');
 const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 

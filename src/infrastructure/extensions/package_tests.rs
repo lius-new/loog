@@ -7,7 +7,7 @@ struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
-            "loom-package-{}-{}",
+            "loog-package-{}-{}",
             std::process::id(),
             RUN.fetch_add(1, Ordering::Relaxed)
         ));
@@ -33,7 +33,7 @@ fn manifest(version: &str, extra: &str) -> String {
         "name": "Acme Night", "publisher": "Acme", "description": "A quieter palette.",
         "categories": ["Themes"], "license": "MIT", "repository": "https://example.com/acme",
         "icon": "icon.svg", "readme": "README.md", "changelog": "CHANGELOG.md",
-        "engines": {{ "loom": ">=0.1.0" }}{extra},
+        "engines": {{ "loog": ">=0.1.0" }}{extra},
         "contributes": {{ "themes": [{{ "id": "acme.night.dark", "path": "themes/dark.json" }}] }} }}"##
     )
 }
@@ -71,7 +71,7 @@ fn build(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
 }
 
 fn import_files(temp: &Temp, entries: &[(String, Vec<u8>)]) -> Result<Imported, String> {
-    let archive = temp.file("pkg.loomext", &build(entries));
+    let archive = temp.file("pkg.loogext", &build(entries));
     import(&archive, &temp.0.join("extensions"), "0.1.8")
 }
 
@@ -178,7 +178,7 @@ fn an_incomplete_manifest_lists_everything_that_is_missing() {
         "icon",
         "readme",
         "changelog",
-        "engines.loom",
+        "engines.loog",
     ] {
         assert!(error.contains(&format!("`{field}`")), "{field}: {error}");
     }
@@ -186,12 +186,12 @@ fn an_incomplete_manifest_lists_everything_that_is_missing() {
 }
 
 #[test]
-fn a_component_that_is_named_but_missing_and_a_loom_that_is_too_old_are_refused() {
+fn a_component_that_is_named_but_missing_and_a_loog_that_is_too_old_are_refused() {
     let temp = Temp::new();
     let mut entries = files("1.0.0");
     entries[0].1 = manifest(
         "1.0.0",
-        r#", "api": "loom:extension@0.1.0", "component": "extension.wasm""#,
+        r#", "api": "loog:extension@0.1.0", "component": "extension.wasm""#,
     )
     .into_bytes();
     let error = import_files(&temp, &entries).unwrap_err();
@@ -200,10 +200,10 @@ fn a_component_that_is_named_but_missing_and_a_loom_that_is_too_old_are_refused(
         "{error}"
     );
 
-    let archive = temp.file("old.loomext", &build(&files("1.0.0")));
+    let archive = temp.file("old.loogext", &build(&files("1.0.0")));
     let error = import(&archive, &temp.0.join("extensions"), "0.0.9").unwrap_err();
     assert!(
-        error.contains("needs Loom >=0.1.0; this is Loom 0.0.9"),
+        error.contains("needs Loog >=0.1.0; this is Loog 0.0.9"),
         "{error}"
     );
 }
@@ -239,15 +239,15 @@ fn hostile_archives_are_refused_before_anything_is_installed() {
         .unwrap();
     let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     gzip.write_all(&tar.into_inner().unwrap()).unwrap();
-    let archive = temp.file("link.loomext", &gzip.finish().unwrap());
+    let archive = temp.file("link.loogext", &gzip.finish().unwrap());
     let error = import(&archive, &temp.0.join("extensions"), "0.1.8").unwrap_err();
     assert!(error.contains("only regular files"), "{error}");
 
     // Not a package at all, and no manifest.
-    let junk = temp.file("junk.loomext", b"not an archive");
+    let junk = temp.file("junk.loogext", b"not an archive");
     assert!(import(&junk, &temp.0.join("extensions"), "0.1.8").is_err());
     let empty = temp.file(
-        "empty.loomext",
+        "empty.loogext",
         &build(&[("README.md".into(), b"x".to_vec())]),
     );
     let error = import(&empty, &temp.0.join("extensions"), "0.1.8").unwrap_err();
@@ -255,12 +255,12 @@ fn hostile_archives_are_refused_before_anything_is_installed() {
 }
 
 /// Packages made by the extensions repository install here. Run on purpose, with
-/// `LOOM_EXTENSIONS_PACKAGES` set to its `dist/packages` folder:
+/// `LOOG_EXTENSIONS_PACKAGES` set to its `dist/packages` folder:
 /// `cargo test --bins repository_packages -- --ignored`.
 #[test]
 #[ignore]
 fn repository_packages_install() {
-    let Some(packages) = std::env::var_os("LOOM_EXTENSIONS_PACKAGES") else {
+    let Some(packages) = std::env::var_os("LOOG_EXTENSIONS_PACKAGES") else {
         return;
     };
     let temp = Temp::new();
@@ -312,7 +312,7 @@ fn the_root_folder_must_be_the_extension_and_the_only_one() {
         gzip.finish().unwrap()
     };
     // A root folder with another name than the extension's id.
-    let archive = temp.file("named.loomext", &rename(&files("1.0.0"), "something.else"));
+    let archive = temp.file("named.loogext", &rename(&files("1.0.0"), "something.else"));
     let error = import(&archive, &extensions, "0.1.8").unwrap_err();
     assert!(
         error.contains("something.else") && error.contains("acme.night"),
@@ -329,7 +329,7 @@ fn the_root_folder_must_be_the_extension_and_the_only_one() {
         .unwrap();
     let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     gzip.write_all(&tar.into_inner().unwrap()).unwrap();
-    let archive = temp.file("flat.loomext", &gzip.finish().unwrap());
+    let archive = temp.file("flat.loogext", &gzip.finish().unwrap());
     let error = import(&archive, &extensions, "0.1.8").unwrap_err();
     assert!(error.contains("root folder"), "{error}");
     // Two root folders.
@@ -337,7 +337,7 @@ fn the_root_folder_must_be_the_extension_and_the_only_one() {
     entries.push(("../other/x.txt".into(), b"x".to_vec()));
     assert!(
         import(
-            &temp.file("two.loomext", &build(&entries)),
+            &temp.file("two.loogext", &build(&entries)),
             &extensions,
             "0.1.8"
         )

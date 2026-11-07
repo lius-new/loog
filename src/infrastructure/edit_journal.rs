@@ -55,7 +55,7 @@ impl Journal {
             .ok_or_else(|| io::Error::other("cannot replace a filesystem root"))?;
         let dir = loop {
             let candidate = parent.join(format!(
-                ".loom-edit-{}-{}",
+                ".loog-edit-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
@@ -225,7 +225,7 @@ mod tests {
     use super::*;
     fn root() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "loom-journal-{}-{}",
+            "loog-journal-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

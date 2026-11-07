@@ -9,8 +9,8 @@ use std::{
     path::Path,
 };
 
-pub const PROFILE: &str = "loom-wasmtime-50.0.1-portable-v1";
-pub const DOMAIN: &[u8] = b"loom.extension.aot.v1\0";
+pub const PROFILE: &str = "loog-wasmtime-50.0.1-portable-v1";
+pub const DOMAIN: &[u8] = b"loog.extension.aot.v1\0";
 /// Official compiler authority; deliberately not taken from plugin data or settings.
 /// Uses the existing official publication key, with a separate signature domain.
 pub const OFFICIAL_KEYS: &[(&str, &str)] = &[(
@@ -213,7 +213,7 @@ mod tests {
         .unwrap();
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let folder = std::env::temp_dir().join(format!(
-            "loom-aot-test-{}-{}",
+            "loog-aot-test-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -251,7 +251,7 @@ mod tests {
             runtime
                 .instantiate(&loaded.component, Limits::default())
                 .is_err()
-        ); // Empty component is valid compiled code, but not Loom's world.
+        ); // Empty component is valid compiled code, but not Loog's world.
         std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn wasm_only_packages_keep_the_cache_path() {
         let runtime = Runtime::new().unwrap();
-        let dir = std::env::temp_dir().join(format!("loom-aot-old-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loog-aot-old-{}", std::process::id()));
         let cache = dir.join("cache");
         let first = runtime
             .compile_package(b"(component)", &cache, &dir, "old.plugin", "1.0.0")

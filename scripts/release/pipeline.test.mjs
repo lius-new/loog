@@ -10,10 +10,10 @@ import {requiredChecks, verifyCi} from './verify-ci.mjs';
 import {packagePlan, packageRelease} from './package.mjs';
 import {platforms, validators, verifyAssets} from './assets.mjs';
 import {publishDraft, createDraft, uploadToDraft} from './publish.mjs';
-const sha = 'a'.repeat(40), repo = 'test/loom';
+const sha = 'a'.repeat(40), repo = 'test/loog';
 const ok = stdout => ({status:0,stdout,stderr:''});
 const failed = stderr => ({status:1,stdout:'',stderr});
-const runRecord = (extra = {}) => ({id:10,run_number:1,head_sha:sha,head_repository:{full_name:repo},event:'push',status:'completed',conclusion:'success',html_url:'https://github.com/test/loom/actions/runs/10',...extra});
+const runRecord = (extra = {}) => ({id:10,run_number:1,head_sha:sha,head_repository:{full_name:repo},event:'push',status:'completed',conclusion:'success',html_url:'https://github.com/test/loog/actions/runs/10',...extra});
 const jobs = () => requiredChecks.map(name => ({name,head_sha:sha,status:'completed',conclusion:'success'}));
 function api(runs,checks = jobs()) {
   const calls = [];
@@ -29,7 +29,7 @@ test('release requires successful exact-SHA CI and the complete native matrix wi
   assert.ok(f.calls.every(args => args.includes('--paginate') && args.includes('--slurp')));
 });
 test('PR merge runs, foreign repositories and other commits never satisfy release verification', async () => {
-  for (const record of [runRecord({event:'pull_request'}),runRecord({head_sha:'b'.repeat(40)}),runRecord({head_repository:{full_name:'foreign/loom'}})]) {
+  for (const record of [runRecord({event:'pull_request'}),runRecord({head_sha:'b'.repeat(40)}),runRecord({head_repository:{full_name:'foreign/loog'}})]) {
     const f = api([record]);
     await assert.rejects(verifyCi({repo,sha},f.run),/exact commit/);
     assert.equal(f.calls.length,1);
@@ -88,12 +88,12 @@ test('packaging invokes setup, compile, stage and bundle exactly once; failures 
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 function assetsFixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(),'loom-complete-release-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(),'loog-complete-release-'));
   t.after(() => fs.rmSync(root,{recursive:true,force:true}));
   const assets = path.join(root,'dist');fs.mkdirSync(assets);
   const version = '0.1.3', names = [];
   for (const [target,formats] of Object.entries(platforms)) {
-    const prefix = 'Loom-' + version + '-' + target, records = {}, checksums = [];
+    const prefix = 'Loog-' + version + '-' + target, records = {}, checksums = [];
     for (const [kind,suffix] of Object.entries(formats)) {
       const name = prefix + suffix, bytes = Buffer.from('verified ' + name);
       fs.writeFileSync(path.join(assets,name),bytes);names.push(name);
@@ -106,7 +106,7 @@ function assetsFixture(t) {
   for (const name of validators) fs.writeFileSync(path.join(assets,name),'validator ' + name);
   const git = (...args) => execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
   git('init','-b','main');git('config','user.name','CI tests');git('config','user.email','ci@example.invalid');
-  fs.writeFileSync(path.join(root,'Cargo.toml'),'[package]\nname = "loom"\nversion = "0.1.3"\n');
+  fs.writeFileSync(path.join(root,'Cargo.toml'),'[package]\nname = "loog"\nversion = "0.1.3"\n');
   git('add','Cargo.toml');git('commit','-m','Initial release\n\nRelease Notes:\n\n- Added an example.');git('tag','v' + version);
   return {root,assets,version,names,repo,notes:path.join(root,'notes.md')};
 }
@@ -114,7 +114,7 @@ test('all platform assets, checksums and update metadata are checked before publ
   const f = assetsFixture(t);
   assert.equal(verifyAssets(f.assets,f.version).length,16);
   fs.unlinkSync(path.join(f.assets,validators[1]));
-  assert.throws(() => verifyAssets(f.assets,f.version),/Missing release asset: loom-ext-validate-linux/);
+  assert.throws(() => verifyAssets(f.assets,f.version),/Missing release asset: loog-ext-validate-linux/);
   fs.writeFileSync(path.join(f.assets,validators[1]),'validator');
   fs.writeFileSync(path.join(f.assets,f.names[0]),'corrupted');
   assert.throws(() => verifyAssets(f.assets,f.version),/Checksum mismatch/);

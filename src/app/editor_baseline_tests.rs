@@ -12,8 +12,8 @@ use lgui::services::{Clipboard, ClipboardError};
 use crate::app::editor::{apply_command, insert_text};
 use crate::app::state::AppState;
 use crate::model::pane_layout::Direction;
-use loom_editor_core::commands::Command;
-use loom_editor_core::normal::Movement;
+use loog_editor_core::commands::Command;
+use loog_editor_core::normal::Movement;
 
 const RECT: UiRect = UiRect {
     left: 0.0,

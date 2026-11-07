@@ -1678,7 +1678,7 @@ impl LanguageHarness {
         fonts::set(&fonts::FontSettings::EDITOR, &fonts::FontSettings::TERMINAL);
         let mut app = AppState::new();
         let name = format!(
-            "loom-language-ui-{}-{}.rs",
+            "loog-language-ui-{}-{}.rs",
             std::process::id(),
             LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         );
@@ -1862,7 +1862,7 @@ mod code_action_lightbulb;
 #[test]
 fn an_explicit_hover_retries_the_same_symbol_after_content_modified() {
     use crate::features::keymap::action::Action;
-    let log = std::env::temp_dir().join(format!("loom-hover-retry-{}.log", std::process::id()));
+    let log = std::env::temp_dir().join(format!("loog-hover-retry-{}.log", std::process::id()));
     let _ = std::fs::remove_file(&log);
     let log_arg = log.display().to_string();
     let mut h = LanguageHarness::new(
@@ -2003,7 +2003,7 @@ fn dragging_across_the_hover_card_selects_its_text_and_copy_takes_it() {
     });
     crate::app::editor::execute_command(
         &h.state,
-        loom_editor_core::commands::Command::Copy,
+        loog_editor_core::commands::Command::Copy,
         h.rect,
         clipboard.clone(),
     );
@@ -2169,7 +2169,7 @@ fn navigation_history_uses_line_and_column_after_a_prior_line_changes_length() {
     h.state.update(|app| {
         let mut editor = app.workspace.active_editor_mut().unwrap();
         editor.set_cursor(0);
-        loom_editor_core::normal::insert(&mut editor, "😀");
+        loog_editor_core::normal::insert(&mut editor, "😀");
     });
     h.act(Action::GoBack);
     h.until("line column history", |h| h.cursor() == before + "😀".len());
@@ -2181,7 +2181,7 @@ fn peeking_an_unopened_target_does_not_create_a_tab_and_dismissal_invalidates_qu
     let mut h = LanguageHarness::new(NAV_SOURCE, &["--features", "definition"]);
     h.until_ready();
     let path = std::env::temp_dir().join(format!(
-        "loom-peek-{}-{}.rs",
+        "loog-peek-{}-{}.rs",
         std::process::id(),
         LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -2371,7 +2371,7 @@ fn typing_opens_a_completion_list_that_narrows_with_more_typing() {
 fn completion_refresh_can_shrink_reorder_or_empty_the_candidates() {
     use crate::features::keymap::action::Action;
     let file = std::env::temp_dir().join(format!(
-        "loom-completion-refresh-{}-{}.json",
+        "loog-completion-refresh-{}-{}.json",
         std::process::id(),
         LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -2589,7 +2589,7 @@ fn a_position_that_cannot_be_renamed_says_so() {
 #[test]
 fn code_actions_are_listed_and_the_chosen_ones_edit_or_resolve_first() {
     use crate::features::keymap::action::Action;
-    let log = std::env::temp_dir().join(format!("loom-actions-{}.log", std::process::id()));
+    let log = std::env::temp_dir().join(format!("loog-actions-{}.log", std::process::id()));
     let _ = std::fs::remove_file(&log);
     let log_arg = log.display().to_string();
     let mut h = LanguageHarness::new(
@@ -2749,7 +2749,7 @@ fn server_responses(path: &std::path::Path) -> Vec<serde_json::Value> {
 #[test]
 fn a_server_can_edit_the_document_and_hear_that_it_was_done() {
     use crate::features::keymap::action::Action;
-    let log = std::env::temp_dir().join(format!("loom-apply-{}.log", std::process::id()));
+    let log = std::env::temp_dir().join(format!("loog-apply-{}.log", std::process::id()));
     let _ = std::fs::remove_file(&log);
     let log_arg = log.display().to_string();
     let mut h = LanguageHarness::new(
@@ -2781,7 +2781,7 @@ fn a_server_can_edit_the_document_and_hear_that_it_was_done() {
 #[test]
 fn a_server_can_ask_for_a_document_to_be_shown() {
     use crate::features::keymap::action::Action;
-    let log = std::env::temp_dir().join(format!("loom-show-{}.log", std::process::id()));
+    let log = std::env::temp_dir().join(format!("loog-show-{}.log", std::process::id()));
     let _ = std::fs::remove_file(&log);
     let log_arg = log.display().to_string();
     let mut h = LanguageHarness::new(
@@ -2949,7 +2949,7 @@ fn callers_are_listed_and_choosing_one_goes_to_the_call() {
 #[test]
 fn supertypes_and_outgoing_calls_use_their_own_requests() {
     use crate::features::keymap::action::Action;
-    let log = std::env::temp_dir().join(format!("loom-hier-{}.log", std::process::id()));
+    let log = std::env::temp_dir().join(format!("loog-hier-{}.log", std::process::id()));
     let _ = std::fs::remove_file(&log);
     let log_arg = log.display().to_string();
     let mut h = LanguageHarness::new(
@@ -2975,7 +2975,7 @@ fn supertypes_and_outgoing_calls_use_their_own_requests() {
 #[test]
 fn code_lenses_with_commands_are_listed_and_run() {
     use crate::features::keymap::action::Action;
-    let log = std::env::temp_dir().join(format!("loom-lens-{}.log", std::process::id()));
+    let log = std::env::temp_dir().join(format!("loog-lens-{}.log", std::process::id()));
     let _ = std::fs::remove_file(&log);
     let log_arg = log.display().to_string();
     let mut h = LanguageHarness::new(
@@ -3037,7 +3037,7 @@ fn the_problems_of_the_open_files_are_listed_with_the_worst_first() {
 fn lazy_code_lenses_resolve_before_their_command_runs() {
     use crate::features::keymap::action::Action;
     let log = std::env::temp_dir().join(format!(
-        "loom-lazy-lens-{}.log",
+        "loog-lazy-lens-{}.log",
         LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let log_arg = log.display().to_string();
@@ -3077,7 +3077,7 @@ fn async_navigation_does_not_open_a_target_after_the_source_cursor_moves() {
     let mut h = LanguageHarness::new(NAV_SOURCE, &["--features", "definition"]);
     h.until_ready();
     let path = std::env::temp_dir().join(format!(
-        "loom-stale-navigation-{}.rs",
+        "loog-stale-navigation-{}.rs",
         LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     std::fs::write(&path, "fn target() {}\n").unwrap();
@@ -3332,7 +3332,7 @@ fn typed_delimiters_and_ime_commits_take_distinct_paths_through_editor_events() 
 
 #[test]
 fn document_tab_width_changes_paint_geometry_hits_and_ime_columns_together() {
-    use loom_editor_core::text::EditingOptions;
+    use loog_editor_core::text::EditingOptions;
     let context = lgui::application::ApplicationContext::empty(Default::default());
     let _fonts = lgui::backend::install_text_environment(
         &context,
@@ -3577,7 +3577,7 @@ fn soft_wrap_keeps_paint_hits_navigation_selection_ime_and_resize_in_agreement()
         },
         session::UiSession,
     };
-    use loom_editor_core::text::{Assoc, Selection};
+    use loog_editor_core::text::{Assoc, Selection};
     use std::sync::Arc;
     let exposed = Arc::new(Mutex::new(None::<AppContext>));
     let output = exposed.clone();
@@ -3927,7 +3927,7 @@ fn folding_controls_hide_source_and_keep_wrapped_hits_caret_and_expansion_correc
     let (x, y) = crate::ui::editor::projection::caret(
         &buffer,
         &map,
-        loom_editor_core::text::Selection::caret(target),
+        loog_editor_core::text::Selection::caret(target),
         left,
         0.0,
         0.0,
@@ -3965,7 +3965,7 @@ fn folding_controls_hide_source_and_keep_wrapped_hits_caret_and_expansion_correc
 #[test]
 fn lsp_folding_fallback_is_versioned_and_late_results_do_not_fold_a_switched_tab() {
     let log = std::env::temp_dir().join(format!(
-        "loom-fold-late-{}-{}.jsonl",
+        "loog-fold-late-{}-{}.jsonl",
         std::process::id(),
         LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -4042,7 +4042,7 @@ fn multicursor_ui_shortcuts_rectangle_unicode_ime_and_undo_use_one_transaction()
         },
         session::UiSession,
     };
-    use loom_editor_core::text::Selection;
+    use loog_editor_core::text::Selection;
     use std::sync::Arc;
     let exposed = Arc::new(Mutex::new(None::<AppContext>));
     let output = exposed.clone();
@@ -4319,7 +4319,7 @@ fn multicursor_ui_shortcuts_rectangle_unicode_ime_and_undo_use_one_transaction()
 
 #[test]
 fn multicursor_display_rows_and_split_view_state_stay_independent() {
-    use loom_editor_core::text::Selection;
+    use loog_editor_core::text::Selection;
     let mut app = document("one two three four five six seven eight nine\nend");
     app.preferences.values_mut().editor.soft_wrap = true;
     crate::app::editing::configure_all(&mut app);
@@ -4372,7 +4372,7 @@ fn multicursor_display_rows_and_split_view_state_stay_independent() {
 fn multicursor_cancels_pending_completion_and_snippets_before_late_reply() {
     use crate::app::language_ui::completion;
     let log = std::env::temp_dir().join(format!(
-        "loom-multi-completion-{}-{}.jsonl",
+        "loog-multi-completion-{}-{}.jsonl",
         std::process::id(),
         LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -4462,7 +4462,7 @@ fn multicursor_cancels_pending_completion_and_snippets_before_late_reply() {
 fn multicursor_save_formats_crlf_bytes_and_maps_all_selections_with_undo() {
     use crate::features::keymap::action::Action;
     use lgui::ServicesContextExt;
-    use loom_editor_core::text::Selection;
+    use loog_editor_core::text::Selection;
     let source = "fn alpha() {}\r\nlast";
     let mut h =
         LanguageHarness::configured(source, &["--features", "formatting"], on_save(&[], true));
@@ -4501,7 +4501,7 @@ fn multicursor_save_formats_crlf_bytes_and_maps_all_selections_with_undo() {
     );
     execute_command(
         &h.state,
-        loom_editor_core::commands::Command::Undo,
+        loog_editor_core::commands::Command::Undo,
         h.rect,
         h.context.clipboard(),
     );
@@ -4533,7 +4533,7 @@ fn vim_editor_completion_snippet_pairing_and_escape_share_input_ownership() {
     });
     assert_eq!(
         h.state.get().editor.vim.mode(),
-        loom_editor_core::vim::Mode::Insert
+        loog_editor_core::vim::Mode::Insert
     );
     h.act(Action::MenuSelectNext);
     h.act(Action::MenuConfirm);
@@ -4544,7 +4544,7 @@ fn vim_editor_completion_snippet_pairing_and_escape_share_input_ownership() {
     h.render();
     assert_eq!(
         h.state.get().editor.vim.mode(),
-        loom_editor_core::vim::Mode::Normal
+        loog_editor_core::vim::Mode::Normal
     );
     assert!(h.state.get().editor.language.snippet.is_none());
     assert!(h.state.get().editor.language.completion.is_none());
@@ -4554,7 +4554,7 @@ fn vim_editor_completion_snippet_pairing_and_escape_share_input_ownership() {
 fn vim_editor_pending_completion_cannot_reopen_after_escape() {
     use crate::features::keymap::action::Action;
     let log = std::env::temp_dir().join(format!(
-        "loom-vim-completion-{}-{}.jsonl",
+        "loog-vim-completion-{}-{}.jsonl",
         std::process::id(),
         LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -4591,7 +4591,7 @@ fn vim_editor_pending_completion_cannot_reopen_after_escape() {
     assert!(h.state.get().editor.language.completion.is_none());
     assert_eq!(
         h.state.get().editor.vim.mode(),
-        loom_editor_core::vim::Mode::Normal
+        loog_editor_core::vim::Mode::Normal
     );
     let before = server_log(&h, &log)
         .iter()
@@ -4611,7 +4611,7 @@ fn vim_editor_pending_completion_cannot_reopen_after_escape() {
     });
     assert_eq!(
         h.state.get().editor.vim.mode(),
-        loom_editor_core::vim::Mode::Insert
+        loog_editor_core::vim::Mode::Insert
     );
     let _ = std::fs::remove_file(log);
 }
@@ -4619,7 +4619,7 @@ fn vim_editor_pending_completion_cannot_reopen_after_escape() {
 #[test]
 fn vim_editor_save_formatting_preserves_multi_selections_and_insert_history() {
     use crate::features::keymap::action::Action;
-    use loom_editor_core::text::Selection;
+    use loog_editor_core::text::Selection;
     let source = "fn alpha() {}\r\nlast";
     let mut h = LanguageHarness::configured(source, &["--features", "formatting"], |app| {
         app.editor.vim.options.enabled = true;
@@ -4658,7 +4658,7 @@ fn vim_editor_save_formatting_preserves_multi_selections_and_insert_history() {
     );
     execute_command(
         &h.state,
-        loom_editor_core::commands::Command::Undo,
+        loog_editor_core::commands::Command::Undo,
         h.rect,
         Arc::new(TestClipboard::default()),
     );
@@ -4675,7 +4675,7 @@ fn vim_editor_save_formatting_preserves_multi_selections_and_insert_history() {
     );
     assert_eq!(
         h.state.get().editor.vim.mode(),
-        loom_editor_core::vim::Mode::Insert
+        loog_editor_core::vim::Mode::Insert
     );
     h.type_text("字");
     crate::app::editor_vim::feed_keys(&h.state, "<Esc>", h.rect, &TestClipboard::default());
@@ -4688,7 +4688,7 @@ fn vim_editor_save_formatting_preserves_multi_selections_and_insert_history() {
 #[test]
 fn vim_editor_inlay_hints_recover_when_a_provider_appears_without_an_edit() {
     let script = std::env::temp_dir().join(format!(
-        "loom-vim-inlay-registration-{}-{}.json",
+        "loog-vim-inlay-registration-{}-{}.json",
         std::process::id(),
         LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -5045,7 +5045,7 @@ fn folding_gutter_hover_reveals_right_column_and_preserves_numbers_actions_and_g
             assert!(arrow_visible(&session, "Fold code at line 1"));
             check_source(&session);
             if size == 12 && factor == 1.0 {
-                if let Some(path) = std::env::var_os("LOOM_FOLD_PREVIEW") {
+                if let Some(path) = std::env::var_os("LOOG_FOLD_PREVIEW") {
                     application
                         .resources()
                         .provide(lgui::icons::IconRegistration(Arc::new(

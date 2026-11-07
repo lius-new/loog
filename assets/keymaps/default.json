@@ -1,4 +1,4 @@
-// Loom's built-in key bindings.
+// Loog's built-in key bindings.
 //
 // Contexts, from the root to the focused element:
 //   Workspace os=… surface=editor|diff|settings|keymap|home|welcome|empty

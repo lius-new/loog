@@ -1,7 +1,7 @@
 //! File icon theme support for the workspace tree.
 //!
 //! The bundled SVGs are a focused subset of Material Icon Theme. Matching is
-//! intentionally kept in Loom so the framework's generic icon registry
+//! intentionally kept in Loog so the framework's generic icon registry
 //! stays independent from editor-specific file type policy.
 
 use lgui::icons::SvgIconRegistry;
@@ -236,7 +236,7 @@ fn matches_suffix(name: &str, suffix: &str) -> bool {
             .is_some_and(|prefix| prefix.ends_with('.'))
 }
 
-/// Registers the Loom file theme in the application-wide SVG registry.
+/// Registers the Loog file theme in the application-wide SVG registry.
 pub fn register(registry: SvgIconRegistry) -> SvgIconRegistry {
     registry
         .with_icon_bytes(FOLDER_ICON, icon("folder.svg"))

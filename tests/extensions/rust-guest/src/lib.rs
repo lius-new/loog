@@ -5,18 +5,18 @@
 use std::cell::RefCell;
 
 wit_bindgen::generate!({
-    path: "../../../wit/loom-extension",
+    path: "../../../wit/loog-extension",
     world: "extension-ui",
     generate_all,
 });
 
-use exports::loom::extension::guest::Guest;
-use loom::extension::host;
-use loom::extension::types::{
+use exports::loog::extension::guest::Guest;
+use loog::extension::host;
+use loog::extension::types::{
     ApplyEditRequest, ByteRange, Completion, Diagnostic, DocumentEdits, ErrorKind, HostError,
     Inbound, ProviderCommand, ProviderKind, RoundStatus, TextEdit,
 };
-use loom::extension::types::{
+use loog::extension::types::{
     CodeAction, CompletionItem, DocumentSymbol, HoverAnswer, InlayHint, Location, ParameterInfo,
     SignatureAnswer, StorageScope,
 };
@@ -47,13 +47,13 @@ fn run(
     command: &str,
     call: u64,
     snapshot: Option<u64>,
-    selections: Vec<loom::extension::types::Selection>,
+    selections: Vec<loog::extension::types::Selection>,
     precondition: Option<u64>,
 ) {
     match command {
         "example.tools.motion" => {
-            use loom::extension::types::{UiDescription, UiKind, UiParent};
-            use loom::ui::motion::{
+            use loog::extension::types::{UiDescription, UiKind, UiParent};
+            use loog::ui::motion::{
                 self, Animation, Direction, Easing, Keyframe, Property, Smoothing, Track,
             };
             let node = host::ui_create(
@@ -131,7 +131,7 @@ fn run(
             .unwrap();
         }
         "example.tools.widget" | "example.tools.relative-widget" => {
-            use loom::extension::types::{UiDescription, UiKind, UiParent};
+            use loog::extension::types::{UiDescription, UiKind, UiParent};
             let relative = command == "example.tools.relative-widget";
             let description = UiDescription {
                 id: if relative {
@@ -158,7 +158,7 @@ fn run(
             )
             .unwrap();
             if relative {
-                use loom::ui::tree::{self, Placement, Relation, Target};
+                use loog::ui::tree::{self, Placement, Relation, Target};
                 tree::place(
                     node,
                     &Placement {
@@ -230,7 +230,7 @@ fn run(
                 host::log(2, "no folder is open");
                 return;
             };
-            let request = loom::extension::types::TaskRequest {
+            let request = loog::extension::types::TaskRequest {
                 call,
                 root: first.id,
                 program: spec["program"].as_str().unwrap_or_default().to_owned(),
@@ -247,7 +247,7 @@ fn run(
                 timeout_ms: Some(20_000),
             };
             if command == "example.tools.stream" {
-                use loom::extension::types::{ProcessFraming, ProcessRequest};
+                use loog::extension::types::{ProcessFraming, ProcessRequest};
                 let process = host::process_spawn(&ProcessRequest {
                     root: Some(request.root),
                     program: request.program,
@@ -313,7 +313,7 @@ fn run(
             let value = spec["value"].as_str().unwrap_or_default().to_owned();
             let message = match spec["op"].as_str().unwrap_or_default() {
                 "configure" => {
-                    let configuration = loom::extension::types::ProviderConfiguration {
+                    let configuration = loog::extension::types::ProviderConfiguration {
                         modes: None,
                         revision: None,
                         provider: spec["provider"].as_str().unwrap_or("").into(),
@@ -349,7 +349,7 @@ fn run(
                     Err(error) => format!("capture error: {}", error.message),
                 },
                 "workspace-edit" => {
-                    use loom::extension::types::{
+                    use loog::extension::types::{
                         ColumnUnit, FileEdits, FileRange, FileTextEdit, TextPosition,
                         WorkspaceChange, WorkspaceEdit, WorkspaceEditRequest, WorkspaceOperation,
                     };
@@ -383,7 +383,7 @@ fn run(
                     }
                 }
                 "ui-create" | "ui-update" => {
-                    use loom::extension::types::{UiDescription, UiKind, UiParent};
+                    use loog::extension::types::{UiDescription, UiKind, UiParent};
                     let description = UiDescription {
                         id: "status".into(),
                         kind: UiKind::Button,
@@ -419,7 +419,7 @@ fn run(
                 }
                 "ui-trap" => panic!("UI owner failed"),
                 "watch" => {
-                    let watch = host::watch_files(&loom::extension::types::WatchRequest {
+                    let watch = host::watch_files(&loog::extension::types::WatchRequest {
                         root,
                         patterns: vec![spec["pattern"].as_str().unwrap_or("**/*").into()],
                     })
@@ -459,7 +459,7 @@ fn run(
                     Err(e) => format!("find error: {}", e.message),
                 },
                 "fileops" => {
-                    use loom::extension::types::{
+                    use loog::extension::types::{
                         CreateOp, DeleteOp, FileOp, FileOpsRequest, RenameOp,
                     };
                     let text = |v: &serde_json::Value, k: &str| {
@@ -520,7 +520,7 @@ impl Guest for Extension {
             match message {
                 Inbound::UiEvent(event) => {
                     if event.id == "motion-icon" {
-                        loom::ui::motion::stop(event.node).unwrap();
+                        loog::ui::motion::stop(event.node).unwrap();
                     }
                     host::log(
                         0,
@@ -535,7 +535,7 @@ impl Guest for Extension {
                                 host::ui_remove(node).unwrap();
                                 state.ui_node = None;
                             } else if state.relative_widget {
-                                use loom::ui::tree::{self, Placement, Relation, Target};
+                                use loog::ui::tree::{self, Placement, Relation, Target};
                                 tree::place(
                                     node,
                                     &Placement {
@@ -546,7 +546,7 @@ impl Guest for Extension {
                                 )
                                 .unwrap();
                             } else {
-                                use loom::extension::types::{UiDescription, UiKind};
+                                use loog::extension::types::{UiDescription, UiKind};
                                 host::ui_update(
                                     node,
                                     &UiDescription {
@@ -677,7 +677,7 @@ impl Guest for Extension {
                         ProviderKind::Completion => {
                             let mut items = vec![
                                 CompletionItem {
-                                    label: "loom_hello".into(),
+                                    label: "loog_hello".into(),
                                     label_detail: None,
                                     label_description: None,
                                     deprecated: None,
@@ -686,7 +686,7 @@ impl Guest for Extension {
                                     detail: Some("from the extension".into()),
                                     documentation: None,
                                     kind: Some(3),
-                                    insert_text: Some("loom_hello()".into()),
+                                    insert_text: Some("loog_hello()".into()),
                                     text_edit: None,
                                     additional_text_edits: vec![],
                                     insert_text_format: None,
@@ -697,7 +697,7 @@ impl Guest for Extension {
                                     data: Some("hello".into()),
                                 },
                                 CompletionItem {
-                                    label: "loom_world".into(),
+                                    label: "loog_world".into(),
                                     label_detail: None,
                                     label_description: None,
                                     deprecated: None,
@@ -724,7 +724,7 @@ impl Guest for Extension {
                                         start: 0,
                                         end: request.length,
                                     },
-                                    text: "loom_hello(${1:x})$0".into(),
+                                    text: "loog_hello(${1:x})$0".into(),
                                 });
                                 item.additional_text_edits = vec![TextEdit {
                                     range: ByteRange {
@@ -940,7 +940,7 @@ impl Guest for Extension {
                             let _ = host::provide_code_actions(request.request, &[action]);
                         }
                         _ => {
-                            use loom::extension::types::*;
+                            use loog::extension::types::*;
                             let captured = host::capture_document(request.document).unwrap();
                             let path = captured.document.path;
                             host::release_snapshot(captured.snapshot);

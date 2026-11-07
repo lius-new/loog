@@ -55,7 +55,7 @@ pub fn position(value: &Value) -> Option<Position> {
 }
 
 pub fn span(value: &Value, encoding: PositionEncoding) -> Option<Span> {
-    let encoding = match value.get("x-loom-column-unit").and_then(Value::as_str) {
+    let encoding = match value.get("x-loog-column-unit").and_then(Value::as_str) {
         Some("utf8") => PositionEncoding::Utf8,
         Some("utf16") => PositionEncoding::Utf16,
         _ => encoding,

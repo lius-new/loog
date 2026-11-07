@@ -1,15 +1,15 @@
-//! Compiles a grammar's highlight query and checks it against what Loom
+//! Compiles a grammar's highlight query and checks it against what Loog
 //! supports, so an unsupported query fails loudly instead of being half applied.
 //!
 //! Supported:
 //!
 //! * Captures named like a highlight class (`@function.method`) or one of its
 //!   ancestors (`@keyword.control` is a `@keyword`). `@escape` and `@label` are
-//!   upstream spellings Loom maps to `string.escape` and `type`; `@embedded`
+//!   upstream spellings Loog maps to `string.escape` and `type`; `@embedded`
 //!   carries no highlight; captures starting with `_` are helpers for predicates.
 //! * The text predicates `#eq?`, `#not-eq?`, `#match?`, `#not-match?`,
 //!   `#any-of?` and `#not-any-of?`, which Tree-sitter evaluates itself.
-//! * `#is-not? local`, accepted because Loom has no scope analysis yet: such a
+//! * `#is-not? local`, accepted because Loog has no scope analysis yet: such a
 //!   pattern then applies to every identifier it matches.
 //!
 //! Anything else (other predicates, `#set!`, unknown captures) is an error.
@@ -23,7 +23,7 @@ use tree_sitter::{Language, Query};
 
 const HIGHLIGHTS: &str = "highlights.scm";
 
-/// Upstream capture names Loom spells as another class.
+/// Upstream capture names Loog spells as another class.
 const ALIASES: &[(&str, &str)] = &[("escape", "string.escape"), ("label", "type")];
 /// Captures that deliberately carry no highlight.
 const IGNORED: &[&str] = &["embedded"];
@@ -49,7 +49,7 @@ pub(crate) fn compile(resources: &dyn Resources, grammar: &str) -> Result<Compil
 }
 
 /// Whether `source` is a `file` query (`highlights.scm` or `injections.scm`) that
-/// Loom accepts for `language`, with the same compilers the worker uses.
+/// Loog accepts for `language`, with the same compilers the worker uses.
 pub(crate) fn check_query(language: &Language, file: &str, source: &str) -> Result<(), String> {
     match file {
         HIGHLIGHTS => compile_source(language, source).map(|_| ()),

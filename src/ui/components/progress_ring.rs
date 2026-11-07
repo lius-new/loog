@@ -1,4 +1,4 @@
-//! Loom's percentage convention adapted to the portable LGUI progress control.
+//! Loog's percentage convention adapted to the portable LGUI progress control.
 use lgui::core::UiId;
 use lgui::prelude::{Color, Element, UiRect};
 pub fn render(id: UiId, rect: UiRect, percent: u8, color: Color) -> Element {

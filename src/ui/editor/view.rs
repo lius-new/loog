@@ -26,8 +26,8 @@ use crate::ui::editor_binding::{Binding, Event, PeekPlacement, ViewState};
 use crate::ui::fonts;
 use crate::ui::git::action_button;
 use crate::ui::theme;
-use loom_editor_core::text::TextBuffer;
-use loom_editor_core::vim::CursorShape;
+use loog_editor_core::text::TextBuffer;
+use loog_editor_core::vim::CursorShape;
 
 pub(crate) use crate::ui::components::scrollbar::SIZE as SCROLLBAR_SIZE;
 use crate::ui::components::scrollbar::{
@@ -690,10 +690,10 @@ pub(crate) fn render(
                             projection::caret(
                                 &buffer,
                                 &projection,
-                                loom_editor_core::text::Selection {
+                                loog_editor_core::text::Selection {
                                     cursor: buffer
                                         .offset_at_char_column(cursor_line, cursor_col + chars),
-                                    wrap_affinity: loom_editor_core::text::Assoc::Before,
+                                    wrap_affinity: loog_editor_core::text::Assoc::Before,
                                     ..Default::default()
                                 },
                                 code_left,
@@ -1163,7 +1163,7 @@ pub(crate) fn overview_ruler(
 
 fn displayed_span(
     buffer: &TextBuffer,
-    map: &loom_editor_core::text::DisplayMap,
+    map: &loog_editor_core::text::DisplayMap,
     first: usize,
     lines: usize,
 ) -> (usize, usize) {
@@ -1216,7 +1216,7 @@ const CONFLICT_ACTION_GAP: f32 = 4.0;
 /// The buttons that keep one side of each conflict, on its opening line at the
 /// right edge where the marker text rarely reaches.
 fn conflict_actions(
-    projection: &loom_editor_core::text::DisplayMap,
+    projection: &loog_editor_core::text::DisplayMap,
     buffer: &TextBuffer,
     regions: &[ConflictRegion],
     visible: &Range<usize>,
@@ -1363,7 +1363,7 @@ pub(crate) fn anchor_rect(
     (scroll_x, scroll_y): (f32, f32),
     viewport_w: f32,
 ) -> Option<UiRect> {
-    let map = loom_editor_core::text::DisplayMap::new(buffer, None, &[]);
+    let map = loog_editor_core::text::DisplayMap::new(buffer, None, &[]);
     anchor_rect_in(
         buffer,
         &map,
@@ -1376,7 +1376,7 @@ pub(crate) fn anchor_rect(
 
 pub(crate) fn anchor_rect_in(
     buffer: &TextBuffer,
-    map: &loom_editor_core::text::DisplayMap,
+    map: &loog_editor_core::text::DisplayMap,
     range: &Range<usize>,
     (code_left, code_top, _layout_right): (f32, f32, f32),
     (scroll_x, scroll_y): (f32, f32),
@@ -1393,7 +1393,7 @@ pub(crate) fn anchor_rect_in(
     let (x0, y) = projection::caret(
         buffer,
         map,
-        loom_editor_core::text::Selection::caret(range.start),
+        loog_editor_core::text::Selection::caret(range.start),
         code_left,
         code_top,
         scroll_x,
@@ -1402,9 +1402,9 @@ pub(crate) fn anchor_rect_in(
     let x1 = projection::caret(
         buffer,
         map,
-        loom_editor_core::text::Selection {
+        loog_editor_core::text::Selection {
             cursor: end,
-            wrap_affinity: loom_editor_core::text::Assoc::Before,
+            wrap_affinity: loog_editor_core::text::Assoc::Before,
             ..Default::default()
         },
         code_left,

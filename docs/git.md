@@ -1,6 +1,6 @@
 # Git
 
-Press `Ctrl+Shift+G` (or `Command+Shift+G`) to open Source Control. Loom discovers
+Press `Ctrl+Shift+G` (or `Command+Shift+G`) to open Source Control. Loog discovers
 repositories for every workspace root and direct nested repository, then keeps
 branch, upstream, ahead/behind, staged, working-tree, untracked, rename and
 conflict state refreshed in the background. The title bar, status bar, file
@@ -107,7 +107,7 @@ its repository. The existing folders stay available in the repository switcher.
 
 In the branch picker, select an available branch and choose **New Worktree**.
 Typing a new branch name also offers this action. The dialog shows the branch and
-destination folder, defaulting to a sibling such as `../loom-feature-x`;
+destination folder, defaulting to a sibling such as `../loog-feature-x`;
 **Browse…** changes its parent folder. Creation adds the worktree to the workspace
 and selects its repository.
 
@@ -125,8 +125,8 @@ their disk version changes.
 ## Git runtime
 
 The Windows packages contain a managed Git runtime (MinGit) under
-`runtime/git`, with a SHA-256 manifest that Loom verifies before using it.
-Loom prefers that runtime and falls back to the `git` on PATH when no managed
+`runtime/git`, with a SHA-256 manifest that Loog verifies before using it.
+Loog prefers that runtime and falls back to the `git` on PATH when no managed
 runtime is present, which is always the case for the macOS and Linux packages.
 Advanced users and development builds can select a custom runtime through
 `GitRuntimeManager`.

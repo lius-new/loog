@@ -2,8 +2,8 @@
 //!
 //! The guest in `tests/extensions/js-guest` is built with the pinned jco /
 //! ComponentizeJS (`node tests/extensions/js-guest/build.mjs`, run on demand).
-use loom_extension_api::ErrorKind;
-use loom_extension_host::{
+use loog_extension_api::ErrorKind;
+use loog_extension_host::{
     ByteRange, CommandContext, CommittedReceipt, Completion, Inbound, Limits, Provided,
     ProviderKind, ProviderRequest, RoundStatus, Runtime, Selection, WireCompletionItem,
 };
@@ -35,7 +35,7 @@ fn stale(wasm: &Path, root: &Path) -> bool {
     let Ok(built) = std::fs::metadata(wasm).and_then(|meta| meta.modified()) else {
         return true;
     };
-    ["wit/loom-extension", "tests/extensions/js-guest/guest.js"]
+    ["wit/loog-extension", "tests/extensions/js-guest/guest.js"]
         .iter()
         .chain(&[
             "tests/extensions/js-guest/build.mjs",
@@ -272,7 +272,7 @@ fn the_wasi_imports_the_toolchain_needs_are_denied_not_granted() {
     assert!(
         imports
             .iter()
-            .any(|name| name == "loom:extension/host@0.1.0"),
+            .any(|name| name == "loog:extension/host@0.1.0"),
         "{imports:?}"
     );
 }
@@ -361,8 +361,8 @@ fn a_completion_provider_offers_items_and_resolves_one_back_to_its_origin() {
     assert_eq!(*request, 41);
     assert!(!incomplete);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-    assert_eq!(labels, ["loom_hello", "loom_world"]);
-    assert_eq!(items[0].insert_text.as_deref(), Some("loom_hello()"));
+    assert_eq!(labels, ["loog_hello", "loog_world"]);
+    assert_eq!(items[0].insert_text.as_deref(), Some("loog_hello()"));
 
     // The opaque data comes back unchanged with the resolve request.
     let mut resolve = provider_request(ProviderKind::CompletionResolve, "lo");
@@ -384,7 +384,7 @@ fn a_completion_provider_offers_items_and_resolves_one_back_to_its_origin() {
         panic!("{provided:?}");
     };
     assert_eq!(*request, 42);
-    assert_eq!(resolved[0].label, "loom_world");
+    assert_eq!(resolved[0].label, "loog_world");
     assert_eq!(resolved[0].documentation.as_deref(), Some("docs for world"));
     let _: Option<&WireCompletionItem> = resolved.first();
 }

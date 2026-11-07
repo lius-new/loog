@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use lgui::core::PointerButton;
 use lgui::prelude::{Element, UiRect};
-use loom_editor_core::identity::{PaneId, ViewId};
-use loom_editor_core::text::{Editor, Selection, TextBuffer};
-use loom_editor_core::vim::CursorShape;
+use loog_editor_core::identity::{PaneId, ViewId};
+use loog_editor_core::text::{Editor, Selection, TextBuffer};
+use loog_editor_core::vim::CursorShape;
 
 use crate::domain::document::DocumentStamp;
 use crate::domain::language::ResolvedLanguage;
@@ -32,7 +32,7 @@ pub(crate) struct ViewDocument {
     pub stamp: DocumentStamp,
     pub meta: DocumentMeta,
     pub buffer: TextBuffer,
-    pub projection: Arc<loom_editor_core::text::DisplayMap>,
+    pub projection: Arc<loog_editor_core::text::DisplayMap>,
     pub selection: Selection,
     pub secondary: Vec<Selection>,
     pub scroll: (f32, f32),

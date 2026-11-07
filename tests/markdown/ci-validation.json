@@ -1,6 +1,6 @@
 {
   "source_commit": "ea73b4093a0ae8bcf18318d726a4b1e6ca3270ac",
-  "workflow_run": "https://github.com/lius-new/loom/actions/runs/39954372874",
+  "workflow_run": "https://github.com/lius-new/loog/actions/runs/39954372874",
   "run_id": 39954372874,
   "final_attempt": 2,
   "conclusion": "success",
@@ -10,48 +10,48 @@
       "name": "Format and lint",
       "id": 120425086352,
       "conclusion": "success",
-      "url": "https://github.com/lius-new/loom/actions/runs/39954372874/job/120425086352"
+      "url": "https://github.com/lius-new/loog/actions/runs/39954372874/job/120425086352"
     },
     {
       "name": "Independent editor and workspace rules",
       "id": 120425087574,
       "conclusion": "success",
-      "url": "https://github.com/lius-new/loom/actions/runs/39954372874/job/120425087574"
+      "url": "https://github.com/lius-new/loog/actions/runs/39954372874/job/120425087574"
     },
     {
       "name": "Build Windows x64",
       "id": 120425088628,
       "conclusion": "success",
-      "url": "https://github.com/lius-new/loom/actions/runs/39954372874/job/120425088628"
+      "url": "https://github.com/lius-new/loog/actions/runs/39954372874/job/120425088628"
     },
     {
       "name": "Build macOS universal",
       "id": 120425130949,
       "conclusion": "success",
-      "url": "https://github.com/lius-new/loom/actions/runs/39954372874/job/120425130949"
+      "url": "https://github.com/lius-new/loog/actions/runs/39954372874/job/120425130949"
     },
     {
       "name": "Build Linux x64",
       "id": 120425151864,
       "conclusion": "success",
-      "url": "https://github.com/lius-new/loom/actions/runs/39954372874/job/120425151864"
+      "url": "https://github.com/lius-new/loog/actions/runs/39954372874/job/120425151864"
     }
   ],
   "artifacts": [
     {
-      "name": "Loom-0.1.3-linux-x86_64",
+      "name": "Loog-0.1.3-linux-x86_64",
       "id": 12502955551,
       "size_in_bytes": 24161115,
       "digest": "sha256:975c39deadd128a8f207d4c86d3d9bcb86064a62147865b8054a7d59eb94d771"
     },
     {
-      "name": "Loom-0.1.3-macos-universal",
+      "name": "Loog-0.1.3-macos-universal",
       "id": 12502836757,
       "size_in_bytes": 42247316,
       "digest": "sha256:5181d53b43b79f548e9497c6859c3751211c5d90f61abec56202325467f4e965"
     },
     {
-      "name": "Loom-0.1.3-windows-x86_64",
+      "name": "Loog-0.1.3-windows-x86_64",
       "id": 12502338483,
       "size_in_bytes": 190719283,
       "digest": "sha256:3206247b6f58db25839cd3703c05173da308fe4622d01433e882a7dbb141ea2b"

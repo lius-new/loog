@@ -14,7 +14,7 @@ pub fn scale_preference(percent: Option<u16>) -> lgui::platform::dpi::ScalePrefe
 pub struct AppCloseRequested;
 
 impl lgui::events::Event for AppCloseRequested {
-    const NAME: &'static str = "loom.app_close_requested";
+    const NAME: &'static str = "loog.app_close_requested";
 }
 pub fn restore_options(options: WindowOptions) -> WindowOptions {
     native::restore_options(options, crate::app::workspace_session::load().window)

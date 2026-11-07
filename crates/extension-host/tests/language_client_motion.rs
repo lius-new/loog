@@ -1,7 +1,7 @@
 //! Development acceptance against the three actual Rust client components.
-//! LOOM_MOTION_PACKAGES=<staged root> cargo test --release -p loom-extension-host
+//! LOOG_MOTION_PACKAGES=<staged root> cargo test --release -p loog-extension-host
 //! --test language_client_motion -- --ignored --nocapture
-use loom_extension_host::{
+use loog_extension_host::{
     DocumentRef, DocumentView, Inbound, Limits, MotionProperty, OutputChannel, ProcessControl,
     ProcessExit, ProcessOutput, RootRef, Runtime,
 };
@@ -12,15 +12,15 @@ use std::{path::PathBuf, sync::Arc};
 #[ignore = "requires locally staged Rust language client components"]
 fn actual_language_clients_animate_status_without_per_frame_guest_calls() {
     let root =
-        PathBuf::from(std::env::var_os("LOOM_MOTION_PACKAGES").expect("set LOOM_MOTION_PACKAGES"));
+        PathBuf::from(std::env::var_os("LOOG_MOTION_PACKAGES").expect("set LOOG_MOTION_PACKAGES"));
     let installed: Value =
         serde_json::from_slice(&std::fs::read(root.join("extensions.json")).unwrap()).unwrap();
     let runtime = Runtime::new().unwrap();
     for (id, language, filename) in [
-        ("loom.lsp.gopls", "go", "main.go"),
-        ("loom.lsp.rust-analyzer", "rust", "main.rs"),
+        ("loog.lsp.gopls", "go", "main.go"),
+        ("loog.lsp.rust-analyzer", "rust", "main.rs"),
         (
-            "loom.lsp.typescript-language-server",
+            "loog.lsp.typescript-language-server",
             "typescript",
             "main.ts",
         ),
@@ -69,7 +69,7 @@ fn actual_language_clients_animate_status_without_per_frame_guest_calls() {
             1,
             "{id}: one private candidate for this session"
         );
-        assert_eq!(shared[0].key, "loom.language-services.status.v1");
+        assert_eq!(shared[0].key, "loog.language-services.status.v1");
         assert_eq!(
             shared[0].contexts.as_ref().unwrap(),
             &[format!("C:/motion-preview/{filename}")]
@@ -108,7 +108,7 @@ fn actual_language_clients_animate_status_without_per_frame_guest_calls() {
                 serde_json::from_slice(bytes).ok()
             })
             .expect("initialize request");
-        let deliver = |instance: &mut loom_extension_host::Instance, value: Value| {
+        let deliver = |instance: &mut loog_extension_host::Instance, value: Value| {
             instance
                 .dispatch(&[Inbound::ProcessOutput(ProcessOutput {
                     process,

@@ -29,7 +29,7 @@ test('domain verification cannot silently include the application or an I/O adap
   assert.deepEqual(violations({[file]:'#[path = "../../../src/domain/mod.rs"]\npub(crate) mod domain;'},policy()),[]);
 });
 test('domain verification cannot acquire GUI dependencies or renamed package aliases',()=>{
-  const source='[dependencies]\nloom-editor-core = { path = "../editor-core" }\nserde = "1"\nserde_json = "1"\n';
+  const source='[dependencies]\nloog-editor-core = { path = "../editor-core" }\nserde = "1"\nserde_json = "1"\n';
   assert.deepEqual(verificationManifestErrors(source),[]);
   for(const modified of [source+'lgui = "1"\n',source+'[build-dependencies]\nlgui = "1"\n',source.replace('serde = "1"','serde = { package = "lgui", version = "1" }')])assert.ok(verificationManifestErrors(modified).length>0);
 });
@@ -104,8 +104,8 @@ test('the independent editing core rejects framework, application and I/O depend
     assert.ok(violations({'crates/editor-core/src/new.rs':source},policy()).length>0);
   }
   assert.deepEqual(violations({'crates/editor-core/src/normal.rs':'use crate::text::EditorMut; use unicode_segmentation::UnicodeSegmentation;'},policy()),[]);
-  assert.deepEqual(violations({'src/domain/identity.rs':'pub use loom_editor_core::identity::{FileId, PaneId};'},policy()),[]);
-  assert.deepEqual(violations({'crates/editor-core/tests/host.rs':'use loom_editor_core::text::TextBuffer;'},policy()),[]);
+  assert.deepEqual(violations({'src/domain/identity.rs':'pub use loog_editor_core::identity::{FileId, PaneId};'},policy()),[]);
+  assert.deepEqual(violations({'crates/editor-core/tests/host.rs':'use loog_editor_core::text::TextBuffer;'},policy()),[]);
 });
 test('the independent editing core cannot bypass its boundary with exceptions or source inclusion',()=>{
   const file='crates/editor-core/src/escape.rs',p=policy();
@@ -154,7 +154,7 @@ test('Git rules cannot regain root state, GUI, processes or exceptions',()=>{
   for(const source of ['use crate::state::AppState;','use lgui::prelude::*;','use std::fs;','use std::process::Command;','fn run() { std::thread::spawn(|| {}); }','use crate::git::GitService;','use crate::infrastructure::ui_dispatch;','fn f(w: &Workspace) {}']) {
     assert.ok(violations({'src/features/git/parser.rs':source},policy()).length>0,source);
   }
-  assert.deepEqual(violations({'src/features/git/snapshot.rs':'use crate::features::git::types::RepositoryId;\nuse crate::domain::line_change::LineChange;\nuse loom_editor_core::text::display_width;'},policy()),[]);
+  assert.deepEqual(violations({'src/features/git/snapshot.rs':'use crate::features::git::types::RepositoryId;\nuse crate::domain::line_change::LineChange;\nuse loog_editor_core::text::display_width;'},policy()),[]);
   const p=policy();p.exceptions['src/features/git/diff.rs']={dependencies:['std::fs'],reason:'bad',remove_in:'R8'};
   assert.ok(violations({'src/features/git/diff.rs':'use std::fs;'},p).some(e=>e.includes('Git feature cannot have migration exceptions')));
 });
@@ -418,14 +418,14 @@ test('language resources stay in infrastructure and test composition cannot ente
     }
   }
   assert.ok(violations({'src/features/syntax/mod.rs':'pub(crate) mod test_support;'},policy()).length>0);
-  assert.ok(violations({'src/features/syntax/mod.rs':'#[cfg(all(test, loom_language_pack_tests))]\n#[path = "../../../tests/language-runtime/suites/test_support.rs"]\npub(crate) mod test_support;'},policy()).length>0);
+  assert.ok(violations({'src/features/syntax/mod.rs':'#[cfg(all(test, loog_language_pack_tests))]\n#[path = "../../../tests/language-runtime/suites/test_support.rs"]\npub(crate) mod test_support;'},policy()).length>0);
   assert.deepEqual(violations({'src/features/syntax/mod.rs':'mod grammars;'},policy()),[]);
 });
 
 test('host dependency sections and workspace cannot reference grammar producers',()=>{
-  assert.deepEqual(runtimeGrammarManifestErrors('[dependencies]\ntree-sitter = "0.27"\ntree-sitter-language = "0.1"\n[dev-dependencies]\nloom-editor-core = { path = "crates/editor-core" }'),[]);
+  assert.deepEqual(runtimeGrammarManifestErrors('[dependencies]\ntree-sitter = "0.27"\ntree-sitter-language = "0.1"\n[dev-dependencies]\nloog-editor-core = { path = "crates/editor-core" }'),[]);
   for(const source of [
-    '[dev-dependencies]\nloom-grammar-json = { path = "language-packs/grammars/json" }',
+    '[dev-dependencies]\nloog-grammar-json = { path = "language-packs/grammars/json" }',
     '[build-dependencies]\ntree-sitter-json = "0.24"',
     '[workspace]\nmembers = ["language-packs/*"]',
     '[dependencies]\ntree-sitter-md = "0.5"',
@@ -433,7 +433,7 @@ test('host dependency sections and workspace cannot reference grammar producers'
     '[dependencies]\ntree-sitter-rust = "0.24"',
     '[dependencies]\nrust_alias = { package = "tree-sitter-rust", version = "0.24" }',
     '[dependencies.rust_alias]\npackage = "tree-sitter-rust"',
-    '[target.\'cfg(windows)\'.dependencies]\nloom-grammar-rust = { path = "crates/language-packs/rust" }',
+    '[target.\'cfg(windows)\'.dependencies]\nloog-grammar-rust = { path = "crates/language-packs/rust" }',
     '[dependencies]\nalias = { path = "crates/language-packs/rust" }',
   ]) assert.ok(runtimeGrammarManifestErrors(source).length>0,source);
 });
@@ -453,12 +453,12 @@ test('file encoding attributes stay pure, codec is independent, and UI receives 
 
 test('extension model and executor keep their layers apart',()=>{
   // The model has no runtime, file system or GUI; the executor has no GUI or application state.
-  for(const source of ['use wasmtime::Engine;','use loom_extension_host::Runtime;','use std::fs;','use lgui::prelude::*;','use crate::app::state::AppState;'])
+  for(const source of ['use wasmtime::Engine;','use loog_extension_host::Runtime;','use std::fs;','use lgui::prelude::*;','use crate::app::state::AppState;'])
     assert.ok(violations({'src/features/extensions/manifest.rs':source},policy()).length>0,source);
   for(const source of ['use lgui::prelude::*;','use crate::app::state::AppState;','use wasmtime::Engine;'])
     assert.ok(violations({'src/infrastructure/extensions/mod.rs':source},policy()).length>0,source);
   assert.deepEqual(violations({'src/features/extensions/manifest.rs':'use serde::Deserialize;\nuse crate::features::extensions::trust::Denial;'},policy()),[]);
-  assert.deepEqual(violations({'src/infrastructure/extensions/mod.rs':'use loom_extension_host::Runtime;\nuse loom_extension_api::ErrorKind;\nuse std::thread::JoinHandle;'},policy()),[]);
+  assert.deepEqual(violations({'src/infrastructure/extensions/mod.rs':'use loog_extension_host::Runtime;\nuse loog_extension_api::ErrorKind;\nuse std::thread::JoinHandle;'},policy()),[]);
 });
 
 test('extensions preview export permissions stay confined to the cfg(test) module',()=>{

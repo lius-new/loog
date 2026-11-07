@@ -4,7 +4,7 @@ use crate::{
     app::state::AppState,
     domain::identity::{FileId, ViewId},
 };
-use loom_editor_core::text::{FileOptions, LineEnding};
+use loog_editor_core::text::{FileOptions, LineEnding};
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -238,14 +238,14 @@ pub fn projection(
     app: &AppState,
     view: ViewId,
     rect: lgui::prelude::UiRect,
-) -> std::sync::Arc<loom_editor_core::text::DisplayMap> {
+) -> std::sync::Arc<loog_editor_core::text::DisplayMap> {
     let Some(doc) = app
         .workspace
         .view_document(view)
         .and_then(|id| app.workspace.documents.get(&id))
     else {
-        return std::sync::Arc::new(loom_editor_core::text::DisplayMap::new(
-            &loom_editor_core::text::TextBuffer::new(""),
+        return std::sync::Arc::new(loog_editor_core::text::DisplayMap::new(
+            &loog_editor_core::text::TextBuffer::new(""),
             None,
             &[],
         ));
@@ -268,13 +268,13 @@ pub fn projection(
 pub fn active_projection(
     app: &AppState,
     rect: lgui::prelude::UiRect,
-) -> std::sync::Arc<loom_editor_core::text::DisplayMap> {
+) -> std::sync::Arc<loog_editor_core::text::DisplayMap> {
     app.workspace
         .active()
         .map(|view| projection(app, view, rect))
         .unwrap_or_else(|| {
-            std::sync::Arc::new(loom_editor_core::text::DisplayMap::new(
-                &loom_editor_core::text::TextBuffer::new(""),
+            std::sync::Arc::new(loog_editor_core::text::DisplayMap::new(
+                &loog_editor_core::text::TextBuffer::new(""),
                 None,
                 &[],
             ))
@@ -291,8 +291,8 @@ pub fn toggle_wrap(app: &mut AppState) {
     app.editor.editing.manual.entry(id).or_default().soft_wrap = Some(!wrapped);
     configure(app, view);
 }
-pub fn move_displayed(app: &mut AppState, command: loom_editor_core::commands::Command) -> bool {
-    use loom_editor_core::commands::Command;
+pub fn move_displayed(app: &mut AppState, command: loog_editor_core::commands::Command) -> bool {
+    use loog_editor_core::commands::Command;
     let Command::Move(movement, extend) = command else {
         return false;
     };
@@ -324,7 +324,7 @@ mod tests {
     impl Directory {
         fn new() -> Self {
             let p = std::env::temp_dir().join(format!(
-                "loom-editing-{}-{}",
+                "loog-editing-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
@@ -438,7 +438,7 @@ mod tests {
             source_bytes: None,
         };
         let doc = app.workspace.documents.get_mut(&id).unwrap();
-        doc.buffer = loom_editor_core::text::TextBuffer::new("");
+        doc.buffer = loog_editor_core::text::TextBuffer::new("");
         doc.recovery = Some(saved);
         crate::domain::workspace::restore_encoding(doc);
         assert_eq!(doc.buffer.line_ending(), "\r\n");

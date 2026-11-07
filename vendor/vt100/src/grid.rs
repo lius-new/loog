@@ -63,7 +63,7 @@ impl Grid {
         self.size
     }
 
-    // Loom: move displaced primary-screen rows into history instead of
+    // Loog: move displaced primary-screen rows into history instead of
     // truncating them. Return the displacement of live-screen coordinates.
     pub fn set_size(&mut self, size: Size) -> i32 {
         let mut displacement = 0;

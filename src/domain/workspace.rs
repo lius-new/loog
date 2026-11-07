@@ -17,7 +17,7 @@ use crate::domain::identity::{DiffId, ViewId};
 use crate::domain::language::LanguageRules;
 use crate::domain::pane_layout::{Direction, PaneId, PaneNode};
 use crate::domain::view::{DocumentView, Presentation, ReaderPosition, ViewTarget};
-use loom_editor_core::text::{Editor, EditorMut, Selection, TextBuffer};
+use loog_editor_core::text::{Editor, EditorMut, Selection, TextBuffer};
 
 pub use crate::domain::view::AppPage;
 
@@ -211,7 +211,7 @@ pub(crate) struct PreparedTextFile(OpenDocument);
 impl PreparedTextFile {
     pub(crate) fn with_file_options(
         mut self,
-        options: loom_editor_core::text::FileOptions,
+        options: loog_editor_core::text::FileOptions,
     ) -> Self {
         self.0.buffer.initialize_file_options(options);
         self
@@ -1281,7 +1281,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
             }
             readers.push((
                 &mut v.reader.source_byte,
-                loom_editor_core::text::Assoc::After,
+                loog_editor_core::text::Assoc::After,
             ));
         }
         Some(
@@ -2044,8 +2044,8 @@ pub(crate) fn restore_encoding(document: &mut OpenDocument) {
     if let Some(recovery) = document.recovery.take() {
         let restore_unsaved = recovery.unsaved_text.is_some();
         let ending = recovery.line_ending.as_deref().and_then(|e| match e {
-            "LF" => Some(loom_editor_core::text::LineEnding::Lf),
-            "CRLF" => Some(loom_editor_core::text::LineEnding::Crlf),
+            "LF" => Some(loog_editor_core::text::LineEnding::Lf),
+            "CRLF" => Some(loog_editor_core::text::LineEnding::Crlf),
             _ => None,
         });
         document.meta.read_override = recovery.read_override;

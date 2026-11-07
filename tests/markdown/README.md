@@ -15,7 +15,7 @@ Windows observation for Linux or macOS measurements.
 
 ## Final cross-platform acceptance
 
-Source commit: ea73b4093a0ae8bcf18318d726a4b1e6ca3270ac. [CI run](https://github.com/lius-new/loom/actions/runs/39954372874) completed successfully under
+Source commit: ea73b4093a0ae8bcf18318d726a4b1e6ca3270ac. [CI run](https://github.com/lius-new/loog/actions/runs/39954372874) completed successfully under
 Rust 1.97.1. Windows x64, Linux x64 and macOS universal build/package checks
 passed. The quality job was retried after a slow Ubuntu package mirror; the
 three successful platform jobs were preserved. ci-validation.json records the

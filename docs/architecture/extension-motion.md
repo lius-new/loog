@@ -7,8 +7,8 @@ animation is a new description, not new host code.
 
 ## Contract
 
-`loom:ui/motion@0.1.0` (`wit/loom-extension/deps/ui/world.wit`), imported by the
-`extension-ui` world beside `loom:ui/tree`. It is separate from `ui-description`
+`loog:ui/motion@0.1.0` (`wit/loog-extension/deps/ui/world.wit`), imported by the
+`extension-ui` world beside `loog:ui/tree`. It is separate from `ui-description`
 for the same reason placement is: the original records keep their ABI.
 
 | Call | Meaning |
@@ -59,10 +59,10 @@ for the property. A refused request leaves the running animation alone.
 ## Rust guest example
 
 Generate the `extension-ui` world with `wit-bindgen`, then import
-`loom::ui::motion`. For example, an endless linear turn is ordinary data:
+`loog::ui::motion`. For example, an endless linear turn is ordinary data:
 
 ```rust
-use loom::ui::motion::{self, Animation, Direction, Easing, Keyframe, Property, Track};
+use loog::ui::motion::{self, Animation, Direction, Easing, Keyframe, Property, Track};
 motion::animate(node, &Animation {
     tracks: vec![Track {
         property: Property::Rotation,

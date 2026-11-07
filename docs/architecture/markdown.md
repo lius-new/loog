@@ -113,7 +113,7 @@ reader audit, which requires a desktop accessibility bridge test.
 
 ## Resources and extension points
 
-Rendering policy is shared with the rest of Loom: `ui/fonts` owns the proportional
+Rendering policy is shared with the rest of Loog: `ui/fonts` owns the proportional
 font stack, `ui/text_rendering` and the theme supply raster options, and
 `ui/image_rendering` selects image sampling. Worker requests snapshot text options
 in `Ink`; those options participate in paragraph/tile identity, so a changed
@@ -164,13 +164,13 @@ These are retained ledgers and work admission limits, not process RSS or hard
 native temporary heap quotas. A future hard process limit needs isolation.
 
 ```sh
-cargo test --locked -p loom-markdown-tests
-cargo test --locked -p loom-workspace-tests
+cargo test --locked -p loog-markdown-tests
+cargo test --locked -p loog-workspace-tests
 node scripts/build/cargo.mjs test --locked --workspace
 node --test scripts/architecture/markdown.test.mjs
 node scripts/architecture/check.mjs
-# Set LOOM_MARKDOWN_EVIDENCE_DIR to an output folder first:
-node scripts/build/cargo.mjs test --locked --release -p loom app::markdown_tests::production_markdown_evidence -- --ignored --exact --nocapture
+# Set LOOG_MARKDOWN_EVIDENCE_DIR to an output folder first:
+node scripts/build/cargo.mjs test --locked --release -p loog app::markdown_tests::production_markdown_evidence -- --ignored --exact --nocapture
 ```
 
 The opt-in evidence test uses the production runtime, UiSession events and Skia

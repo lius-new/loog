@@ -208,7 +208,7 @@ pub struct Offered {
 }
 
 /// The items as the JSON a completion list is read from. Each carries
-/// `x-loom` with its origin, so a later resolve goes back to the extension and
+/// `x-loog` with its origin, so a later resolve goes back to the extension and
 /// provider that offered it and nowhere else. The host import bounds the whole
 /// answer; conversion preserves accepted strings and candidates in full.
 pub fn completion_json(
@@ -254,7 +254,7 @@ pub fn completion_json_indexed(
         }
         let mut json = serde_json::json!({
             "label": item.label,
-            "x-loom": { "extension": extension, "provider": provider, "data": item.data,
+            "x-loog": { "extension": extension, "provider": provider, "data": item.data,
                 "text-edit": item.text_edit.as_ref().map(|(r, t)| serde_json::json!({"start": r.start, "end": r.end, "text": t})),
                 "additional-text-edits": item.additional_text_edits.iter().map(|(r,t)| serde_json::json!({"start":r.start,"end":r.end,"text":t})).collect::<Vec<_>>() },
         });
@@ -377,8 +377,8 @@ mod completion_tests {
     #[test]
     fn items_carry_their_origin_and_only_what_was_given() {
         let item = Offered {
-            label: "loom_hello".into(),
-            insert_text: Some("loom_hello()".into()),
+            label: "loog_hello".into(),
+            insert_text: Some("loog_hello()".into()),
             kind: Some(3),
             data: Some("hello".into()),
             ..Offered::default()
@@ -386,9 +386,9 @@ mod completion_tests {
         let (json, dropped) =
             completion_json("example.tools", "example.tools.complete", "", &[item]);
         assert_eq!(dropped, 0);
-        assert_eq!(json[0]["insertText"], "loom_hello()");
-        assert_eq!(json[0]["x-loom"]["extension"], "example.tools");
-        assert_eq!(json[0]["x-loom"]["data"], "hello");
+        assert_eq!(json[0]["insertText"], "loog_hello()");
+        assert_eq!(json[0]["x-loog"]["extension"], "example.tools");
+        assert_eq!(json[0]["x-loog"]["data"], "hello");
         assert!(json[0].get("detail").is_none());
     }
 

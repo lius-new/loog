@@ -224,7 +224,7 @@ mod tests {
 
     fn temp_directory(label: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "loom-explorer-fs-{label}-{}-{}",
+            "loog-explorer-fs-{label}-{}-{}",
             std::process::id(),
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
         ));

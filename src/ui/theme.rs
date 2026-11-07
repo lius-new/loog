@@ -139,7 +139,7 @@ pub struct Theme {
 }
 
 /// Built-in themes; the first entry is the default. Every other theme comes
-/// from an extension (Loom's own are in the bundled `loom.aura` package), and
+/// from an extension (Loog's own are in the bundled `loog.aura` package), and
 /// starts from one of these.
 pub static THEMES: &[Theme] = &[Theme {
     id: "aura-dark",
@@ -298,7 +298,7 @@ pub fn set(id: ThemeId) {
     CURRENT.set(id.index());
 }
 
-/// Loom's visual policy. The library only receives explicit coverage parameters;
+/// Loog's visual policy. The library only receives explicit coverage parameters;
 /// it does not inspect themes or choose a curve from the window background.
 pub fn text_rendering(id: ThemeId) -> lgui::text::TextRenderingOptions {
     use super::text_rendering::{ColorPair, coverage};
@@ -340,7 +340,7 @@ pub fn text_rendering(id: ThemeId) -> lgui::text::TextRenderingOptions {
         .and_then(|options| options.with_lcd_contrast(profile.contrast))
         .and_then(|options| options.with_grayscale_gamma(profile.gamma))
         .and_then(|options| options.with_grayscale_contrast(profile.contrast))
-        .expect("Loom's bounded coverage profile is valid")
+        .expect("Loog's bounded coverage profile is valid")
 }
 
 // ---- Layout metrics (px) ----------------------------------------------

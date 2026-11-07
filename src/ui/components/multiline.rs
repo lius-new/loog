@@ -8,7 +8,7 @@ use lgui::core::{
 use lgui::prelude::{Element, UiRect, VisualStyle, group, panel, text};
 use lgui::services::ServicesContextExt;
 use lgui::text::{self as text_system, TextLayout, TextLayoutRequest, TextVerticalAlign};
-use loom_editor_core::normal;
+use loog_editor_core::normal;
 
 fn normalized(value: &str) -> String {
     value.replace("\r\n", "\n").replace('\r', "\n")

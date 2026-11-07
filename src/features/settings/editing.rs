@@ -8,10 +8,10 @@ pub enum Ending {
     Crlf,
 }
 impl Ending {
-    pub fn core(self) -> loom_editor_core::text::LineEnding {
+    pub fn core(self) -> loog_editor_core::text::LineEnding {
         match self {
-            Self::Lf => loom_editor_core::text::LineEnding::Lf,
-            Self::Crlf => loom_editor_core::text::LineEnding::Crlf,
+            Self::Lf => loog_editor_core::text::LineEnding::Lf,
+            Self::Crlf => loog_editor_core::text::LineEnding::Crlf,
         }
     }
 }
@@ -51,8 +51,8 @@ impl EditorSettings {
             Ok(())
         }
     }
-    pub fn core(self) -> loom_editor_core::text::EditingOptions {
-        loom_editor_core::text::EditingOptions {
+    pub fn core(self) -> loog_editor_core::text::EditingOptions {
+        loog_editor_core::text::EditingOptions {
             soft_wrap: self.soft_wrap,
             match_brackets: self.match_brackets,
             indent_guides: self.indent_guides,

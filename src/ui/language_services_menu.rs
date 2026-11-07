@@ -403,7 +403,7 @@ mod tests {
 
     fn row(name: &str, state: State) -> Row {
         Row {
-            extension: format!("loom.lsp.{name}"),
+            extension: format!("loog.lsp.{name}"),
             name: name.into(),
             text: "RS".into(),
             key: "rust".into(),
@@ -422,7 +422,7 @@ mod tests {
         let installed = card_height(&frame);
         assert!(installed > empty);
         frame.recommended.push(Offer {
-            extension: "loom.lsp.c".into(),
+            extension: "loog.lsp.c".into(),
             name: "c".into(),
             text: "TS".into(),
             key: "typescript".into(),
@@ -532,7 +532,7 @@ mod tests {
                 },
             ],
             recommended: vec![Offer {
-                extension: "loom.lsp.typescript".into(),
+                extension: "loog.lsp.typescript".into(),
                 name: "TypeScript Language Server".into(),
                 text: "TS".into(),
                 key: "typescript".into(),
@@ -570,11 +570,11 @@ mod tests {
         assert_eq!(
             *seen.lock().unwrap(),
             [
-                "switch loom.lsp.analyzer false",
-                "switch loom.lsp.taplo true",
-                "switch loom.lsp.pyright true",
-                "restart loom.lsp.analyzer",
-                "install loom.lsp.typescript",
+                "switch loog.lsp.analyzer false",
+                "switch loog.lsp.taplo true",
+                "switch loog.lsp.pyright true",
+                "restart loog.lsp.analyzer",
+                "install loog.lsp.typescript",
             ]
         );
     }

@@ -84,7 +84,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                 frame.request_frame();
             });
         });
-        crate::features::output::app_log(crate::features::output::Level::Info, "Loom started");
+        crate::features::output::app_log(crate::features::output::Level::Info, "Loog started");
         || {}
     });
     crate::features::problems::set_counts(super::log_panel::counts(&state));
@@ -213,7 +213,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let window_focus_application = application.as_ref().clone();
     let window_focus_map = layout_map_store.clone();
     cx.use_event_once::<WindowFocusChanged>(move |event| {
-        if event.window_id.as_str() == "loom" {
+        if event.window_id.as_str() == "loog" {
             window_geometry::handle_focus_change(event.focused);
             // A background window does not poll; regaining focus rescans.
             window_focus_git_poll.set_paused(!event.focused);
@@ -272,7 +272,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             .collect::<Vec<_>>();
         if dirty_targets.is_empty() && !pending_saves {
             if crate::app::workspace_commands::save_editor_session(&close_state) {
-                window_manager.close("loom");
+                window_manager.close("loog");
             }
         } else {
             close_state.update(move |app| {
@@ -424,7 +424,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                     if lease.cancelled() {return;}
                     state.try_update(|app| {
                         if app.explorer.model.roots() != roots { return false }
-                        app.show_error(format!("File watching is unavailable; Explorer will refresh when Loom regains focus: {error}"));
+                        app.show_error(format!("File watching is unavailable; Explorer will refresh when Loog regains focus: {error}"));
                         true
                     });
                 });
@@ -433,7 +433,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                 Err(error) => {
                     file_watch_state.update(move |app| {
                         app.show_error(format!(
-                            "File watching is unavailable; Explorer will refresh when Loom regains focus: {error}"
+                            "File watching is unavailable; Explorer will refresh when Loog regains focus: {error}"
                         ));
                     });
                     None
@@ -514,7 +514,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let text_windows = application_context.windows();
     let text_rendering = theme::text_rendering(settings.theme);
     cx.use_effect(text_rendering, move || {
-        text_windows.set_text_rendering("loom", text_rendering);
+        text_windows.set_text_rendering("loog", text_rendering);
         || {}
     });
     let scale_windows = application_context.windows();
@@ -717,7 +717,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         let (sender, receiver) = mpsc::channel();
         let worker = if dragging {
             thread::Builder::new()
-                .name("loom-selection-scroll".into())
+                .name("loog-selection-scroll".into())
                 .spawn(move || {
                     // Font metrics and other layout inputs are per-thread, so
                     // the tick has to run on the UI thread to agree with it.
@@ -756,7 +756,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         let (sender, receiver) = mpsc::channel();
         let worker = if selecting_terminal {
             thread::Builder::new()
-                .name("loom-terminal-selection-scroll".into())
+                .name("loog-terminal-selection-scroll".into())
                 .spawn(move || {
                     let pending = Arc::new(AtomicBool::new(false));
                     while let Err(RecvTimeoutError::Timeout) =
@@ -960,7 +960,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         let (stop_sender, stop_receiver) = mpsc::channel::<()>();
         let worker = toast_timer.and_then(|(id, kind)| {
             thread::Builder::new()
-                .name("loom-toast-timer".to_string())
+                .name("loog-toast-timer".to_string())
                 .spawn(move || {
                     if let Err(RecvTimeoutError::Timeout) =
                         stop_receiver.recv_timeout(kind.duration())

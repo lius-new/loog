@@ -1,8 +1,8 @@
 //! M0 cost measurements (design §12.2). Ignored by default; run with
-//! `cargo test --release -p loom-extension-host --test measure -- --ignored --nocapture`.
+//! `cargo test --release -p loog-extension-host --test measure -- --ignored --nocapture`.
 //! Results depend on the machine and the cold/warm cache state; record them
 //! together with the toolchain versions in EXTENSIONS_DESIGN.md.
-use loom_extension_host::{ByteRange, CommandContext, Inbound, Limits, Runtime, Selection};
+use loog_extension_host::{ByteRange, CommandContext, Inbound, Limits, Runtime, Selection};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -65,7 +65,7 @@ fn measure(label: &str, wasm: &Path, limits: Limits) {
 #[ignore]
 fn rust_and_js_component_costs() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/extension-guest");
-    let rust = root.join("wasm32-unknown-unknown/release/loom_rust_guest.wasm");
+    let rust = root.join("wasm32-unknown-unknown/release/loog_rust_guest.wasm");
     // The Rust module must be wrapped into a component first; reuse the encoder.
     let module = std::fs::read(&rust).expect("build tests/extensions/rust-guest first");
     let component = wit_component::ComponentEncoder::default()

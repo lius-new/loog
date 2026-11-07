@@ -1,7 +1,7 @@
-//! What Loom keeps in lgui's render caches.
+//! What Loog keeps in lgui's render caches.
 //!
 //! lgui stores rasterized images and shaped text but leaves the decision of
-//! what to keep to the application. Loom keeps a cache's size proportional to
+//! what to keep to the application. Loog keeps a cache's size proportional to
 //! what the latest frame used: every frame that adds entries also removes the
 //! least recently used ones, so the level follows the screen instead of
 //! everything ever shown, and stays there once drawing stops.

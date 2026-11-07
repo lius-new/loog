@@ -36,7 +36,7 @@ impl ImageService {
         let ready_state = state.clone();
         let ready_app = application.clone();
         let spawned = std::thread::Builder::new()
-            .name("loom-svg-preview".into())
+            .name("loog-svg-preview".into())
             .spawn(move || {
                 while let Ok(Some(id)) = receive.recv() {
                     if !worker_alive.load(Ordering::Acquire) {

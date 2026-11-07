@@ -8,11 +8,11 @@ import {generateReleaseNotes, parseReleaseNotes} from './notes.mjs';
 import {createDraft, prepareDraft, prepareUpload, uploadToDraft} from './publish.mjs';
 
 function fixture(t) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-release-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'loog-release-'));
   t.after(() => {
     const resolved = path.resolve(directory);
     assert.equal(path.dirname(resolved), path.resolve(os.tmpdir()));
-    assert.ok(path.basename(resolved).startsWith('loom-release-'));
+    assert.ok(path.basename(resolved).startsWith('loog-release-'));
     fs.rmSync(resolved, {recursive: true, force: true});
   });
   const git = (...args) => execFileSync('git', ['-C', directory, ...args], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();
@@ -109,20 +109,20 @@ test('first releases and releases without user-facing entries still have useful 
 
 test('draft preparation requires the existing tag to match the build and real assets without a version-only source commit', t => {
   const f = fixture(t);
-  fs.writeFileSync(path.join(f.directory, 'Cargo.toml'), '[package]\nname = "loom"\nversion = "0.1.3"\n');
+  fs.writeFileSync(path.join(f.directory, 'Cargo.toml'), '[package]\nname = "loog"\nversion = "0.1.3"\n');
   const assets = path.join(f.directory, 'dist');
   fs.mkdirSync(assets);
   const notes = path.join(f.directory, 'target/release-notes.md');
-  const options = {root: f.directory, version: '0.1.3', repo: 'test/loom', assets, notes};
+  const options = {root: f.directory, version: '0.1.3', repo: 'test/loog', assets, notes};
   assert.throws(() => prepareDraft(options), /must already exist/);
   assert.equal(f.git('tag', '--list', 'v0.1.3'), '');
   f.git('tag', 'v0.1.3');
   assert.throws(() => prepareUpload(options), /No release assets/);
-  fs.writeFileSync(path.join(assets, 'Loom.zip'), 'artifact');
+  fs.writeFileSync(path.join(assets, 'Loog.zip'), 'artifact');
   const prepared = prepareUpload(options);
   assert.equal(prepared.assets.length, 1);
   prepareDraft(options);
-  assert.match(fs.readFileSync(notes, 'utf8'), /# Loom v0\.1\.3/);
+  assert.match(fs.readFileSync(notes, 'utf8'), /# Loog v0\.1\.3/);
   assert.throws(() => prepareDraft({...options, version: '0.1.4'}), /must already exist/);
   f.commit('Newer source\n\nRelease Notes:\n\n- N/A');
   assert.throws(() => prepareDraft(options), /does not point to the build commit/);
@@ -130,7 +130,7 @@ test('draft preparation requires the existing tag to match the build and real as
 
 const ok = stdout => ({status: 0, stdout, stderr: ''});
 const failed = stderr => ({status: 1, stdout: '', stderr});
-const options = {version: '0.1.3', repo: 'test/loom', notes: '/tmp/release-notes.md', assets: ['/tmp/dist/Loom package.zip']};
+const options = {version: '0.1.3', repo: 'test/loog', notes: '/tmp/release-notes.md', assets: ['/tmp/dist/Loog package.zip']};
 
 test('the single publisher creates a draft with file notes and never creates a tag or publishes', async () => {
   const calls = [];
@@ -148,7 +148,7 @@ test('later platforms preserve the existing draft body and upload their own asse
   const calls = [];
   await uploadToDraft(options, args => { calls.push(args); return ok(args[1] === 'view' ? 'true' : 'uploaded'); });
   assert.deepEqual(calls.map(args => args[1]), ['view', 'upload']);
-  assert.ok(calls[1].includes('/tmp/dist/Loom package.zip'));
+  assert.ok(calls[1].includes('/tmp/dist/Loog package.zip'));
 });
 
 test('simultaneous manual draft creation is recovered only after verification', async () => {

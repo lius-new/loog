@@ -1,13 +1,13 @@
 //! Every keyboard-reachable command, named the way keymap files refer to it
 //! (`namespace::Name`).
 //!
-//! Actions are a closed enum rather than a dynamic registry: Loom has no
+//! Actions are a closed enum rather than a dynamic registry: Loog has no
 //! extensions, and the compiler then checks that every action is handled.
 
 use serde_json::Value;
 
-use loom_editor_core::commands::Command;
-use loom_editor_core::normal::Movement;
+use loog_editor_core::commands::Command;
+use loog_editor_core::normal::Movement;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ActionMeta {
@@ -103,7 +103,7 @@ actions! {
     OpenExtensions => "workspace::OpenExtensions", "Open the Extensions page";
     ShowExtensions => "workspace::ShowExtensions", "Show the state of the installed extensions";
     ReloadExtensions => "workspace::ReloadExtensions", "Reload the installed extensions from disk";
-    ImportExtension => "workspace::ImportExtension", "Install an extension from a .loomext package";
+    ImportExtension => "workspace::ImportExtension", "Install an extension from a .loogext package";
     ShowHighlighting => "workspace::ShowHighlighting", "Show which languages are highlighted and which highlighting can be installed";
     ShowLanguageServices => "workspace::ShowLanguageServices", "Show the installed language services, restart or stop them, and find ones to install";
     FindExtensionForFile =>"workspace::FindExtensionForFile", "Find an extension that adds the language of the current file";
@@ -114,7 +114,7 @@ actions! {
     TrustWorkspace => "workspace::TrustWorkspace", "Trust the current folder so language servers and tools may run";
     RevokeWorkspaceTrust => "workspace::RevokeWorkspaceTrust", "Stop trusting the current folder and stop its servers";
     OpenSettingsFile => "workspace::OpenSettingsFile", "Open the user settings.json";
-    OpenProjectSettingsFile => "workspace::OpenProjectSettingsFile", "Open the project .loom/settings.json";
+    OpenProjectSettingsFile => "workspace::OpenProjectSettingsFile", "Open the project .loog/settings.json";
     IncreaseFontSize => "workspace::IncreaseFontSize", "Increase the focused editor or terminal font size";
     DecreaseFontSize => "workspace::DecreaseFontSize", "Decrease the focused editor or terminal font size";
     ResetFontSize => "workspace::ResetFontSize", "Reset the focused editor or terminal font size";
@@ -422,17 +422,17 @@ impl Action {
             Action::DeleteToNextWordEnd => Command::Delete(true, true),
             Action::Newline => Command::Enter,
             Action::Tab => Command::Indent(false),
-            Action::MoveLineUp => Command::Line(loom_editor_core::normal::LineOperation::MoveUp),
+            Action::MoveLineUp => Command::Line(loog_editor_core::normal::LineOperation::MoveUp),
             Action::MoveLineDown => {
-                Command::Line(loom_editor_core::normal::LineOperation::MoveDown)
+                Command::Line(loog_editor_core::normal::LineOperation::MoveDown)
             }
             Action::DuplicateLineUp => {
-                Command::Line(loom_editor_core::normal::LineOperation::CopyUp)
+                Command::Line(loog_editor_core::normal::LineOperation::CopyUp)
             }
             Action::DuplicateLineDown => {
-                Command::Line(loom_editor_core::normal::LineOperation::CopyDown)
+                Command::Line(loog_editor_core::normal::LineOperation::CopyDown)
             }
-            Action::DeleteLine => Command::Line(loom_editor_core::normal::LineOperation::Delete),
+            Action::DeleteLine => Command::Line(loog_editor_core::normal::LineOperation::Delete),
             Action::ToggleComment => Command::ToggleComment,
             Action::Backtab => Command::Indent(true),
             _ => return None,

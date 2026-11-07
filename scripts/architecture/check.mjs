@@ -86,10 +86,10 @@ export function layer(file) {
 
 export function allowed(file, dependency) {
   const own=layer(file), root=dependency.replace('crate::','');
-  if(own==='domain-verification')return ['domain','loom_editor_core','serde','serde_json'].includes(root);
-  if(file.startsWith('crates/editor-core/tests/')&&root==='loom_editor_core')return true;
+  if(own==='domain-verification')return ['domain','loog_editor_core','serde','serde_json'].includes(root);
+  if(file.startsWith('crates/editor-core/tests/')&&root==='loog_editor_core')return true;
   if(own==='core')return ['identity','text','normal','commands','vim','buffer','change','editor','history','lines','selection','command','ex','exec','insert','key','motion','object','register','search','regex','unicode_segmentation','unicode_width'].includes(root);
-  if(root==='loom_editor_core')return true;
+  if(root==='loog_editor_core')return true;
   if(own==='app'||file==='src/main.rs')return true;
   if(own==='domain')return root==='domain'||(['src/domain/encoding.rs','src/domain/workspace_session.rs','src/domain/window_geometry.rs','src/domain/language/descriptor.rs'].includes(file)&&['serde','serde_json'].includes(root));
   if(file==='src/features/markdown.rs'||file.startsWith('src/features/markdown/'))return ['features','domain','unicode_segmentation'].includes(root)||(file==='src/features/markdown/parser.rs'&&root==='pulldown_cmark');
@@ -102,7 +102,7 @@ export function allowed(file, dependency) {
   if(file==='src/infrastructure/window_geometry.rs')return ['infrastructure','domain','lgui','windows_sys','std::process'].includes(root);
   if(file==='src/infrastructure/document_filesystem.rs')return ['infrastructure','features','domain','std::fs','std::process','windows_sys'].includes(root);
   if(file.startsWith('src/features/encoding/'))return ['features','domain','encoding_rs','chardetng'].includes(root);
-  if(file==='src/infrastructure/editorconfig.rs')return ['infrastructure','domain','std::fs','globset','loom_editor_core'].includes(root);
+  if(file==='src/infrastructure/editorconfig.rs')return ['infrastructure','domain','std::fs','globset','loog_editor_core'].includes(root);
   if(file==='src/infrastructure/edit_journal.rs')return ['infrastructure','std::fs','std::process'].includes(root);
   if(file==='src/infrastructure/file_watcher.rs')return ['infrastructure','notify','std::fs','std::thread'].includes(root);
   if(file==='src/infrastructure/query_watcher.rs')return ['infrastructure','notify','std::fs','std::thread'].includes(root);
@@ -120,7 +120,7 @@ export function allowed(file, dependency) {
   if(file.startsWith('src/features/git/'))return ['features','domain'].includes(root);
   if(file==='src/infrastructure/extensions/registry.rs'&&['base64','ring','serde'].includes(root))return true;
   if(file==='src/infrastructure/extensions/state.rs'&&root==='serde')return true;
-  if(file.startsWith('src/infrastructure/extensions/'))return ['infrastructure','features','domain','loom_extension_api','loom_extension_host','std::fs','std::thread','std::process','std::os','ignore','globset','ureq','serde_json'].filter(x=>x!=='serde_json'||file.endsWith('ports.rs')).includes(root)||(file==='src/infrastructure/extensions/trust_store.rs'&&root==='std::process')||(file==='src/infrastructure/extensions/http.rs'&&root==='std::net');
+  if(file.startsWith('src/infrastructure/extensions/'))return ['infrastructure','features','domain','loog_extension_api','loog_extension_host','std::fs','std::thread','std::process','std::os','ignore','globset','ureq','serde_json'].filter(x=>x!=='serde_json'||file.endsWith('ports.rs')).includes(root)||(file==='src/infrastructure/extensions/trust_store.rs'&&root==='std::process')||(file==='src/infrastructure/extensions/http.rs'&&root==='std::net');
   if(file==='src/features/palette.rs'&&root==='serde_json')return true;
   if(file.startsWith('src/features/extensions/'))return ['features','domain','serde','serde_json'].includes(root);
   if(file.startsWith('src/features/update/'))return ['features','domain','serde','serde_json'].includes(root);
@@ -173,7 +173,7 @@ export function stateFields(source) { return structFields(source, 'AppState'); }
 export function verificationManifestErrors(source) {
   const block=source.split(/^\[dependencies\]\s*$/m)[1]?.split(/^\[/m)[0]??'';
   const names=[...block.matchAll(/^([a-zA-Z0-9_-]+)\s*=/gm)].map(m=>m[1]).sort();
-  const expected=['loom-editor-core','serde','serde_json'].sort();
+  const expected=['loog-editor-core','serde','serde_json'].sort();
   if(JSON.stringify(names)!==JSON.stringify(expected)||/^\[[^\]]*dependencies[^\]]*\]$/m.test(source.replace(/^\[dependencies\]\s*$/m,''))||/\bpackage\s*=/.test(block))return ['Workspace domain verification may depend only on editor-core, serde and serde_json'];
   return [];
 }
@@ -435,19 +435,19 @@ export function hostBuildScriptErrors(source) {
 export function runtimeGrammarManifestErrors(source) {
   let section='';
   const errors=[];
-  const external=name => name.startsWith('loom-grammar-') ||
+  const external=name => name.startsWith('loog-grammar-') ||
     (name.startsWith('tree-sitter-') && name!=='tree-sitter-language');
   for(const raw of source.split(/\r?\n/)) {
     const line=raw.replace(/#.*$/,'').trim();
     if(line.startsWith('['))section=line.slice(1,line.lastIndexOf(']'));
     const runtime=/(?:^|\.)(?:dev-|build-)?dependencies(?:\.|$)/.test(section);
-    if(section==='workspace' && /language-packs|loom-grammar/.test(line))errors.push('Host workspace must not include language package sources');
+    if(section==='workspace' && /language-packs|loog-grammar/.test(line))errors.push('Host workspace must not include language package sources');
     if(!runtime)continue;
     const names=[line.match(/^([\w-]+)\s*=/)?.[1],
       ...[...line.matchAll(/\bpackage\s*=\s*"([^"]+)"/g)].map(m=>m[1]),
       section.match(/dependencies\.([\w-]+)$/)?.[1]].filter(Boolean);
     if(names.some(external) || /\bpath\s*=\s*"[^"]*language-packs\//.test(line)) {
-      errors.push('Loom build, development and runtime dependencies must not reference language grammars');
+      errors.push('Loog build, development and runtime dependencies must not reference language grammars');
     }
   }
   return errors;

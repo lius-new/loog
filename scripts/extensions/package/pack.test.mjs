@@ -13,11 +13,11 @@ const manifest = {
   schema: 1, id: 'acme.night', version: '1.0.0', name: 'Acme Night', publisher: 'Acme',
   description: 'A quieter palette.', categories: ['Themes'], license: 'MIT',
   repository: 'https://example.com/acme', icon: 'icon.svg', readme: 'README.md', changelog: 'CHANGELOG.md',
-  engines: { loom: '0.1.8' }, contributes: { themes: [{ id: 'acme.night.dark', path: 'themes/dark.json' }] },
+  engines: { loog: '0.1.8' }, contributes: { themes: [{ id: 'acme.night.dark', path: 'themes/dark.json' }] },
 };
 
 function folder(overrides = {}, drop = []) {
-  const dir = mkdtempSync(join(tmpdir(), 'loom-pack-test-'));
+  const dir = mkdtempSync(join(tmpdir(), 'loog-pack-test-'));
   const files = { 'manifest.json': JSON.stringify({ ...manifest, ...overrides }), 'icon.svg': '<svg/>', 'README.md': '# Acme', 'CHANGELOG.md': '## 1.0.0', 'themes/dark.json': '{}' };
   for (const [name, text] of Object.entries(files)) {
     if (drop.includes(name)) continue;
@@ -28,7 +28,7 @@ function folder(overrides = {}, drop = []) {
 }
 
 test('a complete folder is packed, the archive lists its files, and packing again gives the same bytes', () => {
-  const dir = folder(), out = mkdtempSync(join(tmpdir(), 'loom-pack-out-'));
+  const dir = folder(), out = mkdtempSync(join(tmpdir(), 'loog-pack-out-'));
   try {
     const first = pack(dir, out);
     equal(first.files, 5);
@@ -44,14 +44,14 @@ test('a complete folder is packed, the archive lists its files, and packing agai
 
 test('everything missing from the manifest is listed at once', () => {
   const problems = manifestProblems({ schema: 1, id: 'a.b', version: '0.1.0' }, () => undefined);
-  for (const field of ['name', 'publisher', 'description', 'categories', 'license', 'repository', 'icon', 'readme', 'changelog', 'engines.loom']) {
+  for (const field of ['name', 'publisher', 'description', 'categories', 'license', 'repository', 'icon', 'readme', 'changelog', 'engines.loog']) {
     ok(problems.some((p) => p.startsWith(`\`${field}\``)), `${field}: ${problems.join(' | ')}`);
   }
 });
 
 test('wrong values and missing files are refused with a reason', () => {
   const dir = folder({ categories: ['Nonsense'], repository: 'http://example.com', icon: 'icon.gif' }, []);
-  const out = mkdtempSync(join(tmpdir(), 'loom-pack-out-'));
+  const out = mkdtempSync(join(tmpdir(), 'loog-pack-out-'));
   try {
     throws(() => pack(dir, out), (error) => /is not a category/.test(error.message) && /https:\/\//.test(error.message) && /PNG or SVG/.test(error.message));
   } finally { rmSync(dir, { recursive: true, force: true }); rmSync(out, { recursive: true, force: true }); }
@@ -86,9 +86,9 @@ test('long paths use the prefix field and the checksum is valid', () => {
 
 test('engine ranges match the importer while exact-version recipes remain valid', () => {
   for (const range of ['0.1.8', '>=0.1.8 <0.3', '^0.1.8', '~1.2', '>=1.0.0-beta <2']) {
-    deepStrictEqual(manifestProblems({ ...manifest, engines: { loom: range } }, () => 100), [], range);
+    deepStrictEqual(manifestProblems({ ...manifest, engines: { loog: range } }, () => 100), [], range);
   }
   for (const range of ['', 'latest', '>=', '1.2.3.4', '1 || 2', '18446744073709551616']) {
-    ok(manifestProblems({ ...manifest, engines: { loom: range } }, () => 100).some(p => p.startsWith('\u0060engines.loom\u0060')), range);
+    ok(manifestProblems({ ...manifest, engines: { loog: range } }, () => 100).some(p => p.startsWith('\u0060engines.loog\u0060')), range);
   }
 });

@@ -180,10 +180,10 @@ pub(crate) fn perform_with(state: &AppContext, rect: UiRect, action: Action) -> 
 /// A language command typed in Vim's normal mode.
 pub(crate) fn vim_command(
     state: &AppContext,
-    command: loom_editor_core::vim::LanguageCommand,
+    command: loog_editor_core::vim::LanguageCommand,
     rect: UiRect,
 ) {
-    use loom_editor_core::vim::LanguageCommand as C;
+    use loog_editor_core::vim::LanguageCommand as C;
     let action = match command {
         C::Hover => Action::ShowHover,
         C::Definition => Action::GoToDefinition,

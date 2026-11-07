@@ -418,7 +418,7 @@ fn load_action(
     let then = run.then.clone();
     app.editor.language.save = Some(run);
     if std::thread::Builder::new()
-        .name("loom-save-read".into())
+        .name("loog-save-read".into())
         .spawn(move || {
             *loading.lock().unwrap() = Some(edit::load(paths));
             application.post(move || {

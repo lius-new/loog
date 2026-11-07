@@ -1,12 +1,12 @@
 # Extension development loop
 
-Status: M0/M1 prototype. The contract (`wit/loom-extension/world.wit`) is not frozen.
+Status: M0/M1 prototype. The contract (`wit/loog-extension/world.wit`) is not frozen.
 
 ## Sample extensions: a theme and a language
 
 `tests/extensions/packages` holds two extensions that need no component: a theme
-extension (`loom-midnight`, two themes) and a language extension
-(`loom-properties`, a real WebAssembly grammar plus snippets). They are what a
+extension (`loog-midnight`, two themes) and a language extension
+(`loog-properties`, a real WebAssembly grammar plus snippets). They are what a
 new extension author copies, and `src/app/extensions/package_tests.rs` loads
 them the way the application does and highlights real text with the grammar, so
 a break in loading, themes or syntax highlighting for extensions shows up as a
@@ -14,17 +14,17 @@ failing test.
 
 ## Pack and import an extension
 
-`node scripts/extensions/package/pack.mjs <folder>` builds a `.loomext` package;
+`node scripts/extensions/package/pack.mjs <folder>` builds a `.loogext` package;
 `workspace::ImportExtension` installs one. The manifest must carry the name,
 publisher, description, categories, license, repository, icon, readme, changelog
-and the oldest Loom version, because the extensions page and the import show
+and the oldest Loog version, because the extensions page and the import show
 them. See `scripts/extensions/package/README.md`.
 
 ## Write an extension in Rust
 
 `tests/extensions/rust-guest` generates bindings directly from the WIT contract
 with `wit-bindgen`, implements dispatch and exports a WASM component. The official
-language clients in `loom-extensions/language-clients/rust` use the same contract.
+language clients in `loog-extensions/language-clients/rust` use the same contract.
 See `sdk/README.md` for the API boundary. The former TypeScript SDK is removed.
 
 ## Run the tests
@@ -37,9 +37,9 @@ node scripts/extensions/test.mjs --quick  # without the JavaScript guest
 Targeted runs:
 
 ```sh
-cargo test -p loom-extension-api
-cargo test --release -p loom-extension-host --test rust_guest
-cargo test --bin Loom -- app::extensions
+cargo test -p loog-extension-api
+cargo test --release -p loog-extension-host --test rust_guest
+cargo test --bin Loog -- app::extensions
 ```
 
 The Rust guest needs `rustup target add wasm32-unknown-unknown`. The JavaScript
@@ -49,13 +49,13 @@ on first use and writes `target/extension-guest/js_guest.wasm`.
 ## Try a package in the app
 
 A package is a folder with `manifest.json` and (for behaviour) the component it
-names. Put it under the per-user directory Loom reports for `extensions`:
+names. Put it under the per-user directory Loog reports for `extensions`:
 
 | Platform | Directory |
 | --- | --- |
-| Windows | `%LOCALAPPDATA%\Loom\extensions\<name>\` |
-| macOS | `~/Library/Application Support/Loom/extensions/<name>/` |
-| Linux | `$XDG_DATA_HOME/loom/extensions/<name>/` (default `~/.local/share/loom/...`) |
+| Windows | `%LOCALAPPDATA%\Loog\extensions\<name>\` |
+| macOS | `~/Library/Application Support/Loog/extensions/<name>/` |
+| Linux | `$XDG_DATA_HOME/loog/extensions/<name>/` (default `~/.local/share/loog/...`) |
 
 Packages are read at start. After changing one on disk, run
 `workspace::ReloadExtensions`; the old instance is stopped, its generation moves
@@ -88,21 +88,21 @@ trusted on its own.
 
 Declare settings under `contributes.settings` (namespaced keys). Users set
 values in `<extensions dir>/settings.json`; a trusted folder may override
-project-scoped settings in `.loom/extension-settings.json`. Both files are read
+project-scoped settings in `.loog/extension-settings.json`. Both files are read
 at start and on reload.
 
 ## Compatibility
 
-The contract is `loom:extension@0.1.0` and it is not frozen: a component is
+The contract is `loog:extension@0.1.0` and it is not frozen: a component is
 linked only against the exact interface it was built for, and an enum or record
 that changed makes an older component fail at load with a type mismatch. Rebuild
-the component with the current `wit/loom-extension/world.wit` after every change
+the component with the current `wit/loog-extension/world.wit` after every change
 of the contract (the JavaScript guest is rebuilt by deleting
 `target/extension-guest/js_guest.wasm`).
 
 | Check | What it covers | Where |
 | --- | --- | --- |
-| Compatibility fixtures | unknown imports, a newer Loom interface, a missing guest export, a wrong export version, an unused WASI import | `crates/extension-host/tests/compatibility.rs` |
+| Compatibility fixtures | unknown imports, a newer Loog interface, a missing guest export, a wrong export version, an unused WASI import | `crates/extension-host/tests/compatibility.rs` |
 | Rust guest | commands, edits, providers of every kind, tasks, storage, files, network, save participants, file operations, UI placement and motion | `crates/extension-host/tests/rust_guest.rs`, `src/app/extensions/tests.rs` |
 | JavaScript guest | rounds, suspended callbacks resuming, interrupted loops and microtask floods, providers | `crates/extension-host/tests/js_guest.rs` |
 | Measurements | compile, instantiate and warm round times, component size | `crates/extension-host/tests/measure.rs` (ignored by default) |
@@ -201,7 +201,7 @@ must also declare `process.execute-local`, because starting it runs a program.
 A command with a path separator that is not absolute starts inside the package;
 a bare name is looked up on `PATH` by the system. Loading a package only checks
 the declaration; the server starts for a project folder only when the package is
-granted local execution and the folder is trusted. Loom asks about each folder
+granted local execution and the folder is trusted. Loog asks about each folder
 when it is opened and remembers the answer, a "no" included; `workspace::TrustWorkspace`
 and `workspace::RevokeWorkspaceTrust` change it later. Otherwise the language
 panel lists the server as not started and says which of the two is missing.
@@ -221,7 +221,7 @@ folder: `task-start` takes a program and an argument list (never a shell
 line), a folder handle from `list-roots`, an optional working directory inside
 the folder and a short allow list of environment variables. Output arrives as
 `task-output`, and the end as exactly one `task-exited`. A task needs two
-things at once: the extension's own grant and a trusted folder (Loom asks when
+things at once: the extension's own grant and a trusted folder (Loog asks when
 the folder is opened). The permission is a local-execution permission, not a
 sandbox: the program can do whatever you can. Taking the trust away, or
 removing the folder, stops what runs there. A checker can show its
@@ -258,7 +258,7 @@ participants as it waits for writes.
 `workspace.files.write`). The steps run in order on a background thread. If one
 fails, the earlier ones are undone and the error says so; if the undo cannot
 finish, the error is marked `committed` and names where the rest is (the
-`.loom-edit-*` folders next to the files, and a `.loom-fileops-*.txt` note in the
+`.loog-edit-*` folders next to the files, and a `.loog-fileops-*.txt` note in the
 folder that stays until you remove it and is reported when the folder is opened
 again). A file with unsaved changes is never touched, and `.git` and the
 recovery entries cannot be changed. Open documents follow renames and close

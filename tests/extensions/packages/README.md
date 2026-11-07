@@ -7,12 +7,12 @@ like any extension: put the folder under the extensions directory (see
 
 | Folder | Id | What it shows |
 | --- | --- | --- |
-| `loom-midnight` | `loom.midnight` | Two color themes (dark and light) written as small files on top of a built-in theme. |
-| `loom-properties` | `loom.properties` | A new language: a Tree-sitter grammar for Java `.properties` files plus snippets. |
+| `loog-midnight` | `loog.midnight` | Two color themes (dark and light) written as small files on top of a built-in theme. |
+| `loog-properties` | `loog.properties` | A new language: a Tree-sitter grammar for Java `.properties` files plus snippets. |
 
 `src/app/extensions/package_tests.rs` loads both from these folders, finds the
 grammar the way startup does, highlights real text with the WebAssembly module
 and checks the theme colors for the captured classes.
 
-`loom-properties/grammar` is the upstream tree-sitter-properties 0.3.0 release
-(MIT; see `grammar/LICENSE` and `loom-properties/PROVENANCE.md`).
+`loog-properties/grammar` is the upstream tree-sitter-properties 0.3.0 release
+(MIT; see `grammar/LICENSE` and `loog-properties/PROVENANCE.md`).

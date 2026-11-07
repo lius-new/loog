@@ -116,9 +116,9 @@ pub fn handle_key_down(env: &KeyEnv, event: &KeyboardEvent) -> bool {
     let keymap = keymap::current();
     let typed = keystroke.clone();
     let result = dispatcher::dispatch_key(&keymap, pending, keystroke, &stack);
-    // `LOOM_LOG_KEYS=1 cargo run` traces how each keystroke resolved.
+    // `LOOG_LOG_KEYS=1 cargo run` traces how each keystroke resolved.
     #[cfg(debug_assertions)]
-    if std::env::var_os("LOOM_LOG_KEYS").is_some() {
+    if std::env::var_os("LOOG_LOG_KEYS").is_some() {
         eprintln!(
             "[keymap] {typed} in {} -> actions {:?}, pending {:?}, replay {}",
             context_stack::describe(&stack),
@@ -182,7 +182,7 @@ pub fn start_pending_timer(env: KeyEnv, seq: u64) -> impl FnOnce() {
     let (stop_sender, stop_receiver) = mpsc::channel::<()>();
     let handle = env.application.try_resource::<ApplicationHandle>();
     let worker = thread::Builder::new()
-        .name("loom-key-sequence-timeout".to_owned())
+        .name("loog-key-sequence-timeout".to_owned())
         .spawn(move || {
             if let Err(RecvTimeoutError::Timeout) =
                 stop_receiver.recv_timeout(dispatcher::PENDING_TIMEOUT)
@@ -698,7 +698,7 @@ pub fn project_settings_root(app: &AppState) -> Option<std::path::PathBuf> {
         .map(std::path::Path::to_path_buf)
 }
 
-/// Open the current project's `.loom/settings.json`, creating it first.
+/// Open the current project's `.loog/settings.json`, creating it first.
 pub fn open_project_settings(state: &AppContext) -> bool {
     let Some(root) = project_settings_root(&state.get()) else {
         state.update(|app| app.show_error("Open a folder to add project settings."));

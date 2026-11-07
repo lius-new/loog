@@ -36,13 +36,13 @@ impl ExtensionService {
         };
         let change = match change {
             FileChange::Created(path) if in_workspace(&path) => {
-                loom_extension_host::WorkspaceFileChange::Created(path.display().to_string())
+                loog_extension_host::WorkspaceFileChange::Created(path.display().to_string())
             }
             FileChange::Deleted(path) if in_workspace(&path) => {
-                loom_extension_host::WorkspaceFileChange::Deleted(path.display().to_string())
+                loog_extension_host::WorkspaceFileChange::Deleted(path.display().to_string())
             }
             FileChange::Renamed { from, to } if in_workspace(&from) || in_workspace(&to) => {
-                loom_extension_host::WorkspaceFileChange::Renamed((
+                loog_extension_host::WorkspaceFileChange::Renamed((
                     from.display().to_string(),
                     to.display().to_string(),
                 ))
@@ -282,7 +282,7 @@ impl ExtensionService {
                     synchronized,
                 };
                 if old != Some(&stamp) {
-                    changed.push(loom_extension_host::DocumentView {
+                    changed.push(loog_extension_host::DocumentView {
                         reference: DocumentRef {
                             document: id,
                             lifecycle,

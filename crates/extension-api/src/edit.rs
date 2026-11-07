@@ -103,8 +103,8 @@ mod tests {
 
     #[test]
     fn applies_out_of_order_edits_against_the_original_text() {
-        let result = apply("hello world", &[edit(6, 11, "Loom"), edit(0, 5, "HELLO")]).unwrap();
-        assert_eq!(result, "HELLO Loom");
+        let result = apply("hello world", &[edit(6, 11, "Loog"), edit(0, 5, "HELLO")]).unwrap();
+        assert_eq!(result, "HELLO Loog");
     }
 
     #[test]

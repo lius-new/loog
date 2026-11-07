@@ -25,7 +25,7 @@ mkdirSync(dirname(out), { recursive: true });
 run(process.execPath, [
   join(here, 'node_modules', '@bytecodealliance', 'jco', 'dist', 'jco.js'),
   'componentize', join(here, 'guest.js'),
-  '--wit', join(root, 'wit', 'loom-extension'),
+  '--wit', join(root, 'wit', 'loog-extension'),
   '--world-name', 'extension',
   '--disable', 'stdio', 'random', 'clocks', 'http',
   '-o', out,

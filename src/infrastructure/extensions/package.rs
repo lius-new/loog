@@ -1,4 +1,4 @@
-//! Importing an extension package (`.loomext`).
+//! Importing an extension package (`.loogext`).
 //!
 //! A package is a gzip-compressed tar archive with one root folder, named after the
 //! extension id, that holds the extension's files, `manifest.json` among them.
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// File extension of a package.
-pub const EXTENSION: &str = "loomext";
+pub const EXTENSION: &str = "loogext";
 /// Largest archive accepted, and the most it may expand to.
 pub const MAX_ARCHIVE: u64 = 256 * 1024 * 1024;
 pub const MAX_UNPACKED: u64 = 512 * 1024 * 1024;
@@ -188,7 +188,7 @@ fn read_limited(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
 }
 
 /// Check an unpacked package folder and return its manifest.
-pub fn check_folder(folder: &Path, loom_version: &str) -> Result<Manifest, String> {
+pub fn check_folder(folder: &Path, loog_version: &str) -> Result<Manifest, String> {
     let manifest_text = read_limited(&folder.join("manifest.json"), MAX_MANIFEST)
         .map_err(|_| "the package has no manifest.json".to_owned())?;
     let manifest = Manifest::parse(&String::from_utf8_lossy(&manifest_text))
@@ -211,11 +211,11 @@ pub fn check_folder(folder: &Path, loom_version: &str) -> Result<Manifest, Strin
             problems.join("\n- ")
         ));
     }
-    if !manifest.runs_on(loom_version) {
+    if !manifest.runs_on(loog_version) {
         return Err(format!(
-            "{} needs Loom {}; this is Loom {loom_version}",
+            "{} needs Loog {}; this is Loog {loog_version}",
             manifest.name.as_deref().unwrap_or(&manifest.id),
-            manifest.engines.as_ref().map_or("?", |e| e.loom.as_str())
+            manifest.engines.as_ref().map_or("?", |e| e.loog.as_str())
         ));
     }
     Ok(manifest)
@@ -242,8 +242,8 @@ fn mark_executables(folder: &Path, executables: &[String]) -> Result<(), String>
 /// Install the package `archive` as `<extensions>/<id>/<version>` and make that
 /// version the one in use (see [`super::state`]). The same version installed
 /// again is replaced; the version in use before stays as the previous one.
-pub fn import(archive: &Path, extensions: &Path, loom_version: &str) -> Result<Imported, String> {
-    import_expecting(archive, extensions, loom_version, None)
+pub fn import(archive: &Path, extensions: &Path, loog_version: &str) -> Result<Imported, String> {
+    import_expecting(archive, extensions, loog_version, None)
 }
 
 /// What a package fetched from the registry index must turn out to be, and how its
@@ -259,7 +259,7 @@ pub struct Expected {
 pub fn import_expecting(
     archive: &Path,
     extensions: &Path,
-    loom_version: &str,
+    loog_version: &str,
     expected: Option<&Expected>,
 ) -> Result<Imported, String> {
     let bytes = read_limited(archive, MAX_ARCHIVE)?;
@@ -268,7 +268,7 @@ pub fn import_expecting(
     let folder = staging.0.join("package");
     fs::create_dir(&folder).map_err(|e| e.to_string())?;
     let root = unpack(&bytes, &folder)?;
-    let manifest = check_folder(&folder, loom_version)?;
+    let manifest = check_folder(&folder, loog_version)?;
     if root != manifest.id {
         return Err(format!(
             "the package folder is named {root}, but the extension is {}",

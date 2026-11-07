@@ -17,7 +17,7 @@ fn samples() -> PathBuf {
 
 fn service(name: &str) -> ExtensionService {
     ExtensionService::new(
-        std::env::temp_dir().join(format!("loom-ext-cache-{name}-{}", std::process::id())),
+        std::env::temp_dir().join(format!("loog-ext-cache-{name}-{}", std::process::id())),
     )
 }
 
@@ -26,13 +26,13 @@ fn the_sample_theme_extension_loads_and_both_themes_draw_with_their_own_colors()
     let _turn = REGISTRY_TURN.lock().unwrap_or_else(|e| e.into_inner());
     let mut service = service("midnight");
     let id = service
-        .load_package(&samples().join("loom-midnight"))
+        .load_package(&samples().join("loog-midnight"))
         .unwrap();
     let package = service.package(&id).unwrap();
     assert!(!package.manifest.has_behaviour(), "data only: no component");
     assert_eq!(
         package.resources.themes,
-        ["loom.midnight.dark", "loom.midnight.light"]
+        ["loog.midnight.dark", "loog.midnight.light"]
     );
     assert!(
         package.resources.rejected.is_empty(),
@@ -48,14 +48,14 @@ fn the_sample_theme_extension_loads_and_both_themes_draw_with_their_own_colors()
     assert_eq!(
         names,
         [
-            ("loom.midnight.dark", "Loom Midnight"),
-            ("loom.midnight.light", "Loom Daybreak")
+            ("loog.midnight.dark", "Loog Midnight"),
+            ("loog.midnight.light", "Loog Daybreak")
         ]
     );
 
     crate::ui::theme::set_package_themes(themes);
-    let dark = ThemeId::parse("loom.midnight.dark").expect("offered by id");
-    let light = ThemeId::parse("loom.midnight.light").expect("offered by id");
+    let dark = ThemeId::parse("loog.midnight.dark").expect("offered by id");
+    let light = ThemeId::parse("loog.midnight.light").expect("offered by id");
     let (dark_palette, light_palette) = (&dark.theme().palette, &light.theme().palette);
     assert_eq!(dark_palette.bg.0, 0x0e1320);
     assert_eq!(light_palette.bg.0, 0xfdfbf7);
@@ -76,7 +76,7 @@ fn the_sample_theme_extension_loads_and_both_themes_draw_with_their_own_colors()
     // Stopping the extension takes its themes away; a selection draws as the default.
     service.stop(&id);
     crate::ui::theme::set_package_themes(service.themes());
-    assert!(ThemeId::parse("loom.midnight.dark").is_none());
+    assert!(ThemeId::parse("loog.midnight.dark").is_none());
     assert_eq!(dark.theme().id, ThemeId::default().theme().id);
     crate::ui::theme::set_package_themes(Vec::new());
 }
@@ -84,14 +84,14 @@ fn the_sample_theme_extension_loads_and_both_themes_draw_with_their_own_colors()
 #[test]
 fn the_sample_language_extension_is_found_at_startup_and_highlights_with_its_module() {
     let root = samples();
-    let package = root.join("loom-properties");
+    let package = root.join("loog-properties");
 
     // As a package it is accepted whole: the grammar pack and the snippets.
     let mut service = service("properties");
     let id = service.load_package(&package).unwrap();
     let loaded = service.package(&id).unwrap();
-    assert_eq!(loaded.resources.highlight, ["loom.properties.grammar"]);
-    assert_eq!(loaded.resources.snippets, ["loom.properties.snippets"]);
+    assert_eq!(loaded.resources.highlight, ["loog.properties.grammar"]);
+    assert_eq!(loaded.resources.snippets, ["loog.properties.snippets"]);
     assert!(
         loaded.resources.rejected.is_empty(),
         "{:?}",
@@ -102,7 +102,7 @@ fn the_sample_language_extension_is_found_at_startup_and_highlights_with_its_mod
     // Startup discovery finds the pack inside it (and nothing in a data-only package).
     let found = packs_in(vec![package.clone()], &Default::default());
     assert_eq!(found, [package.join("grammar").canonicalize().unwrap()]);
-    let nowhere = std::env::temp_dir().join(format!("loom-no-packs-{}", std::process::id()));
+    let nowhere = std::env::temp_dir().join(format!("loog-no-packs-{}", std::process::id()));
     let packages = Arc::new(Packages::discover_with(&nowhere, &found, None));
     let registry = packages.registry().unwrap();
     let resolved = registry.resolve_path(Path::new("server.properties"));
@@ -136,7 +136,7 @@ fn the_sample_language_extension_is_found_at_startup_and_highlights_with_its_mod
 
     // The theme extension colors those classes; the language knows nothing about colors.
     let midnight = crate::ui::theme_package::parse(
-        &std::fs::read_to_string(root.join("loom-midnight/themes/midnight.json")).unwrap(),
+        &std::fs::read_to_string(root.join("loog-midnight/themes/midnight.json")).unwrap(),
     )
     .unwrap();
     assert_eq!(
@@ -155,11 +155,11 @@ fn the_sample_language_extension_is_found_at_startup_and_highlights_with_its_mod
 fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
     let _turn = REGISTRY_TURN.lock().unwrap_or_else(|e| e.into_inner());
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let work = std::env::temp_dir().join(format!("loom-pack-{}", std::process::id()));
+    let work = std::env::temp_dir().join(format!("loog-pack-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
     let installed = work.join("extensions");
     let mut packed = Vec::new();
-    for folder in ["loom-midnight", "loom-properties"] {
+    for folder in ["loog-midnight", "loog-properties"] {
         let output = std::process::Command::new("node")
             .arg(root.join("scripts/extensions/package/pack.mjs"))
             .arg(samples().join(folder))
@@ -178,10 +178,10 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
                 .flatten()
                 .map(|e| e.path())
                 .find(|p| {
-                    p.extension().is_some_and(|x| x == "loomext")
+                    p.extension().is_some_and(|x| x == "loogext")
                         && p.file_name().is_some_and(|n| {
                             n.to_string_lossy()
-                                .contains(&folder.replace("loom-", "loom."))
+                                .contains(&folder.replace("loog-", "loog."))
                         })
                 })
                 .expect("the package was written"),
@@ -274,7 +274,7 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
     host.import_into(&ui.state, &packed[0], &work.join("ui-extensions"));
     assert_eq!(host.frame().installed.len(), 2);
     let selected = ui.state.get().extensions_ui.selected.clone();
-    let invalid = work.join("broken.loomext");
+    let invalid = work.join("broken.loogext");
     std::fs::write(&invalid, b"not an extension package").unwrap();
     host.import_into(&ui.state, &invalid, &work.join("ui-extensions"));
     let app = ui.state.get();
@@ -293,7 +293,7 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
     );
     assert_eq!(host.frame().installed.len(), 2);
     // A valid archive with invalid theme data loads the package but reports the failure.
-    let broken_theme = work.join("broken-theme.loomext");
+    let broken_theme = work.join("broken-theme.loogext");
     let encoder = flate2::write::GzEncoder::new(
         std::fs::File::create(&broken_theme).unwrap(),
         flate2::Compression::default(),
@@ -310,7 +310,7 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
         let bytes = if file.starts_with("themes/") {
             b"invalid theme".to_vec()
         } else {
-            std::fs::read(samples().join("loom-midnight").join(file)).unwrap()
+            std::fs::read(samples().join("loog-midnight").join(file)).unwrap()
         };
         let mut header = tar::Header::new_ustar();
         header.set_size(bytes.len() as u64);
@@ -318,7 +318,7 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
         header.set_cksum();
         tar.append_data(
             &mut header,
-            format!("loom.midnight/{file}"),
+            format!("loog.midnight/{file}"),
             bytes.as_slice(),
         )
         .unwrap();
@@ -326,7 +326,7 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
     tar.into_inner().unwrap().finish().unwrap();
     host.import_into(&ui.state, &broken_theme, &work.join("ui-extensions"));
     let app = ui.state.get();
-    assert_eq!(app.extensions_ui.selected.as_deref(), Some("loom.midnight"));
+    assert_eq!(app.extensions_ui.selected.as_deref(), Some("loog.midnight"));
     assert_eq!(
         app.chrome.toast.as_ref().unwrap().kind,
         crate::domain::notification::ToastKind::Error
@@ -343,7 +343,7 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
         host.frame()
             .installed
             .iter()
-            .find(|entry| entry.id == "loom.midnight")
+            .find(|entry| entry.id == "loog.midnight")
             .unwrap()
             .installed
             .as_ref()

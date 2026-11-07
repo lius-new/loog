@@ -45,7 +45,7 @@ pub(crate) fn finish(
 ) {
     if continuation == CloseContinuation::ExitApplication {
         if workspace_actions::save_editor_session(state) {
-            windows.close("loom");
+            windows.close("loog");
         }
     } else if let Some(focus) = focus {
         focus.focus();

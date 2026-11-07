@@ -1,6 +1,6 @@
 //! Helpers for the P3a measurement tests (tests only).
 use super::Window;
-use loom_editor_core::text::TextBuffer;
+use loog_editor_core::text::TextBuffer;
 use std::time::{Duration, Instant};
 
 pub(crate) const SAMPLES: usize = 50;

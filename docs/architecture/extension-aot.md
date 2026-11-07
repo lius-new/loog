@@ -9,7 +9,7 @@ unsupported targets and incompatible runtime profiles.
 
 The package contains `aot/<target>/manifest.json`, `manifest.sig` and
 `component.cwasm`. The detached Ed25519 signature covers the exact metadata bytes
-prefixed by `loom.extension.aot.v1\0`. This separates AOT compiler attestations
+prefixed by `loog.extension.aot.v1\0`. This separates AOT compiler attestations
 from registry signatures even though the existing official publication key is
 used. Metadata binds the plugin ID/version, original WASM SHA-256, native-code
 SHA-256, target triple, versioned profile and engine compatibility fingerprint.
@@ -24,7 +24,7 @@ read sizes. Production does not read the test-harness trust environment variable
 
 ## Engines and compatibility
 
-The first profile is `loom-wasmtime-50.0.1-portable-v1`. Both the host and the
+The first profile is `loog-wasmtime-50.0.1-portable-v1`. Both the host and the
 publisher compiler pin Wasmtime 50.0.1. Explicit target triples use baseline CPU
 features rather than the publisher machine's detected CPU. Publication supports
 Windows, Linux and macOS on x86_64 and aarch64.
@@ -43,11 +43,11 @@ This compatibility path has no scheduled removal version.
 An engine/profile change requires newly compiled, signed artifacts under new
 plugin versions. Existing published packages remain immutable. A version label
 alone does not make incompatible serialized code usable; the runtime fingerprint
-must match. Old Loom binaries do not gain AOT support by installing a new plugin.
+must match. Old Loog binaries do not gain AOT support by installing a new plugin.
 
 ## Publisher and validation
 
-`loom-extensions/scripts/prepare-aot.mjs` runs inside the trusted publisher.
+`loog-extensions/scripts/prepare-aot.mjs` runs inside the trusted publisher.
 It discards any native AOT handed over by plugin builders and compiles the actual
 WASM with the locked compiler before signing. Plugin build jobs never receive
 the signing key, and the compiler subprocess does not inherit it. The signed

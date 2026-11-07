@@ -13,7 +13,7 @@ const internal = 'chore: internal change\n\nRelease Notes:\n- N/A\n';
 const feature = 'fix: user-facing change\n\nRelease Notes:\n- Fixed opening files\n  with spaces in their names.\n\nCo-authored-by: Test <test@example.com>\n';
 const git = (cwd, args) => execFileSync('git', args, {cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: {...process.env, GIT_CONFIG_GLOBAL: path.join(cwd, 'empty-global-config'), GIT_CONFIG_NOSYSTEM: '1'}}).trim();
 function repository(t) {
-  const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'loom-commit-')));
+  const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'loog-commit-')));
   t.after(() => fs.rmSync(cwd, {recursive: true, force: true}));
   git(cwd, ['init', '-q']);
   git(cwd, ['config', 'user.name', 'Commit Test']);

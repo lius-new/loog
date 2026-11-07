@@ -165,11 +165,11 @@ pub fn svg(source: &str, density: f32) -> Result<Image, String> {
 mod tests {
     use super::*;
     #[test]
-    #[ignore = "set LOOM_GIF_BENCH_FILE to measure a local GIF without opening the application"]
+    #[ignore = "set LOOG_GIF_BENCH_FILE to measure a local GIF without opening the application"]
     fn gif_open_and_playback_performance() {
         use std::time::{Duration, Instant};
         let path =
-            std::env::var_os("LOOM_GIF_BENCH_FILE").expect("LOOM_GIF_BENCH_FILE is required");
+            std::env::var_os("LOOG_GIF_BENCH_FILE").expect("LOOG_GIF_BENCH_FILE is required");
         let started = Instant::now();
         let (opened, _) = load(Path::new(&path)).unwrap();
         let open_time = started.elapsed();
@@ -208,7 +208,7 @@ mod tests {
         let mut stream =
             crate::infrastructure::gif_stream::Stream::new(opened.animation.clone().unwrap())
                 .unwrap();
-        let count: usize = std::env::var("LOOM_GIF_BENCH_FRAMES")
+        let count: usize = std::env::var("LOOG_GIF_BENCH_FRAMES")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(250);

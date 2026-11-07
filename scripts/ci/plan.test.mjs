@@ -11,7 +11,7 @@ const selected = (...names) => Object.fromEntries(flags.map(flag => [flag,names.
 const sha = letter => letter.repeat(40);
 const pull = files => selectPlan({eventName:'pull_request',files});
 function fixture(t) {
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(),'loom-ci-scope-'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(),'loog-ci-scope-'));
   t.after(() => fs.rmSync(cwd,{recursive:true,force:true}));
   const git = (...args) => execFileSync('git',args,{cwd,encoding:'utf8',env:{...process.env,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:path.join(cwd,'unused-global')}}).trim();
   git('init','-b','main'); git('config','user.name','CI test'); git('config','user.email','ci@example.invalid');
@@ -37,7 +37,7 @@ test('Markdown and shared typography changes select evidence; language changes s
   for (const file of ['src/features/syntax/treesitter.rs','src/infrastructure/language_packs.rs','tools/ext-validate/src/lib.rs','tools/ext-validate/tests/cli.rs','src/domain/language/registry.rs']) {
     assert.deepEqual(pull([file]),selected(...(file.startsWith('tools/') ? ['tooling','evidence','validator','standalone'] : ['evidence','validator','standalone'])),file);
   }
-  assert.deepEqual(pull(['tests/fixtures/extensions/loom.lang.json/tree-sitter-json.wasm']),selected('tooling','evidence','validator','standalone'));
+  assert.deepEqual(pull(['tests/fixtures/extensions/loog.lang.json/tree-sitter-json.wasm']),selected('tooling','evidence','validator','standalone'));
   assert.deepEqual(pull(['icons/app.ico']),selected('tooling','package','evidence'));
   assert.deepEqual(pull(['src/main.rs']),selected('standalone'));
   assert.deepEqual(pull(['src/features/extensions/manifest.rs']),selected('validator'));

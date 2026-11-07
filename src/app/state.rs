@@ -237,7 +237,7 @@ impl AppState {
         self.git.ui.tree_view = settings.git_tree_view;
         self.set_editor_font(settings.editor_font);
         self.set_terminal_font(settings.terminal_font);
-        let vim: loom_editor_core::vim::Options = settings.vim.into();
+        let vim: loog_editor_core::vim::Options = settings.vim.into();
         if vim.enabled != self.editor.vim.options.enabled {
             crate::app::editor_vim::set_enabled(self, vim.enabled);
         }
@@ -343,7 +343,7 @@ impl AppState {
         }
     }
 
-    /// Re-reads every workspace folder's `.loom/settings.json`, reporting
+    /// Re-reads every workspace folder's `.loog/settings.json`, reporting
     /// problems that are new since the last read.
     pub fn refresh_project_settings(&mut self) {
         use crate::infrastructure::project_settings::{self as project_settings, ProjectSettings};

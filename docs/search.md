@@ -13,7 +13,7 @@ Alt+R and Alt+F toggle case, whole word, regular expressions and filters.
 
 Results are grouped by file. Click a match to preview and select it, double-click
 to keep its tab, or use Down/Up to navigate results and Enter to open the selected
-match. Files already open in Loom use their current buffer, including unsaved
+match. Files already open in Loog use their current buffer, including unsaved
 edits. Query and option changes debounce for 200 ms. Search also updates when
 workspace buffers or relevant disk files change; ignored build output and
 excluded paths do not normally trigger it. Opening other panels, expanding

@@ -26,7 +26,7 @@ pub(crate) fn after(
 ) -> Timer {
     let (cancel, cancelled) = mpsc::channel::<()>();
     let spawned = std::thread::Builder::new()
-        .name("loom-ui-timer".to_owned())
+        .name("loog-ui-timer".to_owned())
         .spawn(move || {
             // A message or a closed channel both mean "cancelled".
             if let Err(RecvTimeoutError::Timeout) = cancelled.recv_timeout(delay) {
@@ -48,7 +48,7 @@ pub(crate) fn background_after<T: Send + 'static>(
 ) -> Timer {
     let (cancel, cancelled) = mpsc::channel::<()>();
     let _ = std::thread::Builder::new()
-        .name("loom-completion".to_owned())
+        .name("loog-completion".to_owned())
         .spawn(move || {
             if let Err(RecvTimeoutError::Timeout) = cancelled.recv_timeout(delay) {
                 let is_cancelled =

@@ -64,7 +64,7 @@ mod tests {
                 )
                 .unwrap();
             if width == 720.0
-                && let Some(path) = std::env::var_os("LOOM_PROFILE_PREVIEW")
+                && let Some(path) = std::env::var_os("LOOG_PROFILE_PREVIEW")
             {
                 let mut rgba = surface.pixels().to_vec();
                 for pixel in rgba.as_chunks_mut::<4>().0 {
@@ -113,7 +113,7 @@ mod tests {
             app.preferences.values().default_shell,
             ShellKind::Custom(id)
         );
-        app.preferences.values_mut().terminal_profiles[0].program = "/missing-loom-shell".into();
+        app.preferences.values_mut().terminal_profiles[0].program = "/missing-loog-shell".into();
         app.refresh_shells();
         assert!(
             app.preferences

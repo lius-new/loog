@@ -238,7 +238,7 @@ fn start_programs_with_clock(
         });
     let (sender, receiver) = mpsc::channel();
     let worker = std::thread::Builder::new()
-        .name("loom-terminal-programs".into())
+        .name("loog-terminal-programs".into())
         .spawn(move || {
             while let Err(RecvTimeoutError::Timeout) = receiver.recv_timeout(PROBE_INTERVAL) {
                 let now = clock();
@@ -372,7 +372,7 @@ pub(crate) fn blink(state: State<bool>, visible: bool, focused: bool) -> impl Fn
     let worker = if visible && focused {
         Some(
             std::thread::Builder::new()
-                .name("loom-terminal-cursor-blink".into())
+                .name("loog-terminal-cursor-blink".into())
                 .spawn(move || {
                     while let Err(RecvTimeoutError::Timeout) =
                         receiver.recv_timeout(Duration::from_millis(500))

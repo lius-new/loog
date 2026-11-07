@@ -255,12 +255,12 @@ mod tests {
         );
         let mut frame = FRAME.clone();
         let mut offered = frame.installed[0].clone();
-        offered.id = "loom.lsp.pyright".into();
+        offered.id = "loog.lsp.pyright".into();
         offered.name = "Pyright Language Server".into();
         offered.installed = None;
         frame.available = vec![offered];
         frame.asks.insert(
-            "loom.lsp.pyright".into(),
+            "loog.lsp.pyright".into(),
             vec!["Run programs on your computer, such as a language server".into()],
         );
         frame.registry.loaded = true;
@@ -268,13 +268,13 @@ mod tests {
         let shown = |confirming: bool, installing: bool| {
             let mut frame = frame.clone();
             if installing {
-                frame.registry.installing = vec!["loom.lsp.pyright".into()];
+                frame.registry.installing = vec!["loog.lsp.pyright".into()];
             }
             let view: AppView = Arc::new(move |cx| {
                 let ui = cx.state_with(move || ExtensionsUiState {
                     search: crate::ui::components::input::InputState::new("pyright"),
-                    selected: Some("loom.lsp.pyright".into()),
-                    confirming: confirming.then(|| "loom.lsp.pyright".to_owned()),
+                    selected: Some("loog.lsp.pyright".into()),
+                    confirming: confirming.then(|| "loog.lsp.pyright".to_owned()),
                     ..Default::default()
                 });
                 let search = cx.use_stable_id();
@@ -355,7 +355,7 @@ mod tests {
         assert!(has(&pinned, "Unpin"));
         assert!(has(&pinned, "Pinned"));
         assert!(!has(&pinned, "Go Back"));
-        // What ships with Loom is not managed here.
+        // What ships with Loog is not managed here.
         let bundled = shown(false, Some("0.9.0"), true);
         assert!(!has(&bundled, "Pin Version") && !has(&bundled, "Go Back"));
     }
@@ -399,7 +399,7 @@ mod tests {
         assert!(has(&shown("go", loaded), "No extension matches"));
     }
 
-    /// Draws the page to PNG files in `LOOM_PREVIEW_DIR`, to look at the layout.
+    /// Draws the page to PNG files in `LOOG_PREVIEW_DIR`, to look at the layout.
     /// Run on purpose: `cargo test preview_png -- --ignored`.
     #[test]
     #[ignore]
@@ -410,7 +410,7 @@ mod tests {
         use lgui::render_skia::SkiaSoftwareSurface;
         use lgui::renderer::{FrameInfo, FrameReason};
 
-        let Ok(dir) = std::env::var("LOOM_PREVIEW_DIR") else {
+        let Ok(dir) = std::env::var("LOOG_PREVIEW_DIR") else {
             return;
         };
         let context = ApplicationContext::empty(Default::default());
@@ -424,15 +424,15 @@ mod tests {
         let (width, height) = (1280.0_f32, 800.0_f32);
         let rect = UiRect::new(0.0, 0.0, width, height);
         let mut packages = crate::app::extensions::ExtensionService::new(
-            std::env::temp_dir().join("loom-icon-preview"),
+            std::env::temp_dir().join("loog-icon-preview"),
         );
         let samples =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/extensions/packages");
         packages
-            .load_package(&samples.join("loom-midnight"))
+            .load_package(&samples.join("loog-midnight"))
             .unwrap();
         packages
-            .load_package(&samples.join("loom-properties"))
+            .load_package(&samples.join("loog-properties"))
             .unwrap();
         let packages = installed_frame(&packages);
         let shots = [
@@ -440,12 +440,12 @@ mod tests {
             ("installed-contrib", "acme.weave", DetailTab::Contributions),
             ("failed", "acme.lint", DetailTab::Details),
             ("themes", "acme.night", DetailTab::Contributions),
-            ("package-theme", "loom.midnight", DetailTab::Details),
-            ("package-language", "loom.properties", DetailTab::Details),
-            ("package-changelog", "loom.midnight", DetailTab::Changelog),
+            ("package-theme", "loog.midnight", DetailTab::Details),
+            ("package-language", "loog.properties", DetailTab::Details),
+            ("package-changelog", "loog.midnight", DetailTab::Changelog),
         ];
         for (name, id, tab) in shots {
-            let entries = if id.starts_with("loom.") {
+            let entries = if id.starts_with("loog.") {
                 packages.clone()
             } else {
                 FRAME.clone()
@@ -492,7 +492,7 @@ mod tests {
             });
             let mut session = UiSession::new();
             session.render_view(&view, rect, UiScale::ONE);
-            if id.starts_with("loom.") {
+            if id.starts_with("loog.") {
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
                 loop {
                     preview.tasks.run_all();
@@ -543,21 +543,21 @@ mod tests {
     #[test]
     fn package_artwork_is_drawn_in_both_the_list_and_detail() {
         let mut service = crate::app::extensions::ExtensionService::new(
-            std::env::temp_dir().join("loom-icon-scene"),
+            std::env::temp_dir().join("loog-icon-scene"),
         );
         let samples =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/extensions/packages");
         service
-            .load_package(&samples.join("loom-midnight"))
+            .load_package(&samples.join("loog-midnight"))
             .unwrap();
         service
-            .load_package(&samples.join("loom-properties"))
+            .load_package(&samples.join("loog-properties"))
             .unwrap();
         let entries = installed_frame(&service);
         let image = entries
             .installed
             .iter()
-            .find(|entry| entry.id == "loom.midnight")
+            .find(|entry| entry.id == "loog.midnight")
             .unwrap()
             .icon_image
             .as_ref()
@@ -575,7 +575,7 @@ mod tests {
         let rect = UiRect::new(0.0, 0.0, 1280.0, 800.0);
         let view: AppView = Arc::new(move |cx| {
             let ui = cx.state_with(|| ExtensionsUiState {
-                selected: Some("loom.midnight".to_owned()),
+                selected: Some("loog.midnight".to_owned()),
                 ..Default::default()
             });
             let search = cx.use_stable_id();

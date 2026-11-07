@@ -228,11 +228,11 @@ fn create_and_rename_reject_existing_targets() {
 #[test]
 fn rename_validation_accepts_one_folder_name_and_rejects_paths() {
     let port = MemoryDirectories::default();
-    let path = PathBuf::from("__loom_missing__/old-name");
+    let path = PathBuf::from("__loog_missing__/old-name");
 
     assert_eq!(
         validate_rename_path(&port, &path, "new-name").unwrap(),
-        PathBuf::from("__loom_missing__/new-name")
+        PathBuf::from("__loog_missing__/new-name")
     );
     assert!(validate_rename_path(&port, &path, "nested/name").is_err());
     assert!(validate_rename_path(&port, &path, "..").is_err());

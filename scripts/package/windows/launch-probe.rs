@@ -1,4 +1,4 @@
-//! Disposable GUI application used by launch-smoke.mjs instead of Loom.exe.
+//! Disposable GUI application used by launch-smoke.mjs instead of Loog.exe.
 #![windows_subsystem = "windows"]
 
 use std::ffi::c_void;
@@ -27,7 +27,7 @@ fn main() {
             std::mem::size_of_val(&flags),
         )
     };
-    let toolchain = std::path::Path::new(env!("LOOM_INSTALLER_PROBE_TOOLCHAIN"));
+    let toolchain = std::path::Path::new(env!("LOOG_INSTALLER_PROBE_TOOLCHAIN"));
     let mut paths = vec![toolchain.to_path_buf()];
     paths.extend(std::env::split_paths(
         &std::env::var_os("PATH").unwrap_or_default(),
@@ -63,12 +63,12 @@ fn main() {
             .output();
         let ok = output.as_ref().is_ok_and(|output| {
             output.status.success()
-                && String::from_utf8_lossy(&output.stdout).trim() == "loom-junction-probe"
+                && String::from_utf8_lossy(&output.stdout).trim() == "loog-junction-probe"
         });
         report.push_str(&format!("{name}_npm={ok}\n"));
         if !ok {
             report.push_str(&format!("{name}_output={output:?}\n"));
         }
     }
-    std::fs::write(env!("LOOM_INSTALLER_PROBE_REPORT"), report).unwrap();
+    std::fs::write(env!("LOOG_INSTALLER_PROBE_REPORT"), report).unwrap();
 }

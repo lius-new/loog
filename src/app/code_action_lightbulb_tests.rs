@@ -22,7 +22,7 @@ struct Case {
 impl Case {
     fn new(extra: &[&str]) -> Self {
         let root = std::env::temp_dir().join(format!(
-            "loom-bulb-{}-{}",
+            "loog-bulb-{}-{}",
             std::process::id(),
             LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
@@ -166,7 +166,7 @@ fn code_action_lightbulb_refreshes_on_diagnostics_without_a_caret_or_text_change
 #[test]
 fn code_action_lightbulb_invalidates_same_id_registration_replacements_and_server_restarts() {
     let files = Files(std::env::temp_dir().join(format!(
-        "loom-bulb-reg-{}-{}",
+        "loog-bulb-reg-{}-{}",
         std::process::id(),
         LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     )));
@@ -389,7 +389,7 @@ fn save_resolves_lazy_source_actions_runs_their_commands_and_waits_for_edits_bef
     let _budget =
         crate::app::language_ui::save::test_step_budget(std::time::Duration::from_secs(5));
     let files = Files(std::env::temp_dir().join(format!(
-        "loom-save-lazy-{}-{}",
+        "loog-save-lazy-{}-{}",
         std::process::id(),
         LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     )));
@@ -470,7 +470,7 @@ fn save_finishes_the_requested_document_after_the_user_switches_tabs() {
 #[test]
 fn save_actions_load_unopened_documents_before_formatting_and_leave_other_files_dirty() {
     let files = Files(std::env::temp_dir().join(format!(
-        "loom-save-cross-file-{}-{}",
+        "loog-save-cross-file-{}-{}",
         std::process::id(),
         LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     )));
@@ -524,7 +524,7 @@ fn code_action_lightbulb_rejects_old_clicks_after_cursor_selection_language_and_
         app.workspace
             .active_editor_mut()
             .unwrap()
-            .set_selection(loom_editor_core::text::Selection::spanning(0, 2))
+            .set_selection(loog_editor_core::text::Selection::spanning(0, 2))
     });
     assert!(!open(&c.h, old));
     let old = c.wait_bulb();

@@ -2,7 +2,7 @@
 
 ## Shells
 
-On Windows, Loom offers installed PowerShell, Command Prompt, Bash (with
+On Windows, Loog offers installed PowerShell, Command Prompt, Bash (with
 Git Bash preferred) and registered WSL distributions. On Linux and macOS, the
 system default follows `$SHELL`, then the account's login shell, then `/bin/sh`.
 
@@ -20,7 +20,7 @@ time they start after it is repaired. Deleting the default terminal resets the d
 
 Installed WSL distributions appear automatically as `WSL · Debian`, for example,
 in Settings → Terminal and the terminal shell menu. Select a row in Settings to
-make that distribution the default. The list refreshes when Loom starts, when
+make that distribution the default. The list refreshes when Loog starts, when
 Settings opens and when the terminal shell menu opens. Detection reads the Windows
 registry without starting WSL. No executable path or arguments need to be entered.
 
@@ -28,19 +28,19 @@ For custom launch arguments or a specific Linux user, you can still add a custom
 terminal with `C:\Windows\System32\wsl.exe` as its executable and arguments such
 as `-d Debian --user myuser`.
 
-WSL does not receive Loom's automatic shell integration, so directory changes
-inside WSL are not automatically reported to Loom. A localhost proxy warning
+WSL does not receive Loog's automatic shell integration, so directory changes
+inside WSL are not automatically reported to Loog. A localhost proxy warning
 from WSL concerns its network configuration and is separate from launching
 the terminal.
 
 ## Working directories
 
 PowerShell, Command Prompt, Bash, zsh, fish and POSIX shells can report their
-working directory to Loom. Custom commands and startup-file arguments take
+working directory to Loog. Custom commands and startup-file arguments take
 precedence over automatic integration and may provide their own directory reports.
 Each terminal remembers its latest directory after `cd` and restores it when
 the application restarts. New tabs and splits inherit the current terminal's
-directory. If a saved directory no longer exists, Loom falls back to the first
+directory. If a saved directory no longer exists, Loog falls back to the first
 workspace folder, then the application's working directory. Shell profiles
 and custom prompts are loaded without modifying user configuration files.
 

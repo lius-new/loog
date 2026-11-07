@@ -6,7 +6,7 @@ use crate::domain::{
 };
 use crate::features::language_service::{reply, request::Feature};
 use crate::features::providers::{RequestHandle, RequestSpec};
-use loom_editor_core::text::TextBuffer;
+use loog_editor_core::text::TextBuffer;
 use std::{
     collections::{BTreeMap, HashMap},
     ops::Range,
@@ -731,7 +731,7 @@ mod tests {
         app.workspace.activate_pane(left);
         let mut ed = app.workspace.active_editor_mut().unwrap();
         ed.set_cursor(0);
-        loom_editor_core::normal::insert(&mut ed, "新\n");
+        loog_editor_core::normal::insert(&mut ed, "新\n");
         sync(&mut app);
         assert_eq!(collapsed(&app, view), vec![start + 4..end + 4]);
         let id = app.workspace.view_document(view).unwrap();
@@ -743,7 +743,7 @@ mod tests {
         app.workspace
             .active_editor_mut()
             .unwrap()
-            .set_line_ending(loom_editor_core::text::LineEnding::Lf)
+            .set_line_ending(loog_editor_core::text::LineEnding::Lf)
             .unwrap();
         sync(&mut app);
         assert_eq!(
@@ -755,7 +755,7 @@ mod tests {
         let body = app.workspace.active_editor().unwrap().line_start(3);
         let mut ed = app.workspace.active_editor_mut().unwrap();
         ed.set_cursor(body);
-        loom_editor_core::normal::insert(&mut ed, "change");
+        loog_editor_core::normal::insert(&mut ed, "change");
         sync(&mut app);
         assert!(collapsed(&app, view).is_empty());
     }
@@ -767,8 +767,8 @@ mod tests {
         toggle(&mut app, view, stamp, start, rect);
         assert!(super::super::editing::move_displayed(
             &mut app,
-            loom_editor_core::commands::Command::Move(
-                loom_editor_core::normal::Movement::Down,
+            loog_editor_core::commands::Command::Move(
+                loog_editor_core::normal::Movement::Down,
                 false
             )
         ));
@@ -820,7 +820,7 @@ mod tests {
             lgui::prelude::UiRect::new(0.0, 0.0, 500.0, 300.0)
         ));
         app.workspace.set_active(view);
-        loom_editor_core::normal::insert(&mut app.workspace.active_editor_mut().unwrap(), "new\n");
+        loog_editor_core::normal::insert(&mut app.workspace.active_editor_mut().unwrap(), "new\n");
         publish_syntax(
             &mut app,
             stamp,

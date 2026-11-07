@@ -14,7 +14,7 @@ impl Temp {
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
-            "loom-encoding-tests-{}-{}",
+            "loog-encoding-tests-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -172,7 +172,7 @@ fn encoding_session_restores_unsaved_text_format_and_read_override() {
         .unwrap();
     {
         let mut editor = app.workspace.document_editor_mut(id).unwrap();
-        loom_editor_core::normal::insert(&mut editor, "未保存的文字");
+        loog_editor_core::normal::insert(&mut editor, "未保存的文字");
     }
     let expected = app.workspace.documents[&id].buffer.text().to_owned();
     let layout = super::workspace_session::saved_editor_layout(&app.workspace).unwrap();
@@ -197,9 +197,9 @@ fn encoding_session_restores_unsaved_text_format_and_read_override() {
 #[test]
 fn encoding_project_settings_apply_to_reads_and_defaults() {
     let temp = Temp::new();
-    std::fs::create_dir(temp.0.join(".loom")).unwrap();
+    std::fs::create_dir(temp.0.join(".loog")).unwrap();
     std::fs::write(
-        temp.0.join(".loom/settings.json"),
+        temp.0.join(".loog/settings.json"),
         r#"{"encoding":{"auto_detect":false,"new_file":{"charset":"gbk"}}}"#,
     )
     .unwrap();
@@ -218,9 +218,9 @@ fn encoding_project_settings_apply_to_reads_and_defaults() {
     );
 }
 #[test]
-#[ignore = "Set LOOM_ENCODING_FIXTURE to check a private local file without logging its contents"]
+#[ignore = "Set LOOG_ENCODING_FIXTURE to check a private local file without logging its contents"]
 fn encoding_private_fixture_opens_and_converts_without_modifying_original() {
-    let path = PathBuf::from(std::env::var_os("LOOM_ENCODING_FIXTURE").expect("fixture path"));
+    let path = PathBuf::from(std::env::var_os("LOOG_ENCODING_FIXTURE").expect("fixture path"));
     let original = std::fs::read(&path).unwrap();
     let (decoded, _) = files::read_encoded(&path, None, files::MAX_EDITABLE_FILE_BYTES).unwrap();
     let temp = Temp::new();
@@ -270,7 +270,7 @@ fn encoding_status_picker_marks_dirty_and_ctrl_s_flow_writes_selected_bytes() {
     super::encoding::select(&state, gbk());
     state.update(|app| {
         let mut e = app.workspace.document_editor_mut(id).unwrap();
-        loom_editor_core::normal::insert(&mut e, "😀");
+        loog_editor_core::normal::insert(&mut e, "😀");
     });
     let before = std::fs::read(&path).unwrap();
     assert!(super::workspace_commands::save_document(&state, id));
@@ -339,7 +339,7 @@ fn encoding_rename_preserves_pending_format_and_undo_order() {
     let displayed = w.documents[&id].buffer.text().to_owned();
     {
         let mut e = w.document_editor_mut(id).unwrap();
-        loom_editor_core::normal::insert(&mut e, "x");
+        loog_editor_core::normal::insert(&mut e, "x");
     }
     std::fs::rename(&path, &new).unwrap();
     assert!(w.move_open_path(&path, new));
@@ -593,7 +593,7 @@ fn encoding_switches_keep_unsaved_edits_and_undo_text_and_format_together() {
     {
         let mut editor = w.document_editor_mut(id).unwrap();
         editor.set_cursor(editor.buffer().len());
-        loom_editor_core::normal::insert(&mut editor, "edit");
+        loog_editor_core::normal::insert(&mut editor, "edit");
     }
     let edited = w.documents[&id].buffer.text().to_owned();
     let wrong = TextFormat::new(Charset::Utf16Be, false);
@@ -621,7 +621,7 @@ fn encoding_switch_preserves_unicode_edits_that_do_not_fit_the_previous_format()
     let original = std::fs::read(&path).unwrap();
     let mut w = Workspace::new();
     let id = open(&mut w, &path);
-    loom_editor_core::normal::insert(&mut w.document_editor_mut(id).unwrap(), "😀");
+    loog_editor_core::normal::insert(&mut w.document_editor_mut(id).unwrap(), "😀");
     let edited = w.documents[&id].buffer.text().to_owned();
     w.set_encoding(id, TextFormat::default()).unwrap();
     assert_eq!(w.documents[&id].buffer.text(), edited);

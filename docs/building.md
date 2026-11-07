@@ -1,4 +1,4 @@
-# Building Loom
+# Building Loog
 
 ## Toolchain
 
@@ -35,7 +35,7 @@ node scripts/build/cargo.mjs build --release --locked --offline
 Cargo crates/toolchains must also be cached for offline use. Bare `cargo` bypasses
 the dependency preparer; use the Node entry point for full application builds.
 GUI-free core/domain tests and formatting do not prepare these dependencies.
-Installed Loom users need none of these build tools.
+Installed Loog users need none of these build tools.
 
 The framework dependency uses a fixed Git revision in `Cargo.toml` and
 `Cargo.lock`; no sibling lgui checkout is required. To update the framework,
@@ -43,7 +43,7 @@ change its `rev` in `Cargo.toml` and run `cargo update -p lgui` to refresh the l
 file before validating the build.
 
 The host build and default tests require no language resources or grammar sources.
-Loom includes the generic Tree-sitter engine and dynamically loads compatible
+Loog includes the generic Tree-sitter engine and dynamically loads compatible
 standard WASM or native language modules when used. WASM does not require
 a platform-specific language library. There is no language producer workspace or
 Rust grammar wrapper. Place complete prebuilt language resources beside the
@@ -81,7 +81,7 @@ A running X11 or Wayland desktop session is required to open the window.
 ## Project layout
 
 ```
-loom/
+loog/
 ├── assets/          # UI resources and language metadata/query templates
 ├── crates/
 │   ├── editor-core/       # GUI-free editing core
@@ -89,16 +89,16 @@ loom/
 ├── icons/           # application icons for every platform
 ├── scripts/         # packaging, build-cache and architecture checks
 ├── src/             # application, editor, terminal, Git and UI modules
-└── vendor/vt100/    # terminal parser with Loom's patches
+└── vendor/vt100/    # terminal parser with Loog's patches
 ```
 
 ## Tests
 
 The framework-independent editing core lives in
 [`crates/editor-core`](../crates/editor-core/README.md). Run its tests without the
-GUI with `cargo test --locked -p loom-editor-core`; run all application and core
+GUI with `cargo test --locked -p loog-editor-core`; run all application and core
 regressions with `node scripts/build/cargo.mjs test --locked --workspace`. Workspace domain rules also
-have a GUI-free verification entry point: `cargo test --locked -p loom-workspace-tests`.
+have a GUI-free verification entry point: `cargo test --locked -p loog-workspace-tests`.
 
 `node scripts/architecture/check.mjs` enforces the module boundaries that CI
 checks.

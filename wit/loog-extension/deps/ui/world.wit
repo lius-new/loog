@@ -1,4 +1,4 @@
-package loom:ui@0.1.0;
+package loog:ui@0.1.0;
 
 /// Opt-in shared regions. Keys, eligibility and ordering are extension policy.
 /// The host mounts one candidate per key, without interpreting its contents.

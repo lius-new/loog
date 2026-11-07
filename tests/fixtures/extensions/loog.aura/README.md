@@ -1,6 +1,6 @@
 # Aura Themes
 
-The color themes that ship with Loom, next to the built-in **Aura Dark**.
+The color themes that ship with Loog, next to the built-in **Aura Dark**.
 
 - **Aura Light** is a clean light theme with an indigo accent.
 - **Ember** is a warm stone-and-ember dark theme.
@@ -9,8 +9,8 @@ The color themes that ship with Loom, next to the built-in **Aura Dark**.
 Choose one in the command palette (**Ctrl+Shift+P**, then the color theme command).
 A theme changes colors only; how the editor behaves does not change.
 
-This extension is part of Loom. You can disable it, but not uninstall it, and it
-is updated together with Loom.
+This extension is part of Loog. You can disable it, but not uninstall it, and it
+is updated together with Loog.
 
 ## Make your own
 

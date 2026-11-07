@@ -26,8 +26,8 @@ impl Fixture {
     }
 
     fn json_extension(&self) -> PathBuf {
-        let source = bundled("loom.lang.json");
-        let destination = self.0.join("loom.lang.json");
+        let source = bundled("loog.lang.json");
+        let destination = self.0.join("loog.lang.json");
         copy_tree(&source, &destination);
         destination
     }
@@ -67,7 +67,7 @@ fn bundled(id: &str) -> PathBuf {
 }
 
 fn validate(extension: &Path, samples: Option<&Path>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_loom-ext-validate"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_loog-ext-validate"));
     command.arg(extension);
     if let Some(samples) = samples {
         command.arg("--samples").arg(samples);
@@ -93,16 +93,16 @@ fn rejected(output: &Output, message: &str) {
 fn bundled_languages_load_and_samples_are_colored() {
     for (id, grammar, text) in [
         (
-            "loom.lang.json",
+            "loog.lang.json",
             "json",
-            r#"{"name": "Loom", "enabled": true}"#,
+            r#"{"name": "Loog", "enabled": true}"#,
         ),
         (
-            "loom.lang.markdown",
+            "loog.lang.markdown",
             "markdown",
             "# A heading\n\nA paragraph.\n",
         ),
-        ("loom.lang.markdown", "markdown_inline", "A **bold** word."),
+        ("loog.lang.markdown", "markdown_inline", "A **bold** word."),
     ] {
         let fixture = Fixture::new();
         let samples = fixture.samples(grammar, text);
@@ -116,7 +116,7 @@ fn bundled_languages_load_and_samples_are_colored() {
         assert!(rows.iter().any(|row| row["grammar"] == grammar
             && row["colored"].as_u64().is_some_and(|count| count > 0)));
     }
-    succeeded(&validate(&bundled("loom.aura"), None));
+    succeeded(&validate(&bundled("loog.aura"), None));
 }
 
 #[test]
@@ -140,12 +140,12 @@ fn samples_with_parse_errors_or_unknown_grammars_are_rejected() {
     let fixture = Fixture::new();
     let sample = fixture.samples("json", "{broken");
     rejected(
-        &validate(&bundled("loom.lang.json"), Some(&sample)),
+        &validate(&bundled("loog.lang.json"), Some(&sample)),
         "parse errors",
     );
     let sample = fixture.samples("rust", "fn main() {}");
     rejected(
-        &validate(&bundled("loom.lang.json"), Some(&sample)),
+        &validate(&bundled("loog.lang.json"), Some(&sample)),
         "no grammar for",
     );
 }
@@ -153,7 +153,7 @@ fn samples_with_parse_errors_or_unknown_grammars_are_rejected() {
 #[test]
 fn every_supplied_sample_is_validated_and_needs_a_file() {
     let fixture = Fixture::new();
-    let valid = fixture.write("valid.json", r#"{"name":"Loom"}"#);
+    let valid = fixture.write("valid.json", r#"{"name":"Loog"}"#);
     let invalid = fixture.write("invalid.json", "{broken");
     let samples = fixture.write(
         "samples.json",
@@ -164,12 +164,12 @@ fn every_supplied_sample_is_validated_and_needs_a_file() {
         .to_string(),
     );
     rejected(
-        &validate(&bundled("loom.lang.json"), Some(&samples)),
+        &validate(&bundled("loog.lang.json"), Some(&samples)),
         "parse errors",
     );
     let samples = fixture.write("samples.json", r#"[{"grammar":"json"}]"#);
     rejected(
-        &validate(&bundled("loom.lang.json"), Some(&samples)),
+        &validate(&bundled("loog.lang.json"), Some(&samples)),
         "missing field",
     );
 }
@@ -178,7 +178,7 @@ fn every_supplied_sample_is_validated_and_needs_a_file() {
 fn missing_manifest_and_invalid_arguments_fail() {
     let fixture = Fixture::new();
     rejected(&validate(&fixture.0, None), "manifest.json");
-    let output = Command::new(env!("CARGO_BIN_EXE_loom-ext-validate"))
+    let output = Command::new(env!("CARGO_BIN_EXE_loog-ext-validate"))
         .output()
         .unwrap();
     rejected(&output, "usage:");
@@ -187,11 +187,11 @@ fn missing_manifest_and_invalid_arguments_fail() {
 #[test]
 fn language_identity_uses_the_host_loader_without_requiring_a_grammar() {
     let fixture = Fixture::new();
-    let folder = fixture.0.join("loom.lsp.demo");
+    let folder = fixture.0.join("loog.lsp.demo");
     fs::create_dir_all(folder.join("languages")).unwrap();
     fs::write(folder.join("manifest.json"), r#"{
-        "schema":1, "id":"loom.lsp.demo", "name":"Demo", "version":"0.1.0",
-        "contributes":{"languages":[{"id":"loom.lsp.demo.language","path":"languages/language.json"}]}
+        "schema":1, "id":"loog.lsp.demo", "name":"Demo", "version":"0.1.0",
+        "contributes":{"languages":[{"id":"loog.lsp.demo.language","path":"languages/language.json"}]}
     }"#).unwrap();
     let language = folder.join("languages/language.json");
     fs::write(&language, r#"{"name":"demo","display_name":"Demo","badge":"D","variants":[{"id":"demo"}],"files":[{"extensions":["demo"],"variant":"demo"}]}"#).unwrap();
@@ -203,5 +203,5 @@ fn language_identity_uses_the_host_loader_without_requiring_a_grammar() {
     .unwrap();
     rejected(&validate(&folder, None), "parser");
     fs::write(&language, "{").unwrap();
-    rejected(&validate(&folder, None), "loom.lsp.demo.language");
+    rejected(&validate(&folder, None), "loog.lsp.demo.language");
 }

@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn disk_resolution_actions_enable_only_for_a_conflict() {
-        let root = std::env::temp_dir().join(format!("loom-tab-conflict-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("loog-tab-conflict-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("note.txt");
         std::fs::write(&path, "before").unwrap();

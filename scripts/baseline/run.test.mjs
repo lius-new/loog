@@ -6,7 +6,7 @@ import path from 'node:path';
 import {optionsFromArgs, buildPlan, executeCheck, runBaseline} from './run.mjs';
 
 const temporary = t => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-baseline-run-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'loog-baseline-run-'));
   t.after(() => fs.rmSync(directory, {recursive: true, force: true, maxRetries: 5}));
   return directory;
 };
@@ -15,7 +15,7 @@ test('named performance groups and independent check modes replace historical ph
   const plan = buildPlan(options);
   assert.equal(plan.length, 6);
   assert.ok(plan.some(check => check.exact_filter === 'app::tabs::tests::pointer_updates_with_many_tabs'));
-  assert.ok(plan.every(check => check.args.includes('--exact') && check.args.includes('--release') && check.args.includes('Loom')));
+  assert.ok(plan.every(check => check.args.includes('--exact') && check.args.includes('--release') && check.args.includes('Loog')));
   const checks = buildPlan(optionsFromArgs(['--performance', 'none', '--checks']));
   assert.ok(checks.some(check => check.name === 'tests-release'));
   assert.ok(!checks.some(check => check.name === 'tests-isolated' || check.name.startsWith('native-')));
@@ -27,12 +27,12 @@ test('named performance groups and independent check modes replace historical ph
 test('child execution streams both outputs and preserves failure status without modifying parent environment', async t => {
   const directory = temporary(t);
   fs.mkdirSync(path.join(directory, 'logs'));
-  const previous = process.env.LOOM_BASELINE_CHILD;
+  const previous = process.env.LOOG_BASELINE_CHILD;
   const result = await executeCheck({program: process.execPath, args: ['-e',
-    'console.log(process.env.LOOM_BASELINE_CHILD); console.error("stderr evidence"); process.exitCode = 7;'], log: 'logs/check.log'},
-  {directory, env: {...process.env, LOOM_BASELINE_CHILD: 'isolated'}});
+    'console.log(process.env.LOOG_BASELINE_CHILD); console.error("stderr evidence"); process.exitCode = 7;'], log: 'logs/check.log'},
+  {directory, env: {...process.env, LOOG_BASELINE_CHILD: 'isolated'}});
   assert.equal(result.exit_code, 7);
-  assert.equal(process.env.LOOM_BASELINE_CHILD, previous);
+  assert.equal(process.env.LOOG_BASELINE_CHILD, previous);
   assert.match(fs.readFileSync(path.join(directory, 'logs/check.log'), 'utf8'), /isolated[\s\S]*stderr evidence/);
 });
 

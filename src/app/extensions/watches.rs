@@ -1,6 +1,6 @@
 use super::*;
 use crate::infrastructure::extensions::watches::{self, WatchEvent};
-use loom_extension_host::{FileChanged, WatchControl, WatchFailure};
+use loog_extension_host::{FileChanged, WatchControl, WatchFailure};
 pub(super) struct WatchRecord {
     pub extension: String,
     pub generation: u64,

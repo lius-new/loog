@@ -28,15 +28,15 @@ test('a signature is accepted only for the index it signed, by a trusted key', (
 });
 
 test('the lock names the newest version of each bundled extension and the index it came from', () => {
-  const artifact = {platform: 'any', url: 'https://example.test/a.loomext', sha256: 'a'.repeat(64), size: 1};
+  const artifact = {platform: 'any', url: 'https://example.test/a.loogext', sha256: 'a'.repeat(64), size: 1};
   const index = {sequence: 17, keyId: 'test-1', extensions: [
-    {id: 'loom.theme.aura', versions: [{version: '0.1.0', artifacts: [artifact]}]},
-    {id: 'loom.lang.json', versions: [{version: '0.1.0', artifacts: [artifact]}]},
+    {id: 'loog.theme.aura', versions: [{version: '0.1.0', artifacts: [artifact]}]},
+    {id: 'loog.lang.json', versions: [{version: '0.1.0', artifacts: [artifact]}]},
   ]};
   const bytes = Buffer.from(JSON.stringify(index));
-  const lock = buildLock(index, bytes, ['loom.theme.aura']);
-  assert.deepEqual(lock.extensions, [{id: 'loom.theme.aura', version: '0.1.0', artifacts: [artifact]}]);
+  const lock = buildLock(index, bytes, ['loog.theme.aura']);
+  assert.deepEqual(lock.extensions, [{id: 'loog.theme.aura', version: '0.1.0', artifacts: [artifact]}]);
   assert.equal(lock.index.sequence, 17);
   assert.equal(lock.index.sha256, crypto.createHash('sha256').update(bytes).digest('hex'));
-  assert.throws(() => buildLock(index, bytes, ['loom.lang.missing']), /not in the index/);
+  assert.throws(() => buildLock(index, bytes, ['loog.lang.missing']), /not in the index/);
 });

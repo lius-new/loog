@@ -1,5 +1,5 @@
 {
-  "name": "loom-js-guest",
+  "name": "loog-js-guest",
   "private": true,
   "type": "module",
   "description": "Reference JavaScript extension and its pinned component toolchain (EXTENSIONS_DESIGN.md M0-05)",

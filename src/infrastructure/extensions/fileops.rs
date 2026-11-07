@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
 /// Prefix of the note an unfinished run leaves in the folder.
-pub const NOTE_PREFIX: &str = ".loom-fileops-";
+pub const NOTE_PREFIX: &str = ".loog-fileops-";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Op {
@@ -126,7 +126,7 @@ fn write_note(ops: &[Op]) -> Option<PathBuf> {
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
-    let text = std::iter::once("An extension's file operation was in progress. Entries it set aside are in `.loom-edit-*` folders next to the files it touched.".to_owned())
+    let text = std::iter::once("An extension's file operation was in progress. Entries it set aside are in `.loog-edit-*` folders next to the files it touched.".to_owned())
         .chain(ops.iter().map(Op::describe))
         .collect::<Vec<_>>()
         .join("\n");
@@ -168,7 +168,7 @@ mod tests {
     use std::fs;
 
     fn folder(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("loom-fileops-{}-{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loog-fileops-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir

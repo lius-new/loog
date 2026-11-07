@@ -4,7 +4,7 @@ use lgui::core::UiFocusHandle;
 use lgui::core::{CursorIcon, EventPolicy};
 use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel, text};
 use lgui::services::ServicesContextExt;
-use loom_editor_core::commands::Command;
+use loog_editor_core::commands::Command;
 use std::sync::Arc;
 
 pub(crate) struct Item {

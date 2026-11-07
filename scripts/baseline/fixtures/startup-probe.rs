@@ -63,13 +63,13 @@ unsafe extern "system" fn procedure(
 ) -> isize {
     if message == 0x0010 {
         // WM_CLOSE
-        let mode = std::env::var("LOOM_STARTUP_FIXTURE_MODE").unwrap_or_default();
+        let mode = std::env::var("LOOG_STARTUP_FIXTURE_MODE").unwrap_or_default();
         if mode == "ignore-close" {
             return 0;
         }
-        fixture_delay("LOOM_STARTUP_FIXTURE_CLOSE_DELAY_MS");
+        fixture_delay("LOOG_STARTUP_FIXTURE_CLOSE_DELAY_MS");
         if mode != "no-session" {
-            let root = std::path::PathBuf::from(std::env::var_os("APPDATA").unwrap()).join("Loom");
+            let root = std::path::PathBuf::from(std::env::var_os("APPDATA").unwrap()).join("Loog");
             std::fs::create_dir_all(&root).unwrap();
             let workspace = if mode == "wrong-session" {
                 "wrong".into()
@@ -90,7 +90,7 @@ unsafe extern "system" fn procedure(
     }
     if message == 0x0002 {
         // WM_DESTROY
-        let code = if std::env::var("LOOM_STARTUP_FIXTURE_MODE").as_deref() == Ok("bad-exit") {
+        let code = if std::env::var("LOOG_STARTUP_FIXTURE_MODE").as_deref() == Ok("bad-exit") {
             7
         } else {
             0
@@ -108,11 +108,11 @@ fn fixture_delay(name: &str) {
     }
 }
 fn main() {
-    fixture_delay("LOOM_STARTUP_FIXTURE_START_DELAY_MS");
-    if std::env::var("LOOM_STARTUP_FIXTURE_MODE").as_deref() == Ok("early-exit") {
+    fixture_delay("LOOG_STARTUP_FIXTURE_START_DELAY_MS");
+    if std::env::var("LOOG_STARTUP_FIXTURE_MODE").as_deref() == Ok("early-exit") {
         std::process::exit(3);
     }
-    let name: Vec<u16> = std::ffi::OsStr::new("LoomStartupSmokeFixture")
+    let name: Vec<u16> = std::ffi::OsStr::new("LoogStartupSmokeFixture")
         .encode_wide()
         .chain(Some(0))
         .collect();

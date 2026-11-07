@@ -371,7 +371,7 @@ mod tests {
                 crate::domain::identity::FileId::new(1),
                 1,
                 0,
-                &loom_editor_core::text::TextBuffer::new(""),
+                &loog_editor_core::text::TextBuffer::new(""),
             ),
             None,
             labels.iter().map(|l| item(l)).collect(),

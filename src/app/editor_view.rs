@@ -16,7 +16,7 @@ pub(crate) fn menu(
     focus: lgui::core::UiFocusHandle,
 ) -> lgui::prelude::Element {
     use crate::ui::editor::menu::{self, Event, Item};
-    use loom_editor_core::commands::Command;
+    use loog_editor_core::commands::Command;
     let app = state.get();
     let items = [
         ("Undo", Command::Undo),
@@ -43,7 +43,7 @@ pub(crate) fn menu(
                     buffer.selections().iter().any(|s| s.range().is_some())
                         || matches!(
                             app.editor.vim.mode(),
-                            loom_editor_core::vim::Mode::Visual(_)
+                            loog_editor_core::vim::Mode::Visual(_)
                         )
                 }
                 _ => true,
@@ -134,7 +134,7 @@ pub(crate) fn snapshot(
     let vim_view = state.vim.is_enabled()
         && document.as_ref().is_some_and(|doc| {
             state.vim.view()
-                == Some(loom_editor_core::vim::ViewKey {
+                == Some(loog_editor_core::vim::ViewKey {
                     pane,
                     document: doc.stamp.document,
                     view: doc.id,
@@ -240,7 +240,7 @@ pub(crate) fn snapshot(
         cursor_shape: if vim_view {
             state.vim.cursor_shape()
         } else {
-            loom_editor_core::vim::CursorShape::Bar
+            loog_editor_core::vim::CursorShape::Bar
         },
         selections,
         search_matches,
@@ -851,9 +851,9 @@ fn hover_offset(
         let edge = projected::caret(
             &buffer,
             &map,
-            loom_editor_core::text::Selection {
+            loog_editor_core::text::Selection {
                 cursor: end,
-                wrap_affinity: loom_editor_core::text::Assoc::Before,
+                wrap_affinity: loog_editor_core::text::Assoc::Before,
                 ..Default::default()
             },
             code_left,
@@ -995,7 +995,7 @@ R
                 0..0,
                 "new
 ",
-                loom_editor_core::text::EditKind::Other,
+                loog_editor_core::text::EditKind::Other,
             )
             .unwrap();
         let above = snapshot(app.clone(), git(), pane, RECT);
@@ -1004,7 +1004,7 @@ R
         app.workspace
             .editor_mut(pane)
             .unwrap()
-            .replace(inside..inside, "x", loom_editor_core::text::EditKind::Other)
+            .replace(inside..inside, "x", loog_editor_core::text::EditKind::Other)
             .unwrap();
         assert!(snapshot(app, git(), pane, RECT).conflicts.is_empty());
     }
@@ -1038,7 +1038,7 @@ R
         app.workspace
             .editor_mut(pane)
             .unwrap()
-            .replace(0..length, resolved, loom_editor_core::text::EditKind::Other)
+            .replace(0..length, resolved, loog_editor_core::text::EditKind::Other)
             .unwrap();
         let document = app.workspace.view_document(id).unwrap();
         let saved = app.workspace.editor(pane).unwrap().buffer().text_snapshot();

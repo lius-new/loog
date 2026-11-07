@@ -16,7 +16,7 @@ impl Temp {
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
-            "loom-image-tests-{}-{}",
+            "loog-image-tests-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -40,7 +40,7 @@ fn svg() -> &'static str {
 fn replace(app: &mut AppState, document: crate::domain::identity::FileId, text: &str) {
     let mut editor = app.workspace.document_editor_mut(document).unwrap();
     editor.select_all();
-    loom_editor_core::normal::insert(&mut editor, text);
+    loog_editor_core::normal::insert(&mut editor, text);
 }
 #[test]
 fn image_open_save_rejection_and_reloads_preserve_view_positions() {

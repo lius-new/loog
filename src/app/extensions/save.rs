@@ -230,7 +230,7 @@ impl ExtensionService {
         &mut self,
         app: &mut AppState,
         request: u64,
-        edits: Vec<loom_extension_host::TextEdit>,
+        edits: Vec<loog_extension_host::TextEdit>,
     ) -> Vec<Effect> {
         let mut effects = Vec::new();
         let Some(id) = self.save_calls.remove(&request) else {
@@ -251,17 +251,17 @@ impl ExtensionService {
         if current.request != Some(request) {
             return effects;
         }
-        let wire: Vec<loom_extension_api::edit::TextEdit> = edits
+        let wire: Vec<loog_extension_api::edit::TextEdit> = edits
             .iter()
-            .map(|e| loom_extension_api::edit::TextEdit {
-                range: loom_extension_api::edit::ByteRange::new(
+            .map(|e| loog_extension_api::edit::TextEdit {
+                range: loog_extension_api::edit::ByteRange::new(
                     e.range.start as usize,
                     e.range.end as usize,
                 ),
-                text: loom_editor_core::text::normalize_endings(&e.text, current.ending),
+                text: loog_editor_core::text::normalize_endings(&e.text, current.ending),
             })
             .collect();
-        match loom_extension_api::edit::apply(&current.temp, &wire) {
+        match loog_extension_api::edit::apply(&current.temp, &wire) {
             Err(error) => {
                 let who = current.participants[current.step].0.clone();
                 self.fail(id, format!("{who}: {error}"), &mut effects);

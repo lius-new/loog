@@ -166,7 +166,7 @@ mod tests {
         use crate::features::terminal::profiles::ShellProfile;
         use std::time::{Instant, SystemTime, UNIX_EPOCH};
         let root = env::temp_dir().join(format!(
-            "loom-custom-shell-{}-{}",
+            "loog-custom-shell-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -185,7 +185,7 @@ mod tests {
         let program = root.join("中文 custom shell.exe");
         std::fs::write(&source, r#"use std::io::Write; fn main() { for (i, arg) in std::env::args().skip(1).enumerate() { println!("ARG{i}={arg:?}"); } std::io::stdout().flush().unwrap(); let mut line = String::new(); let _ = std::io::stdin().read_line(&mut line); }"#).unwrap();
         let built = std::process::Command::new("rustc")
-            .arg("--crate-name=loom_custom_shell_probe")
+            .arg("--crate-name=loog_custom_shell_probe")
             .arg(&source)
             .arg("-o")
             .arg(&program)
@@ -349,7 +349,7 @@ mod tests {
             .to_string()
             .replace('\\', "/")
             .replace('\'', "'\\''");
-        controller.write(format!("LOOM_MOUSE_PROBE=1 '{executable}' --exact app::terminal_session_tests::tests::native_mouse_probe --ignored --nocapture\r").as_bytes());
+        controller.write(format!("LOOG_MOUSE_PROBE=1 '{executable}' --exact app::terminal_session_tests::tests::native_mouse_probe --ignored --nocapture\r").as_bytes());
         wait_for(&controller, |screen| {
             screen.contents().contains("MOUSE_READY")
                 && screen.mouse_protocol_encoding() == vt100::MouseProtocolEncoding::Sgr
@@ -402,7 +402,7 @@ mod tests {
     #[test]
     #[ignore = "native console helper launched by the mouse round-trip test"]
     fn native_mouse_probe() {
-        if std::env::var_os("LOOM_MOUSE_PROBE").is_none() {
+        if std::env::var_os("LOOG_MOUSE_PROBE").is_none() {
             return;
         }
         use std::ffi::c_void;
@@ -494,7 +494,7 @@ mod tests {
         use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
         let root = env::temp_dir().join(format!(
-            "loom-cwd-test-{}-{}",
+            "loog-cwd-test-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -675,8 +675,8 @@ mod tests {
     #[test]
     fn shell_cwd_drops_the_verbatim_prefix() {
         assert_eq!(
-            shell_friendly_path(Path::new(r"\\?\D:\Documents\loom")),
-            PathBuf::from(r"D:\Documents\loom")
+            shell_friendly_path(Path::new(r"\\?\D:\Documents\loog")),
+            PathBuf::from(r"D:\Documents\loog")
         );
         assert_eq!(
             shell_friendly_path(Path::new(r"\\?\UNC\server\share\dir")),
@@ -890,7 +890,7 @@ mod tests {
         use crate::infrastructure::terminal::program::ProgramProbe;
         use std::time::{Duration, Instant};
 
-        let name = format!("loom-session-probe-{}", std::process::id());
+        let name = format!("loog-session-probe-{}", std::process::id());
         let executable = env::temp_dir().join(format!("{name}.exe"));
         let source = executable.with_extension("rs");
         std::fs::write(&source, r#"fn main() {

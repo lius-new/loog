@@ -55,7 +55,7 @@ pub(crate) struct PreparedFileBatch {
         crate::domain::identity::FileId,
         u64,
         PathBuf,
-        loom_editor_core::text::FileOptions,
+        loog_editor_core::text::FileOptions,
     )>,
     defer_tree: bool,
     invalidate_search: bool,
@@ -249,7 +249,7 @@ pub(crate) fn refresh_async_impl(
         return;
     }
     let _ = thread::Builder::new()
-        .name("loom-disk-refresh".into())
+        .name("loog-disk-refresh".into())
         .spawn(move || {
             let prepared = prepare_reconciliation(&state.get());
             notify_prepared_impl(state, application, prepared, lease);
@@ -291,7 +291,7 @@ mod tests {
 
     fn temp_directory(label: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "loom-file-watcher-{label}-{}-{}",
+            "loog-file-watcher-{label}-{}-{}",
             std::process::id(),
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
         ));
@@ -317,7 +317,7 @@ mod tests {
     #[test]
     fn batches_deduplicate_paths_and_keep_strongest_change() {
         let root = std::fs::canonicalize(std::env::temp_dir()).unwrap();
-        let path = root.join("loom-watch-test.txt");
+        let path = root.join("loog-watch-test.txt");
         let batch = coalesce_events(
             vec![
                 event(EventKind::Modify(ModifyKind::Any), [path.clone()]),
@@ -393,7 +393,7 @@ mod tests {
         let outside = PathBuf::from(if cfg!(windows) {
             r"Z:\outside.txt"
         } else {
-            "/loom-outside.txt"
+            "/loog-outside.txt"
         });
         let batch = coalesce_events(
             vec![event(EventKind::Modify(ModifyKind::Any), [outside])],
@@ -748,7 +748,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    /// `cargo test --release --bin Loom prepare_batch_cost -- --ignored --nocapture`
+    /// `cargo test --release --bin Loog prepare_batch_cost -- --ignored --nocapture`
     /// Times watcher preparation with a loaded tree and large open documents.
     #[test]
     #[ignore = "benchmark"]

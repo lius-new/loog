@@ -13,8 +13,8 @@ function blocks(text) {
 }
 const field = (section,name) => new RegExp('^[ \t]*' + name + '[ \t]*=[ \t]*"([^"\r\n]+)"','m').exec(section)?.[1];
 function packageBlock(text) {
-  const matches = blocks(text).filter(block => block.header === '[package]' && field(block.text,'name') === 'loom');
-  if (matches.length !== 1) throw Error('Expected one explicit Loom package in Cargo.toml');
+  const matches = blocks(text).filter(block => block.header === '[package]' && field(block.text,'name') === 'loog');
+  if (matches.length !== 1) throw Error('Expected one explicit Loog package in Cargo.toml');
   return matches[0];
 }
 export function manifestVersion(text) {
@@ -28,8 +28,8 @@ function replaceVersion(text,block,version) {
 export function versionFiles(manifest,lock,version) {
   validateVersion(version);
   const base = manifestVersion(manifest);
-  const matches = blocks(lock).filter(block => block.header === '[[package]]' && field(block.text,'name') === 'loom' && !/^[ \t]*source[ \t]*=/m.test(block.text));
-  if (matches.length !== 1 || field(matches[0].text,'version') !== base) throw Error('Cargo.lock Loom entry does not match the source manifest');
+  const matches = blocks(lock).filter(block => block.header === '[[package]]' && field(block.text,'name') === 'loog' && !/^[ \t]*source[ \t]*=/m.test(block.text));
+  if (matches.length !== 1 || field(matches[0].text,'version') !== base) throw Error('Cargo.lock Loog entry does not match the source manifest');
   return {manifest:replaceVersion(manifest,packageBlock(manifest),version),lock:replaceVersion(lock,matches[0],version)};
 }
 export function stampVersion({root = ROOT,version,sha}) {
@@ -60,7 +60,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const {values} = parseArgs({options:{version:{type:'string'},sha:{type:'string'},'read-env':{type:'boolean',default:false}}});
     if (values['read-env']) {
       const version = manifestVersion(fs.readFileSync(path.join(ROOT,'Cargo.toml'),'utf8'));
-      fs.appendFileSync(process.env.GITHUB_ENV,'LOOM_VERSION=' + version + '\n');
+      fs.appendFileSync(process.env.GITHUB_ENV,'LOOG_VERSION=' + version + '\n');
     } else console.log(JSON.stringify(stampVersion({version:values.version,sha:values.sha})));
   } catch (error) {console.error(error.message);process.exitCode = 1;}
 }

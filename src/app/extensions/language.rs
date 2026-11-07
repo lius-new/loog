@@ -3,13 +3,13 @@ use super::*;
 use crate::features::language_service::{
     capabilities::PositionEncoding, position::LineIndex, request::Feature, uri,
 };
-use loom_extension_host::{
+use loog_extension_host::{
     ColumnUnit, FileRange, ProviderContext, ProviderMode, WireLanguageAnswer as Answer,
 };
 use serde_json::{Value, json};
 pub(super) fn supports_mode(
     feature: Feature,
-    config: Option<&loom_extension_host::ProviderConfiguration>,
+    config: Option<&loog_extension_host::ProviderConfiguration>,
 ) -> bool {
     let mode = match feature {
         Feature::Definition => ProviderMode::Definition,
@@ -25,8 +25,8 @@ pub(super) fn supports_mode(
         .is_none_or(|modes| modes.contains(&mode))
 }
 pub(super) fn same_configuration(
-    a: &loom_extension_host::ProviderConfiguration,
-    b: &loom_extension_host::ProviderConfiguration,
+    a: &loog_extension_host::ProviderConfiguration,
+    b: &loog_extension_host::ProviderConfiguration,
 ) -> bool {
     a.provider == b.provider
         && a.enabled == b.enabled
@@ -60,7 +60,7 @@ impl ExtensionService {
         id: &str,
         generation: u64,
         operation: u64,
-        request: loom_extension_host::WorkspaceOperation,
+        request: loog_extension_host::WorkspaceOperation,
     ) -> Vec<Effect> {
         let result = (|| {
             let package = self
@@ -75,7 +75,7 @@ impl ExtensionService {
                 })?;
             self.authorize(package, "documents.read")?;
             Ok(match request {
-                loom_extension_host::WorkspaceOperation::Edit(request) => {
+                loog_extension_host::WorkspaceOperation::Edit(request) => {
                     self.authorize(package, "workspace.edit")?;
                     self.validate_workspace_edit(app, package, &request.edit)?;
                     let value = workspace_edit(request.edit).ok_or_else(|| {
@@ -92,7 +92,7 @@ impl ExtensionService {
                         stamps: crate::app::language_ui::edit::stamps(app),
                     }
                 }
-                loom_extension_host::WorkspaceOperation::ShowDocument(location) => {
+                loog_extension_host::WorkspaceOperation::ShowDocument(location) => {
                     if !Path::new(&location.path).is_absolute() {
                         return Err(ExtensionError::new(
                             ErrorKind::InvalidEdit,
@@ -135,7 +135,7 @@ impl ExtensionService {
         &self,
         app: &AppState,
         package: &Package,
-        edit: &loom_extension_host::WireWorkspaceEdit,
+        edit: &loog_extension_host::WireWorkspaceEdit,
     ) -> Result<(), ExtensionError> {
         let check = |value: &str, resource: bool| {
             let path = Path::new(value);
@@ -185,13 +185,13 @@ impl ExtensionService {
         };
         for change in &edit.changes {
             match change {
-                loom_extension_host::WorkspaceChange::Text(d) => check(&d.path, false)?,
-                loom_extension_host::WorkspaceChange::Create(op) => check(&op.path, true)?,
-                loom_extension_host::WorkspaceChange::Rename(op) => {
+                loog_extension_host::WorkspaceChange::Text(d) => check(&d.path, false)?,
+                loog_extension_host::WorkspaceChange::Create(op) => check(&op.path, true)?,
+                loog_extension_host::WorkspaceChange::Rename(op) => {
                     check(&op.source, true)?;
                     check(&op.target, true)?;
                 }
-                loom_extension_host::WorkspaceChange::Delete(op) => check(&op.path, true)?,
+                loog_extension_host::WorkspaceChange::Delete(op) => check(&op.path, true)?,
             }
         }
         Ok(())
@@ -485,7 +485,7 @@ pub(super) fn completions(
     provider: &str,
     text: &str,
     index: &crate::features::providers::position::LineIndex<'_>,
-    items: Vec<loom_extension_host::WireCompletionItem>,
+    items: Vec<loog_extension_host::WireCompletionItem>,
 ) -> (Vec<Value>, usize) {
     let offered = items
         .into_iter()
@@ -518,18 +518,18 @@ pub(super) fn completions(
         .collect::<Vec<_>>();
     providers::completion_json_indexed(owner, provider, text, &offered, index)
 }
-pub(super) fn completion_item(raw: &Value) -> Option<loom_extension_host::WireCompletionItem> {
+pub(super) fn completion_item(raw: &Value) -> Option<loog_extension_host::WireCompletionItem> {
     let text = |key: &str| raw.get(key).and_then(Value::as_str).map(str::to_owned);
     let edit = |value: &Value| {
-        Some(loom_extension_host::TextEdit {
-            range: loom_extension_host::ByteRange {
+        Some(loog_extension_host::TextEdit {
+            range: loog_extension_host::ByteRange {
                 start: value["start"].as_u64()?,
                 end: value["end"].as_u64()?,
             },
             text: value["text"].as_str()?.into(),
         })
     };
-    Some(loom_extension_host::WireCompletionItem {
+    Some(loog_extension_host::WireCompletionItem {
         label: text("label")?,
         label_detail: raw
             .pointer("/labelDetails/detail")
@@ -548,8 +548,8 @@ pub(super) fn completion_item(raw: &Value) -> Option<loom_extension_host::WireCo
         documentation: text("documentation"),
         kind: raw["kind"].as_u64().and_then(|v| u32::try_from(v).ok()),
         insert_text: text("insertText"),
-        text_edit: raw["x-loom"].get("text-edit").and_then(edit),
-        additional_text_edits: raw["x-loom"]["additional-text-edits"]
+        text_edit: raw["x-loog"].get("text-edit").and_then(edit),
+        additional_text_edits: raw["x-loog"]["additional-text-edits"]
             .as_array()
             .into_iter()
             .flatten()
@@ -566,14 +566,14 @@ pub(super) fn completion_item(raw: &Value) -> Option<loom_extension_host::WireCo
             .map(str::to_owned)
             .collect(),
         command: raw.get("command").and_then(|c| {
-            Some(loom_extension_host::ProviderCommand {
+            Some(loog_extension_host::ProviderCommand {
                 name: c["command"].as_str()?.into(),
                 arguments: c["arguments"].to_string(),
             })
         }),
         sort_text: text("sortText"),
         filter_text: text("filterText"),
-        data: raw["x-loom"]["data"].as_str().map(str::to_owned),
+        data: raw["x-loog"]["data"].as_str().map(str::to_owned),
     })
 }
 
@@ -613,7 +613,7 @@ pub(super) fn fits(kind: &WireKind, answer: &Provided) -> bool {
     }
 }
 
-fn bytes(text: &str, range: loom_extension_host::ByteRange) -> Option<Value> {
+fn bytes(text: &str, range: loog_extension_host::ByteRange) -> Option<Value> {
     let start = usize::try_from(range.start).ok()?;
     let end = usize::try_from(range.end).ok()?;
     if start > end
@@ -635,7 +635,7 @@ fn range(range: FileRange) -> Option<Value> {
         return None;
     }
     Some(
-        json!({"start":{"line":range.start.line,"character":range.start.column},"end":{"line":range.end.line,"character":range.end.column},"x-loom-column-unit":match range.unit { ColumnUnit::Utf8 => "utf8", ColumnUnit::Utf16 => "utf16" }}),
+        json!({"start":{"line":range.start.line,"character":range.start.column},"end":{"line":range.end.line,"character":range.end.column},"x-loog-column-unit":match range.unit { ColumnUnit::Utf8 => "utf8", ColumnUnit::Utf16 => "utf16" }}),
     )
 }
 fn path(path: &str) -> Option<String> {
@@ -645,15 +645,15 @@ fn path(path: &str) -> Option<String> {
     }
     uri::file_uri(path)
 }
-fn place(place: loom_extension_host::FileLocation) -> Option<Value> {
+fn place(place: loog_extension_host::FileLocation) -> Option<Value> {
     Some(json!({"uri":path(&place.path)?, "range":range(place.range)?}))
 }
-fn hierarchy(item: loom_extension_host::WireHierarchyItem) -> Option<Value> {
+fn hierarchy(item: loog_extension_host::WireHierarchyItem) -> Option<Value> {
     Some(
         json!({"name":item.name,"kind":item.kind,"detail":item.detail,"uri":path(&item.location.path)?,"range":range(item.location.range)?,"selectionRange":range(item.selection)?,"data":item.data}),
     )
 }
-pub(super) fn edits(text: &str, edits: Vec<loom_extension_host::TextEdit>) -> Option<Value> {
+pub(super) fn edits(text: &str, edits: Vec<loog_extension_host::TextEdit>) -> Option<Value> {
     Some(Value::Array(
         edits
             .into_iter()
@@ -661,13 +661,13 @@ pub(super) fn edits(text: &str, edits: Vec<loom_extension_host::TextEdit>) -> Op
             .collect::<Option<Vec<_>>>()?,
     ))
 }
-pub(super) fn workspace_edit(edit: loom_extension_host::WireWorkspaceEdit) -> Option<Value> {
+pub(super) fn workspace_edit(edit: loog_extension_host::WireWorkspaceEdit) -> Option<Value> {
     let mut changes = Vec::new();
     // Resource paths are absolute here; the application's existing edit admission
     // checks open roots, versions, dirty files and transaction rollback.
     for op in edit.changes {
         let next = match op {
-            loom_extension_host::WorkspaceChange::Text(document) => {
+            loog_extension_host::WorkspaceChange::Text(document) => {
                 let edits = document
                     .edits
                     .into_iter()
@@ -675,14 +675,14 @@ pub(super) fn workspace_edit(edit: loom_extension_host::WireWorkspaceEdit) -> Op
                     .collect::<Option<Vec<_>>>()?;
                 json!({"textDocument":{"uri":path(&document.path)?,"version":document.version},"edits":edits})
             }
-            loom_extension_host::WorkspaceChange::Create(op) => {
+            loog_extension_host::WorkspaceChange::Create(op) => {
                 let uri = path(&op.path)?;
                 json!({"kind":"create","uri":uri,"options":{"overwrite":op.overwrite,"ignoreIfExists":op.ignore_if_exists}})
             }
-            loom_extension_host::WorkspaceChange::Rename(op) => {
+            loog_extension_host::WorkspaceChange::Rename(op) => {
                 json!({"kind":"rename","oldUri":path(&op.source)?,"newUri":path(&op.target)?,"options":{"overwrite":op.overwrite,"ignoreIfExists":op.ignore_if_exists}})
             }
-            loom_extension_host::WorkspaceChange::Delete(op) => {
+            loog_extension_host::WorkspaceChange::Delete(op) => {
                 json!({"kind":"delete","uri":path(&op.path)?,"options":{"recursive":op.recursive,"ignoreIfNotExists":op.ignore_if_not_exists}})
             }
         };
@@ -705,7 +705,7 @@ pub(super) fn answer(
         Answer::Selections(items) => {
             if items.len()>256 {return None;}
             let mut ranges: Vec<Value> = Vec::new();
-            let mut bounds:Vec<(loom_extension_host::ByteRange,usize)>=Vec::new();
+            let mut bounds:Vec<(loog_extension_host::ByteRange,usize)>=Vec::new();
             for (i,r) in items.into_iter().enumerate() {
                 let (parent,depth) = match r.parent {
                     Some(p) if (p as usize) < i => {
@@ -799,8 +799,8 @@ mod tests {
     #[test]
     fn unopened_utf16_targets_keep_their_unit_through_native_navigation() {
         let span = range(FileRange {
-            start: loom_extension_host::TextPosition { line: 0, column: 1 },
-            end: loom_extension_host::TextPosition { line: 0, column: 3 },
+            start: loog_extension_host::TextPosition { line: 0, column: 1 },
+            end: loog_extension_host::TextPosition { line: 0, column: 3 },
             unit: ColumnUnit::Utf16,
         });
         let parsed = reply::span(&span.unwrap(), PositionEncoding::Utf8).unwrap();
@@ -808,7 +808,7 @@ mod tests {
     }
     #[test]
     fn multiple_signatures_preserve_the_active_overload_and_utf8_parameter_labels() {
-        use loom_extension_host::{ByteRange, SignatureEntry, SignatureParameter, SignatureSet};
+        use loog_extension_host::{ByteRange, SignatureEntry, SignatureParameter, SignatureSet};
         let make = || SignatureEntry {
             label: "f(😀, 中)".into(),
             documentation: None,
@@ -839,7 +839,7 @@ mod tests {
     }
     #[test]
     fn selection_ancestors_must_contain_their_child_and_have_bounded_depth() {
-        use loom_extension_host::{ByteRange, WireSelectionRange};
+        use loog_extension_host::{ByteRange, WireSelectionRange};
         assert!(
             answer(
                 "abcdef",

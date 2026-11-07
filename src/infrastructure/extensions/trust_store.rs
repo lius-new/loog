@@ -125,7 +125,7 @@ mod tests {
 
     fn file(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "loom-trust-{}-{name}/roots.json",
+            "loog-trust-{}-{name}/roots.json",
             std::process::id()
         ))
     }

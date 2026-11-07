@@ -19,15 +19,15 @@ use crate::features::language_service::sync::Stamp;
 use crate::infrastructure::extensions::ProviderJob;
 use crate::infrastructure::extensions::tasks;
 use crate::infrastructure::extensions::{Event, Job, Outcome, Run};
-use loom_extension_api::admission::EditLimits;
-use loom_extension_api::budget::{CallBudget, InteractionLimits};
-use loom_extension_api::events::{Delivery, DocumentStream};
-use loom_extension_api::ledger::{Begin, OperationLedger};
-use loom_extension_api::{ErrorKind, ExtensionError};
-use loom_extension_host::{
+use loog_extension_api::admission::EditLimits;
+use loog_extension_api::budget::{CallBudget, InteractionLimits};
+use loog_extension_api::events::{Delivery, DocumentStream};
+use loog_extension_api::ledger::{Begin, OperationLedger};
+use loog_extension_api::{ErrorKind, ExtensionError};
+use loog_extension_host::{
     AcceptedEdit, DocumentChange as WireChange, DocumentRef, Inbound, Limits,
 };
-use loom_extension_host::{Provided, ProviderKind as WireKind};
+use loog_extension_host::{Provided, ProviderKind as WireKind};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
@@ -66,7 +66,7 @@ struct Target {
     word_start: usize,
     cursor: Option<usize>,
     trigger: Option<String>,
-    item: Option<loom_extension_host::WireCompletionItem>,
+    item: Option<loog_extension_host::WireCompletionItem>,
     item_raw: Option<serde_json::Value>,
 }
 
@@ -518,10 +518,10 @@ pub struct Package {
     feeds: HashMap<u64, Feed>,
     document_views: HashMap<u64, documents::ViewStamp>,
     documents_initialized: bool,
-    provider_configurations: HashMap<String, loom_extension_host::ProviderConfiguration>,
+    provider_configurations: HashMap<String, loog_extension_host::ProviderConfiguration>,
     provider_revision: u64,
     pending_saved: HashMap<FileId, crate::domain::document::SaveSnapshot>,
-    pending_files: Vec<loom_extension_host::WorkspaceFileChange>,
+    pending_files: Vec<loog_extension_host::WorkspaceFileChange>,
     /// Resolved setting values (JSON text per key) and what could not be used.
     resolved: crate::features::extensions::settings::Resolved,
     pub dir: PathBuf,
@@ -532,11 +532,11 @@ pub struct Package {
     pub logs: Vec<(u8, String)>,
     pub last_error: Option<String>,
     component: Vec<u8>,
-    code_source: Option<loom_extension_host::CodeSource>,
+    code_source: Option<loog_extension_host::CodeSource>,
 }
 
 impl Package {
-    /// Whether it ships with Loom rather than being installed by the user.
+    /// Whether it ships with Loog rather than being installed by the user.
     pub fn is_bundled(&self) -> bool {
         bundled::is_bundled(&self.dir)
     }
@@ -581,7 +581,7 @@ pub struct ExtensionService {
     ui_events: HashMap<String, (u64, crate::infrastructure::extensions::UiEvents)>,
     ui_session: u64,
     /// What each extension reports about its service, with the generation it came from.
-    service_status: HashMap<String, (u64, Vec<loom_extension_host::ServiceReport>)>,
+    service_status: HashMap<String, (u64, Vec<loog_extension_host::ServiceReport>)>,
     file_jobs: HashMap<u64, files::FileJob>,
     next_file_job: u64,
     saves: HashMap<u64, save::Chain>,
@@ -637,7 +637,7 @@ fn execution_denial(denial: Denial) -> &'static str {
     match denial {
         Denial::PackageNotGranted => "this extension has not been granted local execution",
         Denial::RootNotTrusted => {
-            "the folder is not trusted; trust it when Loom asks, or run workspace::TrustWorkspace"
+            "the folder is not trusted; trust it when Loog asks, or run workspace::TrustWorkspace"
         }
         Denial::NoTargetRoot => "a task needs a folder",
     }
@@ -763,7 +763,7 @@ impl ExtensionService {
         &self,
         id: &str,
         document: Option<&str>,
-    ) -> Vec<&loom_extension_host::ServiceReport> {
+    ) -> Vec<&loog_extension_host::ServiceReport> {
         let running = self
             .packages
             .get(id)
@@ -1255,7 +1255,7 @@ impl ExtensionService {
     pub fn uninstall(&mut self, id: &str) -> Result<(PathBuf, Vec<Effect>), String> {
         let package = self.packages.get(id).ok_or("unknown extension")?;
         if package.is_bundled() {
-            return Err("it ships with Loom; disable it instead".to_owned());
+            return Err("it ships with Loog; disable it instead".to_owned());
         }
         let effects = self.stop(id);
         let package = self.packages.remove(id).ok_or("unknown extension")?;
@@ -1677,7 +1677,7 @@ impl ExtensionService {
             Ok(Begin::Fresh) => {}
             Ok(Begin::Duplicate(state)) => {
                 // Same sequence and input: report the existing outcome, never run it twice.
-                use loom_extension_api::ledger::OperationState as S;
+                use loog_extension_api::ledger::OperationState as S;
                 let outcome = match state {
                     S::Committed {
                         transaction,
@@ -2493,7 +2493,7 @@ impl ExtensionService {
         provider: &str,
         kind: WireKind,
         target: Target,
-        context: Option<loom_extension_host::ProviderContext>,
+        context: Option<loog_extension_host::ProviderContext>,
         timeout_ms: Option<u64>,
         effects: &mut Vec<Effect>,
     ) {
@@ -2761,7 +2761,7 @@ impl ExtensionService {
 
     /// Execute an accepted item's command only in its owning provider instance.
     pub fn execute_provider_command(&self, source: u64, raw: &serde_json::Value) -> Vec<Effect> {
-        let origin = &raw["x-loom"];
+        let origin = &raw["x-loog"];
         let (Some(extension), Some(provider), Some(name)) = (
             origin["extension"].as_str(),
             origin["provider"].as_str(),
@@ -2787,9 +2787,9 @@ impl ExtensionService {
             id: extension.to_owned(),
             generation: package.lifecycle.generation(),
             messages: vec![Inbound::ProviderCommand(
-                loom_extension_host::ProviderCommandCall {
+                loog_extension_host::ProviderCommandCall {
                     provider: provider.to_owned(),
-                    command: loom_extension_host::ProviderCommand {
+                    command: loog_extension_host::ProviderCommand {
                         name: name.to_owned(),
                         arguments: raw["command"]["arguments"].to_string(),
                     },
@@ -2809,7 +2809,7 @@ impl ExtensionService {
         raw: &serde_json::Value,
     ) -> Vec<Effect> {
         let mut effects = Vec::new();
-        let origin = &raw["x-loom"];
+        let origin = &raw["x-loog"];
         let (Some(extension), Some(provider)) =
             (origin["extension"].as_str(), origin["provider"].as_str())
         else {
@@ -2830,15 +2830,15 @@ impl ExtensionService {
         };
         let text_of = |key: &str| raw[key].as_str().map(str::to_owned);
         let edit_of = |value: &serde_json::Value| {
-            Some(loom_extension_host::TextEdit {
-                range: loom_extension_host::ByteRange {
+            Some(loog_extension_host::TextEdit {
+                range: loog_extension_host::ByteRange {
                     start: value["start"].as_u64()?,
                     end: value["end"].as_u64()?,
                 },
                 text: value["text"].as_str()?.to_owned(),
             })
         };
-        let item = loom_extension_host::WireCompletionItem {
+        let item = loog_extension_host::WireCompletionItem {
             label_detail: raw
                 .pointer("/labelDetails/detail")
                 .and_then(serde_json::Value::as_str)
@@ -2874,7 +2874,7 @@ impl ExtensionService {
                 .filter_map(|s| s.as_str().map(str::to_owned))
                 .collect(),
             command: raw.get("command").and_then(|c| {
-                Some(loom_extension_host::ProviderCommand {
+                Some(loog_extension_host::ProviderCommand {
                     name: c["command"].as_str()?.to_owned(),
                     arguments: c["arguments"].to_string(),
                 })
@@ -3193,7 +3193,7 @@ impl ExtensionService {
         }
         match answer {
             Provided::Language {
-                answer: loom_extension_host::WireLanguageAnswer::Highlights(items),
+                answer: loog_extension_host::WireLanguageAnswer::Highlights(items),
                 ..
             } if matches!(call.job.kind, WireKind::Highlights) => {
                 let mut spans = items
@@ -3517,10 +3517,10 @@ impl ExtensionService {
         effects
     }
 
-    fn root_refs(&self) -> Vec<loom_extension_host::RootRef> {
+    fn root_refs(&self) -> Vec<loog_extension_host::RootRef> {
         self.roots
             .iter()
-            .map(|(id, path)| loom_extension_host::RootRef {
+            .map(|(id, path)| loog_extension_host::RootRef {
                 id: *id,
                 path: path.to_string_lossy().into_owned(),
                 name: path
@@ -3533,7 +3533,7 @@ impl ExtensionService {
 
     /// Folders with their paths and stable storage keys, and the key of the
     /// whole set (workspace-scoped storage follows the set of folders).
-    fn root_details(&self) -> (Vec<(loom_extension_host::RootRef, PathBuf, String)>, String) {
+    fn root_details(&self) -> (Vec<(loog_extension_host::RootRef, PathBuf, String)>, String) {
         let refs = self.root_refs();
         let details: Vec<_> = refs
             .into_iter()
@@ -3596,7 +3596,7 @@ impl ExtensionService {
                     id: record.extension,
                     generation: record.generation,
                     credit: None,
-                    message: Inbound::WatchFailed(loom_extension_host::WatchFailure {
+                    message: Inbound::WatchFailed(loog_extension_host::WatchFailure {
                         watch: record.local,
                         error: crate::infrastructure::extensions::wire_error(&ExtensionError::new(
                             ErrorKind::ExpiredHandle,
@@ -3653,7 +3653,7 @@ impl ExtensionService {
     fn plan_task(
         &self,
         extension: &str,
-        request: &loom_extension_host::TaskRequest,
+        request: &loog_extension_host::TaskRequest,
     ) -> Result<(u64, tasks::Spec), ExtensionError> {
         let deny = |kind, message: &str| Err(ExtensionError::new(kind, message));
         let package = self
@@ -3776,7 +3776,7 @@ impl ExtensionService {
         &mut self,
         id: &str,
         generation: u64,
-        started: loom_extension_host::StartedTask,
+        started: loog_extension_host::StartedTask,
     ) -> Vec<Effect> {
         if !self
             .packages
@@ -3790,7 +3790,7 @@ impl ExtensionService {
             vec![Effect::Submit(Job::Task {
                 id: id.to_owned(),
                 generation,
-                message: Inbound::TaskExited(loom_extension_host::TaskExit {
+                message: Inbound::TaskExited(loog_extension_host::TaskExit {
                     task: local,
                     code: None,
                     cancelled: false,
@@ -3834,7 +3834,7 @@ impl ExtensionService {
 
     /// Output and exits of running tasks, on their way to the owning guest.
     pub fn handle_task_event(&mut self, event: tasks::TaskEvent) -> Vec<Effect> {
-        use loom_extension_host::{OutputChannel, TaskExit, TaskOutput};
+        use loog_extension_host::{OutputChannel, TaskExit, TaskOutput};
         let (task, ended) = match &event {
             tasks::TaskEvent::Output { task, .. } => (*task, false),
             tasks::TaskEvent::Exited { task, .. } => (*task, true),
@@ -3897,7 +3897,7 @@ impl ExtensionService {
         app: &AppState,
         id: &str,
         generation: u64,
-        published: loom_extension_host::PublishedDiagnostics,
+        published: loog_extension_host::PublishedDiagnostics,
     ) -> Vec<Effect> {
         let allowed = self.packages.get(id).is_some_and(|package| {
             package.lifecycle.accepts(generation)

@@ -1,11 +1,11 @@
 [package]
-name = "loom"
+name = "loog"
 autobins = false
 version = "0.1.10"
 edition = "2024"
 description = "A minimal text editor built with lgui"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/lius-new/loom"
+repository = "https://github.com/lius-new/loog"
 readme = "README.md"
 
 [workspace]
@@ -18,15 +18,15 @@ resolver = "3"
 vt100 = { path = "vendor/vt100" }
 
 [[bin]]
-name = "Loom"
+name = "Loog"
 path = "src/main.rs"
 
 [dependencies]
 encoding_rs = "0.8"
 chardetng = "0.1.17"
-loom-editor-core = { path = "crates/editor-core" }
-loom-extension-api = { path = "crates/extension-api" }
-loom-extension-host = { path = "crates/extension-host" }
+loog-editor-core = { path = "crates/editor-core" }
+loog-extension-api = { path = "crates/extension-api" }
+loog-extension-host = { path = "crates/extension-host" }
 skia-safe = { version = "=0.99.0", default-features = false, features = ["binary-cache", "textlayout", "embed-icudtl"] }
 pulldown-cmark = { version = "=0.13.5", default-features = false }
 base64 = "0.22"
@@ -52,7 +52,7 @@ flate2 = "1.1"
 fancy-regex = "0.19.2"
 
 [dev-dependencies]
-loom-editor-core = { path = "crates/editor-core", features = ["diagnostics"] }
+loog-editor-core = { path = "crates/editor-core", features = ["diagnostics"] }
 
 [dependencies.lgui]
 git = "https://github.com/lius-new/lgui.git"
@@ -87,10 +87,10 @@ winresource = "0.1"
 windows-sys = { version = "0.61", features = ["Win32_System_Memory"] }
 
 [package.metadata.winresource]
-ProductName = "Loom"
-FileDescription = "Loom"
-InternalName = "Loom"
-OriginalFilename = "Loom.exe"
+ProductName = "Loog"
+FileDescription = "Loog"
+InternalName = "Loog"
+OriginalFilename = "Loog.exe"
 
 # Unoptimized layout and painting take ~35 ms per frame, which is longer than a
 # key-repeat interval; typing into the terminal then queues and lags.

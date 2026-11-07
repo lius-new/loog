@@ -451,7 +451,7 @@ mod tests {
         }));
         DiffDocument::from_content(
             DiffRequest {
-                repository_root: "loom".into(),
+                repository_root: "loog".into(),
                 path: PathBuf::new(),
                 target: DiffTarget::Changes,
             },
@@ -588,9 +588,9 @@ mod tests {
                 original_chrome = Some(chrome);
             }
             let preview = std::env::var_os(if split {
-                "LOOM_SPLIT_CHANGES_PREVIEW"
+                "LOOG_SPLIT_CHANGES_PREVIEW"
             } else {
-                "LOOM_CHANGES_PREVIEW"
+                "LOOG_CHANGES_PREVIEW"
             });
             if let Some(path) = preview {
                 use lgui::core::PhysicalRect;
@@ -948,7 +948,7 @@ mod tests {
             (slope(&session) - before).abs() > 1.0,
             "the connector must change shape, not just translate"
         );
-        if let Some(output) = std::env::var_os("LOOM_SPLIT_PREVIEW") {
+        if let Some(output) = std::env::var_os("LOOG_SPLIT_PREVIEW") {
             use lgui::core::PhysicalRect;
             use lgui::renderer::{FrameInfo, FrameReason};
             let scale = UiScale::new(1.5);

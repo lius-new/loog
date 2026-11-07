@@ -1,6 +1,6 @@
 # Markdown reading
 
-Loom previews the current buffer, including unsaved changes. Source and reading
+Loog previews the current buffer, including unsaved changes. Source and reading
 views share one document, saved state and undo history. Their positions,
 selections and scroll offsets are independent.
 

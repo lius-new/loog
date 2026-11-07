@@ -1,5 +1,5 @@
 //! Runs the extension-owned client against the deterministic server fixture.
-//! The client source and builder live in loom-extensions, outside the Loom SDK.
+//! The client source and builder live in loog-extensions, outside the Loog SDK.
 use crate::app::{context::AppContext, runtime::AppRuntime};
 use std::{
     path::PathBuf,
@@ -18,7 +18,7 @@ fn cache() -> &'static PathBuf {
     CACHE.get_or_init(|| {
         let path =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-language-client-cache");
-        loom_extension_host::Runtime::new()
+        loog_extension_host::Runtime::new()
             .unwrap()
             .compile_cached(COMPONENT, &path)
             .unwrap();
@@ -30,7 +30,7 @@ fn cache() -> &'static PathBuf {
 pub(crate) fn install(state: &AppContext, runtime: &Arc<AppRuntime>, arguments: &[String]) {
     let cache = cache().clone();
     let directory = std::env::temp_dir().join(format!(
-        "loom-ui-client-{}-{}",
+        "loog-ui-client-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
@@ -90,7 +90,7 @@ pub(crate) fn install(state: &AppContext, runtime: &Arc<AppRuntime>, arguments: 
         "highlights",
     ];
     let manifest = serde_json::json!({
-        "schema":1, "id":"example.language-fixture", "version":"0.1.0", "api":"loom:extension@0.1.0", "component":"extension.wasm",
+        "schema":1, "id":"example.language-fixture", "version":"0.1.0", "api":"loog:extension@0.1.0", "component":"extension.wasm",
         "executables":[binary], "activation":[{"kind":"document", "selector":{"languages":["rust"]}}, {"kind":"event","name":"document.open"}, {"kind":"event","name":"document.change"}, {"kind":"event","name":"document.close"}, {"kind":"event","name":"document.save"}],
         "capabilities":["process.execute-local", "documents.read", "workspace.files.read", "workspace.files.write", "workspace.edit", "languages", "events", "settings"],
         "contributes":{

@@ -33,10 +33,10 @@ test('three-platform functionality stays unconditional and Clippy shares the Lin
   const build = ci.jobs.build;
   assert.equal(build.if,undefined);assert.equal(build.strategy['fail-fast'],false);
   assert.deepEqual(build.strategy.matrix.include.map(row => row.os).sort(),['macos-15','ubuntu-24.04','windows-2025']);
-  assert.equal(build.steps.find(step => step.name === 'Run tests').run,'cargo test --locked -p loom');
+  assert.equal(build.steps.find(step => step.name === 'Run tests').run,'cargo test --locked -p loog');
   assert.equal(build.steps.find(step => step.name === 'Run tests').if,undefined);
   assert.equal(build.steps.find(step => step.name === 'Run Clippy').if,"runner.os == 'Linux'");
-  for (const crate of ['loom-editor-core','loom-workspace-tests','loom-markdown-tests']) assert.ok(runs(ci.jobs.core).includes('cargo test --locked -p ' + crate));
+  for (const crate of ['loog-editor-core','loog-workspace-tests','loog-markdown-tests']) assert.ok(runs(ci.jobs.core).includes('cargo test --locked -p ' + crate));
 });
 test('additional validation is a scope-gated reusable workflow and tools run once per selected platform', () => {
   assert.equal(ci.jobs.validation.uses,'./.github/workflows/validation.yml');
@@ -105,7 +105,7 @@ test('only the final job can create/upload a draft, after every platform artifac
   assert.doesNotMatch(JSON.stringify(release.jobs.package),/contents.*write|publish\.mjs|release upload/);
   assert.equal(release.on.workflow_dispatch.inputs.publish.default,false);
   assert.equal(release.on.workflow_dispatch.inputs.version.default,undefined);
-  assert.equal(deep.env.LOOM_VERSION,undefined);
+  assert.equal(deep.env.LOOG_VERSION,undefined);
   assert.ok(deep.jobs.matrix.steps.some(step => step.run === 'node scripts/release/version.mjs --read-env'));
   assert.equal(release.jobs.package.steps.find(step => step.name === 'Build and package once').env.RELEASE_SHA,expr('needs.verify.outputs.sha'));
 });

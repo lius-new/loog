@@ -3,8 +3,8 @@
 //! Only hosts the extension declared and the user granted are reachable. Every
 //! redirect is checked against the same list again, an https address is never
 //! downgraded to http, and the body is cut at the size the extension asked for.
-use loom_extension_api::{ErrorKind, ExtensionError};
-use loom_extension_host::{HttpPort, HttpResponse};
+use loog_extension_api::{ErrorKind, ExtensionError};
+use loog_extension_host::{HttpPort, HttpResponse};
 use std::io::Read;
 use std::time::Duration;
 
@@ -25,7 +25,7 @@ impl BoundedHttp {
             agent: ureq::AgentBuilder::new()
                 .redirects(0)
                 .timeout(TIMEOUT)
-                .user_agent("Loom-extension")
+                .user_agent("Loog-extension")
                 .build(),
         }
     }

@@ -25,11 +25,11 @@ The default destination is `target/debug`; pass `target/release` for `--release`
 or the executable's actual directory for custom targets/profiles. This copies
 the bundled syntax collections, syntax catalog and LSP server catalog together.
 It downloads nothing and leaves other installed collections in place. Cargo does
-not copy these resources itself. Restart Loom after staging either catalog.
+not copy these resources itself. Restart Loog after staging either catalog.
 
 `--offline` / `--frozen` require populated dependency and Cargo caches and never
 silently switch to network downloads. Formatting, Cargo informational commands,
-and tests selecting only loom-editor-core / loom-workspace-tests skip preparation.
+and tests selecting only loog-editor-core / loog-workspace-tests skip preparation.
 `--target` (including `--target=...`) and CARGO_BUILD_TARGET select Skia inputs.
 
 Use the same Node.js build entry point in PowerShell:

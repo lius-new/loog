@@ -1,5 +1,5 @@
-//! Paths passed on the command line: `Loom.exe <path>...`, the `loom` shell
-//! command and the installer's "Open with Loom" Explorer entries.
+//! Paths passed on the command line: `Loog.exe <path>...`, the `loog` shell
+//! command and the installer's "Open with Loog" Explorer entries.
 //!
 //! `main` records them once; the initial app state consumes them after the
 //! previous session has been restored (see `AppState::restored`).

@@ -195,7 +195,7 @@ pub fn go(state: &AppContext, place: Place, rect: UiRect, remember: bool) {
     let path = place.path.clone();
     let failed_path = path.clone();
     let spawned = std::thread::Builder::new()
-        .name("loom-goto-open".to_owned())
+        .name("loog-goto-open".to_owned())
         .spawn(move || {
             let read =
                 crate::infrastructure::document_filesystem::read_encoded(&path, None, MAX_FILE)

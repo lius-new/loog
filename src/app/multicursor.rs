@@ -1,7 +1,7 @@
 //! View-local selection commands share the editor's displayed-row map.
 use super::state::AppState;
 use lgui::prelude::UiRect;
-use loom_editor_core::text::{DisplayMap, Selection, TextBuffer};
+use loog_editor_core::text::{DisplayMap, Selection, TextBuffer};
 pub fn prepare(app: &mut AppState) {
     super::editor_vim::start_multi(app);
     super::language_ui::snippet_session::end(app);

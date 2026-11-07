@@ -69,7 +69,7 @@ pub struct EditorState {
     pub sash_drag: Option<crate::model::pane_layout::Sash>,
 
     /// Vim editing behaviour, when enabled in Settings.
-    pub vim: loom_editor_core::vim::Vim,
+    pub vim: loog_editor_core::vim::Vim,
 
     pub modifiers: KeyModifiers,
     pub drag: Option<DragSelection>,

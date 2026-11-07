@@ -40,7 +40,7 @@ pub fn open(ctx: &AppContext, place: Place) {
     };
     let state = ctx.clone();
     let result = std::thread::Builder::new()
-        .name("loom-peek-read".into())
+        .name("loog-peek-read".into())
         .spawn(move || {
             let text = std::fs::metadata(&place.path).and_then(|m| {
                 if m.len() > 16 * 1024 * 1024 {

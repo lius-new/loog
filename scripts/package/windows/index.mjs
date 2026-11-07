@@ -1,6 +1,6 @@
 import {prepareDependencies} from '../../dependencies/ensure.mjs';
 // Windows packaging: a per-user Inno Setup installer and a portable zip, both
-// carrying Loom.exe, the `loom` shell command and a managed MinGit runtime
+// carrying Loog.exe, the `loog` shell command and a managed MinGit runtime
 // under `runtime/git`.
 
 import fs from 'node:fs';
@@ -52,21 +52,21 @@ const MINGIT = {
 const APP_FILES = ['README.md', 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md'];
 
 /**
- * `bin\loom.cmd`, the command the installer's "Add to PATH" task exposes.
+ * `bin\loog.cmd`, the command the installer's "Add to PATH" task exposes.
  * `start` detaches the GUI process so the terminal returns immediately;
  * relative paths resolve against the terminal's directory.
  */
-const LOOM_CMD = [
+const LOOG_CMD = [
   '@echo off',
-  'rem Open Loom from a terminal: loom, loom ., loom <path>...',
-  'start "" "%~dp0..\\Loom.exe" %*',
+  'rem Open Loog from a terminal: loog, loog ., loog <path>...',
+  'start "" "%~dp0..\\Loog.exe" %*',
   '',
 ].join('\r\n');
 
 const innoDir = () => path.join(TOOLS_DIR, `innosetup-${INNO_SETUP.version}`);
 const minGitDir = () => path.join(TOOLS_DIR, `mingit-${MINGIT.version}`);
-const releaseExe = () => path.join(ROOT, 'target', 'release', 'Loom.exe');
-const stageDir = (version) => path.join(PLATFORM_DIR, 'stage', `Loom-${version}-${TARGET_NAME}`);
+const releaseExe = () => path.join(ROOT, 'target', 'release', 'Loog.exe');
+const stageDir = (version) => path.join(PLATFORM_DIR, 'stage', `Loog-${version}-${TARGET_NAME}`);
 
 function requireWindows() {
   if (process.platform !== 'win32') {
@@ -130,10 +130,10 @@ function iscc() {
   return executable;
 }
 
-/** Build the optimized Loom.exe. */
+/** Build the optimized Loog.exe. */
 export async function compile() {
   requireWindows();
-  step('Compiling Loom (release)');
+  step('Compiling Loog (release)');
   run('cargo', ['build', '--release', '--locked'], {env: (await prepareDependencies()).env});
 }
 
@@ -145,7 +145,7 @@ export function packageApp({ version }) {
   requireWindows();
   const exe = releaseExe();
   if (!fs.existsSync(exe)) {
-    fail('target/release/Loom.exe is missing. Run the `compile` step first.');
+    fail('target/release/Loog.exe is missing. Run the `compile` step first.');
   }
   if (!fs.existsSync(minGitDir())) {
     fail('MinGit is missing. Run the `setup` step first.');
@@ -155,9 +155,9 @@ export function packageApp({ version }) {
   step(`Staging ${path.relative(ROOT, stage)}`);
   fs.rmSync(path.join(PLATFORM_DIR, 'stage'), { recursive: true, force: true });
   fs.mkdirSync(path.join(stage, 'bin'), { recursive: true });
-  fs.copyFileSync(exe, path.join(stage, 'Loom.exe'));
+  fs.copyFileSync(exe, path.join(stage, 'Loog.exe'));
   stageBundled({ destination: path.join(stage, 'extensions') });
-  fs.writeFileSync(path.join(stage, 'bin', 'loom.cmd'), LOOM_CMD);
+  fs.writeFileSync(path.join(stage, 'bin', 'loog.cmd'), LOOG_CMD);
   for (const file of APP_FILES) {
     fs.copyFileSync(path.join(ROOT, file), path.join(stage, file));
   }
@@ -170,7 +170,7 @@ export function packageApp({ version }) {
 
   step('Creating portable zip');
   fs.mkdirSync(DIST_DIR, { recursive: true });
-  const archive = path.join(DIST_DIR, `Loom-${version}-${TARGET_NAME}-portable.zip`);
+  const archive = path.join(DIST_DIR, `Loog-${version}-${TARGET_NAME}-portable.zip`);
   createZip(stage, archive);
   info(path.relative(ROOT, archive));
 }
@@ -178,7 +178,7 @@ export function packageApp({ version }) {
 /**
  * Git is GPL-2.0: keep its license, upstream version, download URL and a
  * source pointer next to the binaries (see THIRD_PARTY_NOTICES.md). The
- * manifest is what Loom checks before trusting the managed runtime.
+ * manifest is what Loog checks before trusting the managed runtime.
  */
 function writeRuntimeMetadata(runtime) {
   fs.writeFileSync(path.join(runtime, 'VERSION'), `${MINGIT.version}\n`);
@@ -230,13 +230,13 @@ function smokeTestRuntime(runtime) {
 export function bundle({ version }) {
   requireWindows();
   const stage = stageDir(version);
-  if (!fs.existsSync(path.join(stage, 'Loom.exe'))) {
+  if (!fs.existsSync(path.join(stage, 'Loog.exe'))) {
     fail('The staged application is missing. Run the `package` step first.');
   }
 
   step('Building the installer');
   fs.mkdirSync(DIST_DIR, { recursive: true });
-  const prefix = `Loom-${version}-${TARGET_NAME}`;
+  const prefix = `Loog-${version}-${TARGET_NAME}`;
   run(iscc(), [
     '/Qp',
     `/DVersion=${version}`,

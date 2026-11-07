@@ -8,9 +8,9 @@ use super::state::AppState;
 use crate::domain::document::DocumentStamp;
 use crate::domain::identity::FileId;
 use crate::model::text::{Assoc, Edit, EditKind, Selection};
-use loom_extension_api::admission::{self, DocumentLoad, EditLimits};
-use loom_extension_api::edit::{ByteRange, TextEdit};
-use loom_extension_api::{ErrorKind, ExtensionError};
+use loog_extension_api::admission::{self, DocumentLoad, EditLimits};
+use loog_extension_api::edit::{ByteRange, TextEdit};
+use loog_extension_api::{ErrorKind, ExtensionError};
 use std::ops::Range;
 
 pub(super) fn next_transaction(app: &mut AppState) -> u64 {
@@ -149,14 +149,14 @@ pub fn commit(
                 text: new_text.clone(),
             })
             .collect();
-        loom_extension_api::edit::validate(&text, &wire)?;
+        loog_extension_api::edit::validate(&text, &wire)?;
         let edits = change
             .edits
             .iter()
             .map(|(range, new_text)| {
                 Edit::replace(
                     range.clone(),
-                    loom_editor_core::text::normalize_endings(new_text, ending),
+                    loog_editor_core::text::normalize_endings(new_text, ending),
                 )
             })
             .collect::<Vec<_>>();

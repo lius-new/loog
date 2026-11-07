@@ -1,6 +1,6 @@
 //! Exact saved-text equality with a bounded edit-journal proof. No hashes or
 //! strong source references are needed for the steady-state typing path.
-use loom_editor_core::text::TextBuffer;
+use loog_editor_core::text::TextBuffer;
 use std::{
     ops::Range,
     sync::{Arc, Weak},
@@ -144,8 +144,8 @@ fn difference(a: &[u8], b: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use crate::domain::dirty::DirtyCache;
-    use loom_editor_core::text::TextBuffer;
-    use loom_editor_core::text::{EditKind, EditorMut, Selection};
+    use loog_editor_core::text::TextBuffer;
+    use loog_editor_core::text::{EditKind, EditorMut, Selection};
     use std::{ops::Range, sync::Arc};
     fn edit(buffer: &mut TextBuffer, range: Range<usize>, text: &str) {
         let mut selection = Selection::caret(0);

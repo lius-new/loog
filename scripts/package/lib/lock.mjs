@@ -1,4 +1,4 @@
-// The extensions Loom ships come from the extensions repository: `extensions.lock`
+// The extensions Loog ships come from the extensions repository: `extensions.lock`
 // names each one's version and package with its SHA-256, and `index.snapshot.json` is
 // the signed index it was locked against, which the application falls back to when
 // the live index cannot be fetched.
@@ -26,8 +26,8 @@ export const REGISTRY_DIR = path.join(ROOT, 'assets/registry');
 export const LOCK_FILE = path.join(REGISTRY_DIR, 'extensions.lock');
 export const LOCKED_DIR = path.join(ROOT, '.packaging/locked');
 const SHIPPED = ['extensions.lock', 'index.snapshot.json', 'index.snapshot.json.sig'];
-/** The extensions Loom ships inside its installer. */
-export const BUNDLED = ['loom.theme.aura', 'loom.lang.json', 'loom.lang.markdown'];
+/** The extensions Loog ships inside its installer. */
+export const BUNDLED = ['loog.theme.aura', 'loog.lang.json', 'loog.lang.markdown'];
 const ID = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+$/;
 
 const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -53,20 +53,20 @@ async function download(url, size) {
 }
 
 /**
- * Download each locked package (the one for any platform: what Loom ships is data),
+ * Download each locked package (the one for any platform: what Loog ships is data),
  * check it against the lock, and unpack it into `destination/<id>`.
  */
 export async function fetchLocked({lock, destination, fetchBytes = download}) {
   fs.rmSync(destination, {recursive: true, force: true});
   fs.mkdirSync(destination, {recursive: true});
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-locked-'));
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'loog-locked-'));
   try {
     for (const extension of lock.extensions) {
       const artifact = extension.artifacts.find(candidate => candidate.platform === 'any');
       if (!artifact) throw new Error(`${extension.id} has no package for every platform; only such extensions can be bundled`);
       const bytes = await fetchBytes(artifact.url, artifact.size);
       if (bytes.length !== artifact.size || sha256(bytes) !== artifact.sha256) throw new Error(`${extension.id} ${extension.version}: the package does not match the lock`);
-      const archive = path.join(work, `${extension.id}.loomext`);
+      const archive = path.join(work, `${extension.id}.loogext`);
       fs.writeFileSync(archive, bytes);
       const names = execFileSync('tar', ['-tzf', archive], {encoding: 'utf8', maxBuffer: 64 * 1024 * 1024}).split(/\r?\n/).filter(Boolean);
       for (const name of names) {

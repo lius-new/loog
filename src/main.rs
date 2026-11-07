@@ -1,4 +1,4 @@
-//! Loom — a modular text editor port of the "Aura Code" mockup.
+//! Loog — a modular text editor port of the "Aura Code" mockup.
 //!
 //! Layer map:
 //!   app      — root component, layout & composition

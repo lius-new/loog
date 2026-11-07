@@ -68,5 +68,5 @@
   },
   "limits": "retained Rust/native cache estimates are leased; not process RSS or native transient allocation",
   "source_commit": "ea73b4093a0ae8bcf18318d726a4b1e6ca3270ac",
-  "workflow_run": "https://github.com/lius-new/loom/actions/runs/39954372874"
+  "workflow_run": "https://github.com/lius-new/loog/actions/runs/39954372874"
 }

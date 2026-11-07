@@ -85,7 +85,7 @@ impl SessionConsole {
             baseline: Vec::new(),
         };
         std::thread::Builder::new()
-            .name("loom-terminal-members".into())
+            .name("loog-terminal-members".into())
             .spawn(move || {
                 for (index, line) in BufReader::new(output)
                     .lines()
@@ -136,13 +136,13 @@ fn console_observer_path() -> Option<std::path::PathBuf> {
     use std::sync::OnceLock;
     static PATH: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
     PATH.get_or_init(|| {
-        let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/loom-console-probe.exe"));
+        let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/loog-console-probe.exe"));
         let digest = ring::digest::digest(&ring::digest::SHA256, bytes);
         let version = digest.as_ref()[..16]
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        let directory = std::env::temp_dir().join("loom-terminal-observers");
+        let directory = std::env::temp_dir().join("loog-terminal-observers");
         std::fs::create_dir_all(&directory).ok()?;
         let path = directory.join(format!("console-{version}.exe"));
         if std::fs::read(&path).ok().as_deref() == Some(bytes.as_slice()) {

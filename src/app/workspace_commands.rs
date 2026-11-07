@@ -221,7 +221,7 @@ pub(crate) fn dirty_test_file(
 #[cfg(test)]
 pub(crate) fn close_test_directory(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
-        "loom-close-{name}-{}-{}",
+        "loog-close-{name}-{}-{}",
         std::process::id(),
         crate::domain::document::content_hash(name)
     ));

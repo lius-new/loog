@@ -37,8 +37,8 @@ pub(crate) fn state_of(state: crate::features::extensions::lifecycle::State) -> 
 }
 
 /// How an extension says its service is doing.
-pub(crate) fn report_state(state: loom_extension_host::ServiceState) -> State {
-    use loom_extension_host::ServiceState as Reported;
+pub(crate) fn report_state(state: loog_extension_host::ServiceState) -> State {
+    use loog_extension_host::ServiceState as Reported;
     match state {
         Reported::Stopped => State::Stopped,
         Reported::Starting => State::Starting,
@@ -90,7 +90,7 @@ pub fn status(state: &AppContext, app: &AppState) -> Option<State> {
     language_services_menu::summary(&services(state, path.as_deref()), language.as_deref())
 }
 
-/// The short mark of a language: the one Loom knows it by, else made from its name.
+/// The short mark of a language: the one Loog knows it by, else made from its name.
 fn badge(language: &str) -> String {
     Registry::builtin()
         .languages()

@@ -105,8 +105,8 @@ reuse their trees. Over-budget regions retain host coloring. Large combined
 injections are split into bounded groups rather than parsed as an unbounded
 included-range list.
 
-Highlight query captures map into Loom's stable class names; capture indexes,
-LSP legend indexes and Loom class IDs are different namespaces. The query
+Highlight query captures map into Loog's stable class names; capture indexes,
+LSP legend indexes and Loog class IDs are different namespaces. The query
 adapter accepts an explicit predicate/capture subset and rejects unsupported
 directives. Within a highlight query, shorter ranges win; equal ranges use the
 later pattern. Follow `src/features/syntax/queries.rs` when changing that contract.
@@ -151,7 +151,7 @@ temporary allocations. Oversized input and failed resources fall back to text;
 tree eviction does not by itself invalidate retained display spans.
 
 Run the workspace rules and architecture checks as described in
-[Building Loom](../building.md). The independent
+[Building Loog](../building.md). The independent
 [extension validator](../../tools/ext-validate/README.md) exercises the production
 manifest rules, loader and query compilers with WASM fixtures and optional samples.
 

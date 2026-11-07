@@ -51,10 +51,10 @@ export function buildPlan(options) {
       ...['redundant_closure_call', 'collapsible_if', 'too_many_arguments', 'let_and_return', 'manual_div_ceil'].flatMap(name => ['-A', `clippy::${name}`])]);
     add('tests-native', 'cargo', ['test', ...locked, '--workspace', '--', '--nocapture']);
     add('tests-release', 'cargo', ['test', '--release', ...locked, '--workspace', '--', '--nocapture']);
-    add('release-app-build', 'cargo', ['build', '--release', ...locked, '--bin', 'Loom']);
+    add('release-app-build', 'cargo', ['build', '--release', ...locked, '--bin', 'Loog']);
   }
   if (options.isolated) add('tests-isolated', 'cargo', ['test', ...locked, '--workspace', '--', '--nocapture'], {isolated: true});
-  const exact = filter => ['test', '--release', ...locked, '-p', 'loom', '--bin', 'Loom', filter,
+  const exact = filter => ['test', '--release', ...locked, '-p', 'loog', '--bin', 'Loog', filter,
     '--', '--exact', '--ignored', '--nocapture', '--test-threads=1'];
   if (options.nativeSmoke) for (const smoke of NATIVE_SMOKES) add(smoke.id, 'cargo', exact(smoke.filter), {isolated: true, exact_filter: smoke.filter});
   for (const benchmark of options.benchmarks) for (let sample = 0; sample <= options.samples; sample++) {

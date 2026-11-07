@@ -2,7 +2,7 @@
 use super::{hints, view};
 use crate::ui::fonts;
 use lgui::prelude::UiRect;
-use loom_editor_core::text::{Assoc, DisplayMap, DisplayRow, Selection, TextBuffer};
+use loog_editor_core::text::{Assoc, DisplayMap, DisplayRow, Selection, TextBuffer};
 use std::{cell::RefCell, collections::VecDeque, ops::Range, sync::Arc};
 
 struct Cached {

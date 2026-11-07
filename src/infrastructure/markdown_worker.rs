@@ -220,7 +220,7 @@ impl Worker {
         });
         let task = shared.clone();
         let thread = thread::Builder::new()
-            .name("loom-markdown-parse".into())
+            .name("loog-markdown-parse".into())
             .spawn(move || run(task))
             .expect("could not start Markdown parser");
         Self {

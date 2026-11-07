@@ -190,7 +190,7 @@ mod tests {
     fn store(tag: &str) -> TrustStore {
         let store = TrustStore::default();
         store.attach(std::env::temp_dir().join(format!(
-            "loom-trust-prompt-{}-{tag}/roots.json",
+            "loog-trust-prompt-{}-{tag}/roots.json",
             std::process::id()
         )));
         store
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn each_open_folder_is_asked_about_in_turn_and_a_no_is_not_asked_again() {
-        let base = std::env::temp_dir().join(format!("loom-prompt-roots-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("loog-prompt-roots-{}", std::process::id()));
         let (one, two) = (base.join("one"), base.join("two"));
         std::fs::create_dir_all(&one).unwrap();
         std::fs::create_dir_all(&two).unwrap();
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn nothing_is_asked_before_the_stored_decisions_are_read() {
-        let base = std::env::temp_dir().join(format!("loom-prompt-early-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("loog-prompt-early-{}", std::process::id()));
         std::fs::create_dir_all(&base).unwrap();
         let trust = TrustStore::default();
         let mut app = AppState::new();
@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn declined_folders_are_noted_until_trusted_and_not_while_a_question_shows() {
-        let base = std::env::temp_dir().join(format!("loom-prompt-note-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("loog-prompt-note-{}", std::process::id()));
         let (one, two) = (base.join("one"), base.join("two"));
         std::fs::create_dir_all(&one).unwrap();
         std::fs::create_dir_all(&two).unwrap();
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn the_question_goes_away_when_its_folder_is_closed() {
-        let base = std::env::temp_dir().join(format!("loom-prompt-close-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("loog-prompt-close-{}", std::process::id()));
         std::fs::create_dir_all(&base).unwrap();
         let trust = store("close");
         let mut app = AppState::new();

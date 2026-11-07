@@ -67,7 +67,7 @@ pub struct Settings {
     pub git_tree_view: bool,
     #[serde(default)]
     pub vim: VimSettings,
-    /// Look for new Loom releases in packaged builds.
+    /// Look for new Loog releases in packaged builds.
     #[serde(default = "default_true")]
     pub check_for_updates: bool,
     #[serde(default)]
@@ -98,7 +98,7 @@ pub struct VimSettings {
     pub smart_case: bool,
 }
 
-impl From<VimSettings> for loom_editor_core::vim::Options {
+impl From<VimSettings> for loog_editor_core::vim::Options {
     fn from(settings: VimSettings) -> Self {
         Self {
             enabled: settings.enabled,
@@ -109,8 +109,8 @@ impl From<VimSettings> for loom_editor_core::vim::Options {
     }
 }
 
-impl From<loom_editor_core::vim::Options> for VimSettings {
-    fn from(options: loom_editor_core::vim::Options) -> Self {
+impl From<loog_editor_core::vim::Options> for VimSettings {
+    fn from(options: loog_editor_core::vim::Options) -> Self {
         Self {
             enabled: options.enabled,
             system_clipboard: options.system_clipboard,
@@ -163,7 +163,7 @@ pub struct LoadOutcome {
     pub errors: Vec<String>,
 }
 
-/// Settings a project's `.loom/settings.json` may override. Everything else
+/// Settings a project's `.loog/settings.json` may override. Everything else
 /// is a personal preference and only read from the user's file.
 pub const PROJECT_KEYS: &[&str] = &[
     "default_shell",
@@ -415,7 +415,7 @@ pub(crate) fn patch(text: &str, current: &Settings, new: &Settings) -> Option<St
 pub fn template() -> String {
     let defaults = serde_json::to_string_pretty(&Settings::default()).expect("settings serialize");
     let mut text = String::from(
-        "// Loom settings. Only values that differ from the defaults belong here;\n\
+        "// Loog settings. Only values that differ from the defaults belong here;\n\
          // the Settings page writes its changes to this file as well.\n\
          //\n\
          // Every setting with its default value:\n",

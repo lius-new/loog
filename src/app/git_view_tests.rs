@@ -34,9 +34,9 @@ mod panel_virtualization_tests {
             .collect::<Vec<_>>();
         let repository = RepositorySnapshot {
             id,
-            worktree_root: PathBuf::from("loom"),
-            git_dir: PathBuf::from("loom/.git"),
-            common_dir: PathBuf::from("loom/.git"),
+            worktree_root: PathBuf::from("loog"),
+            git_dir: PathBuf::from("loog/.git"),
+            common_dir: PathBuf::from("loog/.git"),
             head: crate::features::git::HeadState::Branch("main".into()),
             upstream: None,
             ahead: 0,
@@ -70,7 +70,7 @@ mod panel_virtualization_tests {
                 message: "WIP: search panel".into(),
             }]),
             worktrees: Arc::new(
-                [("loom", "main"), ("loom-search", "feature/search")]
+                [("loog", "main"), ("loog-search", "feature/search")]
                     .into_iter()
                     .map(|(path, branch)| WorktreeInfo {
                         path: path.into(),
@@ -101,7 +101,7 @@ mod panel_virtualization_tests {
         };
         let history = move |app: &mut AppState| {
             app.git.model.set_history(GitHistory {
-                repository: "loom".into(),
+                repository: "loog".into(),
                 head: None,
                 commits: Ok((0..40)
                     .map(|index| CommitSummary {
@@ -518,7 +518,7 @@ mod panel_virtualization_tests {
                         hovered,
                         false,
                         Default::default(),
-                        "loom".into(),
+                        "loog".into(),
                         binding.clone(),
                         store.clone().into(),
                         cx.focus_handle(UiId::new("git-label-editor")),
@@ -974,13 +974,13 @@ mod panel_virtualization_tests {
         assert!(state.get().git.ui.history_files_scroll > 0.0);
         assert_eq!(state.get().git.ui.history_summary_scroll, summary_scroll);
         assert_eq!(state.get().git.ui.details_scroll, 0.0);
-        crate::app::git::toggle_commit(&state, "loom".into(), "abc00001".into());
+        crate::app::git::toggle_commit(&state, "loog".into(), "abc00001".into());
         assert_eq!(state.get().git.ui.history_summary_scroll, 0.0);
         assert_eq!(state.get().git.ui.history_files_scroll, 0.0);
         for (tab, expected) in [
             ("Stashes", "WIP: search panel"),
             ("Tags", "v1.0.0"),
-            ("Worktrees", "loom-search"),
+            ("Worktrees", "loog-search"),
         ] {
             let target = named(&session, tab).unwrap_or_else(|| panic!("Missing tab {tab}"));
             click(&mut session, &view, viewport, center(target));
@@ -1204,7 +1204,7 @@ mod panel_virtualization_tests {
                     300.0,
                 ));
                 app.workspace
-                    .open_path("loom/main.rs".into(), "fn main() {}".into());
+                    .open_path("loog/main.rs".into(), "fn main() {}".into());
                 app
             }));
             let tabs = crate::app::terminal_binding::test_store(cx, Some(state.clone()), || {
@@ -1520,7 +1520,7 @@ mod panel_virtualization_tests {
         rect: UiRect,
         name: &str,
     ) {
-        let Some(directory) = std::env::var_os("LOOM_GIT_PREVIEW_DIR") else {
+        let Some(directory) = std::env::var_os("LOOG_GIT_PREVIEW_DIR") else {
             return;
         };
         use lgui::core::{PhysicalRect, UiScale};
@@ -3151,19 +3151,19 @@ mod branch_picker_tests {
                 let mut app = AppState::new();
                 let mut branches = sample();
                 let mut occupied = branch("fix/login", false, false, None);
-                occupied.worktree_path = Some(PathBuf::from("projects/loom-fix-login"));
+                occupied.worktree_path = Some(PathBuf::from("projects/loog-fix-login"));
                 branches.insert(2, occupied);
                 open_picker(&mut app, branches);
                 let picker = app.git.ui.branch_picker.as_mut().unwrap();
-                picker.repository = PathBuf::from("projects/loom");
-                picker.repository_name = "loom".into();
+                picker.repository = PathBuf::from("projects/loog");
+                picker.repository_name = "loog".into();
                 picker.anchor_x = 8.0;
                 picker.selected = 2;
                 if let BranchListing::Ready { worktrees, .. } = &mut picker.listing {
                     *worktrees = vec![
-                        worktree("projects/loom", "main"),
-                        worktree("projects/loom-fix-login", "fix/login"),
-                        worktree("projects/loom-fix-login-review", "fix/login"),
+                        worktree("projects/loog", "main"),
+                        worktree("projects/loog-fix-login", "fix/login"),
+                        worktree("projects/loog-fix-login-review", "fix/login"),
                     ]
                     .into();
                 }
@@ -3216,7 +3216,7 @@ mod branch_picker_tests {
         );
         assert!(rect.height() < ROW_H);
 
-        if let Some(path) = std::env::var_os("LOOM_BRANCH_PICKER_PREVIEW") {
+        if let Some(path) = std::env::var_os("LOOG_BRANCH_PICKER_PREVIEW") {
             use lgui::core::PhysicalRect;
             use lgui::icons::IconRegistration;
             use lgui::renderer::{FrameInfo, FrameReason};
@@ -3276,8 +3276,8 @@ mod branch_picker_tests {
         assert_eq!(
             app.git.ui.confirm.unwrap().action,
             GitConfirmAction::CreateWorktree {
-                repository: PathBuf::from("projects/loom"),
-                path: PathBuf::from("projects/loom-feature"),
+                repository: PathBuf::from("projects/loog"),
+                path: PathBuf::from("projects/loog-feature"),
                 checkout: Checkout::Switch("feature".into()),
             }
         );
@@ -3521,7 +3521,7 @@ mod confirm_tests {
             let exposed = Arc::new(Mutex::new(None::<AppContext>));
             let output = exposed.clone();
             let viewport = UiRect::new(0.0, 0.0, width, 420.0);
-            let destination = PathBuf::from(r"D:\Documents\cprojects\loom-feature-login");
+            let destination = PathBuf::from(r"D:\Documents\cprojects\loog-feature-login");
             let expected_path = crate::ui::display_path(&destination);
             let view: AppView = Arc::new(move |cx| {
                 let state = AppContext::detached(cx.state_with(|| {
@@ -3532,7 +3532,7 @@ mod confirm_tests {
                         confirm_label: "Create",
                         destructive: false,
                         action: GitConfirmAction::CreateWorktree {
-                            repository: PathBuf::from(r"D:\Documents\cprojects\loom"),
+                            repository: PathBuf::from(r"D:\Documents\cprojects\loog"),
                             path: destination.clone(),
                             checkout: Checkout::Switch("feature/login".into()),
                         },
@@ -3587,7 +3587,7 @@ mod confirm_tests {
             assert!(find("Create").layout_rect.right <= viewport.right);
 
             if width == 640.0
-                && let Some(path) = std::env::var_os("LOOM_WORKTREE_DIALOG_PREVIEW")
+                && let Some(path) = std::env::var_os("LOOG_WORKTREE_DIALOG_PREVIEW")
             {
                 use lgui::core::PhysicalRect;
                 use lgui::icons::IconRegistration;

@@ -1,4 +1,4 @@
-name: Prepare Loom build dependencies
+name: Prepare Loog build dependencies
 description: Verified private CMake and target-specific Skia, shared with local builds
 runs:
   using: composite

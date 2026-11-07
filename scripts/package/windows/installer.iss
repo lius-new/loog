@@ -1,14 +1,14 @@
-; Loom per-user installer, modelled on Zed's Inno Setup installer
+; Loog per-user installer, modelled on Zed's Inno Setup installer
 ; (crates/zed/resources/windows/zed.iss in zed-industries/zed).
 ;
 ; Built by `node scripts/package/package.mjs bundle`, which passes:
 ;   Version, VersionQuad, StageDir, OutputDir, OutputBase, AppIcon, Homepage
 ;
-; Installs into %LOCALAPPDATA%\Programs\Loom without elevation. User data
+; Installs into %LOCALAPPDATA%\Programs\Loog without elevation. User data
 ; (sessions, settings) is never removed.
 
-#define AppName "Loom"
-#define AppExeName "Loom.exe"
+#define AppName "Loog"
+#define AppExeName "Loog.exe"
 #define AppLogo AddBackslash(ExtractFileDir(AppIcon)) + "source\app-icon-transparent-256.png"
 
 [Setup]
@@ -50,7 +50,7 @@ OutputDir={#OutputDir}
 OutputBaseFilename={#OutputBase}
 Compression=lzma2
 SolidCompression=yes
-; Offer to close a running Loom before its files are replaced.
+; Offer to close a running Loog before its files are replaced.
 CloseApplications=yes
 RestartApplications=no
 ChangesEnvironment=yes
@@ -98,13 +98,13 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: start
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Registry]
-; "Open with Loom" for files.
+; "Open with Loog" for files.
 Root: HKCU; Subkey: "Software\Classes\*\shell\{#AppName}"; ValueType: none; Flags: deletekey; Tasks: not addcontextmenufiles
 Root: HKCU; Subkey: "Software\Classes\*\shell\{#AppName}"; ValueType: string; ValueName: ""; ValueData: "{cm:OpenWith,{#AppName}}"; Flags: uninsdeletekey; Tasks: addcontextmenufiles
 Root: HKCU; Subkey: "Software\Classes\*\shell\{#AppName}"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\{#AppExeName}"; Tasks: addcontextmenufiles
 Root: HKCU; Subkey: "Software\Classes\*\shell\{#AppName}\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: addcontextmenufiles
 
-; "Open with Loom" for folders, folder backgrounds and drives.
+; "Open with Loog" for folders, folder backgrounds and drives.
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\{#AppName}"; ValueType: none; Flags: deletekey; Tasks: not addcontextmenufolders
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\{#AppName}"; ValueType: string; ValueName: ""; ValueData: "{cm:OpenWith,{#AppName}}"; Flags: uninsdeletekey; Tasks: addcontextmenufolders
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\{#AppName}"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\{#AppExeName}"; Tasks: addcontextmenufolders
@@ -120,7 +120,7 @@ Root: HKCU; Subkey: "Software\Classes\Drive\shell\{#AppName}\command"; ValueType
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
-; Loom's in-app update runs Setup with /VERYSILENT /relaunch=1 after it quits.
+; Loog's in-app update runs Setup with /VERYSILENT /relaunch=1 after it quits.
 Filename: "{app}\{#AppExeName}"; Flags: nowait; Check: RelaunchRequested
 
 [Code]

@@ -84,11 +84,11 @@
       "63b9a9f6cbf351fb879544b11782faa057dd35a7f3d8a75c3c985625d577d49c"
     ],
     [
-      "loom/wit/loom-extension/deps/ui/world.wit",
+      "loog/wit/loog-extension/deps/ui/world.wit",
       "f74d711c7f00f683336f9d2d1c76c7fe98983df5c0fc6464fd9f54fe66f571cd"
     ],
     [
-      "loom/wit/loom-extension/world.wit",
+      "loog/wit/loog-extension/world.wit",
       "a957292624b87dc2ae1c3a9341db8dd85b2ab7995409a574871cfcea0e6ef5ff"
     ]
   ]

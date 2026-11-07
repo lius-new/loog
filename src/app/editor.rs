@@ -9,9 +9,9 @@ use crate::ui::fonts;
 use crate::ui::theme;
 use lgui::core::PointerButton;
 use lgui::prelude::UiRect;
-use loom_editor_core::commands::{self, Command};
-use loom_editor_core::normal;
-use loom_editor_core::vim;
+use loog_editor_core::commands::{self, Command};
+use loog_editor_core::normal;
+use loog_editor_core::vim;
 use std::ops::Range;
 const CURSOR_REVEAL_MARGIN: f32 = 12.0;
 pub fn drag_scrollbars(app: &mut AppState, rect: UiRect, pointer_x: f32, pointer_y: f32) -> bool {
@@ -332,7 +332,7 @@ pub(crate) fn apply_command(
 /// a boundary is drawn; a pointer left of the nearest boundary is over the
 /// character before it.
 fn pointer_word(
-    buffer: &loom_editor_core::text::TextBuffer,
+    buffer: &loog_editor_core::text::TextBuffer,
     nearest: usize,
     pointer_x: f32,
     caret_x: f32,
@@ -400,7 +400,7 @@ pub(crate) fn update_drag_selection(app: &mut AppState, rect: UiRect) {
                         projected::caret(
                             &buffer,
                             &projection,
-                            loom_editor_core::text::Selection::caret(cursor),
+                            loog_editor_core::text::Selection::caret(cursor),
                             left,
                             rect.top,
                             sx,
@@ -623,7 +623,7 @@ pub(crate) fn pointer_down(
             super::multicursor::prepare(app);
             if let Some(mut buffer) = app.workspace.active_editor_mut() {
                 let mut states = buffer.selections();
-                let mut primary = loom_editor_core::text::Selection::caret(cursor);
+                let mut primary = loog_editor_core::text::Selection::caret(cursor);
                 primary.wrap_affinity = affinity;
                 if rectangle {
                     buffer.set_selection(primary);
@@ -706,7 +706,7 @@ pub(crate) fn pointer_down(
                     projected::caret(
                         &buffer,
                         &projection,
-                        loom_editor_core::text::Selection::caret(cursor),
+                        loog_editor_core::text::Selection::caret(cursor),
                         code_left,
                         rect.top,
                         scroll_x,
@@ -755,7 +755,7 @@ mod pointer_word_tests {
 
     #[test]
     fn the_character_under_the_pointer_picks_the_word_not_the_nearest_boundary() {
-        let buffer = loom_editor_core::text::TextBuffer::new("ab cd\"");
+        let buffer = loog_editor_core::text::TextBuffer::new("ab cd\"");
         // The boundary after `cd` is at x = 40. A pointer left of it is over
         // `d`, however close it is to that boundary.
         assert_eq!(pointer_word(&buffer, 5, 38.0, 40.0), 3..5);

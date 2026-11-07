@@ -71,11 +71,11 @@ jobs:
           toolchain: 1.97.1
       - uses: ./.github/actions/cargo-cache
       - name: Test core without GUI build dependencies
-        run: cargo test --locked -p loom-editor-core
+        run: cargo test --locked -p loog-editor-core
       - name: Test workspace domain without GUI build dependencies
-        run: cargo test --locked -p loom-workspace-tests
+        run: cargo test --locked -p loog-workspace-tests
       - name: Test production Markdown rules without GUI build dependencies
-        run: cargo test --locked -p loom-markdown-tests
+        run: cargo test --locked -p loog-markdown-tests
   build:
     name: Test ${{ matrix.label }}
     needs: changes
@@ -112,9 +112,9 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets -- -D warnings -A clippy::redundant_closure_call -A clippy::collapsible_if -A clippy::too_many_arguments -A clippy::let_and_return -A clippy::manual_div_ceil
         if: runner.os == 'Linux'
       - name: Test extension host and authenticated AOT loader
-        run: cargo test --locked -p loom-extension-host --lib
+        run: cargo test --locked -p loog-extension-host --lib
       - name: Run tests
-        run: cargo test --locked -p loom
+        run: cargo test --locked -p loog
   result:
     name: CI result
     if: ${{ always() }}

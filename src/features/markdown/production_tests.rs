@@ -625,11 +625,11 @@ fn layout_publication_can_advance_without_dropping_same_parse_logical_input() {
 
 #[test]
 fn readme_style_html_header_becomes_centered_blocks_and_images() {
-    let source = "<p align=\"center\">\n  <img src=\"logo.png\" alt=\"Loom\" width=\"96\">\n</p>\n\n<h1 align=\"center\">Loom</h1>\n\n<p align=\"center\">\n  A <b>fast</b> editor.\n</p>\n\nPlain **text**.\n";
+    let source = "<p align=\"center\">\n  <img src=\"logo.png\" alt=\"Loog\" width=\"96\">\n</p>\n\n<h1 align=\"center\">Loog</h1>\n\n<p align=\"center\">\n  A <b>fast</b> editor.\n</p>\n\nPlain **text**.\n";
     let doc = parse(source);
     assert_eq!(
         doc.display_text,
-        "Loom\nLoom\nA fast editor.\nPlain text.\n"
+        "Loog\nLoog\nA fast editor.\nPlain text.\n"
     );
     let kinds = doc
         .nodes

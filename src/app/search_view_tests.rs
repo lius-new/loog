@@ -147,7 +147,7 @@ fn save_preview(
     height: f32,
     name: &str,
 ) {
-    let Some(directory) = std::env::var_os("LOOM_SEARCH_PREVIEW_DIR") else {
+    let Some(directory) = std::env::var_os("LOOG_SEARCH_PREVIEW_DIR") else {
         return;
     };
     let rgba = render_pixels(session, context, width, height);
@@ -320,7 +320,7 @@ fn search_panel_renders_bounded_rows_and_switches_drawer_at_normal_and_small_siz
             },
         )
         .unwrap();
-        if let Some(path) = std::env::var_os("LOOM_SEARCH_PREVIEW_DIR") {
+        if let Some(path) = std::env::var_os("LOOG_SEARCH_PREVIEW_DIR") {
             let mut rgba = surface.pixels().to_vec();
             for pixel in rgba.as_chunks_mut::<4>().0 {
                 pixel.swap(0, 2);
@@ -398,7 +398,7 @@ fn search_panel_renders_bounded_rows_and_switches_drawer_at_normal_and_small_siz
             assert!(state.get().search.ui.collapsed.is_empty());
             session.render_view(&view, viewport, UiScale::ONE);
 
-            if std::env::var_os("LOOM_SEARCH_PREVIEW_DIR").is_some() {
+            if std::env::var_os("LOOG_SEARCH_PREVIEW_DIR").is_some() {
                 state.update(|app| {
                         app.search.ui.query.set_text("search");
                         app.search.ui.case_sensitive = false;

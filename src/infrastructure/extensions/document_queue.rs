@@ -1,5 +1,5 @@
 //! A slow guest retains the latest document state, rather than a history of full texts.
-use loom_extension_host::{DocumentRef, DocumentView, Inbound};
+use loog_extension_host::{DocumentRef, DocumentView, Inbound};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Default)]
@@ -13,7 +13,7 @@ pub struct Queue {
     delivered: BTreeMap<u64, DocumentRef>,
     events: BTreeMap<u64, Inbound>,
     saved: BTreeMap<u64, (DocumentRef, std::sync::Arc<String>)>,
-    files: Vec<loom_extension_host::WorkspaceFileChange>,
+    files: Vec<loog_extension_host::WorkspaceFileChange>,
 }
 
 pub struct Batch {
@@ -22,7 +22,7 @@ pub struct Batch {
     pub closed: Vec<u64>,
     pub events: Vec<Inbound>,
     pub saved: Vec<(DocumentRef, std::sync::Arc<String>)>,
-    pub files: Vec<loom_extension_host::WorkspaceFileChange>,
+    pub files: Vec<loog_extension_host::WorkspaceFileChange>,
 }
 
 impl Queue {
@@ -44,7 +44,7 @@ impl Queue {
     pub fn saved(&mut self, reference: DocumentRef, text: std::sync::Arc<String>) {
         self.saved.insert(reference.document, (reference, text));
     }
-    pub fn files(&mut self, changes: Vec<loom_extension_host::WorkspaceFileChange>) {
+    pub fn files(&mut self, changes: Vec<loog_extension_host::WorkspaceFileChange>) {
         merge_files(&mut self.files, changes);
     }
 
@@ -149,10 +149,10 @@ impl Queue {
 }
 
 pub fn merge_files(
-    pending: &mut Vec<loom_extension_host::WorkspaceFileChange>,
-    changes: Vec<loom_extension_host::WorkspaceFileChange>,
+    pending: &mut Vec<loog_extension_host::WorkspaceFileChange>,
+    changes: Vec<loog_extension_host::WorkspaceFileChange>,
 ) {
-    use loom_extension_host::WorkspaceFileChange::Rescan;
+    use loog_extension_host::WorkspaceFileChange::Rescan;
     if matches!(pending.first(), Some(Rescan)) {
         return;
     }
@@ -169,7 +169,7 @@ pub fn merge_files(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use loom_extension_host::DocumentChange;
+    use loog_extension_host::DocumentChange;
     use std::sync::Arc;
     fn reference(lifecycle: u64, version: u64) -> DocumentRef {
         DocumentRef {
@@ -275,12 +275,12 @@ mod tests {
             [Inbound::DocumentClosed(_)]
         ));
         let changes = (0..1025)
-            .map(|i| loom_extension_host::WorkspaceFileChange::Created(i.to_string()))
+            .map(|i| loog_extension_host::WorkspaceFileChange::Created(i.to_string()))
             .collect();
         q.files(changes);
         assert!(matches!(
             &q.drain().files[..],
-            [loom_extension_host::WorkspaceFileChange::Rescan]
+            [loog_extension_host::WorkspaceFileChange::Rescan]
         ));
     }
 }

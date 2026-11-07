@@ -131,7 +131,7 @@ pub struct Notice {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Installed {
     pub enabled: bool,
-    /// It ships with Loom: it can be disabled but not uninstalled.
+    /// It ships with Loog: it can be disabled but not uninstalled.
     pub bundled: bool,
     /// Kept at this version: no update is offered.
     pub pinned: bool,

@@ -10,7 +10,7 @@ export function parseMeasurements(text, sample) {
   const rows = [], notices = [];
   const add = (scenario, metric, value, unit = 'ms', extra = {}) => rows.push({scenario, metric, value, unit, sample, ...extra});
   for (const line of text.split(/\r?\n/)) {
-    const marker = line.indexOf('LOOM_BASELINE ');
+    const marker = line.indexOf('LOOG_BASELINE ');
     if (marker >= 0) rows.push({...JSON.parse(line.slice(marker + 14)), sample});
     const terminal = line.indexOf('R7_TERMINAL_PERF ');
     if (terminal >= 0) {
@@ -19,7 +19,7 @@ export function parseMeasurements(text, sample) {
         sessions: record.sessions, iterations: record.iterations, nodes: record.nodes,
         viewport: record.viewport, scale: record.scale, screen: record.screen});
     }
-    if (line.includes('LOOM_BASELINE_STATUS')) notices.push(line.trim());
+    if (line.includes('LOOG_BASELINE_STATUS')) notices.push(line.trim());
     let match = /(\d+) MB: typing (\S+)\/char, paste 1 MB (\S+), undo (\S+), select-all indent (\S+), history ([\d.]+) MB/.exec(line);
     if (match) {
       ['typing_per_char', 'paste_1m', 'undo_paste', 'select_all_indent'].forEach((metric, i) => add(`ascii-${match[1]}m`, metric, duration(match[i + 2])));

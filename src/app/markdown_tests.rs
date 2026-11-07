@@ -280,7 +280,7 @@ fn current_buffer_reparses_and_old_publications_cannot_drive_new_events() {
         editor
             .replace_selection(
                 "# After\n\nnew body",
-                loom_editor_core::text::EditKind::Other,
+                loog_editor_core::text::EditKind::Other,
             )
             .unwrap();
     });
@@ -543,9 +543,9 @@ fn percentile(values: &mut [f64]) -> f64 {
 #[test]
 #[ignore = "writes reproducible production screenshots and performance evidence"]
 fn production_markdown_evidence() {
-    let output = std::env::var_os("LOOM_MARKDOWN_EVIDENCE_DIR")
+    let output = std::env::var_os("LOOG_MARKDOWN_EVIDENCE_DIR")
         .map(std::path::PathBuf::from)
-        .expect("set LOOM_MARKDOWN_EVIDENCE_DIR");
+        .expect("set LOOG_MARKDOWN_EVIDENCE_DIR");
     std::fs::create_dir_all(&output).unwrap();
     let rich = "# 通用 Markdown 预览\n\n中文无需空格即可自然换行。English **bold** *italic* e\u{301} 😀 [OpenAI](https://openai.com)。\n\n> 阅读界面与源码编辑共享同一份文本，视图各自保留位置。\n\n- [x] 文档与卡片复用\n- [ ] 下一项任务\n\n| Capability | 状态 |\n|:---|---:|\n| 逻辑复制 | 支持 |\n| 中文 / Emoji | 支持 |\n\n\x60\x60\x60rust\nfn main() {\n\tprintln!(\"Hello 中文 😀\");\n}\n\x60\x60\x60\n\n<pre>HTML outside the supported subset is displayed literally.</pre>\n";
     let mut visual = Reader::new(rich.into());
@@ -597,7 +597,7 @@ fn production_markdown_evidence() {
             editor
                 .replace_selection(
                     &format!("\n\n{marker}"),
-                    loom_editor_core::text::EditKind::Other,
+                    loog_editor_core::text::EditKind::Other,
                 )
                 .unwrap();
         });
@@ -699,7 +699,7 @@ fn copy_code_button_writes_complete_code_without_editing_source() {
 fn images_load_off_the_render_thread_and_the_view_updates_when_they_arrive() {
     // Relative to the package root, where tests run.
     let mut reader = Reader::new(
-        "![Loom](icons/source/app-icon-transparent-128.png)\n\nbody text after the image\n".into(),
+        "![Loog](icons/source/app-icon-transparent-128.png)\n\nbody text after the image\n".into(),
     );
     let latest = |reader: &Reader| {
         let view = reader.state.get().workspace.active().unwrap();
@@ -753,7 +753,7 @@ fn text_appears_while_image_loading_is_explicitly_blocked() {
         );
     });
     let mut reader = Reader::create_with_image_gate(
-        "![Loom](icons/source/app-icon-transparent-128.png)\n\nbody text after the image\n".into(),
+        "![Loog](icons/source/app-icon-transparent-128.png)\n\nbody text after the image\n".into(),
         false,
         Some(hook),
     );
@@ -907,13 +907,13 @@ fn visible_snippets_load_known_wasm_resources_and_unknown_languages_remain_plain
     let cancelled = std::sync::atomic::AtomicBool::new(false);
     assert!(
         highlighter
-            .highlight("unknown-loom-language", "literal", &cancelled)
+            .highlight("unknown-loog-language", "literal", &cancelled)
             .is_empty()
     );
     assert_eq!(packages.activity().wasm_loads, 0);
     let text = "{\"中文\": true, \"count\": 123}";
     let spans = highlighter.highlight("json", text, &cancelled);
-    if !root.join("loom.lang.json").is_dir() {
+    if !root.join("loog.lang.json").is_dir() {
         assert!(
             spans.is_empty(),
             "standalone host must fall back without language artifacts"

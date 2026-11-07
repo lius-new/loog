@@ -1837,7 +1837,7 @@ pub(crate) mod tests {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         loop {
             let root = std::env::temp_dir().join(format!(
-                "loom-git-test-{}-{}",
+                "loog-git-test-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
@@ -1872,8 +1872,8 @@ pub(crate) mod tests {
             &["init", "-b", "main"],
             &["config", "--local", "core.autocrlf", "false"],
             &["config", "--local", "core.eol", "lf"],
-            &["config", "--local", "user.name", "Loom Test"],
-            &["config", "--local", "user.email", "loom@example.invalid"],
+            &["config", "--local", "user.name", "Loog Test"],
+            &["config", "--local", "user.email", "loog@example.invalid"],
         ];
         for args in commands {
             backend
@@ -1980,7 +1980,7 @@ pub(crate) mod tests {
         );
         assert_eq!(
             backend.blame(&root, Path::new("tracked.txt")).unwrap()[0].author,
-            "Loom Test"
+            "Loog Test"
         );
         let _ = std::fs::remove_dir_all(root);
     }
@@ -2255,7 +2255,7 @@ X2
         let annotated = backend.tag_details(&root, "releases/v2.0").unwrap();
         assert_eq!(annotated.target, initial);
         let annotation = annotated.annotation.unwrap();
-        assert_eq!(annotation.tagger, "Loom Test");
+        assert_eq!(annotation.tagger, "Loog Test");
         assert!(!annotation.date.is_empty());
         assert_eq!(annotation.message, "Release two");
         assert_eq!(
@@ -2466,7 +2466,7 @@ X2
         backend.commit(&root, "initial", false, false).unwrap();
         // A remote-tracking ref without a reachable remote.
         backend
-            .add_remote(&root, "origin", "https://example.invalid/loom.git")
+            .add_remote(&root, "origin", "https://example.invalid/loog.git")
             .unwrap();
         backend
             .runner()

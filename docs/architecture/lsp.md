@@ -1,7 +1,7 @@
 # Language provider architecture
 
-Loom consumes typed language providers. Language clients and LSP protocol behavior
-are owned by extensions in [loom-extensions](https://github.com/lius-new/loom-extensions/tree/main/language-clients).
+Loog consumes typed language providers. Language clients and LSP protocol behavior
+are owned by extensions in [loog-extensions](https://github.com/lius-new/loog-extensions/tree/main/language-clients).
 The first migration covers Rust, Go, JavaScript and TypeScript. Its baseline,
 server omissions and measurements are recorded in
 [the migration record](extension-language-migration.md).
@@ -10,7 +10,7 @@ server omissions and measurements are recorded in
 
 | Layer | Responsibility |
 | --- | --- |
-| `wit/loom-extension/world.wit`, `wit/loom-extension/deps/ui/world.wit` | General document, provider, process, workspace, watch, timer and UI contracts; Rust bindings are independent of target language |
+| `wit/loog-extension/world.wit`, `wit/loog-extension/deps/ui/world.wit` | General document, provider, process, workspace, watch, timer and UI contracts; Rust bindings are independent of target language |
 | `crates/extension-host` | WASM isolation, typed results, bounded queues and owned resources |
 | `src/infrastructure/extensions` | Generic execution, framed streams, process-tree cleanup, watches and persisted trust |
 | `src/features/providers` | Request ownership, aggregation, cancellation, coordinate indexes and retained results |
@@ -62,8 +62,8 @@ Framing, backpressure and process-tree ownership are generic infrastructure.
 Protocol methods and server lifecycle policy stay in the client component.
 
 An extension reports how its service is doing (state, one line, the documents it is
-about) through `loom:service/status`; see
-[shared extension UI](shared-extension-ui.md#service-status-is-data-not-ui). Loom
+about) through `loog:service/status`; see
+[shared extension UI](shared-extension-ui.md#service-status-is-data-not-ui). Loog
 draws the status bar item and the panel below. Owner stop/failure withdraws its reports.
 
 `workspace::ShowLanguageServices` opens a panel that lists every installed extension

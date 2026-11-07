@@ -38,7 +38,7 @@ pub fn clone_repository(state: &AppContext) -> bool {
     });
     let clone_state = state.clone();
     thread::Builder::new()
-        .name("loom-git-clone".to_owned())
+        .name("loog-git-clone".to_owned())
         .spawn(move || {
             let result = crate::infrastructure::git::service().and_then(|service| {
                 service.clone_repository(

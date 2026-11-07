@@ -157,7 +157,7 @@ mod image_tests {
     #[test]
     fn png_jpeg_dimensions_and_failed_resource_refresh_are_bounded() {
         let directory = std::env::temp_dir().join(format!(
-            "loom-markdown-images-{}-{}",
+            "loog-markdown-images-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

@@ -2,10 +2,10 @@
 
 ## Required ownership boundary
 
-Loom provides reusable application capabilities. It MUST NOT contain an adapter,
+Loog provides reusable application capabilities. It MUST NOT contain an adapter,
 container declaration, shared key, presentation state, priority mapping, language
 selector or display text for a particular plugin or plugin family. Adding a plugin
-that uses an existing capability MUST NOT require changing or releasing Loom.
+that uses an existing capability MUST NOT require changing or releasing Loog.
 
 Plugins own their UI descriptions, shared keys, context membership, ordering,
 state interpretation, icons, colors, wording and animation requests. A private
@@ -23,7 +23,7 @@ regions inherit spacing from their native layout; plugin padding is explicit.
 
 ## General shared-region contract
 
-`loom:ui/shared@0.1.0` is independent of the original host ABI. An extension:
+`loog:ui/shared@0.1.0` is independent of the original host ABI. An extension:
 
 1. Creates its private candidate tree with the existing UI operations.
 2. Places the candidate root against a public native target with `tree.place`.
@@ -60,7 +60,7 @@ when their last owner leaves. Stale generations cannot replace newer candidates.
 ## Service status is data, not UI
 
 Language service status is not a shared region. An extension that runs a service
-reports it with `loom:service/status@0.1.0`: `publish(report)` and `withdraw(key)`,
+reports it with `loog:service/status@0.1.0`: `publish(report)` and `withdraw(key)`,
 where a report is a `key` naming one running session, a `state` (`stopped`, `starting`,
 `ready`, `working`, `error`), an optional one-line `detail` and optional `contexts`
 (document paths, spelled as in `DocumentRef.path`; none means every document it
@@ -80,7 +80,7 @@ those extensions are replaced by versions that report instead.
 
 ## Output is data, not UI
 
-An extension writes lines for the Output panel with `loom:log/output@0.1.0`:
+An extension writes lines for the Output panel with `loog:log/output@0.1.0`:
 `channel(key, name)` declares one of its channels, `append(key, level, text)` adds
 a line (`trace`, `debug`, `info`, `warn`, `error`) and `clear(key)` empties it. The
 application owns the panel, the channel list, the level filter and the words

@@ -1,9 +1,9 @@
 //! Link-compatibility fixtures (design §7.4, M0-12). Small hand-written
 //! components give each mismatch a deterministic, reproducible result.
-use loom_extension_api::ErrorKind;
-use loom_extension_host::{Limits, Runtime};
+use loog_extension_api::ErrorKind;
+use loog_extension_host::{Limits, Runtime};
 
-fn outcome(wat: &str) -> Result<(), loom_extension_api::ExtensionError> {
+fn outcome(wat: &str) -> Result<(), loog_extension_api::ExtensionError> {
     let runtime = Runtime::new().unwrap();
     let component = runtime.compile(wat.as_bytes())?;
     runtime
@@ -17,23 +17,23 @@ fn an_import_the_host_does_not_provide_is_refused_before_instantiation() {
     assert_eq!(error.kind, ErrorKind::UnsupportedApi, "{error}");
     assert!(error.message.contains("acme:other/thing@1.0.0"));
     assert!(
-        error.message.contains("loom:extension/host@0.1.0"),
+        error.message.contains("loog:extension/host@0.1.0"),
         "names what is available: {error}"
     );
 }
 
 #[test]
-fn a_newer_loom_host_interface_is_not_silently_stubbed() {
+fn a_newer_loog_host_interface_is_not_silently_stubbed() {
     let error =
-        outcome(r#"(component (import "loom:extension/host@0.2.0" (instance)))"#).unwrap_err();
+        outcome(r#"(component (import "loog:extension/host@0.2.0" (instance)))"#).unwrap_err();
     assert_eq!(error.kind, ErrorKind::UnsupportedApi, "{error}");
 }
 
 #[test]
 fn an_unknown_ui_tree_version_is_refused_independently_of_the_base_contract() {
-    let error = outcome(r#"(component (import "loom:ui/tree@0.2.0" (instance)))"#).unwrap_err();
+    let error = outcome(r#"(component (import "loog:ui/tree@0.2.0" (instance)))"#).unwrap_err();
     assert_eq!(error.kind, ErrorKind::UnsupportedApi);
-    assert!(error.message.contains("loom:ui/tree@0.1.0"));
+    assert!(error.message.contains("loog:ui/tree@0.1.0"));
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn a_component_without_the_guest_export_fails_to_link() {
 #[test]
 fn a_guest_export_of_another_contract_version_fails_to_link() {
     let error =
-        outcome(r#"(component (instance $i) (export "loom:extension/guest@0.2.0" (instance $i)))"#)
+        outcome(r#"(component (instance $i) (export "loog:extension/guest@0.2.0" (instance $i)))"#)
             .unwrap_err();
     assert_eq!(error.kind, ErrorKind::ExtensionFailed, "{error}");
 }
@@ -62,14 +62,14 @@ fn an_unused_wasi_import_is_allowed_but_stubbed_to_trap() {
 
 #[test]
 fn an_unknown_motion_version_is_refused_independently_of_base_and_tree() {
-    let error = outcome(r#"(component (import "loom:ui/motion@0.2.0" (instance)))"#).unwrap_err();
+    let error = outcome(r#"(component (import "loog:ui/motion@0.2.0" (instance)))"#).unwrap_err();
     assert_eq!(error.kind, ErrorKind::UnsupportedApi);
-    assert!(error.message.contains("loom:ui/motion@0.1.0"));
+    assert!(error.message.contains("loog:ui/motion@0.1.0"));
 }
 
 #[test]
 fn an_unknown_shared_ui_version_is_refused_independently() {
-    let error = outcome(r#"(component (import "loom:ui/shared@0.2.0" (instance)))"#).unwrap_err();
+    let error = outcome(r#"(component (import "loog:ui/shared@0.2.0" (instance)))"#).unwrap_err();
     assert_eq!(error.kind, ErrorKind::UnsupportedApi);
-    assert!(error.message.contains("loom:ui/shared@0.1.0"));
+    assert!(error.message.contains("loog:ui/shared@0.1.0"));
 }

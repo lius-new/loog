@@ -77,10 +77,10 @@ jobs:
             os: macos-15
             target: macos-universal
     env:
-      LOOM_MACOS_SIGN_IDENTITY: ${{ matrix.platform == 'macos' && secrets.MACOS_SIGN_IDENTITY || '' }}
-      LOOM_MACOS_NOTARY_APPLE_ID: ${{ matrix.platform == 'macos' && secrets.MACOS_NOTARY_APPLE_ID || '' }}
-      LOOM_MACOS_NOTARY_TEAM_ID: ${{ matrix.platform == 'macos' && secrets.MACOS_NOTARY_TEAM_ID || '' }}
-      LOOM_MACOS_NOTARY_PASSWORD: ${{ matrix.platform == 'macos' && secrets.MACOS_NOTARY_PASSWORD || '' }}
+      LOOG_MACOS_SIGN_IDENTITY: ${{ matrix.platform == 'macos' && secrets.MACOS_SIGN_IDENTITY || '' }}
+      LOOG_MACOS_NOTARY_APPLE_ID: ${{ matrix.platform == 'macos' && secrets.MACOS_NOTARY_APPLE_ID || '' }}
+      LOOG_MACOS_NOTARY_TEAM_ID: ${{ matrix.platform == 'macos' && secrets.MACOS_NOTARY_TEAM_ID || '' }}
+      LOOG_MACOS_NOTARY_PASSWORD: ${{ matrix.platform == 'macos' && secrets.MACOS_NOTARY_PASSWORD || '' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -105,15 +105,15 @@ jobs:
             echo "::notice::No Developer ID certificate configured; packages are ad-hoc signed."
             exit 0
           fi
-          keychain="$RUNNER_TEMP/loom-signing.keychain-db"
+          keychain="$RUNNER_TEMP/loog-signing.keychain-db"
           password="$(uuidgen)"
           security create-keychain -p "$password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$password" "$keychain"
-          printf '%s' "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/loom-signing.p12"
-          security import "$RUNNER_TEMP/loom-signing.p12" -k "$keychain" \
+          printf '%s' "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/loog-signing.p12"
+          security import "$RUNNER_TEMP/loog-signing.p12" -k "$keychain" \
             -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          rm -f "$RUNNER_TEMP/loom-signing.p12"
+          rm -f "$RUNNER_TEMP/loog-signing.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
         if: matrix.platform == 'macos'
@@ -130,18 +130,18 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
           RELEASE_SHA: ${{ needs.verify.outputs.sha }}
         run: node scripts/release/package.mjs
-      - name: Build loom-ext-validate
+      - name: Build loog-ext-validate
         shell: bash
         env:
           PLATFORM: ${{ matrix.platform }}
         run: |
           # The extensions repository runs this to check its packages with the
           # loaders and query compilers the application uses. macOS runners are arm64.
-          node scripts/build/cargo.mjs build --release --locked --manifest-path tools/ext-validate/Cargo.toml --bin loom-ext-validate
+          node scripts/build/cargo.mjs build --release --locked --manifest-path tools/ext-validate/Cargo.toml --bin loog-ext-validate
           case "$PLATFORM" in
-            windows) built=loom-ext-validate.exe; name=loom-ext-validate-windows-x86_64.exe ;;
-            linux) built=loom-ext-validate; name=loom-ext-validate-linux-x86_64 ;;
-            macos) built=loom-ext-validate; name=loom-ext-validate-macos-aarch64 ;;
+            windows) built=loog-ext-validate.exe; name=loog-ext-validate-windows-x86_64.exe ;;
+            linux) built=loog-ext-validate; name=loog-ext-validate-linux-x86_64 ;;
+            macos) built=loog-ext-validate; name=loog-ext-validate-macos-aarch64 ;;
           esac
           cp "tools/ext-validate/target/release/$built" ".packaging/dist/$name"
       - name: Smoke test staged Windows application
@@ -149,29 +149,29 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ needs.verify.outputs.version }}
-        run: node scripts/baseline/startup-smoke.mjs --executable ".packaging/windows/stage/Loom-$env:VERSION-windows-x86_64/Loom.exe" --output-directory "$env:RUNNER_TEMP/loom-release-smoke"
+        run: node scripts/baseline/startup-smoke.mjs --executable ".packaging/windows/stage/Loog-$env:VERSION-windows-x86_64/Loog.exe" --output-directory "$env:RUNNER_TEMP/loog-release-smoke"
       - name: Check the .deb installs
         env:
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          deb=".packaging/dist/Loom-$VERSION-linux-x86_64.deb"
+          deb=".packaging/dist/Loog-$VERSION-linux-x86_64.deb"
           dpkg-deb --info "$deb"
           dpkg-deb --contents "$deb"
           sudo apt-get install --yes --no-install-recommends "./$deb"
-          test -x /opt/loom/Loom
-          test "$(readlink -f /usr/bin/loom)" = /opt/loom/bin/loom
-          sudo apt-get remove --yes loom
-          test ! -e /opt/loom
+          test -x /opt/loog/Loog
+          test "$(readlink -f /usr/bin/loog)" = /opt/loog/bin/loog
+          sudo apt-get remove --yes loog
+          test ! -e /opt/loog
         if: matrix.platform == 'linux'
       - name: Check the .dmg
         env:
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          dmg=".packaging/dist/Loom-$VERSION-macos-universal.dmg"
+          dmg=".packaging/dist/Loog-$VERSION-macos-universal.dmg"
           hdiutil verify "$dmg"
           mount="$(mktemp -d)"
           hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg"
-          codesign --verify --deep --strict "$mount/Loom.app"
+          codesign --verify --deep --strict "$mount/Loog.app"
           test "$(readlink "$mount/Applications")" = /Applications
           hdiutil detach "$mount"
         if: matrix.platform == 'macos'
@@ -179,21 +179,21 @@ jobs:
         env:
           VERSION: ${{ needs.verify.outputs.version }}
           PLATFORM: ${{ matrix.platform }}
-          LOOM_UPDATE_SIGNING_KEY: ${{ secrets.LOOM_UPDATE_SIGNING_KEY }}
+          LOOG_UPDATE_SIGNING_KEY: ${{ secrets.LOOG_UPDATE_SIGNING_KEY }}
         run: node scripts/package/package.mjs manifest --platform "$PLATFORM" --expect-version "$VERSION"
         shell: bash
       - name: Upload verified platform artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: Loom-${{ needs.verify.outputs.version }}-${{ matrix.target }}
+          name: Loog-${{ needs.verify.outputs.version }}-${{ matrix.target }}
           path: |-
-            .packaging/dist/Loom-${{ needs.verify.outputs.version }}-${{ matrix.target }}*
+            .packaging/dist/Loog-${{ needs.verify.outputs.version }}-${{ matrix.target }}*
             .packaging/dist/update-${{ matrix.target }}.json
-            .packaging/dist/loom-ext-validate-*
+            .packaging/dist/loog-ext-validate-*
           if-no-files-found: error
       - name: Remove signing keychain
         if: ${{ always() && matrix.platform == 'macos' }}
-        run: security delete-keychain "$RUNNER_TEMP/loom-signing.keychain-db" 2>/dev/null || true
+        run: security delete-keychain "$RUNNER_TEMP/loog-signing.keychain-db" 2>/dev/null || true
   publish:
     name: Create draft and upload all platforms
     needs:
@@ -215,7 +215,7 @@ jobs:
       - name: Download this run’s platform artifacts
         uses: actions/download-artifact@v7
         with:
-          pattern: Loom-${{ needs.verify.outputs.version }}-*
+          pattern: Loog-${{ needs.verify.outputs.version }}-*
           path: dist
           merge-multiple: true
       - name: Verify complete assets, create draft and upload
@@ -223,5 +223,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.verify.outputs.version }}
           RELEASE_SHA: ${{ needs.verify.outputs.sha }}
-        run: node scripts/release/publish.mjs --publish-draft --version "$VERSION" --target "$RELEASE_SHA" --repo "$GITHUB_REPOSITORY" --assets dist --notes "$RUNNER_TEMP/loom-release-notes.md"
+        run: node scripts/release/publish.mjs --publish-draft --version "$VERSION" --target "$RELEASE_SHA" --repo "$GITHUB_REPOSITORY" --assets dist --notes "$RUNNER_TEMP/loog-release-notes.md"
     timeout-minutes: 25

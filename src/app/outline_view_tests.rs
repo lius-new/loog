@@ -171,13 +171,13 @@ fn switching_to_another_file_replaces_the_tree() {
     assert_eq!(names(&drawer), Vec::<String>::new());
 }
 
-/// Writes a picture of a varied tree when `LOOM_OUTLINE_PREVIEW_DIR` is set.
+/// Writes a picture of a varied tree when `LOOG_OUTLINE_PREVIEW_DIR` is set.
 #[test]
 fn outline_preview_picture() {
     use crate::features::outline::{Item, Kind, Outline};
     use crate::ui::outline::view::{Body, Commands, Frame};
     use lgui::renderer::{FrameInfo, FrameReason};
-    let Some(directory) = std::env::var_os("LOOM_OUTLINE_PREVIEW_DIR") else {
+    let Some(directory) = std::env::var_os("LOOG_OUTLINE_PREVIEW_DIR") else {
         return;
     };
     let item =

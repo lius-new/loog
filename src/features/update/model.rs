@@ -13,7 +13,7 @@ pub enum Phase {
         release: Release,
         received: u64,
     },
-    /// The installer is downloaded and verified; it runs once Loom quits.
+    /// The installer is downloaded and verified; it runs once Loog quits.
     Ready {
         release: Release,
         installer: PathBuf,
@@ -54,14 +54,14 @@ pub enum Stage {
     Available,
     /// The installer is downloading; the value is the percent received.
     Downloading(u8),
-    /// The installer is ready; clicking restarts Loom into it.
+    /// The installer is ready; clicking restarts Loog into it.
     Ready,
 }
 
 /// The Version row on the Settings page.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct About {
-    /// `Loom 0.1.0`, then the update status when there is one.
+    /// `Loog 0.1.0`, then the update status when there is one.
     pub detail: String,
     /// The link on the right; `None` in builds that do not update.
     pub action: Option<Badge>,
@@ -117,7 +117,7 @@ impl Model {
     }
 
     pub fn about(&self, current: &Version) -> About {
-        let version = format!("Loom {current}");
+        let version = format!("Loog {current}");
         if self.install.is_none() {
             return About {
                 detail: format!("{version} · Updates are off in this build"),
@@ -166,7 +166,7 @@ impl Model {
             Phase::Available(release) if self.installer(release).is_some() => {
                 (format!("Update to {}", release.version), true)
             }
-            Phase::Available(release) => (format!("Loom {} available", release.version), true),
+            Phase::Available(release) => (format!("Loog {} available", release.version), true),
             Phase::Downloading { release, received } => {
                 let total = self.installer(release).map_or(0, |asset| asset.size);
                 let percent = (*received * 100).checked_div(total).unwrap_or(0).min(100);
@@ -344,39 +344,39 @@ mod tests {
         let current = Version::parse("0.1.0").unwrap();
         let mut model = Model::default();
         let about = model.about(&current);
-        assert_eq!(about.detail, "Loom 0.1.0 · Updates are off in this build");
+        assert_eq!(about.detail, "Loog 0.1.0 · Updates are off in this build");
         assert_eq!(about.action, None);
         assert_eq!(model.click(), None, "builds without updates never check");
 
         model.set_install_kind(Some(InstallKind::WindowsPortable));
-        assert_eq!(model.about(&current).detail, "Loom 0.1.0");
+        assert_eq!(model.about(&current).detail, "Loog 0.1.0");
         assert_eq!(model.about(&current).action.unwrap().label, "Check now");
         assert_eq!(model.click(), Some(Intent::Check));
         assert_eq!(
             model.about(&current).detail,
-            "Loom 0.1.0 · Checking for updates…"
+            "Loog 0.1.0 · Checking for updates…"
         );
         assert_eq!(model.about(&current).action, None);
 
         model.finish_check(Err("offline".into()), &current);
         assert_eq!(
             model.about(&current).detail,
-            "Loom 0.1.0 · Could not check for updates"
+            "Loog 0.1.0 · Could not check for updates"
         );
         model.click();
         model.finish_check(Ok(release("0.1.0")), &current);
-        assert_eq!(model.about(&current).detail, "Loom 0.1.0 · Up to date");
+        assert_eq!(model.about(&current).detail, "Loog 0.1.0 · Up to date");
         model.click();
         model.finish_check(Ok(release("0.2.0")), &current);
         let about = model.about(&current);
-        assert_eq!(about.detail, "Loom 0.1.0 · 0.2.0 is available");
-        assert_eq!(about.action.unwrap().label, "Loom 0.2.0 available");
+        assert_eq!(about.detail, "Loog 0.1.0 · 0.2.0 is available");
+        assert_eq!(about.action.unwrap().label, "Loog 0.2.0 available");
     }
 
     #[test]
     fn other_installs_open_the_release_page() {
         let mut model = checked(InstallKind::LinuxDeb, "0.2.0");
-        assert_eq!(model.badge().unwrap().label, "Loom 0.2.0 available");
+        assert_eq!(model.badge().unwrap().label, "Loog 0.2.0 available");
         assert_eq!(
             model.click(),
             Some(Intent::OpenPage("https://example.com/notes".into()))

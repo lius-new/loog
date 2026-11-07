@@ -501,7 +501,7 @@ mod tests {
             app.workspace
                 .active_editor_mut()
                 .unwrap()
-                .replace_selection("unsaved ", loom_editor_core::text::EditKind::Typing)
+                .replace_selection("unsaved ", loog_editor_core::text::EditKind::Typing)
                 .unwrap();
             target = app
                 .workspace
@@ -898,7 +898,7 @@ mod tests {
         let pixels = surface.pixels().to_vec();
         let image = image::RgbaImage::from_raw(600, 216, pixels).unwrap();
         image
-            .save(std::env::var("LOOM_TAB_PREVIEW").expect("preview destination"))
+            .save(std::env::var("LOOG_TAB_PREVIEW").expect("preview destination"))
             .unwrap();
     }
     #[test]

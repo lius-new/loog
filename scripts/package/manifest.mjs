@@ -1,6 +1,6 @@
 // Signed update manifests.
 //
-// Each release carries one `update-<platform>.json` per platform. Loom reads
+// Each release carries one `update-<platform>.json` per platform. Loog reads
 // it from `releases/latest/download/`, verifies the Ed25519 signature with the
 // public key compiled into `src/infrastructure/update.rs` and offers the
 // release when it is newer than the running build.
@@ -13,8 +13,8 @@
 // size of every package, so a manifest cannot be replayed on another platform
 // and a package cannot be swapped without breaking the signature.
 //
-// The private key comes from LOOM_UPDATE_SIGNING_KEY (PKCS#8 PEM text) or
-// LOOM_UPDATE_SIGNING_KEY_FILE (a path to it). `keygen` creates a new pair.
+// The private key comes from LOOG_UPDATE_SIGNING_KEY (PKCS#8 PEM text) or
+// LOOG_UPDATE_SIGNING_KEY_FILE (a path to it). `keygen` creates a new pair.
 
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'node:crypto';
 import fs from 'node:fs';
@@ -22,7 +22,7 @@ import path from 'node:path';
 
 import { DIST_DIR, ROOT, WORK_DIR, cargoPackageField, fail, info, sha256File, step } from './lib/util.mjs';
 
-/** Packages per platform, keyed by the asset names Loom looks up. */
+/** Packages per platform, keyed by the asset names Loog looks up. */
 const ASSETS = {
   windows: { target: 'windows-x86_64', files: { setup: '-setup.exe', portable: '-portable.zip' } },
   linux: { target: 'linux-x86_64', files: { deb: '.deb', appimage: '.AppImage', tarball: '.tar.gz' } },
@@ -30,9 +30,9 @@ const ASSETS = {
 };
 
 function signingKey() {
-  const pem = process.env.LOOM_UPDATE_SIGNING_KEY?.trim()
-    || (process.env.LOOM_UPDATE_SIGNING_KEY_FILE
-      && fs.readFileSync(process.env.LOOM_UPDATE_SIGNING_KEY_FILE, 'utf8'));
+  const pem = process.env.LOOG_UPDATE_SIGNING_KEY?.trim()
+    || (process.env.LOOG_UPDATE_SIGNING_KEY_FILE
+      && fs.readFileSync(process.env.LOOG_UPDATE_SIGNING_KEY_FILE, 'utf8'));
   if (!pem) {
     return undefined;
   }
@@ -62,7 +62,7 @@ export function writeManifest({ platform, version, required }) {
   const key = signingKey();
   if (!key) {
     if (required) {
-      fail('Set LOOM_UPDATE_SIGNING_KEY or LOOM_UPDATE_SIGNING_KEY_FILE to sign the update manifest.');
+      fail('Set LOOG_UPDATE_SIGNING_KEY or LOOG_UPDATE_SIGNING_KEY_FILE to sign the update manifest.');
     }
     info('Skipped: no update signing key is set.');
     return;
@@ -70,7 +70,7 @@ export function writeManifest({ platform, version, required }) {
 
   const repository = cargoPackageField('repository').replace(/\/+$/, '');
   const tag = `v${version}`;
-  const prefix = `Loom-${version}-${spec.target}`;
+  const prefix = `Loog-${version}-${spec.target}`;
   const assets = {};
   for (const [name, suffix] of Object.entries(spec.files)) {
     const file = `${prefix}${suffix}`;
@@ -112,6 +112,6 @@ export function keygen() {
   fs.writeFileSync(file, privateKey.export({ format: 'pem', type: 'pkcs8' }), { mode: 0o600 });
   step('Created an update signing key');
   info(`Private key: ${path.relative(ROOT, file)}`);
-  info('Store it as the LOOM_UPDATE_SIGNING_KEY repository secret, keep a backup, then delete the file.');
+  info('Store it as the LOOG_UPDATE_SIGNING_KEY repository secret, keep a backup, then delete the file.');
   info(`Public key for src/infrastructure/update.rs: ${rawPublicKey(privateKey)}`);
 }

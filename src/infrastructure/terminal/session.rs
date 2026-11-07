@@ -254,7 +254,7 @@ impl TerminalController {
                 let reader_inner = Arc::downgrade(&self.inner);
                 let reader_application = application.clone();
                 thread::Builder::new()
-                    .name("loom-terminal-output".to_owned())
+                    .name("loog-terminal-output".to_owned())
                     .spawn(move || {
                         let mut bytes = [0_u8; 8 * 1024];
                         let mut directories =
@@ -623,7 +623,7 @@ impl Drop for TerminalInner {
 #[cfg(windows)]
 fn spawn_waiter(inner: Weak<TerminalInner>, generation: u64, application: FrameNotifier) {
     thread::Builder::new()
-        .name("loom-terminal-wait".to_owned())
+        .name("loog-terminal-wait".to_owned())
         .spawn(move || {
             loop {
                 let exit = update_current(&inner, generation, |inner| {
@@ -662,7 +662,7 @@ fn spawn_waiter(
     application: FrameNotifier,
 ) {
     thread::Builder::new()
-        .name("loom-terminal-wait".to_owned())
+        .name("loog-terminal-wait".to_owned())
         .spawn(move || {
             let status = child.wait();
             if update_current(&inner, generation, |inner| {

@@ -7,7 +7,7 @@ This directory contains a focused subset of SVG file icons from
 - License: MIT (see `LICENSE`)
 - Copyright: Material Extensions contributors
 
-The SVGs are embedded into the Loom binary and used only by its file tree.
+The SVGs are embedded into the Loog binary and used only by its file tree.
 `folder.svg` and `folder-open.svg` are generated from the upstream paths and
 default `#90a4ae` color defined by the same revision. The selection and
 filename matching table live in

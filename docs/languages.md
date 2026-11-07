@@ -1,6 +1,6 @@
 # Languages and syntax highlighting
 
-Every language Loom highlights comes from an extension. Loom itself contains the
+Every language Loog highlights comes from an extension. Loog itself contains the
 Tree-sitter engine (a generic WebAssembly runtime, incremental parsing, the
 background worker and its caches) and a small built-in highlighter for text no
 grammar covers; grammars, highlight queries and language descriptions are data
@@ -13,33 +13,33 @@ Implementation boundaries and highlighting contracts are in
 
 | Source | How it gets there |
 | --- | --- |
-| Bundled | `loom.lang.json` and `loom.lang.markdown` ship with Loom in `extensions/` beside the executable (`Loom.app/Contents/Resources/extensions/` on macOS). They can be disabled, not uninstalled. |
+| Bundled | `loog.lang.json` and `loog.lang.markdown` ship with Loog in `extensions/` beside the executable (`Loog.app/Contents/Resources/extensions/` on macOS). They can be disabled, not uninstalled. |
 | Registry | The signed extension index lists languages available in **Extensions → Browse**. For a file without syntax, the language panel offers the extension that adds it. |
-| Installed | A `.loomext` package that contributes highlighting (see below), installed from the Extensions page. |
+| Installed | A `.loogext` package that contributes highlighting (see below), installed from the Extensions page. |
 
-The user's extensions are in `%APPDATA%/Loom/extensions/` on Windows,
-`~/Library/Application Support/Loom/extensions/` on macOS and
-`$XDG_DATA_HOME/loom/extensions/` (otherwise `~/.local/share/loom/extensions/`) on
+The user's extensions are in `%APPDATA%/Loog/extensions/` on Windows,
+`~/Library/Application Support/Loog/extensions/` on macOS and
+`$XDG_DATA_HOME/loog/extensions/` (otherwise `~/.local/share/loog/extensions/`) on
 Linux. `XDG_DATA_HOME` must be absolute; locations never depend on the working
-directory. Grammars are read when Loom starts: install, remove, enable or disable
+directory. Grammars are read when Loog starts: install, remove, enable or disable
 an extension and restart, including languages installed from the registry.
 
 ## The highlight panel
 
 Click the language badge at the right end of the status bar, or run **Show
-Highlighting** (`workspace::ShowHighlighting`), to see what Loom can highlight.
+Highlighting** (`workspace::ShowHighlighting`), to see what Loog can highlight.
 The panel has four groups:
 
 | Group | What it lists |
 | --- | --- |
 | Active | The languages of the open files. |
-| All | Every language Loom has syntax for. |
+| All | Every language Loog has syntax for. |
 | Recommended | Languages not installed whose file types the open files have, each with an Install button. |
 | More | The other languages the registry offers, open each time and foldable; the field in its header filters them by name. |
 
 Active and All show only each language's short mark; hold the pointer over one
 and its name appears in the footer. Install downloads the extension in the
-background; languages are read when Loom starts, so a banner at the top says
+background; languages are read when Loog starts, so a banner at the top says
 which ones wait for a restart until then. Languages come from the cached or
 shipped registry index at once, and a newer index is fetched in the background.
 Esc closes the panel; a press outside it does too.
@@ -66,9 +66,9 @@ The folder that file is in is the pack: upstream `tree-sitter.json`, the grammar
 WebAssembly module and the query files it names. The path must stay inside the
 package after resolving links. The pack runs no code of its own. **Only
 WebAssembly grammars are accepted**: they run in a sandbox, so an extension cannot
-execute native code inside Loom.
+execute native code inside Loog.
 
-Loom reads the `grammars` array of `tree-sitter.json`. A grammar's `name` selects
+Loog reads the `grammars` array of `tree-sitter.json`. A grammar's `name` selects
 its `tree_sitter_<name>` entry point and uses lowercase ASCII letters, digits and
 underscores, starting with a letter. One file can declare several grammars
 (Markdown block and inline, TypeScript and TSX). `file-types` are filename suffixes
@@ -95,8 +95,8 @@ Highlighting is decided by the grammar's `highlights.scm`. You can add to it or
 replace it without touching the extension that owns the grammar.
 
 **Your own queries.** Put `<grammar>/highlights.scm` (or `injections.scm`) in your
-queries folder: `%APPDATA%/Loom/queries/` on Windows, `.../Loom/queries/` under
-Application Support on macOS, `$XDG_DATA_HOME/loom/queries/` on Linux. Saving the
+queries folder: `%APPDATA%/Loog/queries/` on Windows, `.../Loog/queries/` under
+Application Support on macOS, `$XDG_DATA_HOME/loog/queries/` on Linux. Saving the
 file is enough; open documents are coloured again at once.
 
 **Queries from an extension.** Declare them in the manifest, for any grammar:
@@ -169,21 +169,21 @@ referenced from `contributes.highlight` like a grammar pack's `tree-sitter.json`
 
 Its `name` must be a canonical name (lowercase letters, digits and underscores). A
 folder may hold a `tree-sitter.json` as well; the description in `language.json`
-then replaces the one Loom makes from the grammar, so a grammar pack can set its
+then replaces the one Loog makes from the grammar, so a grammar pack can set its
 own comment markers, badge and file rules. The older `package.json` pack format is
 no longer read.
 
 ## Installing from the registry
 
 Open **Extensions → Browse** to fetch the signed index, or use **Refresh** to fetch
-it again. A cached index or the snapshot shipped with Loom supplies the list while
+it again. A cached index or the snapshot shipped with Loog supplies the list while
 offline. Signatures, expiry and a monotonic sequence protect the index; an expired
 index offers no new installations or updates. Files do not trigger automatic
 grammar downloads. **Find an Extension for This File** opens matching extensions,
 and the language panel offers installation when the current index has a match.
 
 Choose **Install** or **Update**. When an extension needs capabilities such as
-running a language server, Loom first explains them and asks for acceptance.
+running a language server, Loog first explains them and asks for acceptance.
 Required runtime extensions are installed with it. Downloads must match the
 signed index's size and SHA-256; extraction rejects traversal, links, special
 files, duplicate paths and oversized payloads. Each package must have a single
@@ -193,7 +193,7 @@ Installed versions live in `extensions/<id>/<version>/` and
 `extensions/extensions.json` records their source, enabled state, pinned version
 and previous version. **Pin Version** excludes an extension from updates;
 **Go Back** selects its previous version and pins it. An installed runtime cannot
-be removed while another installed extension requires it. Restart Loom after
+be removed while another installed extension requires it. Restart Loog after
 installing or changing a language extension to use its syntax. Installing a
 language may also name recommended server extensions; those are installed
 separately from Browse.
@@ -231,11 +231,11 @@ node scripts/build/cargo.mjs run --locked
 ~~~
 
 The default directory is `target/debug`; pass another executable directory when
-needed. The bundled extensions (`loom.theme.aura`, `loom.lang.json`,
-`loom.lang.markdown`) are locked in `assets/registry/extensions.lock`, a generated,
+needed. The bundled extensions (`loog.theme.aura`, `loog.lang.json`,
+`loog.lang.markdown`) are locked in `assets/registry/extensions.lock`, a generated,
 git-ignored file that staging writes from the live signed index when it is missing.
 Staging fetches their packages from the independent
-[extensions repository](https://github.com/lius-new/loom-extensions) and checks
+[extensions repository](https://github.com/lius-new/loog-extensions) and checks
 their hashes. Packaging copies them to `extensions/` on every platform
 with `scripts/package/stage-extensions.mjs`, after
 checks that stop on a missing module, a native library standing in for a grammar,

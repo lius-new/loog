@@ -196,7 +196,7 @@ mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let directory = std::env::temp_dir().join(format!("loom-svg-{unique}"));
+        let directory = std::env::temp_dir().join(format!("loog-svg-{unique}"));
         std::fs::create_dir_all(&directory).unwrap();
         let path = directory.join("badge.svg");
         std::fs::write(

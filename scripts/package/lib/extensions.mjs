@@ -1,4 +1,4 @@
-// Stage the extensions that ship with Loom. Every folder in `source` (the locked
+// Stage the extensions that ship with Loog. Every folder in `source` (the locked
 // packages, unpacked) is a complete extension package: it is copied as it is, after checks that make a
 // broken or unsafe package stop packaging rather than ship. This module never
 // builds extension code.

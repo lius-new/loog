@@ -30,7 +30,7 @@ const PLAIN: &str = r#"{"name":"plaintext","display_name":"Plain Text","badge":"
 
 /// A grammar of a pack. Grammars are WebAssembly modules (they run in a sandbox,
 /// so a downloaded or extension-supplied language cannot execute native code
-/// inside Loom), found beside the pack's `tree-sitter.json`.
+/// inside Loog), found beside the pack's `tree-sitter.json`.
 #[derive(Clone)]
 struct Module {
     module: String,
@@ -745,7 +745,7 @@ pub(crate) fn queries_in(
 
 type Enabled = Vec<(PathBuf, crate::features::extensions::manifest::Manifest)>;
 
-/// The folders extensions are loaded from: the ones that ship with Loom, then the
+/// The folders extensions are loaded from: the ones that ship with Loog, then the
 /// version of each the user installed that is in use. What the user turned off
 /// is recorded in the user's folder, bundled extensions included.
 fn extension_folders() -> (Vec<PathBuf>, BTreeSet<String>) {
@@ -791,7 +791,7 @@ fn installed_language_identities() -> Vec<PathBuf> {
     found
 }
 
-/// Where the extensions that ship with Loom are kept: `extensions` beside the
+/// Where the extensions that ship with Loog are kept: `extensions` beside the
 /// executable (in the bundle's `Resources` on macOS). Tests use copies of them in
 /// `tests/fixtures/extensions`.
 pub(crate) fn bundled_extensions_directory() -> Option<PathBuf> {
@@ -822,7 +822,7 @@ fn packs_of(enabled: Enabled) -> Vec<PathBuf> {
 }
 
 /// The extension folders directly under `root`, which is where the ones that
-/// ship with Loom are (they have no version folder).
+/// ship with Loog are (they have no version folder).
 pub(crate) fn bundled_folders(root: &Path) -> Vec<PathBuf> {
     let Ok(entries) = fs::read_dir(root) else {
         return Vec::new();
@@ -961,7 +961,7 @@ pub(crate) fn bundled_directory(executable: &Path, name: &str) -> PathBuf {
     }
 }
 
-/// The directory `name` in Loom's per-user data location.
+/// The directory `name` in Loog's per-user data location.
 pub(crate) fn user_resource_directory(name: &str) -> Option<PathBuf> {
     user_resource_directory_from(std::env::consts::OS, |key| std::env::var_os(key), name)
 }
@@ -971,9 +971,9 @@ fn user_resource_directory_from(
     get: impl Fn(&str) -> Option<std::ffi::OsString>,
     name: &str,
 ) -> Option<PathBuf> {
-    // A development override: `loom-ext dev --to <dir>` stages extensions there.
+    // A development override: `loog-ext dev --to <dir>` stages extensions there.
     if name == "extensions"
-        && let Some(dir) = get("LOOM_EXTENSIONS_DIR")
+        && let Some(dir) = get("LOOG_EXTENSIONS_DIR")
             .map(PathBuf::from)
             .filter(|dir| dir.is_absolute())
     {
@@ -982,13 +982,13 @@ fn user_resource_directory_from(
     let home = || get("HOME").map(PathBuf::from);
     let base = match platform {
         "windows" => super::user_paths::windows_root(&get),
-        "macos" => home().map(|p| p.join("Library/Application Support/Loom")),
+        "macos" => home().map(|p| p.join("Library/Application Support/Loog")),
         _ => get("XDG_DATA_HOME")
             .filter(|p| !p.is_empty())
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
             .or_else(|| home().map(|p| p.join(".local/share")))
-            .map(|p| p.join("loom")),
+            .map(|p| p.join("loog")),
     };
     base.filter(|p| p.is_absolute()).map(|p| p.join(name))
 }
@@ -999,7 +999,7 @@ pub(crate) fn resources() -> Arc<Packages> {
         .get_or_init(|| {
             #[cfg(test)]
             {
-                let root = std::env::var_os("LOOM_TEST_LANGUAGE_PACKS");
+                let root = std::env::var_os("LOOG_TEST_LANGUAGE_PACKS");
                 let source = match root {
                     Some(path) => Packages::discover(Path::new(&path), None),
                     None => Packages::empty(),
@@ -1008,7 +1008,7 @@ pub(crate) fn resources() -> Arc<Packages> {
             }
             #[cfg(not(test))]
             {
-                // Grammars come from extensions: the ones that ship with Loom and
+                // Grammars come from extensions: the ones that ship with Loog and
                 // the ones installed. One added later is seen after a restart.
                 let mut source = Packages::from_directories(installed_extension_packs());
                 source.add_identity_files(installed_language_identities());

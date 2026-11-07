@@ -1,7 +1,7 @@
 # Independent workspace-domain verification
 
 ```sh
-cargo test --locked --offline -p loom-workspace-tests
+cargo test --locked --offline -p loog-workspace-tests
 ```
 
 This verification package compiles the actual `src/domain` sources with only

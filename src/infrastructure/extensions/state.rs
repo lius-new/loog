@@ -17,7 +17,7 @@ const FILE: &str = "extensions.json";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Source {
-    /// A `.loomext` file the user chose.
+    /// A `.loogext` file the user chose.
     File {
         sha256: String,
         file: Option<String>,
@@ -267,7 +267,7 @@ mod tests {
     }
 
     fn root(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("loom-state-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loog-state-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }
@@ -321,10 +321,10 @@ mod tests {
         record_install(&dir, "a.one", "1.0.0", file("a")).unwrap();
         record_install(&dir, "b.two", "2.0.0", file("b")).unwrap();
         set_enabled(&dir, "a.one", false).unwrap();
-        set_enabled(&dir, "loom.bundled", false).unwrap();
+        set_enabled(&dir, "loog.bundled", false).unwrap();
         assert_eq!(folders(&dir, true), [version_dir(&dir, "b.two", "2.0.0")]);
         assert_eq!(folders(&dir, false).len(), 2);
-        assert!(disabled(&dir).contains("loom.bundled"));
+        assert!(disabled(&dir).contains("loog.bundled"));
         assert_eq!(
             installed_id(&dir, &version_dir(&dir, "a.one", "1.0.0")).as_deref(),
             Some("a.one")

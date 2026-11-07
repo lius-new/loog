@@ -2,14 +2,14 @@
 //!
 //! `index.json` and its detached signature `index.json.sig` are published as assets
 //! of the `registry` release of the extensions repository. The signature covers the
-//! exact bytes of the index and names the key that made it; Loom carries the public
+//! exact bytes of the index and names the key that made it; Loog carries the public
 //! keys it trusts, each with a key id, so a key can be replaced by a new release of
-//! Loom without breaking older ones. The index is verified before it is parsed, and
+//! Loog without breaking older ones. The index is verified before it is parsed, and
 //! again each time it is read back from the cache.
 //!
 //! An index with a lower `sequence` than one already seen is refused (a replay of
 //! a superseded file). An index past its `expires` time is still read, but marked
-//! expired: Loom then offers nothing new, and what is installed keeps working.
+//! expired: Loog then offers nothing new, and what is installed keeps working.
 use crate::features::extensions::registry::{Artifact, Index, check_sequence};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -21,11 +21,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 /// Where the index and its signature are published.
-pub const BASE: &str = "https://github.com/lius-new/loom-extensions/releases/download/registry";
+pub const BASE: &str = "https://github.com/lius-new/loog-extensions/releases/download/registry";
 
 /// The index public keys this build trusts: `(key id, raw Ed25519 key in base64)`.
-/// `loom-ext keygen` in the extensions repository makes a pair; the private key is
-/// that repository's `LOOM_INDEX_KEY` secret. A key being retired stays listed until
+/// `loog-ext keygen` in the extensions repository makes a pair; the private key is
+/// that repository's `LOOG_INDEX_KEY` secret. A key being retired stays listed until
 /// no published index is signed with it.
 pub const KEYS: &[(&str, &str)] = &[(
     "index-2026-1",
@@ -68,7 +68,7 @@ pub enum Origin {
     Live,
     /// Read from the cache because the server could not be reached or its answer was refused.
     Cached,
-    /// The index this copy of Loom shipped with, because nothing newer was available.
+    /// The index this copy of Loog shipped with, because nothing newer was available.
     Snapshot,
 }
 
@@ -213,7 +213,7 @@ fn refresh(
         Fetched::NotModified => {
             let mut cached =
                 cached.ok_or("the server reported no change, but nothing is cached")?;
-            // A cache older than what shipped with Loom is not "current".
+            // A cache older than what shipped with Loog is not "current".
             check_sequence(floor, &cached.index)?;
             meta.checked = now;
             let _ = write_atomic(
@@ -264,7 +264,7 @@ fn refresh(
     }
 }
 
-/// The index this copy of Loom shipped with: `index.snapshot.json` and its signature
+/// The index this copy of Loog shipped with: `index.snapshot.json` and its signature
 /// in `dir`, checked like any other index. `None` when there is none, or it does not verify.
 pub fn load_snapshot(dir: &Path, keys: &[(&str, &str)], now: i64) -> Option<Loaded> {
     let index = read_limited(&dir.join(SNAPSHOT_FILE), MAX_INDEX)?;
@@ -313,7 +313,7 @@ pub fn current(
     }
 }
 
-/// The extensions this copy of Loom ships, as `loom-ext lock` wrote them.
+/// The extensions this copy of Loog ships, as `loog-ext lock` wrote them.
 #[derive(Debug, Deserialize)]
 pub struct Lock {
     pub schema: u32,
@@ -417,7 +417,7 @@ pub fn http(url: &str, conditions: &Conditions, limit: u64) -> Result<Fetched, S
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(15))
         .timeout_read(Duration::from_secs(60))
-        .user_agent(concat!("Loom/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Loog/", env!("CARGO_PKG_VERSION")))
         .try_proxy_from_env(!is_loopback(url))
         .https_only(!is_loopback(url))
         .build();
@@ -478,9 +478,9 @@ mod tests {
         format!(
             r#"{{ "schema": 1, "generated": "2026-11-01T00:00:00.000Z", "expires": "{expires}",
                 "sequence": {sequence}, "keyId": "{key_id}",
-                "extensions": [{{ "id": "loom.lang.rust", "name": "Rust", "versions": [
+                "extensions": [{{ "id": "loog.lang.rust", "name": "Rust", "versions": [
                   {{ "version": "1.0.0", "artifacts": [
-                    {{ "platform": "any", "url": "https://x/r.loomext", "sha256": "{}", "size": 3 }}] }}] }}] }}"#,
+                    {{ "platform": "any", "url": "https://x/r.loogext", "sha256": "{}", "size": 3 }}] }}] }}] }}"#,
             "b".repeat(64)
         )
     }
@@ -498,7 +498,7 @@ mod tests {
     const LATER: &str = "2026-12-01T00:00:00.000Z";
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("loom-registry-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loog-registry-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }
@@ -570,7 +570,7 @@ mod tests {
                 .unwrap_err()
                 .contains("does not match")
         );
-        // A key Loom does not know, another algorithm, a signature that is not one.
+        // A key Loog does not know, another algorithm, a signature that is not one.
         let unknown = sign(&signer, "k2", text.as_bytes());
         assert!(
             verify(text.as_bytes(), &unknown, &keys)
@@ -793,8 +793,8 @@ mod tests {
         let good = serde_json::json!({
             "schema": 1,
             "index": { "sequence": 2, "keyId": "k1", "sha256": super::super::package::sha256(text.as_bytes()) },
-            "extensions": [{ "id": "loom.lang.rust", "version": "1.0.0", "artifacts": [
-                { "platform": "any", "url": "https://x/r.loomext", "sha256": "b".repeat(64), "size": 3 }] }],
+            "extensions": [{ "id": "loog.lang.rust", "version": "1.0.0", "artifacts": [
+                { "platform": "any", "url": "https://x/r.loogext", "sha256": "b".repeat(64), "size": 3 }] }],
         });
         let write =
             |lock: &serde_json::Value| fs::write(dir.join(LOCK_FILE), lock.to_string()).unwrap();
@@ -802,7 +802,7 @@ mod tests {
         let lock = load_lock(&dir, &keys).unwrap();
         assert_eq!(
             (lock.index.sequence, lock.extensions[0].id.as_str()),
-            (2, "loom.lang.rust")
+            (2, "loog.lang.rust")
         );
 
         for (path, value, expected) in [
@@ -824,7 +824,7 @@ mod tests {
             ),
             (
                 "/extensions/0/id",
-                serde_json::json!("loom.lang.zig"),
+                serde_json::json!("loog.lang.zig"),
                 "not in the snapshot",
             ),
             ("/schema", serde_json::json!(2), "unsupported schema"),
@@ -849,7 +849,7 @@ mod tests {
     /// What ships in assets/registry is a lock and snapshot that belong together,
     /// signed by a key this build trusts.
     #[test]
-    fn the_lock_and_snapshot_that_ship_with_loom_belong_together() {
+    fn the_lock_and_snapshot_that_ship_with_loog_belong_together() {
         let Some(dir) = shipped_dir().filter(|dir| dir.join(LOCK_FILE).is_file()) else {
             return;
         };

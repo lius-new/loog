@@ -225,11 +225,11 @@ mod tests {
 
     #[test]
     fn single_workspace_uses_folder_name_and_full_path() {
-        let path = PathBuf::from("projects/loom");
+        let path = PathBuf::from("projects/loog");
         let (title, detail) = workspace_identity(&[path]);
 
-        assert_eq!(title, "loom");
-        assert!(detail.ends_with("projects/loom") || detail.ends_with(r"projects\loom"));
+        assert_eq!(title, "loog");
+        assert!(detail.ends_with("projects/loog") || detail.ends_with(r"projects\loog"));
     }
 
     #[test]

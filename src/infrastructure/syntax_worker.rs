@@ -23,7 +23,7 @@ use std::{
 
 const WINDOW_BUDGET: usize = 4 * 1024 * 1024;
 
-/// The engine Loom ships: Tree-sitter, driven by the grammars extensions supply.
+/// The engine Loog ships: Tree-sitter, driven by the grammars extensions supply.
 fn tree_sitter_engine(resources: Arc<dyn Resources>) -> Box<dyn SpanProvider> {
     Box::new(TreeIndex::new(resources))
 }
@@ -260,7 +260,7 @@ impl Worker {
         resources.subscribe(changed.clone());
         let background = shared.clone();
         thread::Builder::new()
-            .name("loom-syntax".into())
+            .name("loog-syntax".into())
             .spawn(move || {
                 let mut trees = engine(resources);
                 loop {
@@ -712,7 +712,7 @@ mod tests {
     use super::*;
     use crate::domain::language;
     use crate::features::highlighting::HighlightId;
-    use loom_editor_core::text::TextBuffer;
+    use loog_editor_core::text::TextBuffer;
     use std::sync::atomic::AtomicUsize;
 
     #[test]

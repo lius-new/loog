@@ -22,7 +22,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use std::collections::{BTreeMap, BTreeSet};
 
-const LOOM: &str = env!("CARGO_PKG_VERSION");
+const LOOG: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Default)]
 pub(super) struct State {
@@ -286,7 +286,7 @@ impl ExtensionHost {
         let mut known = BTreeSet::new();
         for package in self.inner.service.lock().unwrap().packages() {
             known.insert(package.manifest.id.clone());
-            // What ships with Loom is updated with Loom.
+            // What ships with Loog is updated with Loog.
             if !package.is_bundled() {
                 installed.insert(
                     package.manifest.id.clone(),
@@ -301,7 +301,7 @@ impl ExtensionHost {
                 );
             }
         }
-        for (id, _, to) in updates(&loaded.index, &installed, LOOM, platform) {
+        for (id, _, to) in updates(&loaded.index, &installed, LOOG, platform) {
             let Some(entry) = frame.installed.iter_mut().find(|entry| entry.id == id) else {
                 continue;
             };
@@ -326,7 +326,7 @@ impl ExtensionHost {
             if known.contains(&entry.id) {
                 continue;
             }
-            if let Some((version, _)) = entry.best_for(LOOM, platform) {
+            if let Some((version, _)) = entry.best_for(LOOG, platform) {
                 let preview = previews
                     .entry(entry.id.clone())
                     .or_insert_with(|| preview(entry, &preview_base.join(&entry.id)))
@@ -363,7 +363,7 @@ impl ExtensionHost {
         let inner = self.inner.clone();
         let context = context.clone();
         let started = std::thread::Builder::new()
-            .name("loom-registry".into())
+            .name("loog-registry".into())
             .spawn({
                 let inner = inner.clone();
                 move || {
@@ -430,7 +430,7 @@ impl ExtensionHost {
                         .collect(),
                     installed: service.package(&entry.id).is_some(),
                     installable: platform
-                        .is_some_and(|platform| entry.best_for(LOOM, platform).is_some()),
+                        .is_some_and(|platform| entry.best_for(LOOG, platform).is_some()),
                     installing: state.installing.contains(&entry.id),
                 })
                 .collect(),
@@ -460,7 +460,7 @@ impl ExtensionHost {
                         languages: info.languages.clone(),
                         installed: service.package(&entry.id).is_some(),
                         installable: platform
-                            .is_some_and(|platform| entry.best_for(LOOM, platform).is_some()),
+                            .is_some_and(|platform| entry.best_for(LOOG, platform).is_some()),
                         installing: state.installing.contains(&entry.id),
                     })
                 })
@@ -560,7 +560,7 @@ impl ExtensionHost {
                 &loaded.index,
                 &install::installed(&root),
                 id,
-                LOOM,
+                LOOG,
                 platform,
             )
         };
@@ -582,10 +582,10 @@ impl ExtensionHost {
         let context = context.clone();
         let planned = ids.clone();
         let spawned = std::thread::Builder::new()
-            .name("loom-extension-install".into())
+            .name("loog-extension-install".into())
             .spawn(move || {
                 let ids = planned;
-                let result = install::install(&root, &steps, LOOM, &install::download);
+                let result = install::install(&root, &steps, LOOG, &install::download);
                 let application = inner.application.clone();
                 application.post(move || {
                     context.update(|app| {
@@ -657,7 +657,7 @@ impl ExtensionHost {
                 String::new()
             },
             if done.iter().any(|imported| imported.needs_restart) {
-                " (restart Loom to use its language)"
+                " (restart Loog to use its language)"
             } else {
                 ""
             },
@@ -719,7 +719,7 @@ mod tests {
                 r##"{{ "schema": 1, "generated": "2026-11-01T00:00:00.000Z",
                   "expires": "2026-12-01T00:00:00.000Z", "sequence": 1, "keyId": "k",
                   "extensions": [
-                    {{ "id": "loom.lang.go", "name": "Go Language",
+                    {{ "id": "loog.lang.go", "name": "Go Language",
                        "icon": {{ "format": "svg", "data": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\"/></svg>" }},
                        "readme": "# Go", "changelog": "First release",
                        "versions": [{{ "version": "1.0.0", "artifacts": [
@@ -760,10 +760,10 @@ mod tests {
         assert!(asks(&version(&["documents.read", "events", "settings"], &[])).is_empty());
         let asked = asks(&version(
             &["process.execute-local", "events"],
-            &["loom.runtime.node@^22"],
+            &["loog.runtime.node@^22"],
         ));
         assert_eq!(asked.len(), 2);
         assert!(asked[0].contains("Run programs"));
-        assert!(asked[1].contains("loom.runtime.node@^22"));
+        assert!(asked[1].contains("loog.runtime.node@^22"));
     }
 }

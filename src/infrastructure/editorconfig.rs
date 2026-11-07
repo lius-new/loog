@@ -1,5 +1,5 @@
 //! EditorConfig is read during file preparation, away from input and paint.
-use loom_editor_core::text::{FileOptions, LineEnding};
+use loog_editor_core::text::{FileOptions, LineEnding};
 use std::{collections::BTreeMap, path::Path};
 
 pub fn load(path: &Path) -> FileOptions {

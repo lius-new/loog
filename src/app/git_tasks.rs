@@ -96,7 +96,7 @@ impl GitTasks {
         });
         let tasks = self.clone();
         let spawned = self.executor.spawn(
-            format!("loom-git-{kind:?}").to_ascii_lowercase(),
+            format!("loog-git-{kind:?}").to_ascii_lowercase(),
             Box::new(move || {
                 let result = work();
                 let disk_updates = if result.is_ok() {

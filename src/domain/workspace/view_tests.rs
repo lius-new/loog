@@ -4,7 +4,7 @@ use crate::domain::identity::{FileId, ViewId};
 use crate::domain::pane_layout::Direction;
 use crate::domain::view::{Presentation, ReaderPosition, ViewTarget};
 use crate::domain::workspace::{AppPage, OpenMode, PreparedTextFile, Workspace};
-use loom_editor_core::normal;
+use loog_editor_core::normal;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -315,7 +315,7 @@ fn markdown_preview_associations_do_not_outlive_their_source_surface() {
 
 #[test]
 fn multicursor_split_selections_follow_shared_edits_and_hidden_reload_clamps_them() {
-    use loom_editor_core::text::Selection;
+    use loog_editor_core::text::Selection;
     let mut w = Model::new();
     let left = w.active_pane();
     let (document, original) = open(&mut w, "multi.md", "abc\r\nxyz");
@@ -379,7 +379,7 @@ fn multicursor_split_selections_follow_shared_edits_and_hidden_reload_clamps_the
 
 #[test]
 fn multicursor_document_edits_record_the_active_source_view_selection() {
-    use loom_editor_core::text::{Assoc, Edit, EditKind, Selection};
+    use loog_editor_core::text::{Assoc, Edit, EditKind, Selection};
     let mut w = Model::new();
     let left = w.active_pane();
     let (document, _) = open(&mut w, "active.md", "abc\nxyz");

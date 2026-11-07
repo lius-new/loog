@@ -1,7 +1,7 @@
 use super::TokenSpan;
 use super::presentation::{MAX_EDITS, MAX_REVISIONS, MAX_SPANS, Refused, project_window};
 use crate::features::highlighting::HighlightId;
-use loom_editor_core::text::{Edit, EditKind, EditorMut, Selection, TextBuffer};
+use loog_editor_core::text::{Edit, EditKind, EditorMut, Selection, TextBuffer};
 use std::ops::Range;
 
 type H = HighlightId;
@@ -11,7 +11,7 @@ fn span(range: Range<usize>, class: Option<H>) -> TokenSpan {
 }
 
 /// Edits one transaction and returns the journal entry that records it.
-fn edit(buffer: &mut TextBuffer, edits: Vec<Edit>) -> loom_editor_core::text::TextRevision {
+fn edit(buffer: &mut TextBuffer, edits: Vec<Edit>) -> loog_editor_core::text::TextRevision {
     let since = buffer.clone();
     EditorMut::new(buffer, &mut Selection::default(), Vec::new())
         .edit(EditKind::Other, edits, |_, _| Selection::default())

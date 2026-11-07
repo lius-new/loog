@@ -27,7 +27,7 @@ fn resolve(
     } else if let Some(after) = value.strip_prefix("${runtime.")
         && let Some((name, rest)) = after.split_once("}/")
     {
-        let id = format!("loom.runtime.{name}");
+        let id = format!("loog.runtime.{name}");
         (
             runtime(&id)
                 .ok_or_else(|| format!("{id} is not installed or not declared as a dependency"))?,

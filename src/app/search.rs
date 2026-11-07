@@ -204,7 +204,7 @@ pub fn navigate(
     let worker_state = state.clone();
     let failed_path = file.path.clone();
     let worker = std::thread::Builder::new()
-        .name("loom-search-open".into())
+        .name("loog-search-open".into())
         .spawn(move || {
             let opened = crate::features::search::navigation::prepare(
                 &crate::infrastructure::search_filesystem::SearchFilesystem,
@@ -471,7 +471,7 @@ mod tests {
         use std::sync::Mutex;
         use std::time::Instant;
         type Task = Box<dyn FnOnce() + Send>;
-        let root = std::env::temp_dir().join(format!("loom-search-cache-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("loog-search-cache-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("a.txt"), "needle").unwrap();
         let fixture_root = root.clone();
@@ -561,7 +561,7 @@ mod tests {
         use std::sync::Mutex;
         use std::time::Instant;
         type Task = Box<dyn FnOnce() + Send>;
-        let root = std::env::temp_dir().join(format!("loom-search-actions-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("loog-search-actions-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("document.txt");
         std::fs::write(&path, "old disk\n").unwrap();

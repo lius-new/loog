@@ -1,4 +1,4 @@
-//! Watches one file in Loom's configuration directory (`keymap.json`,
+//! Watches one file in Loog's configuration directory (`keymap.json`,
 //! `settings.json`) and calls back once a burst of changes has settled.
 
 use std::path::Path;
@@ -56,7 +56,7 @@ pub fn watch(file_name: &'static str, reload: impl Fn() + Send + 'static) -> Opt
         .watch(&directory, RecursiveMode::NonRecursive)
         .ok()?;
     let worker = thread::Builder::new()
-        .name(format!("loom-watch-{file_name}"))
+        .name(format!("loog-watch-{file_name}"))
         .spawn(move || {
             while let Ok(WatchMessage::Changed) = receiver.recv() {
                 loop {

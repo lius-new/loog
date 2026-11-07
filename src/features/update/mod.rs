@@ -29,7 +29,7 @@ impl Platform {
     }
 }
 
-/// How this copy of Loom was installed, which decides how it can update.
+/// How this copy of Loog was installed, which decides how it can update.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InstallKind {
     /// Per-user Inno Setup install: downloads and runs the new installer.
@@ -39,7 +39,7 @@ pub enum InstallKind {
     LinuxDeb,
     LinuxAppImage,
     LinuxTarball,
-    /// An install Loom cannot replace itself: in a read-only folder, or a
+    /// An install Loog cannot replace itself: in a read-only folder, or a
     /// macOS app run from a translocated path. Updates open the release page.
     Manual,
 }
@@ -133,8 +133,8 @@ mod tests {
     fn payload(platform: &str, version: &str) -> String {
         format!(
             r#"{{"schema":1,"platform":"{platform}","version":"{version}",
-            "notes_url":"https://github.com/lius-new/loom/releases/tag/v{version}",
-            "assets":{{"setup":{{"name":"Loom-setup.exe","url":"https://example.com/a.exe","sha256":"{SHA}","size":42}}}}}}"#
+            "notes_url":"https://github.com/lius-new/loog/releases/tag/v{version}",
+            "assets":{{"setup":{{"name":"Loog-setup.exe","url":"https://example.com/a.exe","sha256":"{SHA}","size":42}}}}}}"#
         )
     }
 

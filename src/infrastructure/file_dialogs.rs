@@ -1,11 +1,11 @@
 //! Native file dialog adapter; app owns opening the selected document.
 use lgui::dialogs::{FileDialogOptions, system_file_dialogs};
 use std::path::PathBuf;
-/// Choose an extension package (`.loomext`) to import.
+/// Choose an extension package (`.loogext`) to import.
 pub fn pick_extension_package() -> Option<PathBuf> {
     let options = FileDialogOptions::new()
         .title("Import Extension")
-        .filter("Loom extension", ["loomext"]);
+        .filter("Loog extension", ["loogext"]);
     system_file_dialogs().pick_file(&options)
 }
 

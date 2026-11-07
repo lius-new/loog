@@ -1,7 +1,7 @@
 import {prepareDependencies} from '../../dependencies/ensure.mjs';
 // Linux packaging: a portable tar.gz with a per-user install script, a .deb
 // and an AppImage, all built from one staged application folder. Linux
-// packages use the system Git (the .deb depends on `git`); Loom falls back to
+// packages use the system Git (the .deb depends on `git`); Loog falls back to
 // the Git on PATH when no managed runtime is present.
 
 import fs from 'node:fs';
@@ -27,7 +27,7 @@ import {
 const PLATFORM_DIR = path.join(WORK_DIR, 'linux');
 const TARGET_NAME = 'linux-x86_64';
 const DEB_ARCHITECTURE = 'amd64';
-const DEB_MAINTAINER = 'Loom maintainers <lius-new@users.noreply.github.com>';
+const DEB_MAINTAINER = 'Loog maintainers <lius-new@users.noreply.github.com>';
 
 // Pinned third-party inputs. To upgrade, change the version, URL and hash
 // together; the hashes are the GitHub release asset digests.
@@ -72,29 +72,29 @@ const DEB_RECOMMENDS = [
 ];
 
 /**
- * `bin/loom`, the terminal command. It resolves symlinks (the .deb links it
+ * `bin/loog`, the terminal command. It resolves symlinks (the .deb links it
  * from /usr/bin) and detaches the GUI so the terminal returns immediately;
  * relative paths resolve against the terminal's directory.
  */
-const LOOM_COMMAND = `#!/bin/sh
-# Open Loom from a terminal: loom, loom ., loom <path>...
+const LOOG_COMMAND = `#!/bin/sh
+# Open Loog from a terminal: loog, loog ., loog <path>...
 here=$(dirname "$(readlink -f "$0")")
-nohup "$here/../Loom" "$@" >/dev/null 2>&1 &
+nohup "$here/../Loog" "$@" >/dev/null 2>&1 &
 `;
 
 /**
  * `install.sh` in the portable archive: copies the folder to
- * ~/.local/lib/loom and adds the \`loom\` command, menu entry and icons for the
+ * ~/.local/lib/loog and adds the \`loog\` command, menu entry and icons for the
  * current user. \`--uninstall\` removes exactly those, never user data.
  */
 const INSTALL_SCRIPT = `#!/bin/sh
-# Install Loom for the current user, or remove it with --uninstall.
+# Install Loog for the current user, or remove it with --uninstall.
 set -eu
 
 data_home=\${XDG_DATA_HOME:-$HOME/.local/share}
-app_dir=$HOME/.local/lib/loom
-bin_link=$HOME/.local/bin/loom
-desktop_file=$data_home/applications/loom.desktop
+app_dir=$HOME/.local/lib/loog
+bin_link=$HOME/.local/bin/loog
+desktop_file=$data_home/applications/loog.desktop
 icon_sizes="${ICON_SIZES.join(' ')}"
 
 refresh() {
@@ -111,10 +111,10 @@ if [ "\${1:-}" = "--uninstall" ]; then
   if [ -L "$bin_link" ]; then rm -f "$bin_link"; fi
   rm -f "$desktop_file"
   for size in $icon_sizes; do
-    rm -f "$data_home/icons/hicolor/\${size}x\${size}/apps/loom.png"
+    rm -f "$data_home/icons/hicolor/\${size}x\${size}/apps/loog.png"
   done
   refresh
-  echo "Loom has been removed."
+  echo "Loog has been removed."
   exit 0
 fi
 
@@ -128,19 +128,19 @@ if [ "$source_dir" != "$app_dir" ]; then
 fi
 
 mkdir -p "$(dirname "$bin_link")" "$data_home/applications"
-ln -sf "$app_dir/bin/loom" "$bin_link"
-sed "s|^Exec=.*|Exec=$app_dir/Loom %F|" "$app_dir/share/applications/loom.desktop" > "$desktop_file"
+ln -sf "$app_dir/bin/loog" "$bin_link"
+sed "s|^Exec=.*|Exec=$app_dir/Loog %F|" "$app_dir/share/applications/loog.desktop" > "$desktop_file"
 for size in $icon_sizes; do
   mkdir -p "$data_home/icons/hicolor/\${size}x\${size}/apps"
-  cp "$app_dir/share/icons/hicolor/\${size}x\${size}/apps/loom.png" \\
-    "$data_home/icons/hicolor/\${size}x\${size}/apps/loom.png"
+  cp "$app_dir/share/icons/hicolor/\${size}x\${size}/apps/loog.png" \\
+    "$data_home/icons/hicolor/\${size}x\${size}/apps/loog.png"
 done
 refresh
 
-echo "Loom is installed in $app_dir."
+echo "Loog is installed in $app_dir."
 case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
-  *) echo "Add $HOME/.local/bin to PATH to use the loom command." ;;
+  *) echo "Add $HOME/.local/bin to PATH to use the loog command." ;;
 esac
 `;
 
@@ -149,24 +149,24 @@ function desktopEntry(exec) {
   return [
     '[Desktop Entry]',
     'Type=Application',
-    'Name=Loom',
+    'Name=Loog',
     'GenericName=Text Editor',
     `Comment=${cargoPackageField('description')}`,
     `Exec=${exec} %F`,
-    'Icon=loom',
+    'Icon=loog',
     'Terminal=false',
     'Categories=Development;TextEditor;Utility;',
     'MimeType=text/plain;inode/directory;',
     'Keywords=editor;text;code;',
     'StartupNotify=true',
-    'StartupWMClass=Loom',
+    'StartupWMClass=Loog',
     '',
   ].join('\n');
 }
 
 const appImageToolDir = () => path.join(TOOLS_DIR, `appimagetool-${APPIMAGETOOL.version}`);
-const releaseBinary = () => path.join(ROOT, 'target', 'release', 'Loom');
-const stageDir = (version) => path.join(PLATFORM_DIR, 'stage', `Loom-${version}-${TARGET_NAME}`);
+const releaseBinary = () => path.join(ROOT, 'target', 'release', 'Loog');
+const stageDir = (version) => path.join(PLATFORM_DIR, 'stage', `Loog-${version}-${TARGET_NAME}`);
 const runtimeFile = () => path.join(WORK_DIR, 'downloads', APPIMAGE_RUNTIME.file);
 
 function requireLinux() {
@@ -228,15 +228,15 @@ function appImageTool() {
   return executable;
 }
 
-/** Build the optimized Loom binary. */
+/** Build the optimized Loog binary. */
 export async function compile() {
   requireLinux();
-  step('Compiling Loom (release)');
+  step('Compiling Loog (release)');
   run('cargo', ['build', '--release', '--locked'], {env: (await prepareDependencies()).env});
 }
 
 /**
- * Assemble the application folder (binary, `loom` command, menu entry, icons,
+ * Assemble the application folder (binary, `loog` command, menu entry, icons,
  * install script), check that the binary's libraries resolve and write the
  * portable tar.gz.
  */
@@ -244,17 +244,17 @@ export function packageApp({ version }) {
   requireLinux();
   const binary = releaseBinary();
   if (!fs.existsSync(binary)) {
-    fail('target/release/Loom is missing. Run the `compile` step first.');
+    fail('target/release/Loog is missing. Run the `compile` step first.');
   }
 
   const stage = stageDir(version);
   step(`Staging ${path.relative(ROOT, stage)}`);
   fs.rmSync(path.join(PLATFORM_DIR, 'stage'), { recursive: true, force: true });
   fs.mkdirSync(path.join(stage, 'bin'), { recursive: true });
-  fs.copyFileSync(binary, path.join(stage, 'Loom'));
+  fs.copyFileSync(binary, path.join(stage, 'Loog'));
   stageBundled({ destination: path.join(stage, 'extensions') });
-  fs.chmodSync(path.join(stage, 'Loom'), 0o755);
-  writeExecutable(path.join(stage, 'bin', 'loom'), LOOM_COMMAND);
+  fs.chmodSync(path.join(stage, 'Loog'), 0o755);
+  writeExecutable(path.join(stage, 'bin', 'loog'), LOOG_COMMAND);
   writeExecutable(path.join(stage, 'install.sh'), INSTALL_SCRIPT);
   for (const file of APP_FILES) {
     fs.copyFileSync(path.join(ROOT, file), path.join(stage, file));
@@ -262,14 +262,14 @@ export function packageApp({ version }) {
   const applications = path.join(stage, 'share', 'applications');
   fs.mkdirSync(applications, { recursive: true });
   // install.sh rewrites Exec to the installed location.
-  fs.writeFileSync(path.join(applications, 'loom.desktop'), desktopEntry('Loom'));
+  fs.writeFileSync(path.join(applications, 'loog.desktop'), desktopEntry('Loog'));
   copyIcons(path.join(stage, 'share', 'icons'));
 
   checkStage(stage);
 
   step('Creating portable tar.gz');
   fs.mkdirSync(DIST_DIR, { recursive: true });
-  const archive = path.join(DIST_DIR, `Loom-${version}-${TARGET_NAME}.tar.gz`);
+  const archive = path.join(DIST_DIR, `Loog-${version}-${TARGET_NAME}.tar.gz`);
   createTarGz(stage, archive);
   info(path.relative(ROOT, archive));
 }
@@ -287,7 +287,7 @@ function copyIcons(iconsRoot) {
     }
     const directory = path.join(iconsRoot, 'hicolor', `${size}x${size}`, 'apps');
     fs.mkdirSync(directory, { recursive: true });
-    fs.copyFileSync(source, path.join(directory, 'loom.png'));
+    fs.copyFileSync(source, path.join(directory, 'loog.png'));
   }
 }
 
@@ -297,13 +297,13 @@ function copyIcons(iconsRoot) {
  */
 function checkStage(stage) {
   step('Checking the staged application');
-  const libraries = capture('ldd', [path.join(stage, 'Loom')]);
+  const libraries = capture('ldd', [path.join(stage, 'Loog')]);
   const unresolved = libraries.split('\n').filter((line) => line.includes('not found'));
   if (unresolved.length > 0) {
-    fail(`Loom links libraries that do not resolve:\n${unresolved.join('\n')}`);
+    fail(`Loog links libraries that do not resolve:\n${unresolved.join('\n')}`);
   }
-  info(`glibc requirement: ${glibcRequirement(path.join(stage, 'Loom'))}`);
-  for (const script of ['bin/loom', 'install.sh']) {
+  info(`glibc requirement: ${glibcRequirement(path.join(stage, 'Loog'))}`);
+  for (const script of ['bin/loog', 'install.sh']) {
     capture('sh', ['-n', path.join(stage, script)]);
   }
 }
@@ -335,11 +335,11 @@ function compareVersions(left, right) {
 export function bundle({ version }) {
   requireLinux();
   const stage = stageDir(version);
-  if (!fs.existsSync(path.join(stage, 'Loom'))) {
+  if (!fs.existsSync(path.join(stage, 'Loog'))) {
     fail('The staged application is missing. Run the `package` step first.');
   }
   fs.mkdirSync(DIST_DIR, { recursive: true });
-  const prefix = `Loom-${version}-${TARGET_NAME}`;
+  const prefix = `Loog-${version}-${TARGET_NAME}`;
   const deb = path.join(DIST_DIR, `${prefix}.deb`);
   const appImage = path.join(DIST_DIR, `${prefix}.AppImage`);
   buildDeb(stage, version, deb);
@@ -356,7 +356,7 @@ export function bundle({ version }) {
 }
 
 /**
- * /opt/loom holds the application folder; /usr/bin/loom, the menu entry and
+ * /opt/loog holds the application folder; /usr/bin/loog, the menu entry and
  * the icons are the only files outside it. Uninstalling never touches user
  * data.
  */
@@ -365,7 +365,7 @@ function buildDeb(stage, version, output) {
   const root = path.join(PLATFORM_DIR, 'deb', 'root');
   fs.rmSync(path.join(PLATFORM_DIR, 'deb'), { recursive: true, force: true });
 
-  const app = path.join(root, 'opt', 'loom');
+  const app = path.join(root, 'opt', 'loog');
   fs.mkdirSync(path.dirname(app), { recursive: true });
   fs.cpSync(stage, app, { recursive: true });
   // The portable layout's install script and share/ belong in /usr instead.
@@ -373,12 +373,12 @@ function buildDeb(stage, version, output) {
   fs.cpSync(path.join(app, 'share'), path.join(root, 'usr', 'share'), { recursive: true });
   fs.rmSync(path.join(app, 'share'), { recursive: true });
   fs.writeFileSync(
-    path.join(root, 'usr', 'share', 'applications', 'loom.desktop'),
-    desktopEntry('/opt/loom/Loom'),
+    path.join(root, 'usr', 'share', 'applications', 'loog.desktop'),
+    desktopEntry('/opt/loog/Loog'),
   );
   fs.mkdirSync(path.join(root, 'usr', 'bin'), { recursive: true });
-  fs.symlinkSync('/opt/loom/bin/loom', path.join(root, 'usr', 'bin', 'loom'));
-  const doc = path.join(root, 'usr', 'share', 'doc', 'loom');
+  fs.symlinkSync('/opt/loog/bin/loog', path.join(root, 'usr', 'bin', 'loog'));
+  const doc = path.join(root, 'usr', 'share', 'doc', 'loog');
   fs.mkdirSync(doc, { recursive: true });
   fs.writeFileSync(path.join(doc, 'copyright'), debianCopyright());
 
@@ -387,18 +387,18 @@ function buildDeb(stage, version, output) {
   fs.writeFileSync(
     path.join(control, 'control'),
     [
-      'Package: loom',
+      'Package: loog',
       `Version: ${debianVersion(version)}`,
       `Architecture: ${DEB_ARCHITECTURE}`,
       `Maintainer: ${DEB_MAINTAINER}`,
       `Installed-Size: ${installedSizeKiB(root)}`,
-      `Depends: ${[...shlibDepends(path.join(app, 'Loom')), ...DEB_DEPENDS].join(', ')}`,
+      `Depends: ${[...shlibDepends(path.join(app, 'Loog')), ...DEB_DEPENDS].join(', ')}`,
       `Recommends: ${DEB_RECOMMENDS.join(', ')}`,
       'Section: editors',
       'Priority: optional',
       `Homepage: ${cargoPackageField('repository')}`,
       `Description: ${cargoPackageField('description')}`,
-      ' Loom is a text editor with an integrated terminal and Git support.',
+      ' Loog is a text editor with an integrated terminal and Git support.',
       '',
     ].join('\n'),
   );
@@ -415,7 +415,7 @@ function shlibDepends(binary) {
   fs.mkdirSync(path.join(work, 'debian'), { recursive: true });
   fs.writeFileSync(
     path.join(work, 'debian', 'control'),
-    'Source: loom\n\nPackage: loom\nArchitecture: any\n',
+    'Source: loog\n\nPackage: loog\nArchitecture: any\n',
   );
   const output = capture('dpkg-shlibdeps', ['-O', `-e${binary}`], { cwd: work });
   const line = output.split('\n').find((entry) => entry.startsWith('shlibs:Depends='));
@@ -471,7 +471,7 @@ function debianCopyright() {
   const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8').trimEnd();
   return [
     'Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/',
-    'Upstream-Name: Loom',
+    'Upstream-Name: Loog',
     `Source: ${cargoPackageField('repository')}`,
     '',
     'Files: *',
@@ -498,31 +498,31 @@ function indent(text) {
 }
 
 /**
- * AppDir: the application folder under usr/lib/loom, with AppRun, the menu
+ * AppDir: the application folder under usr/lib/loog, with AppRun, the menu
  * entry and the icon at the root as the AppImage format requires.
  */
 function buildAppImage(stage, output) {
   step('Building the AppImage');
   const tool = appImageTool();
-  const appDir = path.join(PLATFORM_DIR, 'appimage', 'Loom.AppDir');
+  const appDir = path.join(PLATFORM_DIR, 'appimage', 'Loog.AppDir');
   fs.rmSync(path.join(PLATFORM_DIR, 'appimage'), { recursive: true, force: true });
 
-  const app = path.join(appDir, 'usr', 'lib', 'loom');
+  const app = path.join(appDir, 'usr', 'lib', 'loog');
   fs.mkdirSync(path.dirname(app), { recursive: true });
   fs.cpSync(stage, app, { recursive: true });
   fs.rmSync(path.join(app, 'install.sh'));
   fs.cpSync(path.join(app, 'share'), path.join(appDir, 'usr', 'share'), { recursive: true });
   fs.rmSync(path.join(app, 'share'), { recursive: true });
   fs.writeFileSync(
-    path.join(appDir, 'usr', 'share', 'applications', 'loom.desktop'),
-    desktopEntry('Loom'),
+    path.join(appDir, 'usr', 'share', 'applications', 'loog.desktop'),
+    desktopEntry('Loog'),
   );
-  fs.symlinkSync('usr/share/applications/loom.desktop', path.join(appDir, 'loom.desktop'));
-  fs.symlinkSync('usr/share/icons/hicolor/256x256/apps/loom.png', path.join(appDir, 'loom.png'));
-  fs.symlinkSync('loom.png', path.join(appDir, '.DirIcon'));
+  fs.symlinkSync('usr/share/applications/loog.desktop', path.join(appDir, 'loog.desktop'));
+  fs.symlinkSync('usr/share/icons/hicolor/256x256/apps/loog.png', path.join(appDir, 'loog.png'));
+  fs.symlinkSync('loog.png', path.join(appDir, '.DirIcon'));
   writeExecutable(
     path.join(appDir, 'AppRun'),
-    '#!/bin/sh\nhere=$(dirname "$(readlink -f "$0")")\nexec "$here/usr/lib/loom/Loom" "$@"\n',
+    '#!/bin/sh\nhere=$(dirname "$(readlink -f "$0")")\nexec "$here/usr/lib/loog/Loog" "$@"\n',
   );
 
   fs.rmSync(output, { force: true });

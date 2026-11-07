@@ -1,11 +1,11 @@
 import {prepareDependencies} from '../../dependencies/ensure.mjs';
-// macOS packaging: a universal (arm64 + x86_64) Loom.app, shipped as a .zip
-// and a drag-to-Applications .dmg. Packages use the system Git: Loom falls
+// macOS packaging: a universal (arm64 + x86_64) Loog.app, shipped as a .zip
+// and a drag-to-Applications .dmg. Packages use the system Git: Loog falls
 // back to the `git` on PATH when no managed runtime is present.
 //
-// Signing is ad-hoc unless LOOM_MACOS_SIGN_IDENTITY names a Developer ID
-// Application identity in the keychain. With LOOM_MACOS_NOTARY_APPLE_ID,
-// LOOM_MACOS_NOTARY_TEAM_ID and LOOM_MACOS_NOTARY_PASSWORD (an app-specific
+// Signing is ad-hoc unless LOOG_MACOS_SIGN_IDENTITY names a Developer ID
+// Application identity in the keychain. With LOOG_MACOS_NOTARY_APPLE_ID,
+// LOOG_MACOS_NOTARY_TEAM_ID and LOOG_MACOS_NOTARY_PASSWORD (an app-specific
 // password) the app and the disk image are also notarized and stapled.
 
 import fs from 'node:fs';
@@ -28,7 +28,7 @@ const PLATFORM_DIR = path.join(WORK_DIR, 'macos');
 const TARGET_NAME = 'macos-universal';
 const RUST_TARGETS = ['aarch64-apple-darwin', 'x86_64-apple-darwin'];
 const ARCHITECTURES = ['arm64', 'x86_64'];
-const BUNDLE_ID = 'io.github.lius-new.loom';
+const BUNDLE_ID = 'io.github.lius-new.loog';
 const MINIMUM_SYSTEM_VERSION = '11.0';
 
 /** Files copied from the repository into Contents/Resources. */
@@ -49,13 +49,13 @@ const ICONSET = [
 ];
 
 /**
- * `Contents/Resources/bin/loom`, the terminal command; link it into PATH,
+ * `Contents/Resources/bin/loog`, the terminal command; link it into PATH,
  * e.g. /usr/local/bin. It follows that link back to the bundle, makes
  * relative paths absolute (the app does not start in the terminal's
- * directory) and starts a new instance like `loom.cmd` on Windows.
+ * directory) and starts a new instance like `loog.cmd` on Windows.
  */
-const LOOM_COMMAND = `#!/bin/sh
-# Open Loom from a terminal: loom, loom ., loom <path>...
+const LOOG_COMMAND = `#!/bin/sh
+# Open Loog from a terminal: loog, loog ., loog <path>...
 self=$0
 while [ -L "$self" ]; do
   target=$(readlink "$self")
@@ -76,11 +76,11 @@ done
 exec open -n -a "$app" --args "$@"
 `;
 
-const universalBinary = () => path.join(ROOT, 'target', 'universal-apple-darwin', 'release', 'Loom');
-const targetBinary = (target) => path.join(ROOT, 'target', target, 'release', 'Loom');
-const appBundle = () => path.join(PLATFORM_DIR, 'stage', 'Loom.app');
-const zipPath = (version) => path.join(DIST_DIR, `Loom-${version}-${TARGET_NAME}.zip`);
-const dmgPath = (version) => path.join(DIST_DIR, `Loom-${version}-${TARGET_NAME}.dmg`);
+const universalBinary = () => path.join(ROOT, 'target', 'universal-apple-darwin', 'release', 'Loog');
+const targetBinary = (target) => path.join(ROOT, 'target', target, 'release', 'Loog');
+const appBundle = () => path.join(PLATFORM_DIR, 'stage', 'Loog.app');
+const zipPath = (version) => path.join(DIST_DIR, `Loog-${version}-${TARGET_NAME}.zip`);
+const dmgPath = (version) => path.join(DIST_DIR, `Loog-${version}-${TARGET_NAME}.dmg`);
 
 function requireMacOS() {
   if (process.platform !== 'darwin') {
@@ -99,18 +99,18 @@ function requireTools(names) {
 
 /** Signing and notarization settings from the environment. */
 function signing() {
-  const identity = process.env.LOOM_MACOS_SIGN_IDENTITY || '';
+  const identity = process.env.LOOG_MACOS_SIGN_IDENTITY || '';
   const notary = {
-    appleId: process.env.LOOM_MACOS_NOTARY_APPLE_ID || '',
-    teamId: process.env.LOOM_MACOS_NOTARY_TEAM_ID || '',
-    password: process.env.LOOM_MACOS_NOTARY_PASSWORD || '',
+    appleId: process.env.LOOG_MACOS_NOTARY_APPLE_ID || '',
+    teamId: process.env.LOOG_MACOS_NOTARY_TEAM_ID || '',
+    password: process.env.LOOG_MACOS_NOTARY_PASSWORD || '',
   };
   const notarySet = Object.values(notary).filter(Boolean).length;
   if (notarySet !== 0 && notarySet !== 3) {
-    fail('Set all of LOOM_MACOS_NOTARY_APPLE_ID, _TEAM_ID and _PASSWORD, or none.');
+    fail('Set all of LOOG_MACOS_NOTARY_APPLE_ID, _TEAM_ID and _PASSWORD, or none.');
   }
   if (notarySet === 3 && !identity) {
-    fail('Notarization needs a Developer ID identity in LOOM_MACOS_SIGN_IDENTITY.');
+    fail('Notarization needs a Developer ID identity in LOOG_MACOS_SIGN_IDENTITY.');
   }
   return { identity, notary: notarySet === 3 ? notary : undefined };
 }
@@ -127,14 +127,14 @@ export function setup() {
   run('rustup', ['target', 'add', ...RUST_TARGETS]);
 }
 
-/** Build Loom for both architectures and merge them with lipo. */
+/** Build Loog for both architectures and merge them with lipo. */
 export async function compile() {
   requireMacOS();
   // Pin the deployment target so the binary's minimum macOS matches
   // LSMinimumSystemVersion whatever the build machine runs.
   const env = { ...process.env, MACOSX_DEPLOYMENT_TARGET: MINIMUM_SYSTEM_VERSION };
   for (const target of RUST_TARGETS) {
-    step(`Compiling Loom (release, ${target})`);
+    step(`Compiling Loog (release, ${target})`);
     run('cargo', ['build', '--release', '--locked', '--target', target], { env: (await prepareDependencies({target, env})).env });
   }
   step('Creating the universal binary');
@@ -143,7 +143,7 @@ export async function compile() {
 }
 
 /**
- * Assemble and sign Loom.app, check it and write the .zip. Notarization
+ * Assemble and sign Loog.app, check it and write the .zip. Notarization
  * happens in `bundle`, which rewrites the .zip with the stapled app.
  */
 export function packageApp({ version }) {
@@ -161,16 +161,16 @@ export function packageApp({ version }) {
   const resources = path.join(contents, 'Resources');
   fs.mkdirSync(path.join(contents, 'MacOS'), { recursive: true });
   fs.mkdirSync(path.join(resources, 'bin'), { recursive: true });
-  fs.copyFileSync(binary, path.join(contents, 'MacOS', 'Loom'));
-  fs.chmodSync(path.join(contents, 'MacOS', 'Loom'), 0o755);
+  fs.copyFileSync(binary, path.join(contents, 'MacOS', 'Loog'));
+  fs.chmodSync(path.join(contents, 'MacOS', 'Loog'), 0o755);
   fs.writeFileSync(path.join(contents, 'Info.plist'), infoPlist(version));
   fs.writeFileSync(path.join(contents, 'PkgInfo'), 'APPL????');
-  fs.writeFileSync(path.join(resources, 'bin', 'loom'), LOOM_COMMAND);
-  fs.chmodSync(path.join(resources, 'bin', 'loom'), 0o755);
+  fs.writeFileSync(path.join(resources, 'bin', 'loog'), LOOG_COMMAND);
+  fs.chmodSync(path.join(resources, 'bin', 'loog'), 0o755);
   for (const file of APP_FILES) {
     fs.copyFileSync(path.join(ROOT, file), path.join(resources, file));
   }
-  writeIcon(path.join(resources, 'Loom.icns'));
+  writeIcon(path.join(resources, 'Loog.icns'));
   // Grammars are WebAssembly, which is data to the system: nothing to sign.
   stageBundled({ destination: path.join(resources, 'extensions') });
 
@@ -185,12 +185,12 @@ export function packageApp({ version }) {
 function infoPlist(version) {
   const entries = {
     CFBundleDevelopmentRegion: 'en',
-    CFBundleDisplayName: 'Loom',
-    CFBundleExecutable: 'Loom',
-    CFBundleIconFile: 'Loom',
+    CFBundleDisplayName: 'Loog',
+    CFBundleExecutable: 'Loog',
+    CFBundleIconFile: 'Loog',
     CFBundleIdentifier: BUNDLE_ID,
     CFBundleInfoDictionaryVersion: '6.0',
-    CFBundleName: 'Loom',
+    CFBundleName: 'Loog',
     CFBundlePackageType: 'APPL',
     CFBundleShortVersionString: version,
     // Must be numeric: pre-release and build suffixes are dropped.
@@ -220,7 +220,7 @@ ${body}
 }
 
 function writeIcon(output) {
-  const iconset = path.join(PLATFORM_DIR, 'Loom.iconset');
+  const iconset = path.join(PLATFORM_DIR, 'Loog.iconset');
   fs.rmSync(iconset, { recursive: true, force: true });
   fs.mkdirSync(iconset, { recursive: true });
   for (const [name, size] of ICONSET) {
@@ -255,12 +255,12 @@ function sign(target, identity, entitlements) {
  * system libraries (a Homebrew dylib would break on other Macs).
  */
 function checkApp(app) {
-  step('Checking Loom.app');
-  const binary = path.join(app, 'Contents', 'MacOS', 'Loom');
+  step('Checking Loog.app');
+  const binary = path.join(app, 'Contents', 'MacOS', 'Loog');
   const architectures = capture('lipo', ['-archs', binary]).split(/\s+/);
   const missing = ARCHITECTURES.filter((name) => !architectures.includes(name));
   if (missing.length > 0) {
-    fail(`Loom.app is missing architectures: ${missing.join(', ')}`);
+    fail(`Loog.app is missing architectures: ${missing.join(', ')}`);
   }
   info(`Architectures: ${architectures.join(', ')}`);
   capture('plutil', ['-lint', path.join(app, 'Contents', 'Info.plist')]);
@@ -276,10 +276,10 @@ function checkApp(app) {
     (library) => !library.startsWith('/usr/lib/') && !library.startsWith('/System/Library/'),
   );
   if (foreign.length > 0) {
-    fail(`Loom links libraries outside macOS:\n${foreign.join('\n')}`);
+    fail(`Loog links libraries outside macOS:\n${foreign.join('\n')}`);
   }
   info(`Links ${new Set(libraries).size} system libraries`);
-  capture('sh', ['-n', path.join(app, 'Contents', 'Resources', 'bin', 'loom')]);
+  capture('sh', ['-n', path.join(app, 'Contents', 'Resources', 'bin', 'loog')]);
 }
 
 /** ditto keeps the bundle's symlinks, permissions and signature intact. */
@@ -296,7 +296,7 @@ function zipApp(app, output) {
 export function bundle({ version }) {
   requireMacOS();
   const app = appBundle();
-  if (!fs.existsSync(path.join(app, 'Contents', 'MacOS', 'Loom'))) {
+  if (!fs.existsSync(path.join(app, 'Contents', 'MacOS', 'Loog'))) {
     fail('The staged application is missing. Run the `package` step first.');
   }
   const { identity, notary } = signing();
@@ -318,7 +318,7 @@ export function bundle({ version }) {
     run('xcrun', ['stapler', 'staple', dmg]);
   }
 
-  const prefix = `Loom-${version}-${TARGET_NAME}`;
+  const prefix = `Loog-${version}-${TARGET_NAME}`;
   const checksums = path.join(DIST_DIR, `${prefix}-SHA256SUMS.txt`);
   const outputs = [zipPath(version), dmg].filter((file) => fs.existsSync(file));
   writeChecksums(outputs, checksums);
@@ -327,19 +327,19 @@ export function bundle({ version }) {
   }
 }
 
-/** A compressed disk image with Loom.app next to an Applications link. */
+/** A compressed disk image with Loog.app next to an Applications link. */
 function buildDmg(app, version, output) {
   step('Building the .dmg');
   const source = path.join(PLATFORM_DIR, 'dmg');
   fs.rmSync(source, { recursive: true, force: true });
   fs.mkdirSync(source, { recursive: true });
-  run('ditto', [app, path.join(source, 'Loom.app')]);
+  run('ditto', [app, path.join(source, 'Loog.app')]);
   fs.symlinkSync('/Applications', path.join(source, 'Applications'));
   fs.rmSync(output, { force: true });
   run('hdiutil', [
     'create',
     '-volname',
-    `Loom ${version}`,
+    `Loog ${version}`,
     '-srcfolder',
     source,
     '-fs',

@@ -49,7 +49,7 @@ pub struct Registers {
     /// `"1` to `"9`, most recent first.
     numbered: Vec<Register>,
     small_delete: Option<Register>,
-    /// What Loom last wrote to the clipboard, to restore line and block
+    /// What Loog last wrote to the clipboard, to restore line and block
     /// types when the same text is read back.
     clipboard_written: Option<Register>,
     pub last_inserted: Option<String>,

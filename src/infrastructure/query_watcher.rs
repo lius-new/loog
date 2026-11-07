@@ -60,7 +60,7 @@ pub fn watch(
     .ok()?;
     watcher.watch(directory, RecursiveMode::Recursive).ok()?;
     let worker = thread::Builder::new()
-        .name("loom-watch-queries".into())
+        .name("loog-watch-queries".into())
         .spawn(move || {
             while let Ok(Message::Changed) = receiver.recv() {
                 loop {

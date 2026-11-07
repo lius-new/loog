@@ -1,5 +1,5 @@
 // Exercise the production installer's automatic update relaunch with a tiny
-// GUI probe, without replacing Loom or registering a test installation.
+// GUI probe, without replacing Loog or registering a test installation.
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -24,18 +24,18 @@ let passed = false;
 try {
   fs.mkdirSync(stage);
   fs.mkdirSync(version, { recursive: true });
-  fs.writeFileSync(path.join(version, 'npm.cmd'), '@echo off\r\necho loom-junction-probe\r\n');
+  fs.writeFileSync(path.join(version, 'npm.cmd'), '@echo off\r\necho loog-junction-probe\r\n');
   // Use Scoop's current-junction structure without requesting elevation.
   fs.symlinkSync(version, current, 'junction');
   assert.ok(fs.existsSync(path.join(current, 'npm.cmd')), 'The test junction must be accessible.');
   run('rustc', [
-    '--edition=2024', '--crate-name=loom_installer_launch_probe',
-    path.join(here, 'launch-probe.rs'), '-o', path.join(stage, 'Loom.exe'),
+    '--edition=2024', '--crate-name=loog_installer_launch_probe',
+    path.join(here, 'launch-probe.rs'), '-o', path.join(stage, 'Loog.exe'),
   ], {
     env: {
       ...process.env,
-      LOOM_INSTALLER_PROBE_TOOLCHAIN: current,
-      LOOM_INSTALLER_PROBE_REPORT: report,
+      LOOG_INSTALLER_PROBE_TOOLCHAIN: current,
+      LOOG_INSTALLER_PROBE_REPORT: report,
     },
   });
 
@@ -43,7 +43,7 @@ try {
   // Keep the production setup policy and [Run]/[Code] paths. Isolate the app
   // identity and omit shell integration so the real installation is untouched.
   const fixture = original
-    .replace('#define AppName "Loom"', '#define AppName "Loom Launch Smoke"')
+    .replace('#define AppName "Loog"', '#define AppName "Loog Launch Smoke"')
     .replace(/^AppId=.*$/m, `AppId={{${randomUUID().toUpperCase()}}`)
     .replace('[Setup]', '[Setup]\nUninstallable=no\nCreateUninstallRegKey=no')
     .replace(/\[Icons\][\s\S]*?(?=\[Run\])/, '');

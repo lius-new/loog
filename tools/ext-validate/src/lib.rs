@@ -1,5 +1,5 @@
-//! `loom-ext-validate`: checks an extension folder with the loaders and query
-//! compilers Loom itself uses. They are compiled from the application's own sources
+//! `loog-ext-validate`: checks an extension folder with the loaders and query
+//! compilers Loog itself uses. They are compiled from the application's own sources
 //! (the modules below are paths into `src/`), not copied, so what passes here loads
 //! in the application. No grammar source or grammar crate is a dependency.
 #![allow(dead_code)]
@@ -9,7 +9,7 @@ pub(crate) mod domain;
 mod features;
 mod infrastructure;
 
-const VALIDATE_USAGE: &str = "usage: loom-ext-validate <extension-folder> [--samples samples.json]";
+const VALIDATE_USAGE: &str = "usage: loog-ext-validate <extension-folder> [--samples samples.json]";
 
 #[derive(serde::Deserialize)]
 struct Sample {
@@ -17,7 +17,7 @@ struct Sample {
     sample: std::path::PathBuf,
 }
 
-/// `loom-ext-validate`: load an extension folder the way Loom does and color its
+/// `loog-ext-validate`: load an extension folder the way Loog does and color its
 /// samples. The manifest follows the application's rules, every language resource
 /// is read by the application's loader, the queries the extension contributes are
 /// compiled against the grammars it carries, and each grammar's WebAssembly module

@@ -1,4 +1,4 @@
-# loom.properties grammar
+# loog.properties grammar
 
 - Grammar: tree-sitter-properties 0.3.0, https://github.com/tree-sitter-grammars/tree-sitter-properties (tag v0.3.0)
 - License: MIT (`grammar/LICENSE`)
@@ -7,5 +7,5 @@
 - `grammar/queries/highlights.scm` and `grammar/tree-sitter.json`: as published
   for the language release, not modified.
 
-The folder is a complete language pack in Loom's standard format. The extension
+The folder is a complete language pack in Loog's standard format. The extension
 manifest points at its `tree-sitter.json` under `contributes.highlight`.

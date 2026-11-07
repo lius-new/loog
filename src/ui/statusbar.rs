@@ -606,10 +606,10 @@ fn problem_entry(
 /// Vim's mode, then its command line, message or pending keys, and macro
 /// recording, left to right.
 fn vim_status_items(
-    mode: loom_editor_core::vim::Mode,
-    status: loom_editor_core::vim::Status,
+    mode: loog_editor_core::vim::Mode,
+    status: loog_editor_core::vim::Status,
 ) -> Vec<(String, TextStyle)> {
-    use loom_editor_core::vim::Mode;
+    use loog_editor_core::vim::Mode;
     let mode_color = match mode {
         Mode::Normal => theme::c().text_muted,
         Mode::Insert => theme::c().accent,
@@ -646,7 +646,7 @@ fn vim_status_items(
 }
 
 #[cfg(test)]
-fn vim_items(vim: &loom_editor_core::vim::Vim) -> Vec<(String, TextStyle)> {
+fn vim_items(vim: &loog_editor_core::vim::Vim) -> Vec<(String, TextStyle)> {
     vim_status_items(vim.mode(), vim.status())
 }
 

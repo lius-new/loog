@@ -13,14 +13,14 @@ export function normalizeWindowsPath(value) {
 }
 export function buildCloseHelper(directory) {
   const executable = path.join(directory, 'close-window.exe');
-  const result = spawnSync('rustc', ['--edition=2024', '--crate-name=loom_baseline_close_window',
+  const result = spawnSync('rustc', ['--edition=2024', '--crate-name=loog_baseline_close_window',
     path.join(HERE, 'close-window.rs'), '-o', executable], {cwd: ROOT, encoding: 'utf8', windowsHide: true, timeout: 60000});
   fs.writeFileSync(path.join(directory, 'close-helper-build.log'), (result.stdout || '') + (result.stderr || '') + (result.error?.message || ''));
   if (result.error || result.status !== 0) throw Error(`Could not compile window close helper: ${result.error?.message || result.stderr}`);
   return executable;
 }
 
-export async function startupSmoke({executable = path.join(ROOT, 'target/release/Loom.exe'), outputDirectory,
+export async function startupSmoke({executable = path.join(ROOT, 'target/release/Loog.exe'), outputDirectory,
   startupMs = 4000, startupTimeoutMs = 30000, closeTimeoutMs = 10000, pollMs = 50, env = process.env, signal} = {}) {
   if (process.platform !== 'win32') throw Error('This startup smoke requires Windows');
   if (!outputDirectory) throw Error('An output directory is required');
@@ -30,7 +30,7 @@ export async function startupSmoke({executable = path.join(ROOT, 'target/release
   const fixture = path.join(outputDirectory, 'startup-fixture');
   const appdata = path.join(fixture, 'appdata'), localdata = path.join(fixture, 'localappdata'), workspace = path.join(fixture, 'workspace');
   for (const directory of [appdata, localdata, workspace]) fs.mkdirSync(directory, {recursive: true});
-  fs.writeFileSync(path.join(workspace, '示例.txt'), 'Loom startup smoke: 中文 + emoji 🙂\n');
+  fs.writeFileSync(path.join(workspace, '示例.txt'), 'Loog startup smoke: 中文 + emoji 🙂\n');
   const result = {exe: executable, sha256: createHash('sha256').update(fs.readFileSync(executable)).digest('hex'),
     child_appdata: appdata, child_localappdata: localdata, windows_hide: true, started_at: new Date().toISOString(),
     result: 'failed', forced_cleanup: false};
@@ -59,13 +59,13 @@ export async function startupSmoke({executable = path.join(ROOT, 'target/release
     result.alive_after_4_seconds = !exited;
     result.observation_milliseconds = startupMs;
     result.root_effect_configuration_files = fs.readdirSync(appdata, {recursive: true}).filter(name => fs.statSync(path.join(appdata, name)).isFile());
-    if (exited) throw Error(`Loom exited during startup, code ${result.exit_code}`);
+    if (exited) throw Error(`Loog exited during startup, code ${result.exit_code}`);
     // A live process may still be loading before its main window exists.
     // The helper returns 2 only for that condition, and verifies PID/executable
     // ownership on every attempt before posting a close request.
     for (;;) {
       if (signal?.aborted) throw Error('Startup smoke cancelled');
-      if (exited) throw Error(`Loom exited during startup, code ${result.exit_code}`);
+      if (exited) throw Error(`Loog exited during startup, code ${result.exit_code}`);
       const remaining = startupDeadline - Date.now();
       if (remaining <= 0) throw Error('Timed out waiting for the smoke child main window');
       const request = spawnSync(helper, [String(child.pid), executable],
@@ -86,11 +86,11 @@ export async function startupSmoke({executable = path.join(ROOT, 'target/release
     await Promise.race([finished, delay(closeTimeoutMs, undefined, {signal: timeout.signal}).catch(() => {})]);
     timeout.abort();
     if (signal?.aborted) throw Error('Startup smoke cancelled');
-    if (!exited) throw Error('The isolated Loom process did not close normally');
+    if (!exited) throw Error('The isolated Loog process did not close normally');
     result.clean_exit = result.exit_code === 0;
-    if (!result.clean_exit) throw Error(`Loom exited with code ${result.exit_code}`);
-    const session = path.join(appdata, 'Loom/workspace.json');
-    if (!fs.existsSync(session)) throw Error('Loom did not save an isolated workspace session');
+    if (!result.clean_exit) throw Error(`Loog exited with code ${result.exit_code}`);
+    const session = path.join(appdata, 'Loog/workspace.json');
+    if (!fs.existsSync(session)) throw Error('Loog did not save an isolated workspace session');
     const saved = JSON.parse(fs.readFileSync(session, 'utf8').replace(/^\uFEFF/, ''));
     if (!Array.isArray(saved.open_folders) || saved.open_folders.length !== 1 ||
       typeof saved.open_folders[0] !== 'string' || normalizeWindowsPath(saved.open_folders[0]) !== normalizeWindowsPath(workspace)) {
@@ -121,7 +121,7 @@ if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
   process.once('SIGTERM', abort);
   try {
     const {values} = parseArgs({options: {help: {type: 'boolean'}, executable: {type: 'string'}, 'output-directory': {type: 'string'}}});
-    if (values.help) console.log('Usage: node scripts/baseline/startup-smoke.mjs --output-directory <fresh-directory> [--executable <Loom.exe>]');
+    if (values.help) console.log('Usage: node scripts/baseline/startup-smoke.mjs --output-directory <fresh-directory> [--executable <Loog.exe>]');
     else {
       const result = await startupSmoke({executable: values.executable, outputDirectory: values['output-directory'], signal: controller.signal});
       console.log(`Startup smoke ${result.result}: ${result.error || values['output-directory']}`);

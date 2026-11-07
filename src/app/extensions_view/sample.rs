@@ -28,7 +28,7 @@ fn releases(values: &[(&str, &str, &str)]) -> Vec<Release> {
 }
 
 fn location(id: &str) -> String {
-    format!("%LOCALAPPDATA%\\Loom\\extensions\\{id}")
+    format!("%LOCALAPPDATA%\\Loog\\extensions\\{id}")
 }
 
 fn commands(values: &[[&str; 3]]) -> Contribution {
@@ -87,7 +87,7 @@ fn weave() -> Entry {
             ])),
             Block::Heading(s("Good to know")),
             Block::Paragraph(s(
-                "The language server is started by Loom when you open a Weave file in a trusted folder. Without it you still keep highlighting and snippets.",
+                "The language server is started by Loog when you open a Weave file in a trusted folder. Without it you still keep highlighting and snippets.",
             )),
         ],
         contributions: vec![
@@ -335,7 +335,7 @@ fn lint() -> Entry {
             error: Some(Notice {
                 title: s("This extension could not start."),
                 body: s(
-                    "It was built for an older interface that Loom no longer offers. Update the extension to a version built for this Loom, then reload. Your files are not affected.",
+                    "It was built for an older interface that Loog no longer offers. Update the extension to a version built for this Loog, then reload. Your files are not affected.",
                 ),
             }),
             warning: None,

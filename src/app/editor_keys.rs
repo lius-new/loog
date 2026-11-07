@@ -1,6 +1,6 @@
 //! Platform key conversion stays outside the independent editing core.
 use crate::features::keymap::keystroke::Keystroke;
-use loom_editor_core::vim::Key;
+use loog_editor_core::vim::Key;
 
 /// The Vim key for a keystroke, or `None` for chords Vim leaves alone
 /// (Alt, Cmd, shifted named keys).

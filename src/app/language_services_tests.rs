@@ -73,7 +73,7 @@ fn provider_diagnostics_follow_edit_metadata_and_results_expire_with_language_or
  {
     let services = LanguageServices::new();
     let mut app = AppState::new();
-    let path = std::env::temp_dir().join("loom-neutral-results.txt");
+    let path = std::env::temp_dir().join("loog-neutral-results.txt");
     let file = app.workspace.open_path(path.clone(), "a😀b".into());
     let stamp = app.workspace.documents[&file].stamp(file);
     services.publish_external(
@@ -144,7 +144,7 @@ fn opening_editing_saving_and_closing_reach_the_extension_without_host_servers()
     use crate::app::test_support::{SavingUi, language};
     use std::time::{Duration, Instant};
     let directory =
-        std::env::temp_dir().join(format!("loom-provider-bridge-{}", std::process::id()));
+        std::env::temp_dir().join(format!("loog-provider-bridge-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     let log = directory.join("messages.jsonl");
     let path = directory.join("a.rs");

@@ -680,13 +680,13 @@ mod tests {
     #[test]
     fn verbatim_workspace_paths_match_the_git_root() {
         let repository = RepositorySnapshot {
-            worktree_root: PathBuf::from("D:/work/loom"),
+            worktree_root: PathBuf::from("D:/work/loog"),
             ..snapshot(
                 &[("src/main.rs", worktree(ChangeKind::Modified))],
                 &["target"],
             )
         };
-        let tree = Path::new(r"\\?\D:\work\loom");
+        let tree = Path::new(r"\\?\D:\work\loog");
         assert_eq!(
             repository.decoration_for_absolute_path(&tree.join("target")),
             Some(PathDecoration::Ignored)

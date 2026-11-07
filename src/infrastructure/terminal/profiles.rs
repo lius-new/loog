@@ -235,7 +235,7 @@ mod tests {
         let profile = ShellProfile {
             id: 42,
             name: "Missing shell".into(),
-            program: PathBuf::from("/missing-loom-shell"),
+            program: PathBuf::from("/missing-loog-shell"),
             args: vec![],
         };
         let missing = crate::infrastructure::terminal::profiles::custom(&profile);

@@ -123,7 +123,7 @@ fn start_layout_writer(
     use std::sync::mpsc::{self, RecvTimeoutError};
     let (sender, receiver) = mpsc::channel::<LayoutWrite>();
     std::thread::Builder::new()
-        .name("loom-session-writer".into())
+        .name("loog-session-writer".into())
         .spawn(move || {
             while let Ok(mut pending) = receiver.recv() {
                 if pending.reply.is_none() {
@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     fn p1_invalid_or_future_session_is_reported_and_preserved_on_update() {
-        let root = env::temp_dir().join(format!("loom-p1-invalid-session-{}", std::process::id()));
+        let root = env::temp_dir().join(format!("loog-p1-invalid-session-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let path = root.join("session.json");
         for raw in [
@@ -424,7 +424,7 @@ mod tests {
 
     #[test]
     fn session_replacement_preserves_other_fields_and_is_readable_after_each_save() {
-        let root = env::temp_dir().join(format!("loom-session-atomic-{}", std::process::id()));
+        let root = env::temp_dir().join(format!("loog-session-atomic-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let path = root.join("workspace.json");
         let mut session = WorkspaceSession {

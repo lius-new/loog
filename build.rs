@@ -4,7 +4,7 @@ fn main() {
     println!("cargo:rerun-if-changed=scripts/terminal_console_probe.rs");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap())
-            .join("loom-console-probe.exe");
+            .join("loog-console-probe.exe");
         let status = std::process::Command::new(std::env::var_os("RUSTC").unwrap())
             .arg("--edition=2024")
             .arg("--target")
@@ -23,5 +23,5 @@ fn main() {
     winresource::WindowsResource::new()
         .set_icon("icons/app.ico")
         .compile()
-        .expect("embed the Loom application icon");
+        .expect("embed the Loog application icon");
 }

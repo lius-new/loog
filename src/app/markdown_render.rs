@@ -124,7 +124,7 @@ impl RenderWorker {
         });
         let worker = shared.clone();
         thread::Builder::new()
-            .name("loom-markdown-layout".into())
+            .name("loog-markdown-layout".into())
             .spawn(move || run(worker))
             .expect("Markdown layout worker");
         Self { shared }
@@ -363,7 +363,7 @@ fn start_load(
     );
     let worker = shared.clone();
     let spawned = thread::Builder::new()
-        .name("loom-markdown-image".into())
+        .name("loog-markdown-image".into())
         .spawn(move || {
             #[cfg(test)]
             {

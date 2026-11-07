@@ -39,7 +39,7 @@ impl<R: Request> Worker<R> {
         let (timer, delays) = mpsc::channel::<Option<R>>();
         let worker_current = current.clone();
         std::thread::Builder::new()
-            .name("loom-file-loader".into())
+            .name("loog-file-loader".into())
             .spawn(move || {
                 while let Ok(Some(mut request)) = receiver.recv() {
                     // Coalesce a burst before doing any more disk/index work.
@@ -69,7 +69,7 @@ impl<R: Request> Worker<R> {
             .expect("could not start file loader");
         let timer_current = current.clone();
         std::thread::Builder::new()
-            .name("loom-file-loading-delay".into())
+            .name("loog-file-loading-delay".into())
             .spawn(move || {
                 while let Ok(Some(mut request)) = delays.recv() {
                     let mut wait = delay.saturating_sub(request.elapsed());

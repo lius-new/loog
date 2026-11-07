@@ -133,7 +133,7 @@ impl Scratch {
             .unwrap()
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "loom-phase0-{label}-{}-{nonce}",
+            "loog-phase0-{label}-{}-{nonce}",
             std::process::id()
         ));
         std::fs::create_dir(&path).unwrap();
@@ -150,7 +150,7 @@ impl Drop for Scratch {
                 .file_name()
                 .unwrap()
                 .to_string_lossy()
-                .starts_with("loom-phase0-")
+                .starts_with("loog-phase0-")
         {
             let _ = std::fs::remove_dir_all(&self.0);
         }
@@ -159,7 +159,7 @@ impl Drop for Scratch {
 
 fn emit(scenario: &str, metric: &str, elapsed: Duration, bytes: usize, operations: usize) {
     println!(
-        "LOOM_BASELINE {}",
+        "LOOG_BASELINE {}",
         serde_json::json!({
             "schema": 1,
             "scenario": scenario,
@@ -285,7 +285,7 @@ fn phase0_perf_search_scan_and_cancel() {
         );
     } else {
         // A completed scan is not evidence of observed active cancellation.
-        println!("LOOM_BASELINE_STATUS cancellation_not_observed scan_completed_before_request");
+        println!("LOOG_BASELINE_STATUS cancellation_not_observed scan_completed_before_request");
     }
 }
 

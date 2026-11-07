@@ -16,7 +16,7 @@ pub(crate) fn write_session(path: &Path, session: &impl Serialize) -> io::Result
     fs::create_dir_all(parent)?;
     let contents = serde_json::to_vec_pretty(session).map_err(io::Error::other)?;
     let temporary = parent.join(format!(
-        ".loom-session-{}-{}.tmp",
+        ".loog-session-{}-{}.tmp",
         std::process::id(),
         SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ));
@@ -59,7 +59,7 @@ pub(crate) fn config_path(file_name: &str) -> Option<PathBuf> {
         env::var_os("HOME").map(PathBuf::from).map(|path| {
             path.join("Library")
                 .join("Application Support")
-                .join("Loom")
+                .join("Loog")
                 .join(file_name)
         })
     }
@@ -67,11 +67,11 @@ pub(crate) fn config_path(file_name: &str) -> Option<PathBuf> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         if let Some(path) = env::var_os("XDG_CONFIG_HOME") {
-            return Some(PathBuf::from(path).join("loom").join(file_name));
+            return Some(PathBuf::from(path).join("loog").join(file_name));
         }
         env::var_os("HOME")
             .map(PathBuf::from)
-            .map(|path| path.join(".config").join("loom").join(file_name))
+            .map(|path| path.join(".config").join("loog").join(file_name))
     }
 }
 

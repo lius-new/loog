@@ -37,7 +37,7 @@ impl DocumentStamp {
         document: FileId,
         incarnation: u64,
         language_generation: u64,
-        buffer: &loom_editor_core::text::TextBuffer,
+        buffer: &loog_editor_core::text::TextBuffer,
     ) -> Self {
         Self {
             document,

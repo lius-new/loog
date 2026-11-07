@@ -57,7 +57,7 @@ pub fn render(
     });
     welcome = crate::ui::track_main_surface_focus(welcome, state.clone());
 
-    let title_w = measure("Loom", 18.0, 700);
+    let title_w = measure("Loog", 18.0, 700);
     welcome = welcome.child(text(
         UiRect::new(
             page_left,
@@ -65,7 +65,7 @@ pub fn render(
             page_left + title_w + TEXT_MARGIN,
             page_top + 26.0,
         ),
-        "Loom",
+        "Loog",
         theme::mono_bold(theme::c().text_bright, 18.0),
     ));
     welcome = welcome.child(text(
@@ -316,7 +316,7 @@ fn footer(rect: UiRect) -> Element {
         ))
         .child(text(
             UiRect::new(rect.left, rect.top + 10.0, rect.right, rect.top + 28.0),
-            "Welcome to Loom",
+            "Welcome to Loog",
             theme::sans_semibold(theme::c().text_soft, theme::UI_SIZE),
         ))
         .child(text(

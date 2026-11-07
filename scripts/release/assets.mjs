@@ -8,9 +8,9 @@ export const platforms = {
   'linux-x86_64': {deb:'.deb',appimage:'.AppImage',tarball:'.tar.gz'},
   'macos-universal': {dmg:'.dmg',zip:'.zip'},
 };
-// loom-ext-validate, which the extensions repository downloads to check its packages.
+// loog-ext-validate, which the extensions repository downloads to check its packages.
 // The name carries no version: the release tag is part of the download address.
-export const validators = ['windows-x86_64.exe','linux-x86_64','macos-aarch64'].map(suffix => 'loom-ext-validate-' + suffix);
+export const validators = ['windows-x86_64.exe','linux-x86_64','macos-aarch64'].map(suffix => 'loog-ext-validate-' + suffix);
 export function verifyAssets(directory,version) {
   validateVersion(version);
   const files = [], metadata = new Map();
@@ -20,7 +20,7 @@ export function verifyAssets(directory,version) {
     return file;
   };
   for (const [target,formats] of Object.entries(platforms)) {
-    const prefix = 'Loom-' + version + '-' + target;
+    const prefix = 'Loog-' + version + '-' + target;
     for (const suffix of Object.values(formats)) {
       const name = prefix + suffix, file = requireFile(name);
       metadata.set(name,{sha256:sha256File(file),size:fs.statSync(file).size});files.push(file);

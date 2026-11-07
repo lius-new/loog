@@ -12,7 +12,7 @@ use super::editor::reveal_cursor;
 use crate::app::state::AppState;
 use crate::ui::editor::view::page_lines;
 use crate::ui::fonts;
-use loom_editor_core::vim::{self, Key, Request, ScrollPosition};
+use loog_editor_core::vim::{self, Key, Request, ScrollPosition};
 
 /// The application as Vim's host for one key or command.
 struct AppHost<'a> {
@@ -20,7 +20,7 @@ struct AppHost<'a> {
     page_lines: usize,
     visible: Range<usize>,
     requests: Vec<Request>,
-    display: std::sync::Arc<loom_editor_core::text::DisplayMap>,
+    display: std::sync::Arc<loog_editor_core::text::DisplayMap>,
     version: u64,
 }
 
@@ -50,8 +50,8 @@ impl vim::Host for AppHost<'_> {
 
     fn display_map(
         &self,
-        buffer: &loom_editor_core::text::TextBuffer,
-    ) -> Option<&loom_editor_core::text::DisplayMap> {
+        buffer: &loog_editor_core::text::TextBuffer,
+    ) -> Option<&loog_editor_core::text::DisplayMap> {
         (buffer.version() == self.version && (self.display.wrapped() || self.display.folded()))
             .then_some(self.display.as_ref())
     }

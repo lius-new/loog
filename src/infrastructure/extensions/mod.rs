@@ -23,8 +23,8 @@ pub mod tasks;
 pub mod trust_store;
 pub mod watches;
 
-use loom_extension_api::{ErrorKind, ExtensionError};
-use loom_extension_host::{
+use loog_extension_api::{ErrorKind, ExtensionError};
+use loog_extension_host::{
     AcceptedEdit, ByteRange, CommandContext, CommittedReceipt, Completion, HostError, Inbound,
     Instance, Limits, Provided, ProviderKind, ProviderRequest, PublishedDiagnostics, RootRef,
     RoundStatus, Runtime, Selection, StartedFileOps, StartedTask, WitErrorKind,
@@ -56,8 +56,8 @@ pub struct ProviderJob {
     /// the item to complete.
     pub cursor: Option<usize>,
     pub trigger: Option<String>,
-    pub item: Option<loom_extension_host::WireCompletionItem>,
-    pub context: Option<loom_extension_host::ProviderContext>,
+    pub item: Option<loog_extension_host::WireCompletionItem>,
+    pub context: Option<loog_extension_host::ProviderContext>,
     pub timeout_ms: u64,
 }
 
@@ -87,12 +87,12 @@ pub enum Job {
     WorkspaceFiles {
         id: String,
         generation: u64,
-        changes: Vec<loom_extension_host::WorkspaceFileChange>,
+        changes: Vec<loog_extension_host::WorkspaceFileChange>,
     },
     DocumentSaved {
         id: String,
         generation: u64,
-        reference: loom_extension_host::DocumentRef,
+        reference: loog_extension_host::DocumentRef,
         text: Arc<String>,
     },
     CancelProvider {
@@ -103,13 +103,13 @@ pub enum Job {
     Documents {
         id: String,
         generation: u64,
-        changed: Vec<loom_extension_host::DocumentView>,
+        changed: Vec<loog_extension_host::DocumentView>,
         closed: Vec<u64>,
     },
     DocumentEvents {
         id: String,
         generation: u64,
-        references: Vec<loom_extension_host::DocumentRef>,
+        references: Vec<loog_extension_host::DocumentRef>,
         messages: Vec<Inbound>,
     },
     DocumentBatch {
@@ -218,7 +218,7 @@ pub enum Event {
         id: String,
         generation: u64,
         operation: u64,
-        request: loom_extension_host::WorkspaceOperation,
+        request: loog_extension_host::WorkspaceOperation,
     },
     ProviderExpired {
         id: String,
@@ -228,7 +228,7 @@ pub enum Event {
     ProvidersConfigured {
         id: String,
         generation: u64,
-        configurations: Vec<loom_extension_host::ProviderConfiguration>,
+        configurations: Vec<loog_extension_host::ProviderConfiguration>,
     },
     UiChanged {
         id: String,
@@ -239,29 +239,29 @@ pub enum Event {
     ServiceStatus {
         id: String,
         generation: u64,
-        reports: Vec<loom_extension_host::ServiceReport>,
+        reports: Vec<loog_extension_host::ServiceReport>,
     },
     /// What the extension found in files that are not open.
     Findings {
         id: String,
         generation: u64,
-        changes: loom_extension_host::FindingChanges,
+        changes: loog_extension_host::FindingChanges,
     },
     WatchControls {
         id: String,
         generation: u64,
-        controls: Vec<loom_extension_host::WatchControl>,
+        controls: Vec<loog_extension_host::WatchControl>,
     },
     ProcessControls {
         id: String,
         generation: u64,
-        controls: Vec<loom_extension_host::ProcessControl>,
+        controls: Vec<loog_extension_host::ProcessControl>,
     },
     Loaded {
         id: String,
         generation: u64,
         cache_hit: bool,
-        source: loom_extension_host::CodeSource,
+        source: loog_extension_host::CodeSource,
         aot_rejection: Option<String>,
         result: Result<(), ExtensionError>,
     },
@@ -311,7 +311,7 @@ pub enum Event {
         id: String,
         level: u8,
         text: String,
-        _credit: loom_extension_host::PublicationCredit,
+        _credit: loog_extension_host::PublicationCredit,
     },
 }
 
@@ -331,10 +331,10 @@ impl Executor {
         let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let worker_stopped = stopped.clone();
         let thread = std::thread::Builder::new()
-            .name("loom-extensions".to_owned())
+            .name("loog-extensions".to_owned())
             .spawn(move || {
                 #[cfg(test)]
-                let runtime = match std::env::var("LOOM_MIGRATION_AOT_PUBLIC_KEY") {
+                let runtime = match std::env::var("LOOG_MIGRATION_AOT_PUBLIC_KEY") {
                     Ok(key) => Runtime::with_aot_authorities(vec![("benchmark-only".into(), key)]),
                     Err(_) => Runtime::new(),
                 };
@@ -435,10 +435,10 @@ struct Slot {
     ui: UiMailbox,
     ui_published: std::time::Instant,
     requests: HashMap<u64, (u64, std::time::Instant)>,
-    logs: loom_extension_host::PublicationBudget,
+    logs: loog_extension_host::PublicationBudget,
 }
-pub type UiMailbox = Arc<Mutex<Option<Vec<loom_extension_host::UiNode>>>>;
-pub type UiEvents = Arc<Mutex<Vec<loom_extension_host::UiEvent>>>;
+pub type UiMailbox = Arc<Mutex<Option<Vec<loog_extension_host::UiNode>>>>;
+pub type UiEvents = Arc<Mutex<Vec<loog_extension_host::UiEvent>>>;
 
 struct Worker {
     stopped: Arc<std::sync::atomic::AtomicBool>,
@@ -931,7 +931,7 @@ impl Worker {
                 (self.sink)(Event::Loaded {
                     id,
                     generation,
-                    cache_hit: source == loom_extension_host::CodeSource::LocalCache,
+                    cache_hit: source == loog_extension_host::CodeSource::LocalCache,
                     source,
                     aot_rejection: rejection,
                     result: Ok(()),
@@ -941,7 +941,7 @@ impl Worker {
                 id,
                 generation,
                 cache_hit: false,
-                source: loom_extension_host::CodeSource::Compiled,
+                source: loog_extension_host::CodeSource::Compiled,
                 aot_rejection: None,
                 result: Err(error),
             }),

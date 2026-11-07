@@ -83,7 +83,7 @@ pub(crate) fn open_at(
     state.update(move |app| app.editor.editor_hunk_peek = Some(pending));
     let worker_state = state.clone();
     let _ = thread::Builder::new()
-        .name("loom-git-hunk-peek".into())
+        .name("loog-git-hunk-peek".into())
         .spawn(move || {
             let result = load(&root, &relative, line).map_err(|error| error.user_message());
             application.post(move || {

@@ -267,12 +267,12 @@ mod tests {
         let mut contents;
         loop {
             contents = controller.test_parser().screen().contents();
-            if contents.contains("LOOM_WSL_OK") || Instant::now() >= deadline {
+            if contents.contains("LOOG_WSL_OK") || Instant::now() >= deadline {
                 break;
             }
             std::thread::sleep(Duration::from_millis(25));
         }
         controller.terminate(notify);
-        assert!(contents.contains("LOOM_WSL_OK"), "WSL output: {contents}");
+        assert!(contents.contains("LOOG_WSL_OK"), "WSL output: {contents}");
     }
 }

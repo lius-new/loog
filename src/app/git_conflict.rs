@@ -7,7 +7,7 @@ use crate::app::context::AppContext;
 use crate::domain::identity::PaneId;
 use crate::features::git::GitStoreSnapshot;
 use crate::features::git::conflict::{ConflictRegion, Resolution, resolution_edit};
-use loom_editor_core::text::{Edit, EditKind, Selection};
+use loog_editor_core::text::{Edit, EditKind, Selection};
 
 /// The conflict that starts after (or, going backwards, before) one-based
 /// `line`, wrapping around.

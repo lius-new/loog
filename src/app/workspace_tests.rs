@@ -1,7 +1,7 @@
 use super::*;
 use crate::features::git::diff::UnifiedDiff;
 use crate::features::git::{DiffContent, DiffTarget};
-use loom_editor_core::text::EditKind;
+use loog_editor_core::text::EditKind;
 
 #[test]
 fn preview_reuse_and_pane_moves_flush_retired_data_at_the_application_boundary() {
@@ -403,7 +403,7 @@ fn directory_delete_closes_only_open_files_below_that_directory() {
 #[test]
 fn dirty_document_is_never_replaced_during_disk_reconciliation() {
     let root = std::env::temp_dir().join(format!(
-        "loom-reconcile-{}-{}",
+        "loog-reconcile-{}-{}",
         std::process::id(),
         crate::domain::document::content_hash(module_path!())
     ));
@@ -437,7 +437,7 @@ fn dirty_document_is_never_replaced_during_disk_reconciliation() {
 
 #[test]
 fn delayed_disk_notification_preserves_intervening_edits_and_saves() {
-    let root = std::env::temp_dir().join(format!("loom-async-disk-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("loog-async-disk-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     let path = root.join("file.txt");
     std::fs::write(&path, "base").unwrap();
@@ -470,7 +470,7 @@ fn delayed_disk_notification_preserves_intervening_edits_and_saves() {
 
 #[test]
 fn prepared_disk_and_diff_notifications_apply_without_rereading_files() {
-    let root = std::env::temp_dir().join(format!("loom-prepared-disk-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("loog-prepared-disk-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     let path = root.join("file.txt");
     std::fs::write(&path, "base").unwrap();
@@ -588,7 +588,7 @@ fn changes_tab_reuses_identity_and_preserves_file_anchor_and_collapsed_sections(
 #[test]
 fn clean_document_reload_preserves_cursor_and_scroll() {
     let root = std::env::temp_dir().join(format!(
-        "loom-reload-clean-{}-{}",
+        "loog-reload-clean-{}-{}",
         std::process::id(),
         crate::domain::document::content_hash(module_path!())
     ));
@@ -620,7 +620,7 @@ fn clean_document_reload_preserves_cursor_and_scroll() {
 #[test]
 fn deleted_document_remains_open_and_is_marked_missing() {
     let root = std::env::temp_dir().join(format!(
-        "loom-reload-missing-{}-{}",
+        "loog-reload-missing-{}-{}",
         std::process::id(),
         crate::domain::document::content_hash(module_path!())
     ));
@@ -645,7 +645,7 @@ fn deleted_document_remains_open_and_is_marked_missing() {
 #[test]
 fn recreating_a_missing_file_with_saved_contents_clears_missing_state() {
     let root = std::env::temp_dir().join(format!(
-        "loom-reload-recreated-{}-{}",
+        "loog-reload-recreated-{}-{}",
         std::process::id(),
         crate::domain::document::content_hash(module_path!())
     ));
@@ -672,7 +672,7 @@ fn recreating_a_missing_file_with_saved_contents_clears_missing_state() {
 #[test]
 fn save_echo_does_not_create_a_disk_conflict() {
     let root = std::env::temp_dir().join(format!(
-        "loom-save-echo-{}-{}",
+        "loog-save-echo-{}-{}",
         std::process::id(),
         crate::domain::document::content_hash(module_path!())
     ));
@@ -888,7 +888,7 @@ fn closing_a_pane_focuses_the_most_recent_remaining_pane() {
 #[test]
 fn reload_from_disk_clamps_every_view() {
     let root = std::env::temp_dir().join(format!(
-        "loom-reload-views-{}-{}",
+        "loog-reload-views-{}-{}",
         std::process::id(),
         crate::domain::document::content_hash(module_path!())
     ));

@@ -1,7 +1,7 @@
 //! The text snapshot a result belongs to, the windows asked for and the spans
 //! returned for them.
 use super::TokenSpan;
-use loom_editor_core::text::{TextBuffer, TextRevision};
+use loog_editor_core::text::{TextBuffer, TextRevision};
 use std::{collections::VecDeque, ops::Range, sync::Arc};
 
 /// An immutable view of a document's text together with the journal that says

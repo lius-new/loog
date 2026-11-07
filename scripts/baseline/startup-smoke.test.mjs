@@ -13,17 +13,17 @@ test('session path comparison supports verbatim, UNC, case and separator differe
 });
 
 test('Windows GUI smoke requests normal close and diagnoses startup, session and timeout failures', {skip: process.platform !== 'win32', timeout: 60000}, async t => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-startup-中文 '));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loog-startup-中文 '));
   t.after(() => fs.rmSync(root, {recursive: true, force: true, maxRetries: 5, retryDelay: 100}));
   const executable = path.join(root, 'startup probe.exe');
-  const built = spawnSync('rustc', ['--edition=2024', '--crate-name=loom_startup_fixture',
+  const built = spawnSync('rustc', ['--edition=2024', '--crate-name=loog_startup_fixture',
     fileURLToPath(new URL('./fixtures/startup-probe.rs', import.meta.url)), '-o', executable], {encoding: 'utf8', windowsHide: true, timeout: 30000});
   assert.equal(built.status, 0, built.error?.message || built.stderr);
   for (const mode of ['normal', 'early-exit', 'no-session', 'wrong-session', 'bad-exit', 'ignore-close']) {
     await t.test(mode, async () => {
       const outputDirectory = path.join(root, mode);
       const result = await startupSmoke({executable, outputDirectory, startupMs: 300, closeTimeoutMs: mode === 'ignore-close' ? 300 : 3000,
-        env: {...process.env, LOOM_STARTUP_FIXTURE_MODE: mode}});
+        env: {...process.env, LOOG_STARTUP_FIXTURE_MODE: mode}});
       assert.equal(result.result, mode === 'normal' ? 'passed' : 'failed', JSON.stringify(result));
       assert.equal(result.forced_cleanup, mode === 'ignore-close', JSON.stringify(result));
       if (mode === 'normal') {assert.equal(result.close_requested, true); assert.equal(result.saved_synthetic_workspace, true);}
@@ -39,8 +39,8 @@ test('Windows GUI smoke requests normal close and diagnoses startup, session and
   for (const [name, startDelay, closeDelay] of [['delayed-window', 1200, 0], ['delayed-close', 0, 1200]]) {
     await t.test(name, async () => {
       const result = await startupSmoke({executable, outputDirectory:path.join(root, name), startupMs:100,
-        startupTimeoutMs:10000, closeTimeoutMs:10000, env:{...process.env, LOOM_STARTUP_FIXTURE_MODE:'normal',
-          LOOM_STARTUP_FIXTURE_START_DELAY_MS:String(startDelay), LOOM_STARTUP_FIXTURE_CLOSE_DELAY_MS:String(closeDelay)}});
+        startupTimeoutMs:10000, closeTimeoutMs:10000, env:{...process.env, LOOG_STARTUP_FIXTURE_MODE:'normal',
+          LOOG_STARTUP_FIXTURE_START_DELAY_MS:String(startDelay), LOOG_STARTUP_FIXTURE_CLOSE_DELAY_MS:String(closeDelay)}});
       assert.equal(result.result, 'passed', JSON.stringify(result));
       assert.equal(result.forced_cleanup, false);
       assert.equal(result.saved_synthetic_workspace, true);
@@ -48,7 +48,7 @@ test('Windows GUI smoke requests normal close and diagnoses startup, session and
   }
   await t.test('a window that never becomes ready remains a failure and its child is cleaned up', async () => {
     const result = await startupSmoke({executable, outputDirectory:path.join(root, 'no-window'), startupMs:50,
-      startupTimeoutMs:500, env:{...process.env, LOOM_STARTUP_FIXTURE_START_DELAY_MS:'60000'}});
+      startupTimeoutMs:500, env:{...process.env, LOOG_STARTUP_FIXTURE_START_DELAY_MS:'60000'}});
     assert.equal(result.result, 'failed');
     assert.match(result.error, /Timed out waiting.*main window/);
     assert.equal(result.forced_cleanup, true);
@@ -59,7 +59,7 @@ test('Windows GUI smoke requests normal close and diagnoses startup, session and
     const timer = setTimeout(() => controller.abort(), 600);
     try {
       const result = await startupSmoke({executable, outputDirectory: path.join(root, 'cancelled'),
-        startupMs: 4000, signal: controller.signal, env: {...process.env, LOOM_STARTUP_FIXTURE_MODE: 'normal'}});
+        startupMs: 4000, signal: controller.signal, env: {...process.env, LOOG_STARTUP_FIXTURE_MODE: 'normal'}});
       assert.equal(result.result, 'failed');
       assert.match(result.error, /cancelled/);
       if (result.pid) {assert.equal(result.forced_cleanup, true); assert.throws(() => process.kill(result.pid, 0));}

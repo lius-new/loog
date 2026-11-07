@@ -67,7 +67,7 @@ fn open_diff_to(
     state.update(|app| sequence = app.git.model.begin_diff_open(request.clone()));
     let worker_state = state.clone();
     let spawned = thread::Builder::new()
-        .name("loom-git-open-diff".into())
+        .name("loog-git-open-diff".into())
         .spawn(move || {
             let result = crate::infrastructure::git::service().and_then(|service| {
                 if request.target == crate::features::git::DiffTarget::Changes {
@@ -984,7 +984,7 @@ pub fn request_push_tag(
     };
     let worker_state = state.clone();
     let worker = thread::Builder::new()
-        .name("loom-git-tag-remotes".into())
+        .name("loog-git-tag-remotes".into())
         .spawn(move || {
             let remotes = crate::infrastructure::git::service()
                 .and_then(|service| service.backend().remotes(&root))
@@ -1273,7 +1273,7 @@ fn load_history_page(
     let worker_state = state.clone();
     let failed_request = request.clone();
     let worker = thread::Builder::new()
-        .name("loom-git-history".into())
+        .name("loog-git-history".into())
         .spawn(move || {
             let commits = if request.head.is_none() {
                 Ok(Vec::new())
@@ -1342,7 +1342,7 @@ pub fn toggle_commit(state: &AppContext, root: PathBuf, oid: String) {
     let need_details = state.get().git.model.commit_detail(&oid).is_none();
     let worker_state = state.clone();
     let _ = thread::Builder::new()
-        .name("loom-git-commit-files".into())
+        .name("loog-git-commit-files".into())
         .spawn(move || {
             let (files, details) = thread::scope(|scope| {
                 let details = need_details.then(|| {
@@ -1380,7 +1380,7 @@ pub fn open_commit_diff(state: &AppContext, root: PathBuf, oid: String, path: Pa
     };
     let worker_state = state.clone();
     let _ = thread::Builder::new()
-        .name("loom-git-commit-diff".into())
+        .name("loog-git-commit-diff".into())
         .spawn(move || {
             let result = crate::infrastructure::git::service().and_then(|service| {
                 let diff = service.backend().commit_full_diff(&root, &oid, &path)?;
@@ -1433,7 +1433,7 @@ pub fn open_commit_changes(state: &AppContext, root: PathBuf, oid: String, focus
     state.update(|app| sequence = app.git.model.begin_diff_open(loading));
     let worker_state = state.clone();
     let spawned = thread::Builder::new()
-        .name("loom-git-commit-changes".into())
+        .name("loog-git-commit-changes".into())
         .spawn(move || {
             let result = crate::infrastructure::git::service().and_then(|service| {
                 let content = service.commit_changes(&root, &oid)?;
@@ -1476,7 +1476,7 @@ pub fn hover_commit(state: &AppContext, root: PathBuf, oid: String, anchor: lgui
     let hovered = crate::ui::git::panel::GitHover::Commit(oid.clone());
     let worker_state = state.clone();
     let _ = thread::Builder::new()
-        .name("loom-git-commit-card".into())
+        .name("loog-git-commit-card".into())
         .spawn(move || {
             thread::sleep(COMMIT_CARD_DELAY);
             let app = worker_state.get();
@@ -1531,7 +1531,7 @@ pub fn hover_tag(
     let worker_state = state.clone();
     let store = store.clone();
     let _ = thread::Builder::new()
-        .name("loom-git-tag-card".into())
+        .name("loog-git-tag-card".into())
         .spawn(move || {
             thread::sleep(COMMIT_CARD_DELAY);
             if !tag_hover_current(&worker_state.get(), &store.get(), &root, &tag, sequence) {
@@ -2037,7 +2037,7 @@ pub fn load_history_branches(state: &AppContext, repository: PathBuf) {
     };
     let worker_state = state.clone();
     let _ = thread::Builder::new()
-        .name("loom-git-history-branches".into())
+        .name("loog-git-history-branches".into())
         .spawn(move || {
             let Ok(branches) = crate::infrastructure::git::service()
                 .and_then(|service| service.backend().branches(&repository))
@@ -2060,7 +2060,7 @@ pub fn load_branches(state: &AppContext, repository: PathBuf, sequence: u64) {
     };
     let worker_state = state.clone();
     let spawned = thread::Builder::new()
-        .name("loom-git-branches".into())
+        .name("loog-git-branches".into())
         .spawn(move || {
             let result = crate::infrastructure::git::service().and_then(|service| {
                 let branches = service.backend().branches(&repository)?;
@@ -2174,7 +2174,7 @@ pub fn checkout_with(
             .map(|stashes| stashes.first().map(|stash| stash.oid.clone()))
     };
     let before = top(backend)?;
-    let message = format!("Loom: before switching to {}", checkout.target());
+    let message = format!("Loog: before switching to {}", checkout.target());
     backend.stash_push(root, Some(&message), true, false)?;
     let stashed = top(backend)? != before;
     if let Err(error) = switch() {
@@ -2602,17 +2602,17 @@ mod tests {
     fn worktree_defaults_are_siblings_with_safe_branch_names() {
         assert_eq!(
             default_worktree_path(
-                Path::new("projects/loom"),
+                Path::new("projects/loog"),
                 &Checkout::Create("feature/x".into())
             ),
-            PathBuf::from("projects/loom-feature-x")
+            PathBuf::from("projects/loog-feature-x")
         );
         assert_eq!(
             default_worktree_path(
-                Path::new("projects/loom"),
+                Path::new("projects/loog"),
                 &Checkout::Track("origin/feature/x".into())
             ),
-            PathBuf::from("projects/loom-feature-x")
+            PathBuf::from("projects/loog-feature-x")
         );
     }
 

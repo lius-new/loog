@@ -1,9 +1,9 @@
-# Loom Midnight
+# Loog Midnight
 
 Two color themes for long sessions.
 
-- **Loom Midnight** is a deep blue dark theme with teal accents.
-- **Loom Daybreak** is a warm light theme with the same accent family.
+- **Loog Midnight** is a deep blue dark theme with teal accents.
+- **Loog Daybreak** is a warm light theme with the same accent family.
 
 Choose either one in **Settings → Theme**. A theme changes colors only; how the
 editor behaves does not change.

@@ -1,5 +1,5 @@
 //! CI interoperability witness, not a production authority override.
-use loom_extension_host::{CodeSource, Limits, Runtime, aot};
+use loog_extension_host::{CodeSource, Limits, Runtime, aot};
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,9 +21,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for id in corpus["plugins"].as_array().ok_or("missing plugins")? {
         let id = id.as_str().ok_or("invalid plugin id")?;
         if ![
-            "loom.lsp.gopls",
-            "loom.lsp.rust-analyzer",
-            "loom.lsp.typescript-language-server",
+            "loog.lsp.gopls",
+            "loog.lsp.rust-analyzer",
+            "loog.lsp.typescript-language-server",
         ]
         .contains(&id)
         {

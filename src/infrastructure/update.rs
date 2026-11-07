@@ -1,11 +1,11 @@
 //! Update adapters: install detection, the signed manifest over HTTPS, the
-//! verified download and applying it after Loom quits: the Windows installer
+//! verified download and applying it after Loog quits: the Windows installer
 //! runs silently; on macOS and Linux a detached `sh` script swaps in the new
-//! app bundle, AppImage or folder and starts Loom again.
+//! app bundle, AppImage or folder and starts Loog again.
 //!
-//! Packaged builds (`LOOM_UPDATES=1` at compile time, set by
+//! Packaged builds (`LOOG_UPDATES=1` at compile time, set by
 //! `scripts/package`) check `releases/latest/download/update-<platform>.json`.
-//! `LOOM_UPDATE_FEED=<base url>` points any build at another feed for testing.
+//! `LOOG_UPDATE_FEED=<base url>` points any build at another feed for testing.
 use crate::features::update::{Asset, InstallKind, Platform, Release, parse_release};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -15,9 +15,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
-const FEED: &str = "https://github.com/lius-new/loom/releases/latest/download";
+const FEED: &str = "https://github.com/lius-new/loog/releases/latest/download";
 /// Raw Ed25519 public key; `node scripts/package/package.mjs keygen` makes
-/// the pair. The private key is the `LOOM_UPDATE_SIGNING_KEY` release secret.
+/// the pair. The private key is the `LOOG_UPDATE_SIGNING_KEY` release secret.
 const PUBLIC_KEY: &str = "c9t/ZmkmU2jqqw11/GVtbxY44Oor7YZrBFsU4QqfF8k=";
 /// Manifests are a few hundred bytes; anything larger is not one.
 const MANIFEST_LIMIT: u64 = 64 * 1024;
@@ -38,9 +38,9 @@ pub fn platform() -> Option<Platform> {
 }
 
 fn feed() -> Option<String> {
-    match std::env::var("LOOM_UPDATE_FEED") {
+    match std::env::var("LOOG_UPDATE_FEED") {
         Ok(url) if !url.trim().is_empty() => Some(url.trim().trim_end_matches('/').to_owned()),
-        _ => (option_env!("LOOM_UPDATES") == Some("1")).then(|| FEED.to_owned()),
+        _ => (option_env!("LOOG_UPDATES") == Some("1")).then(|| FEED.to_owned()),
     }
 }
 
@@ -71,7 +71,7 @@ fn detect() -> Option<(InstallKind, PathBuf)> {
             (InstallKind::WindowsPortable, dir)
         }
     } else if cfg!(target_os = "macos") {
-        // Loom.app/Contents/MacOS/Loom
+        // Loog.app/Contents/MacOS/Loog
         let app = exe.ancestors().nth(3)?.to_path_buf();
         // An app opened from Downloads runs from a read-only, randomized
         // path until it is moved to Applications.
@@ -88,7 +88,7 @@ fn detect() -> Option<(InstallKind, PathBuf)> {
             replaceable(InstallKind::LinuxAppImage, image.parent()),
             image,
         )
-    } else if exe.starts_with("/opt/loom") {
+    } else if exe.starts_with("/opt/loog") {
         (InstallKind::LinuxDeb, dir)
     } else {
         (replaceable(InstallKind::LinuxTarball, dir.parent()), dir)
@@ -98,7 +98,7 @@ fn detect() -> Option<(InstallKind, PathBuf)> {
 /// Whether files can be created in `dir`; the swap happens next to the
 /// install so it is a rename on one file system.
 fn writable(dir: &Path) -> bool {
-    let probe = dir.join(format!(".loom-write-check-{}", std::process::id()));
+    let probe = dir.join(format!(".loog-write-check-{}", std::process::id()));
     let created = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -121,7 +121,7 @@ fn agent(url: &str) -> ureq::Agent {
     ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(15))
         .timeout_read(Duration::from_secs(60))
-        .user_agent(concat!("Loom/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Loog/", env!("CARGO_PKG_VERSION")))
         // Honors HTTPS_PROXY and friends, except for a loopback test feed.
         .try_proxy_from_env(!is_loopback(url))
         .https_only(!is_loopback(url))
@@ -178,7 +178,7 @@ pub fn download(asset: &Asset, mut progress: impl FnMut(u64)) -> Result<PathBuf,
     if asset.size > INSTALLER_LIMIT {
         return Err("the installer is too large".to_owned());
     }
-    let dir = std::env::temp_dir().join("loom-update");
+    let dir = std::env::temp_dir().join("loog-update");
     // Earlier downloads are never needed again.
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
@@ -223,30 +223,30 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// Apply the downloaded `installer` once Loom quits (see
+/// Apply the downloaded `installer` once Loog quits (see
 /// `run_pending_installer`).
 pub fn install_on_exit(installer: PathBuf) {
     *PENDING_INSTALLER.lock().unwrap() = Some(installer);
 }
 
-/// Waits for Loom (`$1`, its process id) to exit so its files are free.
+/// Waits for Loog (`$1`, its process id) to exit so its files are free.
 const WAIT: &str = r#"set -eu
 pid=$1
 shift
 while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
 "#;
 
-/// `$1`: the downloaded zip of Loom.app; `$2`: the installed Loom.app. The
+/// `$1`: the downloaded zip of Loog.app; `$2`: the installed Loog.app. The
 /// new bundle is unpacked next to the old one so the swap is a rename, and
 /// the old one comes back if the new one cannot be moved in.
 const MAC_APP: &str = r#"archive=$1
 app=$2
-stage=$(mktemp -d "$(dirname "$app")/.loom-update.XXXXXX")
+stage=$(mktemp -d "$(dirname "$app")/.loog-update.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 ditto -x -k "$archive" "$stage"
-test -x "$stage/Loom.app/Contents/MacOS/Loom"
+test -x "$stage/Loog.app/Contents/MacOS/Loog"
 mv "$app" "$stage/previous.app"
-if ! mv "$stage/Loom.app" "$app"; then
+if ! mv "$stage/Loog.app" "$app"; then
   mv "$stage/previous.app" "$app"
   exit 1
 fi
@@ -254,10 +254,10 @@ rm -f "$archive"
 open "$app"
 "#;
 
-/// `$1`: the downloaded AppImage; `$2`: the AppImage Loom runs from.
+/// `$1`: the downloaded AppImage; `$2`: the AppImage Loog runs from.
 const APP_IMAGE: &str = r#"image=$1
 target=$2
-next="$target.loom-update"
+next="$target.loog-update"
 cp "$image" "$next"
 chmod 755 "$next"
 mv -f "$next" "$target"
@@ -265,23 +265,23 @@ rm -f "$image"
 nohup "$target" >/dev/null 2>&1 &
 "#;
 
-/// `$1`: the downloaded tar.gz, which holds one `Loom-<version>-…` folder;
+/// `$1`: the downloaded tar.gz, which holds one `Loog-<version>-…` folder;
 /// `$2`: the install folder.
 const TARBALL: &str = r#"archive=$1
 dir=$2
-stage=$(mktemp -d "$(dirname "$dir")/.loom-update.XXXXXX")
+stage=$(mktemp -d "$(dirname "$dir")/.loog-update.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 tar -xzf "$archive" -C "$stage"
-set -- "$stage"/Loom-*/
+set -- "$stage"/Loog-*/
 new=${1%/}
-test -x "$new/Loom"
+test -x "$new/Loog"
 mv "$dir" "$stage/previous"
 if ! mv "$new" "$dir"; then
   mv "$stage/previous" "$dir"
   exit 1
 fi
 rm -f "$archive"
-nohup "$dir/Loom" >/dev/null 2>&1 &
+nohup "$dir/Loog" >/dev/null 2>&1 &
 "#;
 
 /// The program and arguments that apply `installer` to the install at
@@ -294,8 +294,8 @@ fn apply_command(
 ) -> Option<(PathBuf, Vec<OsString>)> {
     let script = match kind {
         InstallKind::WindowsSetup => {
-            // Setup closes any other Loom instance, replaces the files and
-            // starts Loom again (`/relaunch=1`, see `installer.iss`).
+            // Setup closes any other Loog instance, replaces the files and
+            // starts Loog again (`/relaunch=1`, see `installer.iss`).
             let args = [
                 "/VERYSILENT",
                 "/SUPPRESSMSGBOXES",
@@ -315,7 +315,7 @@ fn apply_command(
         OsString::from("-c"),
         OsString::from(format!("{WAIT}{script}")),
         // `$0`, used in error messages.
-        OsString::from("loom-update"),
+        OsString::from("loog-update"),
         OsString::from(pid.to_string()),
         installer.as_os_str().to_owned(),
         target.as_os_str().to_owned(),
@@ -346,7 +346,7 @@ pub fn run_pending_installer() {
             command.stderr(log);
         }
         // Hold no handle on a folder being replaced, and keep running after
-        // Loom exits.
+        // Loog exits.
         command.current_dir("/");
         #[cfg(unix)]
         std::os::unix::process::CommandExt::process_group(&mut command, 0);
@@ -414,7 +414,7 @@ mod tests {
         let (program, args) = apply_command(
             InstallKind::WindowsSetup,
             Path::new("setup.exe"),
-            Path::new("C:/Loom"),
+            Path::new("C:/Loog"),
             7,
         )
         .unwrap();
@@ -445,15 +445,15 @@ mod tests {
     /// A fresh, empty folder for one test.
     #[cfg(unix)]
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("loom-update-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loog-update-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
 
-    /// A stand-in for Loom that records that it was started.
+    /// A stand-in for Loog that records that it was started.
     #[cfg(unix)]
-    fn fake_loom(path: &Path, version: &str) {
+    fn fake_loog(path: &Path, version: &str) {
         use std::os::unix::fs::PermissionsExt;
         std::fs::write(
             path,
@@ -500,21 +500,21 @@ mod tests {
     #[cfg(unix)]
     fn tarball_update_replaces_the_folder_and_restarts() {
         let root = scratch("tarball");
-        let install = root.join("lib").join("loom");
+        let install = root.join("lib").join("loog");
         std::fs::create_dir_all(&install).unwrap();
-        fake_loom(&install.join("Loom"), "old");
+        fake_loog(&install.join("Loog"), "old");
         std::fs::write(install.join("removed-file"), "").unwrap();
 
-        let package = root.join("package").join("Loom-9.9.9-linux-x86_64");
+        let package = root.join("package").join("Loog-9.9.9-linux-x86_64");
         std::fs::create_dir_all(&package).unwrap();
-        fake_loom(&package.join("Loom"), "new");
-        let archive = root.join("Loom.tar.gz");
+        fake_loog(&package.join("Loog"), "new");
+        let archive = root.join("Loog.tar.gz");
         let tar = std::process::Command::new("tar")
             .arg("-czf")
             .arg(&archive)
             .arg("-C")
             .arg(root.join("package"))
-            .arg("Loom-9.9.9-linux-x86_64")
+            .arg("Loog-9.9.9-linux-x86_64")
             .status()
             .unwrap();
         assert!(tar.success());
@@ -523,10 +523,10 @@ mod tests {
             InstallKind::LinuxTarball,
             &archive,
             &install,
-            &install.join("Loom.launched"),
+            &install.join("Loog.launched"),
         );
-        let loom = std::fs::read_to_string(install.join("Loom")).unwrap();
-        assert!(loom.contains("# new"));
+        let loog = std::fs::read_to_string(install.join("Loog")).unwrap();
+        assert!(loog.contains("# new"));
         assert!(!install.join("removed-file").exists());
         assert!(!archive.exists());
         let leftovers = std::fs::read_dir(root.join("lib")).unwrap().count();
@@ -538,8 +538,8 @@ mod tests {
     #[cfg(unix)]
     fn appimage_update_replaces_the_file_and_restarts() {
         let root = scratch("appimage");
-        let target = root.join("Loom.AppImage");
-        fake_loom(&target, "old");
+        let target = root.join("Loog.AppImage");
+        fake_loog(&target, "old");
         let download = root.join("download.AppImage");
         std::fs::write(&download, "#!/bin/sh\n# new\ntouch \"$0.launched\"\n").unwrap();
 
@@ -547,7 +547,7 @@ mod tests {
             InstallKind::LinuxAppImage,
             &download,
             &target,
-            &root.join("Loom.AppImage.launched"),
+            &root.join("Loog.AppImage.launched"),
         );
         assert!(std::fs::read_to_string(&target).unwrap().contains("# new"));
         assert!(!download.exists());
@@ -581,7 +581,7 @@ mod tests {
         assert_eq!(BASE64.decode(PUBLIC_KEY).unwrap().len(), 32);
     }
 
-    /// Reads the real feed, or `LOOM_UPDATE_FEED`:
+    /// Reads the real feed, or `LOOG_UPDATE_FEED`:
     /// `cargo test live_feed -- --ignored --nocapture`.
     #[test]
     #[ignore = "needs the network"]

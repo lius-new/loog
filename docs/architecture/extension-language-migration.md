@@ -3,11 +3,11 @@
 This records implementation and evidence for
 [the language support plan](../../EXTENSIONS_LANGUAGE_SUPPORT_PLAN.md) and
 [the LGUI requirements](../../LGUI_REQUIREMENTS.md). A checked library feature is
-not, by itself, completion of its Loom integration or of the language migration.
+not, by itself, completion of its Loog integration or of the language migration.
 
-The requested development checkouts are `.tmp/lgui` and `.tmp/loom-extensions`.
+The requested development checkouts are `.tmp/lgui` and `.tmp/loog-extensions`.
 LGUI is now committed and pushed as `5ba703140407b6f6741c212d4c9d62aa976cdae7`;
-Loom's manifest and lock use that exact GitHub revision. Building Loom no longer
+Loog's manifest and lock use that exact GitHub revision. Building Loog no longer
 requires a temporary LGUI checkout. The extension repository remains independent.
 
 ## Progress
@@ -26,7 +26,7 @@ requires a temporary LGUI checkout. The extension repository remains independent
 
 ## PG native use sites
 
-| Requirements | Loom use |
+| Requirements | Loog use |
 | --- | --- |
 | LY0, LY1, LY2 | Status bar uses shared content sizing, Dock and Flex; extension split supplies constrained sizes |
 | LY3 | Extension contribution tables use Grid tracks and cells, with measured ellipsis |
@@ -52,9 +52,9 @@ Existing specialized editor controls keep their application command adapters.
 ## Language capability baseline
 
 All three official language plugins now compile private Rust clients into
-independent WASM components from `loom-extensions/language-clients/rust`.
+independent WASM components from `loog-extensions/language-clients/rust`.
 The previous TypeScript clients and TypeScript SDK have been removed. Extensions
-generate Rust bindings directly from Loom's WIT contract; protocol initialization,
+generate Rust bindings directly from Loog's WIT contract; protocol initialization,
 capability negotiation and language behavior remain in the plugins. Historical
 TypeScript test counts below describe the earlier migration baseline, not the
 current test suite.
@@ -65,7 +65,7 @@ are installed, existing parser bindings are retained. They use the existing
 language-registry restart lifecycle. A service cannot smuggle parser bindings
 through a language identity resource.
 
-Source baseline: Loom `5ff103ed`, before changing the host language subsystem.
+Source baseline: Loog `5ff103ed`, before changing the host language subsystem.
 All four language IDs share the same host routing and interaction code. Provider
 availability must continue to follow the selected server's negotiated capabilities;
 absence is not permission to drop a previously working host interaction.
@@ -191,11 +191,11 @@ extension/provider IDs. Resolve and commands retain their original owner. Proces
 configuration uses extension-contributed settings. The same persisted trust store
 still checks every process launch; granting trust retries relevant language owners.
 
-Registry language-service versions require `loom:extension@0.1.0` ABI metadata.
+Registry language-service versions require `loog:extension@0.1.0` ABI metadata.
 The extension index now derives served languages from provider selectors. Eleven
 historical recipes for other languages remain in the repository and are explicitly
 deferred from automatic/manual builds until their component migration; published
-assets are preserved. New clients require Loom >=0.1.9 to avoid loading the changed
+assets are preserved. New clients require Loog >=0.1.9 to avoid loading the changed
 candidate ABI into released 0.1.8 hosts.
 
 The final measurements are in [the retained evidence](language-migration-evidence/README.md).
@@ -206,7 +206,7 @@ checks.
 
 Final post-removal verification on Windows:
 
-- Loom release test binary: 1700 passed, 28 ignored, zero failures (1728 total).
+- Loog release test binary: 1700 passed, 28 ignored, zero failures (1728 total).
   Removed protocol/manager tests account for the smaller count than earlier runs;
   native editor tests now exercise the private client component. The final run
   includes trust revocation/regrant, provider preferences and component index gates.
@@ -233,7 +233,7 @@ at this source remain unclaimed.
 
 ## Earlier stage verification (historical counts)
 
-Latest full Loom run: `RUST_MIN_STACK=16777216 cargo test --bin Loom --offline --
+Latest full Loog run: `RUST_MIN_STACK=16777216 cargo test --bin Loog --offline --
 --test-threads=2 --quiet` passed 1919 tests, with 35 ignored and no failures. The
 previous combined run overlapped heavy TypeScript component compilation and had
 timing failures as well as actual integration regressions. The native completion
@@ -244,8 +244,8 @@ test was excluded from that rerun.
 
 Latest focused checks: SDK protocol tests 15/15, TypeScript type checking and WIT
 generated binding verification passed. LGUI core/widgets passed 218 + 45 tests.
-`cargo check --bin Loom --tests --offline` passed after removing the unused host
-entry points. `cargo test -p loom-extension-host --lib --test rust_guest --offline
+`cargo check --bin Loog --tests --offline` passed after removing the unused host
+entry points. `cargo test -p loog-extension-host --lib --test rust_guest --offline
 -- --test-threads=2 --quiet` passed all 6 host library and 14 real Rust guest tests.
 A real TypeScript WASM test passed for typed references and 40 consecutive saved
 snapshots, exceeding the 32-handle capture limit cumulatively to verify release.
@@ -277,8 +277,8 @@ TypeScript SDK protocol tests passed 11 tests. The real TypeScript component's
 and removal. The extension host's 3 library tests passed for mutation/depth
 budgets, ownership, invalid edits and process write credits.
 
-Windows native build: `cargo check --bin Loom --tests --offline` passed after
-selecting the local LGUI checkout. `RUST_MIN_STACK=16777216 cargo test --bin Loom
+Windows native build: `cargo check --bin Loog --tests --offline` passed after
+selecting the local LGUI checkout. `RUST_MIN_STACK=16777216 cargo test --bin Loog
 ui:: --offline -- --test-threads=2` passed all 233 tests, including the running
 WASM guest completion integration, native Unicode input, 5,000-entry virtualization
 and status bar description-tree clicks. The LGUI core/widgets library run passed

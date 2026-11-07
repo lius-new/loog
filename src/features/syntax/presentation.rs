@@ -15,7 +15,7 @@
 //!   swallows it by being stretched; it is a guess that the next parse corrects.
 use super::TokenSpan;
 use crate::features::highlighting::HighlightId;
-use loom_editor_core::text::{RevisionEdit, TextRevision};
+use loog_editor_core::text::{RevisionEdit, TextRevision};
 use std::ops::Range;
 
 /// Largest inputs the display path projects without measurement showing it fits

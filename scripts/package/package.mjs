@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Loom packaging entry point.
+// Loog packaging entry point.
 //
 //   node scripts/package/package.mjs <step> [options]
 //
@@ -129,7 +129,7 @@ async function main() {
   }
 
   // Packaged builds check for updates; plain `cargo build` builds do not.
-  process.env.LOOM_UPDATES = '1';
+  process.env.LOOG_UPDATES = '1';
   const steps = options.step === 'all' ? STEPS : [options.step];
   // The bundled extensions come from the live registry when no lock was handed over.
   if (steps.includes('package')) await ensureLocked();

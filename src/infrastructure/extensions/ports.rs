@@ -1,7 +1,7 @@
 //! Disk-backed storage and bounded file access for extensions (design §6, §9).
 use crate::features::extensions::manifest::check_package_path;
-use loom_extension_api::{ErrorKind, ExtensionError};
-use loom_extension_host::{FilePort, StoragePort};
+use loog_extension_api::{ErrorKind, ExtensionError};
+use loog_extension_host::{FilePort, StoragePort};
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -155,7 +155,7 @@ mod tests {
     use super::*;
 
     fn folder(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("loom-ports-{}-{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loog-ports-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(dir.join("src/lib.rs"), "fn main() {}\n中文").unwrap();
@@ -202,7 +202,7 @@ mod tests {
     fn a_link_out_of_the_folder_is_not_followed() {
         let dir = folder("link");
         let outside =
-            std::env::temp_dir().join(format!("loom-ports-outside-{}", std::process::id()));
+            std::env::temp_dir().join(format!("loog-ports-outside-{}", std::process::id()));
         std::fs::write(&outside, "secret").unwrap();
         let link = dir.join("escape.txt");
         #[cfg(windows)]
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn storage_round_trips_per_scope_and_survives_damage() {
-        let dir = std::env::temp_dir().join(format!("loom-storage-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loog-storage-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let mut storage = FsStorage::new(dir.clone());
         assert!(storage.load("user").is_empty());
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn a_scope_name_cannot_name_another_place() {
-        let dir = std::env::temp_dir().join(format!("loom-storage-names-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loog-storage-names-{}", std::process::id()));
         let mut storage = FsStorage::new(dir);
         for scope in ["../x", "a/b", "a\\b", ".hidden", ""] {
             assert!(storage.save(scope, &BTreeMap::new()).is_err(), "{scope}");

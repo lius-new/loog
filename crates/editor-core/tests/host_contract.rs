@@ -1,11 +1,11 @@
 //! Exercise the exported core as an external host, without application modules.
 use std::ops::Range;
 
-use loom_editor_core::commands::{Command, apply};
-use loom_editor_core::identity::{FileId, PaneId};
-use loom_editor_core::normal::Movement;
-use loom_editor_core::text::{Edit, EditError, EditKind, EditorMut, Selection, TextBuffer};
-use loom_editor_core::vim::{Clipboard, Host, Key, Request, Vim};
+use loog_editor_core::commands::{Command, apply};
+use loog_editor_core::identity::{FileId, PaneId};
+use loog_editor_core::normal::Movement;
+use loog_editor_core::text::{Edit, EditError, EditKind, EditorMut, Selection, TextBuffer};
+use loog_editor_core::vim::{Clipboard, Host, Key, Request, Vim};
 
 #[test]
 fn semantic_commands_preserve_unicode_crlf_and_peer_selections() {
@@ -79,10 +79,10 @@ fn vim_save_and_quit_are_host_requests_without_file_or_window_access() {
     let mut vim = Vim::default();
     vim.options.enabled = true;
     vim.enter_view(
-        loom_editor_core::vim::ViewKey {
+        loog_editor_core::vim::ViewKey {
             pane: PaneId::new(1),
             document: FileId::new(1),
-            view: loom_editor_core::identity::ViewId::new(1),
+            view: loog_editor_core::identity::ViewId::new(1),
             input_generation: 0,
         },
         &mut editor,

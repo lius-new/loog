@@ -32,7 +32,7 @@ struct Harness {
 impl Harness {
     fn new(name: &str, source: &str) -> Self {
         let directory =
-            std::env::temp_dir().join(format!("loom-extension-docs-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("loog-extension-docs-{name}-{}", std::process::id()));
         std::fs::create_dir_all(directory.join("docs")).unwrap();
         std::fs::write(directory.join("manifest.json"), r#"{"schema":1,"id":"test.docs","version":"1.0.0","readme":"docs/README.md","changelog":"docs/CHANGELOG.md"}"#).unwrap();
         std::fs::write(directory.join("docs/README.md"), source).unwrap();

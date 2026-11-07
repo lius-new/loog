@@ -40,7 +40,7 @@ pub(super) fn within(root: &Path, relative: &str) -> Result<PathBuf, ExtensionEr
     }
     // The tools' own leftovers and version control data are not for extensions.
     if relative.split('/').any(|part| {
-        part == ".git" || part.starts_with(".loom-edit-") || part.starts_with(fileops::NOTE_PREFIX)
+        part == ".git" || part.starts_with(".loog-edit-") || part.starts_with(fileops::NOTE_PREFIX)
     }) {
         return Err(refuse(
             ErrorKind::PermissionDenied,
@@ -73,7 +73,7 @@ impl ExtensionService {
         app: &AppState,
         id: &str,
         generation: u64,
-        started: loom_extension_host::StartedFileOps,
+        started: loog_extension_host::StartedFileOps,
     ) -> Vec<Effect> {
         let operation = started.operation;
         let fail = |error: ExtensionError| {
@@ -116,9 +116,9 @@ impl ExtensionService {
     fn plan_file_ops(
         &self,
         app: &AppState,
-        request: &loom_extension_host::FileOpsRequest,
+        request: &loog_extension_host::FileOpsRequest,
     ) -> Result<Vec<Op>, ExtensionError> {
-        use loom_extension_host::FileOp;
+        use loog_extension_host::FileOp;
         let root = self
             .roots
             .iter()
@@ -298,7 +298,7 @@ mod unit {
 
     #[test]
     fn paths_are_relative_inside_the_folder_and_avoid_protected_names() {
-        let dir = std::env::temp_dir().join(format!("loom-within-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loog-within-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         assert!(within(&dir, "sub/new.txt").is_ok());
         assert!(
@@ -312,8 +312,8 @@ mod unit {
             "C:/x",
             ".git/config",
             "sub/.git/x",
-            ".loom-edit-1/x",
-            ".loom-fileops-1.txt",
+            ".loog-edit-1/x",
+            ".loog-fileops-1.txt",
             "",
         ] {
             assert!(within(&dir, bad).is_err(), "{bad}");

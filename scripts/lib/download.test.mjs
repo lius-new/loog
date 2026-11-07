@@ -10,7 +10,7 @@ import {downloadVerified, retryAfter} from './download.mjs';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-download-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loog-download-'));
   t.after(() => fs.rmSync(root, {recursive:true, force:true}));
   return {root, spec:{url:'https://example.invalid/pinned', destination:path.join(root, 'archive'), sha256:digest('complete')}};
 }

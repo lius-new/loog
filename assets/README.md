@@ -1,6 +1,6 @@
 # Application icons
 
-Loom's canonical icon assets now live in `../icons`.
+Loog's canonical icon assets now live in `../icons`.
 
 `../icons/app.ico` is the standard Windows application icon used by the
 executable, taskbar, Start menu, window title bar, and Alt+Tab. It contains

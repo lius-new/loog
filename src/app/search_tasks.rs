@@ -18,7 +18,7 @@ impl SearchExecutor for ThreadExecutor {
     fn schedule(&self, delay: Duration, cancel: Arc<AtomicBool>, job: Job) -> Result<Wake, String> {
         let (sender, receiver) = mpsc::channel();
         std::thread::Builder::new()
-            .name("loom-workspace-search".into())
+            .name("loog-workspace-search".into())
             .spawn(move || {
                 if receiver.recv_timeout(delay).is_ok() || cancel.load(Ordering::Relaxed) {
                     return;

@@ -1,4 +1,4 @@
-//! Semantic versions as Loom releases use them: `MAJOR.MINOR.PATCH` with an
+//! Semantic versions as Loog releases use them: `MAJOR.MINOR.PATCH` with an
 //! optional `-pre.release` part, ordered by SemVer precedence.
 use std::cmp::Ordering;
 use std::fmt;

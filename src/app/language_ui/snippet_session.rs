@@ -743,7 +743,7 @@ mod tests {
 
     fn type_text(app: &mut AppState, text: &str) {
         let mut editor = app.workspace.active_editor_mut().unwrap();
-        loom_editor_core::normal::insert(&mut editor, text);
+        loog_editor_core::normal::insert(&mut editor, text);
         drop(editor);
         observe(app);
     }

@@ -632,7 +632,7 @@ pub fn indent_lines(snippet: &mut Snippet, indent: &str) {
     snippet.text = old.replace('\n', &format!("\n{indent}"));
 }
 
-/// The variables every editor offers that Loom can answer for a document.
+/// The variables every editor offers that Loog can answer for a document.
 pub fn document_variables(
     path: &std::path::Path,
     selected: &str,
@@ -966,16 +966,16 @@ pub fn normalize_endings(snippet: &mut Snippet, ending: &str) {
     if !text.contains(['\r', '\n']) {
         return;
     }
-    let mapped = |at: usize| loom_editor_core::text::normalize_endings(&text[..at], ending).len();
+    let mapped = |at: usize| loog_editor_core::text::normalize_endings(&text[..at], ending).len();
     for stop in &mut snippet.stops {
         for range in &mut stop.ranges {
             *range = mapped(range.start)..mapped(range.end);
         }
         for choice in &mut stop.choices {
-            *choice = loom_editor_core::text::normalize_endings(choice, ending);
+            *choice = loog_editor_core::text::normalize_endings(choice, ending);
         }
     }
-    snippet.text = loom_editor_core::text::normalize_endings(text, ending);
+    snippet.text = loog_editor_core::text::normalize_endings(text, ending);
 }
 
 #[cfg(test)]

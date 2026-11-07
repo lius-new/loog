@@ -34,7 +34,7 @@ pub(crate) fn component() -> &'static [u8] {
             .expect("cargo is available");
         assert!(status.success(), "the Rust guest failed to build");
         let module =
-            std::fs::read(target.join("wasm32-unknown-unknown/release/loom_rust_guest.wasm"))
+            std::fs::read(target.join("wasm32-unknown-unknown/release/loog_rust_guest.wasm"))
                 .unwrap();
         wit_component::ComponentEncoder::default()
             .module(&module)
@@ -51,7 +51,7 @@ pub(crate) fn precompiled_cache() -> &'static PathBuf {
     static CACHE: OnceLock<PathBuf> = OnceLock::new();
     CACHE.get_or_init(|| {
         let cache = repo().join("target/test-native-rust-guest-cache");
-        loom_extension_host::Runtime::new()
+        loog_extension_host::Runtime::new()
             .unwrap()
             .compile_cached(component(), &cache)
             .unwrap();
@@ -63,7 +63,7 @@ const MANIFEST: &str = r#"{
     "schema": 1,
     "id": "example.tools",
     "version": "0.1.0",
-    "api": "loom:extension@0.1.0",
+    "api": "loog:extension@0.1.0",
     "component": "extension.wasm",
     "activation": [
         { "kind": "command", "id": "example.tools.uppercase" },
@@ -83,7 +83,7 @@ fn package_dir(name: &str) -> PathBuf {
 }
 
 pub(crate) fn package_dir_with(name: &str, manifest: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("loom-ext-{}-{name}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("loog-ext-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("manifest.json"), manifest).unwrap();
@@ -156,13 +156,13 @@ fn fixture_package(
     }))
     .unwrap();
     let mut service = ExtensionService::new(cache.unwrap_or_else(|| {
-        std::env::temp_dir().join(format!("loom-ext-cache-{}", std::process::id()))
+        std::env::temp_dir().join(format!("loog-ext-cache-{}", std::process::id()))
     }));
     let id = service.load_package(package).unwrap();
     service.grant_declared(&id);
     let mut app = AppState::new();
     app.extension_widgets.begin_session(service.ui_session);
-    let path = std::env::temp_dir().join(format!("loom-ext-doc-{}-{name}.txt", std::process::id()));
+    let path = std::env::temp_dir().join(format!("loog-ext-doc-{}-{name}.txt", std::process::id()));
     app.workspace.open_path(path.clone(), text.into());
     {
         let mut editor = app.workspace.active_editor_mut().unwrap();
@@ -229,7 +229,7 @@ impl Fixture {
                 self.apply(effects);
             }
             while let Ok(event) = self.process_events.try_recv() {
-                if std::env::var_os("LOOM_MIGRATION_TRACE").is_some() {
+                if std::env::var_os("LOOG_MIGRATION_TRACE").is_some() {
                     if let crate::infrastructure::extensions::processes::ProcessEvent::Output {
                         bytes,
                         ..
@@ -336,7 +336,7 @@ impl Fixture {
                 Effect::StopWatch { watch } => self.watches.stop(watch),
                 Effect::StartProcess { process, spec } => self.processes.start(process, spec),
                 Effect::WriteProcess { process, bytes } => {
-                    if std::env::var_os("LOOM_MIGRATION_TRACE").is_some() {
+                    if std::env::var_os("LOOG_MIGRATION_TRACE").is_some() {
                         if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
                             self.trace.push_back(format!("out: {value}"));
                         }
@@ -455,7 +455,7 @@ fn a_command_activates_on_demand_edits_the_captured_document_and_undoes_in_one_s
 #[test]
 fn without_a_grant_nothing_starts() {
     let mut f = fixture("denied", "abc", 0..3);
-    f.service = ExtensionService::new(std::env::temp_dir().join("loom-ext-cache-denied"));
+    f.service = ExtensionService::new(std::env::temp_dir().join("loog-ext-cache-denied"));
     f.service.load_package(&package_dir("denied2")).unwrap();
     let messages = f.run("example.tools.uppercase");
     assert!(
@@ -484,7 +484,7 @@ fn typing_while_the_extension_works_makes_its_edit_stale_and_keeps_the_typing() 
         .document_editor_mut(id)
         .unwrap()
         .set_cursor(11);
-    loom_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "!");
+    loog_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "!");
     f.pump(|_, event| matches!(event, Event::Log { text, .. } if text.contains("operation") && text.contains("failed")));
     assert_eq!(f.text(), "hello world!");
 }
@@ -593,7 +593,7 @@ fn a_reload_moves_the_generation_on_and_old_instance_events_cannot_act() {
     assert_eq!(package.lifecycle.state(), State::Dormant);
 
     // An edit request from the old instance finds no ground to stand on.
-    let stale = loom_extension_host::AcceptedEdit {
+    let stale = loog_extension_host::AcceptedEdit {
         operation: 99,
         title: "late".into(),
         call: 1,
@@ -644,7 +644,7 @@ const EVENT_MANIFEST: &str = r#"{
     "schema": 1,
     "id": "example.tools",
     "version": "0.1.0",
-    "api": "loom:extension@0.1.0",
+    "api": "loog:extension@0.1.0",
     "component": "extension.wasm",
     "activation": [
         { "kind": "event", "name": "document.open" },
@@ -697,13 +697,13 @@ fn document_events_wake_a_dormant_extension_and_arrive_in_order_with_a_baseline_
         .document_editor_mut(id)
         .unwrap()
         .set_cursor(3);
-    loom_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "!");
+    loog_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "!");
     f.observe();
     f.wait_for_log("changed 1");
 
     // Two quick changes reach the extension as one contiguous message.
-    loom_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "?");
-    loom_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "#");
+    loog_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "?");
+    loog_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "#");
     f.observe();
     f.wait_for_log("x");
     let logs = f.service.package("example.tools").unwrap().logs.clone();
@@ -801,7 +801,7 @@ const SETTINGS_MANIFEST: &str = r#"{
     "schema": 1,
     "id": "example.tools",
     "version": "0.1.0",
-    "api": "loom:extension@0.1.0",
+    "api": "loog:extension@0.1.0",
     "component": "extension.wasm",
     "activation": [{ "kind": "command", "id": "example.tools.uppercase" }],
     "capabilities": ["documents.read", "workspace.edit"],
@@ -871,7 +871,7 @@ fn a_manifest_default_of_the_wrong_type_is_refused() {
 
 #[test]
 fn a_resource_only_package_loads_without_a_component_and_bad_resources_are_dropped_alone() {
-    let dir = std::env::temp_dir().join(format!("loom-ext-res-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("loog-ext-res-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("themes")).unwrap();
     std::fs::write(dir.join("themes/dark.json"), r#"{"name":"Night"}"#).unwrap();
@@ -886,7 +886,7 @@ fn a_resource_only_package_loads_without_a_component_and_bad_resources_are_dropp
             ] } }"#,
     )
     .unwrap();
-    let mut service = ExtensionService::new(std::env::temp_dir().join("loom-ext-cache-res"));
+    let mut service = ExtensionService::new(std::env::temp_dir().join("loog-ext-cache-res"));
     let id = service.load_package(&dir).unwrap();
     let package = service.package(&id).unwrap();
     assert!(!package.manifest.has_behaviour());
@@ -907,9 +907,9 @@ fn a_resource_only_package_loads_without_a_component_and_bad_resources_are_dropp
 
 #[test]
 fn package_snippets_are_offered_for_their_language_only_and_a_bad_file_is_rejected_whole() {
-    let probe = std::env::temp_dir().join(format!("loom-ext-doc-{}-snip.txt", std::process::id()));
+    let probe = std::env::temp_dir().join(format!("loog-ext-doc-{}-snip.txt", std::process::id()));
     let language = language_of(&probe);
-    let dir = std::env::temp_dir().join(format!("loom-ext-snippets-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("loog-ext-snippets-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("snippets")).unwrap();
     let file = |language: &str| {
@@ -971,7 +971,7 @@ fn a_package_theme_is_read_completely_offered_by_id_and_withdrawn_with_its_packa
     let _turn = crate::features::settings::theme_id::REGISTRY_TURN
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let dir = std::env::temp_dir().join(format!("loom-ext-theme-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("loog-ext-theme-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("themes")).unwrap();
     std::fs::write(
@@ -993,7 +993,7 @@ fn a_package_theme_is_read_completely_offered_by_id_and_withdrawn_with_its_packa
             ] } }"#,
     )
     .unwrap();
-    let mut service = ExtensionService::new(std::env::temp_dir().join("loom-ext-cache-theme"));
+    let mut service = ExtensionService::new(std::env::temp_dir().join("loog-ext-cache-theme"));
     let id = service.load_package(&dir).unwrap();
     let package = service.package(&id).unwrap();
     assert_eq!(package.resources.themes, ["acme.look.night"]);
@@ -1034,7 +1034,7 @@ pub(crate) fn provider_manifest(language: &str) -> String {
     "schema": 1,
     "id": "example.tools",
     "version": "0.1.0",
-    "api": "loom:extension@0.1.0",
+    "api": "loog:extension@0.1.0",
     "component": "extension.wasm",
     "capabilities": ["documents.read", "workspace.edit", "languages"],
     "contributes": { "language_service": { "providers": [
@@ -1070,7 +1070,7 @@ impl Fixture {
 
     fn provider_fixture(name: &str, text: &str) -> Fixture {
         let probe =
-            std::env::temp_dir().join(format!("loom-ext-doc-{}-{name}.txt", std::process::id()));
+            std::env::temp_dir().join(format!("loog-ext-doc-{}-{name}.txt", std::process::id()));
         let manifest = provider_manifest(&language_of(&probe));
         // Providers answer within a deadline that starts with the request, and a cold
         // compile of the guest in a debug build can outlast it: start from the warm cache.
@@ -1125,7 +1125,7 @@ fn an_answer_for_an_older_state_is_never_shown_and_the_new_state_is_asked_again(
         .document_editor_mut(id)
         .unwrap()
         .set_cursor(0);
-    loom_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "x");
+    loog_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "x");
     f.pump_until(|f| !f.published.is_empty());
     // Whatever was published describes the edited text ("xTODO one"), never the old one.
     assert!(
@@ -1148,7 +1148,7 @@ fn only_the_latest_diagnostics_request_per_document_stays_in_flight() {
         .document_editor_mut(id)
         .unwrap()
         .set_cursor(0);
-    loom_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "x");
+    loog_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "x");
     f.observe();
     let calls: Vec<_> = f.service.provider_calls.keys().copied().collect();
     assert_eq!(calls.len(), 1, "{first:?} -> {calls:?}");
@@ -1215,9 +1215,9 @@ fn finding_changes(
     path: &str,
     severity: u8,
     line: u32,
-) -> loom_extension_host::FindingChanges {
-    use loom_extension_host::{FileFindings, Finding, FindingEncoding, FindingPosition};
-    loom_extension_host::FindingChanges {
+) -> loog_extension_host::FindingChanges {
+    use loog_extension_host::{FileFindings, Finding, FindingEncoding, FindingPosition};
+    loog_extension_host::FindingChanges {
         withdrawn: Vec::new(),
         files: vec![FileFindings {
             key: key.into(),
@@ -1345,9 +1345,9 @@ fn a_completion_provider_answers_with_items_that_carry_their_origin_and_resolve_
     let (items, incomplete) = items.expect("an answer in time");
     assert!(!incomplete);
     let labels: Vec<_> = items.iter().map(|i| i["label"].as_str().unwrap()).collect();
-    assert_eq!(labels, ["loom_hello", "loom_world"]);
-    assert_eq!(items[1]["x-loom"]["extension"], "example.tools");
-    assert_eq!(items[1]["x-loom"]["data"], "world");
+    assert_eq!(labels, ["loog_hello", "loog_world"]);
+    assert_eq!(items[1]["x-loog"]["extension"], "example.tools");
+    assert_eq!(items[1]["x-loog"]["data"], "world");
 
     // The item goes back to the extension that offered it, with its own data.
     let effects = f
@@ -1362,7 +1362,7 @@ fn a_completion_provider_answers_with_items_that_carry_their_origin_and_resolve_
 fn language_providers_answer_with_the_replies_a_server_would_give_and_only_for_the_asked_state() {
     use crate::features::language_service::request::Feature;
     let probe =
-        std::env::temp_dir().join(format!("loom-ext-doc-{}-language.txt", std::process::id()));
+        std::env::temp_dir().join(format!("loog-ext-doc-{}-language.txt", std::process::id()));
     let language = language_of(&probe);
     let kinds = [
         ("hover", "hover"),
@@ -1482,7 +1482,7 @@ fn language_providers_answer_with_the_replies_a_server_would_give_and_only_for_t
 #[test]
 fn one_extension_cannot_hold_more_requests_open_than_the_cap_allows() {
     use crate::features::language_service::request::Feature;
-    let probe = std::env::temp_dir().join(format!("loom-ext-doc-{}-cap.txt", std::process::id()));
+    let probe = std::env::temp_dir().join(format!("loog-ext-doc-{}-cap.txt", std::process::id()));
     let language = language_of(&probe);
     let manifest = provider_manifest(&language).replace(
         "\"providers\": [",
@@ -1495,7 +1495,7 @@ fn one_extension_cannot_hold_more_requests_open_than_the_cap_allows() {
     let mut paths = Vec::new();
     for n in 0..40 {
         let path =
-            std::env::temp_dir().join(format!("loom-ext-doc-{}-cap-{n}.txt", std::process::id()));
+            std::env::temp_dir().join(format!("loog-ext-doc-{}-cap-{n}.txt", std::process::id()));
         f.app.workspace.open_path(path.clone(), "x".into());
         paths.push(path);
     }
@@ -1539,7 +1539,7 @@ fn an_item_filed_under_another_source_is_never_sent_for_resolving() {
             .is_empty()
     );
     let mut forged = item.clone();
-    forged["x-loom"]["extension"] = serde_json::json!("other.ext");
+    forged["x-loog"]["extension"] = serde_json::json!("other.ext");
     assert!(
         f.service
             .request_completion_resolve(&f.app, source, &forged)
@@ -1577,7 +1577,7 @@ const TASK_MANIFEST: &str = r#"{
     "schema": 1,
     "id": "example.tools",
     "version": "0.1.0",
-    "api": "loom:extension@0.1.0",
+    "api": "loog:extension@0.1.0",
     "component": "extension.wasm",
     "activation": [
         { "kind": "command", "id": "example.tools.run" },
@@ -1614,7 +1614,7 @@ impl Fixture {
     fn tasks_with(manifest: &str, name: &str, task: String, trusted: bool) -> (Fixture, PathBuf) {
         let mut f = fixture_with(name, "TODO text", 0..0, manifest);
         let folder =
-            std::env::temp_dir().join(format!("loom-task-root-{}-{name}", std::process::id()));
+            std::env::temp_dir().join(format!("loog-task-root-{}-{name}", std::process::id()));
         std::fs::create_dir_all(folder.join("sub")).unwrap();
         f.app.explorer.model.add_root(
             &crate::infrastructure::explorer_filesystem::ExplorerFilesystem,
@@ -1834,7 +1834,7 @@ fn a_task_cannot_enter_an_untrusted_nested_workspace_folder() {
         .find(|(_, path)| path == &folder)
         .unwrap()
         .0;
-    let request = loom_extension_host::TaskRequest {
+    let request = loog_extension_host::TaskRequest {
         call: 0,
         root,
         program: "node".into(),
@@ -1969,7 +1969,7 @@ fn a_checker_publishes_findings_for_the_state_it_checked_and_not_for_a_changed_o
         .document_editor_mut(id)
         .unwrap()
         .set_cursor(0);
-    loom_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "x");
+    loog_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "x");
     f.wait_for_log("task exited 2 code Some(0)");
     assert!(f.published.is_empty(), "{:?}", f.published);
 }
@@ -1984,7 +1984,7 @@ fn op_manifest_with(capabilities: &str, extra: &str) -> String {
     "schema": 1,
     "id": "example.tools",
     "version": "0.1.0",
-    "api": "loom:extension@0.1.0",
+    "api": "loog:extension@0.1.0",
     "component": "extension.wasm",
     "activation": [{ "kind": "command", "id": "example.tools.op" }],
     "capabilities": CAPS,
@@ -2001,7 +2001,7 @@ impl Fixture {
     /// A fixture with a workspace folder, its own storage directory and the given capabilities.
     fn ops(name: &str, capabilities: &str) -> (Fixture, PathBuf) {
         let mut f = fixture_with(name, "text", 0..0, &op_manifest(capabilities));
-        let base = std::env::temp_dir().join(format!("loom-ops-{}-{name}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("loog-ops-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let folder = base.join("project");
         std::fs::create_dir_all(folder.join("src")).unwrap();
@@ -2257,7 +2257,7 @@ fn save_manifest(language: &str) -> String {
     "schema": 1,
     "id": "example.tools",
     "version": "0.1.0",
-    "api": "loom:extension@0.1.0",
+    "api": "loog:extension@0.1.0",
     "component": "extension.wasm",
     "capabilities": ["documents.read", "workspace.edit"],
     "contributes": { "language_service": { "providers": [
@@ -2270,7 +2270,7 @@ fn save_manifest(language: &str) -> String {
 impl Fixture {
     fn saver(name: &str, text: &str) -> Fixture {
         let probe =
-            std::env::temp_dir().join(format!("loom-ext-doc-{}-{name}.txt", std::process::id()));
+            std::env::temp_dir().join(format!("loog-ext-doc-{}-{name}.txt", std::process::id()));
         let mut f = fixture_with(name, text, 0..0, &save_manifest(&language_of(&probe)));
         f.service.set_clock(|| 0); // cold start time is not what these tests measure
         f
@@ -2339,7 +2339,7 @@ fn typing_while_the_participants_work_makes_them_run_again_on_the_new_text() {
         .document_editor_mut(id)
         .unwrap()
         .set_cursor(4);
-    loom_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "b  ");
+    loog_editor_core::normal::insert(&mut f.app.workspace.document_editor_mut(id).unwrap(), "b  ");
     f.pump_until(|f| !f.ready.is_empty());
     assert!(f.ready[0].1, "{:?}", f.ready);
     assert_eq!(
@@ -2422,7 +2422,7 @@ fn the_timer_cuts_off_a_chain_whose_participant_never_answers() {
 fn saving_runs_the_participants_before_writing_and_closing_waits_for_them() {
     use crate::app::saving;
     use crate::app::test_support::SavingUi;
-    let dir = std::env::temp_dir().join(format!("loom-save-chain-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("loog-save-chain-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("file.txt");
@@ -2434,14 +2434,14 @@ fn saving_runs_the_participants_before_writing_and_closing_waits_for_them() {
         let mut editor = app.workspace.document_editor_mut(id).unwrap();
         editor.select_to(usize::MAX, false);
         editor
-            .replace_selection("x  \ny  \nz  \n", loom_editor_core::text::EditKind::Other)
+            .replace_selection("x  \ny  \nz  \n", loog_editor_core::text::EditKind::Other)
             .unwrap();
     }
     let ui = SavingUi::new(app);
     let host = host::ExtensionHost::start(
         ui.state.clone(),
         ui.tasks.application(),
-        std::env::temp_dir().join(format!("loom-save-chain-cache-{}", std::process::id())),
+        std::env::temp_dir().join(format!("loog-save-chain-cache-{}", std::process::id())),
         ui.runtime.trust().clone(),
         None,
     )
@@ -2481,7 +2481,7 @@ fn saving_runs_the_participants_before_writing_and_closing_waits_for_them() {
         let mut editor = app.workspace.document_editor_mut(id).unwrap();
         editor.select_to(usize::MAX, false);
         editor
-            .replace_selection("raw  \n", loom_editor_core::text::EditKind::Other)
+            .replace_selection("raw  \n", loog_editor_core::text::EditKind::Other)
             .unwrap();
     });
     assert!(saving::document_without_participants(
@@ -2498,7 +2498,7 @@ fn saving_runs_the_participants_before_writing_and_closing_waits_for_them() {
 fn a_failing_participant_keeps_the_file_from_being_written() {
     use crate::app::saving;
     use crate::app::test_support::SavingUi;
-    let dir = std::env::temp_dir().join(format!("loom-save-fail-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("loog-save-fail-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("file.txt");
@@ -2509,14 +2509,14 @@ fn a_failing_participant_keeps_the_file_from_being_written() {
         let mut editor = app.workspace.document_editor_mut(id).unwrap();
         editor.select_to(usize::MAX, false);
         editor
-            .replace_selection("new  \n", loom_editor_core::text::EditKind::Other)
+            .replace_selection("new  \n", loog_editor_core::text::EditKind::Other)
             .unwrap();
     }
     let ui = SavingUi::new(app);
     let host = host::ExtensionHost::start(
         ui.state.clone(),
         ui.tasks.application(),
-        std::env::temp_dir().join(format!("loom-save-fail-cache-{}", std::process::id())),
+        std::env::temp_dir().join(format!("loog-save-fail-cache-{}", std::process::id())),
         ui.runtime.trust().clone(),
         None,
     )
@@ -2575,7 +2575,7 @@ impl Fixture {
 
 const WRITER: &str = r#"["documents.read", "workspace.edit", "workspace.files.write"]"#;
 
-/// Run after `node .tmp/loom-extensions/language-clients/stage.mjs`.
+/// Run after `node .tmp/loog-extensions/language-clients/stage.mjs`.
 /// This uses the real executor, owner grants/trust, frame transport, WASM SDK and
 /// native result conversion. Slow component compilation is excluded from warmed
 /// request measurements and retained in a persistent local cache.
@@ -2584,9 +2584,9 @@ const WRITER: &str = r#"["documents.read", "workspace.edit", "workspace.files.wr
 fn official_language_components_reach_native_consumers_without_host_servers() {
     use crate::features::language_service::request::Feature;
     use std::time::Instant;
-    let packages = std::env::var_os("LOOM_MIGRATION_PACKAGES")
+    let packages = std::env::var_os("LOOG_MIGRATION_PACKAGES")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| repo().join(".tmp/loom-extensions/language-clients/.work/packages"));
+        .unwrap_or_else(|| repo().join(".tmp/loog-extensions/language-clients/.work/packages"));
     let installed = crate::infrastructure::extensions::state::read(&packages);
     let package_dir = |id: &str| {
         let entry = installed
@@ -2595,7 +2595,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             .expect("run the local staging script first");
         crate::infrastructure::extensions::state::version_dir(&packages, id, &entry.version)
     };
-    let fixture_bytes: usize = std::env::var("LOOM_MIGRATION_BYTES")
+    let fixture_bytes: usize = std::env::var("LOOG_MIGRATION_BYTES")
         .ok()
         .map(|value| value.parse().unwrap())
         .unwrap_or(0);
@@ -2604,23 +2604,23 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
     let mut cases = vec![
         (
             "rust",
-            "loom.lsp.rust-analyzer",
+            "loog.lsp.rust-analyzer",
             "src/main.rs",
             "Cargo.toml",
-            "[workspace]\n[package]\nname=\"loom_native\"\nversion=\"0.1.0\"\nedition=\"2021\"\n",
+            "[workspace]\n[package]\nname=\"loog_native\"\nversion=\"0.1.0\"\nedition=\"2021\"\n",
             "struct Counter;\nfn add(a: i32, b: i32) -> i32 { a + b }\nfn main() { let value = add(1, 2); println!(\"{}\", value); }\n",
         ),
         (
             "go",
-            "loom.lsp.gopls",
+            "loog.lsp.gopls",
             "main.go",
             "go.mod",
-            "module example.com/loomnative\n\ngo 1.26\n",
+            "module example.com/loognative\n\ngo 1.26\n",
             "package main\nimport \"fmt\"\ntype Counter struct{}\nfunc add(a int, b int) int { return a+b }\nfunc main() { value := add(1,2); fmt.Println(value) }\n",
         ),
         (
             "javascript",
-            "loom.lsp.typescript-language-server",
+            "loog.lsp.typescript-language-server",
             "main.js",
             "jsconfig.json",
             "{\"compilerOptions\":{\"checkJs\":true,\"target\":\"ES2022\"}}",
@@ -2628,19 +2628,19 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
         ),
         (
             "typescript",
-            "loom.lsp.typescript-language-server",
+            "loog.lsp.typescript-language-server",
             "main.ts",
             "tsconfig.json",
             "{\"compilerOptions\":{\"strict\":true,\"target\":\"ES2022\"}}",
             "class Counter {}\nfunction add(a: number, b: number): number { return a+b; }\nconst value = add(1,2);\nconsole.log(value);\n",
         ),
     ];
-    if std::env::var_os("LOOM_MIGRATION_VARIANTS").is_some() {
+    if std::env::var_os("LOOG_MIGRATION_VARIANTS").is_some() {
         cases.extend([
-            ("jsx", "loom.lsp.typescript-language-server", "main.jsx", "jsconfig.json",
+            ("jsx", "loog.lsp.typescript-language-server", "main.jsx", "jsconfig.json",
              r#"{"compilerOptions":{"checkJs":true,"jsx":"preserve","target":"ES2022"}}"#,
              "// @ts-nocheck\nclass Counter {}\n/** @param {number} a @param {number} b */\nfunction add(a, b) { return a+b; }\nconst view = <div/>;\nconst value = add(1,2); console.log(value);\n"),
-            ("tsx", "loom.lsp.typescript-language-server", "main.tsx", "tsconfig.json",
+            ("tsx", "loog.lsp.typescript-language-server", "main.tsx", "tsconfig.json",
              r#"{"compilerOptions":{"strict":true,"jsx":"preserve","target":"ES2022"}}"#,
              "declare namespace JSX { interface IntrinsicElements { div: {} } }\nclass Counter {}\nfunction add(a:number,b:number):number { return a+b; }\nconst view = <div/>;\nconst value = add(1,2); console.log(value);\n"),
         ]);
@@ -2651,7 +2651,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             "tsx" => "typescript",
             other => other,
         };
-        if std::env::var("LOOM_MIGRATION_LANGUAGE")
+        if std::env::var("LOOG_MIGRATION_LANGUAGE")
             .ok()
             .is_some_and(|name| name != language)
         {
@@ -2690,7 +2690,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             0..0,
             &package,
             Some(
-                std::env::var_os("LOOM_MIGRATION_CACHE")
+                std::env::var_os("LOOG_MIGRATION_CACHE")
                     .map(std::path::PathBuf::from)
                     .unwrap_or_else(|| repo().join("target/language-migration/cache")),
             ),
@@ -2727,7 +2727,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
         f.apply(effects);
         if extension.ends_with("typescript-language-server") {
             f.service
-                .load_package(&package_dir("loom.runtime.node"))
+                .load_package(&package_dir("loog.runtime.node"))
                 .unwrap();
         }
         eprintln!("official {language}: loading component and starting server");
@@ -2761,10 +2761,10 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             f.service.package(extension).unwrap().logs
         );
         let initial_code_source = f.service.package(extension).unwrap().code_source;
-        if std::env::var_os("LOOM_MIGRATION_REQUIRE_AOT").is_some() {
+        if std::env::var_os("LOOG_MIGRATION_REQUIRE_AOT").is_some() {
             assert_eq!(
                 initial_code_source,
-                Some(loom_extension_host::CodeSource::PublishedAot),
+                Some(loog_extension_host::CodeSource::PublishedAot),
                 "AOT must load without compiling"
             );
         }
@@ -2881,7 +2881,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             "{language}: rename"
         );
         let mut functional_checks = Vec::new();
-        if std::env::var_os("LOOM_MIGRATION_FULL_CHECKS").is_some() {
+        if std::env::var_os("LOOG_MIGRATION_FULL_CHECKS").is_some() {
             for feature in [
                 Feature::DocumentSymbol,
                 Feature::References,
@@ -3071,7 +3071,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             "{language}: processes reclaimed"
         );
         std::fs::write(root.join("native-observed.json"), serde_json::to_vec_pretty(&serde_json::json!({"code_source":initial_code_source,"language":language,"document_bytes":text.len(),"route":"native-executor-wasm-provider-consumer","indexing_probes":warm_attempts,"initialized_ms":initialized_ms,"first_usable_ms":first_usable_ms,"pre_activation_memory":pre_activation_memory,"profile":if cfg!(debug_assertions){"debug"}else{"release"},"small_document":timings,"functional_checks":functional_checks,"guest_cpu":cpu,"idle_memory":idle_memory,"observed_peak_memory":peak_memory,"restart_ms":restart_ms,"exit_ms":stop_started.elapsed().as_secs_f64()*1000.0})).unwrap()).unwrap();
-        if std::env::var_os("LOOM_MIGRATION_COMPARE").is_some() {
+        if std::env::var_os("LOOG_MIGRATION_COMPARE").is_some() {
             let baseline: serde_json::Value = serde_json::from_slice(
                 &std::fs::read(root.join("baseline-observed.json"))
                     .expect("collect the matching original-host baseline first"),
@@ -3255,7 +3255,7 @@ fn negotiated_provider_changes_disable_work_and_named_formatters_and_noops_are_s
         .unwrap()
         .lifecycle
         .generation();
-    let configuration = |provider: &str, enabled| loom_extension_host::ProviderConfiguration {
+    let configuration = |provider: &str, enabled| loog_extension_host::ProviderConfiguration {
         provider: provider.into(),
         enabled,
         modes: None,
@@ -3317,7 +3317,7 @@ fn negotiated_provider_changes_disable_work_and_named_formatters_and_noops_are_s
         revision
     );
     let mut range_only = configuration("example.tools.trim", true);
-    range_only.modes = Some(vec![loom_extension_host::ProviderMode::Range]);
+    range_only.modes = Some(vec![loog_extension_host::ProviderMode::Range]);
     let effects = f.service.handle_event(
         &mut f.app,
         Event::ProvidersConfigured {
@@ -3816,7 +3816,7 @@ fn a_file_with_unsaved_changes_is_never_touched() {
         .document_editor_mut(id)
         .unwrap()
         .set_cursor(0);
-    loom_editor_core::normal::insert(
+    loog_editor_core::normal::insert(
         &mut f.app.workspace.document_editor_mut(id).unwrap(),
         "typed ",
     );
@@ -3840,7 +3840,7 @@ fn paths_outside_the_folder_protected_names_and_a_missing_grant_are_refused() {
         "../outside.txt",
         "/abs.txt",
         ".git/config",
-        "sub/.loom-edit-1/x",
+        "sub/.loog-edit-1/x",
     ] {
         let before = f.log_lines().len();
         f.file_ops(serde_json::json!([{ "kind": "create", "path": path }]));
@@ -3893,7 +3893,7 @@ fn a_note_left_by_an_interrupted_operation_is_reported_when_the_folder_opens() {
 #[test]
 fn official_aot_authority_matches_the_publication_registry_key() {
     assert_eq!(
-        loom_extension_host::aot::OFFICIAL_KEYS,
+        loog_extension_host::aot::OFFICIAL_KEYS,
         crate::infrastructure::extensions::registry::KEYS
     );
 }

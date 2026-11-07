@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="icons/source/app-icon-transparent-128.png" alt="Loom" width="96" height="96">
+  <img src="icons/source/app-icon-transparent-128.png" alt="Loog" width="96" height="96">
 </p>
 
-<h1 align="center">Loom</h1>
+<h1 align="center">Loog</h1>
 
 <p align="center">
   <a href="README.md">English</a> | <strong>简体中文</strong>
@@ -13,18 +13,18 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/lius-new/loom/actions/workflows/ci.yml"><img src="https://github.com/lius-new/loom/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/lius-new/loog/actions/workflows/ci.yml"><img src="https://github.com/lius-new/loog/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="#许可证"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="许可证：MIT 或 Apache-2.0"></a>
 </p>
 
-Loom 是一款适用于 Windows、macOS 和 Linux 的桌面编辑器，基于使用 Skia 渲染的
+Loog 是一款适用于 Windows、macOS 和 Linux 的桌面编辑器，基于使用 Skia 渲染的
 Rust GUI 库 [lgui](https://github.com/lius-new/lgui) 构建。它希望在保持轻巧和响应迅速的同时，
 让编辑、搜索、运行命令和 Git 操作等日常工作都能在同一个窗口内完成。
 
 > [!NOTE]
-> Loom 仍处于早期开发阶段（0.1 系列），部分体验尚待完善，设置和行为可能随版本变化。
+> Loog 仍处于早期开发阶段（0.1 系列），部分体验尚待完善，设置和行为可能随版本变化。
 
-![Loom 的源代码管理面板、工作区差异视图、文件树和终端](docs/images/screenshot.png)
+![Loog 的源代码管理面板、工作区差异视图、文件树和终端](docs/images/screenshot.png)
 
 ## 功能
 
@@ -51,12 +51,12 @@ Rust GUI 库 [lgui](https://github.com/lius-new/lgui) 构建。它希望在保�
 - **Git** — 支持暂存、提交、获取／拉取／推送、分支、标签、储藏、历史记录、单文件差异和
   worktree，并在后台刷新工作区内各仓库的状态。
 - **自定义** — 提供浅色、深色和高对比度主题，支持 Zed 风格的 `keymap.json`
-  （上下文与组合键序列）、项目级 `.loom/settings.json`、80% 至 200% 的界面缩放，
+  （上下文与组合键序列）、项目级 `.loog/settings.json`、80% 至 200% 的界面缩放，
   以及 Material 文件图标。编辑器与终端可独立设置字体、字号、粗细和行高。
 
 ## 安装
 
-从 [Releases](https://github.com/lius-new/loom/releases) 页面下载适合你所用平台的安装包。
+从 [Releases](https://github.com/lius-new/loog/releases) 页面下载适合你所用平台的安装包。
 
 | 平台 | 安装包 |
 | --- | --- |
@@ -68,17 +68,17 @@ Rust GUI 库 [lgui](https://github.com/lius-new/lgui) 构建。它希望在保�
 
 - **Windows**：安装包尚未进行代码签名，首次运行时 SmartScreen 会显示警告。包内附带 Git 运行时。
 - **macOS**：在应用完成公证之前，Gatekeeper 会阻止首次启动。
-  按住 Control 点击 Loom.app 并选择**打开**，或运行
-  `xattr -dr com.apple.quarantine /Applications/Loom.app`。Loom 使用系统的 `git`。
+  按住 Control 点击 Loog.app 并选择**打开**，或运行
+  `xattr -dr com.apple.quarantine /Applications/Loog.app`。Loog 使用系统的 `git`。
 - **Linux**：需要 glibc 2.39 或更高版本（例如 Ubuntu 24.04、Fedora 40），
-  以及 X11 或 Wayland 会话。Loom 使用系统的 `git`。
+  以及 X11 或 Wayland 会话。Loog 使用系统的 `git`。
 
-在终端使用 `loom .` 或 `loom path/to/file` 打开文件夹和文件。
-Windows 安装程序可将 `loom` 加入 PATH；Linux 的 `.deb` 和 `install.sh` 安装方式会提供此命令。
+在终端使用 `loog .` 或 `loog path/to/file` 打开文件夹和文件。
+Windows 安装程序可将 `loog` 加入 PATH；Linux 的 `.deb` 和 `install.sh` 安装方式会提供此命令。
 在 macOS 上，请将应用内的启动脚本链接到 PATH 中的目录，例如：
 
 ```sh
-ln -s /Applications/Loom.app/Contents/Resources/bin/loom /usr/local/bin/loom
+ln -s /Applications/Loog.app/Contents/Resources/bin/loog /usr/local/bin/loog
 ```
 
 便携版启动方式和各安装包的安装内容详见[打包说明](scripts/package/README.md)；
@@ -86,13 +86,13 @@ ln -s /Applications/Loom.app/Contents/Resources/bin/loom /usr/local/bin/loom
 
 ## 从源码构建
 
-Loom 使用 [`rust-toolchain.toml`](rust-toolchain.toml) 固定的 Rust 工具链
+Loog 使用 [`rust-toolchain.toml`](rust-toolchain.toml) 固定的 Rust 工具链
 （当前为 1.97.1），`rustup` 会自动安装。还需要 Node.js 20+ 和所在平台的 C/C++ SDK；
 构建脚本会在项目私有目录中准备 CMake 和 Skia。
 
 ```sh
-git clone https://github.com/lius-new/loom.git
-cd loom
+git clone https://github.com/lius-new/loog.git
+cd loog
 node scripts/build/cargo.mjs build --release --locked
 node scripts/build/stage-resources.mjs target/release
 node scripts/build/cargo.mjs run --release --locked
@@ -113,7 +113,7 @@ sudo apt install build-essential \
 
 首次构建时会下载固定版本的 CMake 和预编译 Skia 归档，并验证 SHA-256。
 无需安装系统级 CMake 或手动下载 Skia。
-离线构建、测试、CI 和打包说明详见[构建 Loom](docs/building.md)。
+离线构建、测试、CI 和打包说明详见[构建 Loog](docs/building.md)。
 
 ## 文档
 
@@ -128,7 +128,7 @@ sudo apt install build-essential \
 - [终端](docs/terminal.md) — Shell、WSL 和工作目录
 - [Git](docs/git.md) — 源代码管理、差异、历史记录和 worktree
 - [更新](docs/updates.md) — 检查、下载和应用新版本
-- [构建 Loom](docs/building.md) — 工具链、测试、CI 和打包
+- [构建 Loog](docs/building.md) — 工具链、测试、CI 和打包
 
 实现细节参见[语言服务](docs/architecture/language-services.md)、
 [LSP](docs/architecture/lsp.md) 和 [Markdown](docs/architecture/markdown.md) 架构文档，
@@ -136,7 +136,7 @@ sudo apt install build-essential \
 
 ## 参与贡献
 
-欢迎在 [GitHub](https://github.com/lius-new/loom/issues) 提交问题和 Pull Request。
+欢迎在 [GitHub](https://github.com/lius-new/loog/issues) 提交问题和 Pull Request。
 请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。贡献相关工具使用 Node.js 24；
 克隆仓库后，请启用本地提交钩子和提交信息模板：
 
@@ -161,15 +161,15 @@ node scripts/architecture/check.mjs
 
 ## 许可证
 
-Loom 采用双许可证，你可以任选其一：
+Loog 采用双许可证，你可以任选其一：
 
 - Apache License, Version 2.0（[LICENSE-APACHE](LICENSE-APACHE)）
 - MIT 许可证（[LICENSE-MIT](LICENSE-MIT)）
 
-除非你明确声明其他条款，否则你有意提交并纳入 Loom 的任何贡献，
+除非你明确声明其他条款，否则你有意提交并纳入 Loog 的任何贡献，
 均按上述双许可证授权，不附加其他条款或条件。
 
-Loom 包含第三方代码，包括 vt100 解析器、Zed 按键映射设计的部分实现，以及 Windows 版附带的 Git；
+Loog 包含第三方代码，包括 vt100 解析器、Zed 按键映射设计的部分实现，以及 Windows 版附带的 Git；
 详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 Material Icon Theme 图标的 MIT 许可证及署名保存在
 [`assets/icon-themes/material`](assets/icon-themes/material) 中。

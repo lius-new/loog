@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn a_path_that_names_a_file_or_folder_is_a_link() {
-        let dir = std::env::temp_dir().join(format!("loom-link-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loog-link-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::write(dir.join("sub").join("note.txt"), "x").unwrap();
         let text = "see sub/note.txt:4:2 and sub/missing.txt and ./sub/ and sub";

@@ -1,6 +1,6 @@
 //! Measure one component in a fresh process; cold and warm caches are explicit.
-//! cargo run --release -p loom-extension-host --example component_cost -- INPUT CACHE
-use loom_extension_host::{Limits, Runtime};
+//! cargo run --release -p loog-extension-host --example component_cost -- INPUT CACHE
+use loog_extension_host::{Limits, Runtime};
 use std::{path::PathBuf, time::Instant};
 #[allow(dead_code)] // The shared sampler also exposes an unused periodic sampling helper.
 #[path = "../../../tests/fixtures/language_migration_metrics.rs"]
@@ -43,17 +43,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // benchmark reproducible; package-aware callers use the extra argument.
         // Remove after archived runs are no longer supported; no removal version is scheduled.
         let (component, hit) = runtime.compile_cached(&bytes, &PathBuf::from(&args[1]))?;
-        loom_extension_host::LoadedCode {
+        loog_extension_host::LoadedCode {
             component,
             source: if hit {
-                loom_extension_host::CodeSource::LocalCache
+                loog_extension_host::CodeSource::LocalCache
             } else {
-                loom_extension_host::CodeSource::Compiled
+                loog_extension_host::CodeSource::Compiled
             },
             aot_rejection: None,
         }
     };
-    let cache_hit = loaded.source == loom_extension_host::CodeSource::LocalCache;
+    let cache_hit = loaded.source == loog_extension_host::CodeSource::LocalCache;
     let component = loaded.component;
     let compile_or_load_ms = start.elapsed().as_secs_f64() * 1000.0;
     let after_compile = memory::snapshot();

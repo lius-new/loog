@@ -3,7 +3,7 @@ use crate::domain::identity::{PaneId, ViewId};
 use crate::domain::pane_layout::{Axis, Child, PaneNode};
 use crate::domain::view::{DocumentView, Presentation, ReaderPosition};
 use crate::domain::workspace::Workspace;
-use loom_editor_core::text::Selection;
+use loog_editor_core::text::Selection;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]

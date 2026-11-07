@@ -1,7 +1,7 @@
 //! Shared keyboard and context-menu editing commands.
 use lgui::core::{KeyState, KeyboardEvent, LogicalKey, NamedKey};
-pub use loom_editor_core::commands::{Command, apply};
-use loom_editor_core::normal::Movement;
+pub use loog_editor_core::commands::{Command, apply};
+use loog_editor_core::normal::Movement;
 
 pub fn command_for(ev: &KeyboardEvent, page: usize) -> Option<Command> {
     if ev.state != KeyState::Down || ev.modifiers.alt() {

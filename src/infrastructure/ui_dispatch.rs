@@ -70,7 +70,7 @@ pub fn retire(value: impl Send + 'static) {
     let sender = SENDER.get_or_init(|| {
         let (sender, receiver) = mpsc::channel::<Box<dyn Send>>();
         std::thread::Builder::new()
-            .name("loom-state-reclaimer".into())
+            .name("loog-state-reclaimer".into())
             .spawn(move || {
                 for value in receiver {
                     drop(value);

@@ -60,7 +60,7 @@ export function parseReleaseNotes(body) {
   };
 }
 
-export function generateReleaseNotes({root = ROOT, version, ref = 'HEAD', repo = 'lius-new/loom'}) {
+export function generateReleaseNotes({root = ROOT, version, ref = 'HEAD', repo = 'lius-new/loog'}) {
   validateVersion(version);
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error(`Invalid GitHub repository: ${repo}`);
   const target = commitId(root, ref);
@@ -88,7 +88,7 @@ export function generateReleaseNotes({root = ROOT, version, ref = 'HEAD', repo =
       groups.get(entry.group).push(`- ${entry.text} ([${hash.slice(0, 7)}](https://github.com/${repo}/commit/${hash}))`);
     }
   }
-  const sections = [`# Loom v${version}`];
+  const sections = [`# Loog v${version}`];
   for (const [group, entries] of groups) if (entries.length) sections.push(`## ${group}\n\n${entries.join('\n')}`);
   if (!seen.size) sections.push('No user-facing changes were recorded for this release.');
   const link = previousTag ? `https://github.com/${repo}/compare/${previousTag}...v${version}` : `https://github.com/${repo}/commits/v${version}`;
@@ -106,7 +106,7 @@ export function writeReleaseNotes(result, output) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const {values} = parseArgs({options: {version: {type: 'string'}, ref: {type: 'string', default: 'HEAD'}, repo: {type: 'string', default: 'lius-new/loom'}, output: {type: 'string'}}});
+    const {values} = parseArgs({options: {version: {type: 'string'}, ref: {type: 'string', default: 'HEAD'}, repo: {type: 'string', default: 'lius-new/loog'}, output: {type: 'string'}}});
     writeReleaseNotes(generateReleaseNotes(values), values.output);
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

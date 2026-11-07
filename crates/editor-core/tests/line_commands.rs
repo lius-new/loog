@@ -1,4 +1,4 @@
-use loom_editor_core::{
+use loog_editor_core::{
     normal::{LineOperation as Op, comment, lines},
     text::{EditorMut, Selection, TextBuffer},
 };

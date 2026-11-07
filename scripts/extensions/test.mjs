@@ -21,16 +21,16 @@ function run(label, command, args) {
   }
 }
 
-run('API rules', 'cargo', ['test', '--locked', '-p', 'loom-extension-api']);
+run('API rules', 'cargo', ['test', '--locked', '-p', 'loog-extension-api']);
 run('host: Rust guest and compatibility', 'cargo', [
-  'test', '--locked', '--release', '-p', 'loom-extension-host',
+  'test', '--locked', '--release', '-p', 'loog-extension-host',
   '--test', 'rust_guest', '--test', 'compatibility',
 ]);
 if (!quick) {
-  run('host: JavaScript guest', 'cargo', ['test', '--locked', '--release', '-p', 'loom-extension-host', '--test', 'js_guest']);
+  run('host: JavaScript guest', 'cargo', ['test', '--locked', '--release', '-p', 'loog-extension-host', '--test', 'js_guest']);
 }
 run('packaging script', process.execPath, ['--test', 'scripts/extensions/package/pack.test.mjs']);
 run('application integration', 'cargo', [
-  'test', '--locked', '--bin', 'Loom', '--',
+  'test', '--locked', '--bin', 'Loog', '--',
   'app::extensions', 'app::workspace_edits', 'features::extensions', 'infrastructure::extensions',
 ]);

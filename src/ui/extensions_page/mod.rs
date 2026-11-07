@@ -141,7 +141,7 @@ fn empty(rect: UiRect, state: &Binding) -> Element {
         middle - 215.0,
         top + 130.0,
         430.0,
-        "Search for extensions in the box on the left, or import a .loomext package.",
+        "Search for extensions in the box on the left, or import a .loogext package.",
         widgets::aligned(theme::sans(c.text_muted, theme::UI_SIZE), TextAlign::Center),
         19.0,
     );
@@ -311,7 +311,7 @@ fn message(
     let (title, body, action): (String, String, Option<(String, Command)>) = if query.is_empty() {
         (
             "Nothing installed".to_owned(),
-            "Type above to search the extensions Loom offers.".to_owned(),
+            "Type above to search the extensions Loog offers.".to_owned(),
             None,
         )
     } else {

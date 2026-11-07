@@ -2333,7 +2333,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
-name = "loom"
+name = "loog"
 version = "0.1.10"
 dependencies = [
  "base64",
@@ -2349,9 +2349,9 @@ dependencies = [
  "image",
  "lgui",
  "libc",
- "loom-editor-core",
- "loom-extension-api",
- "loom-extension-host",
+ "loog-editor-core",
+ "loog-extension-api",
+ "loog-extension-host",
  "notify",
  "portable-pty",
  "pulldown-cmark",
@@ -2375,7 +2375,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "loom-editor-core"
+name = "loog-editor-core"
 version = "0.1.0"
 dependencies = [
  "regex",
@@ -2384,15 +2384,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "loom-extension-api"
+name = "loog-extension-api"
 version = "0.1.0"
 
 [[package]]
-name = "loom-extension-host"
+name = "loog-extension-host"
 version = "0.1.0"
 dependencies = [
  "base64",
- "loom-extension-api",
+ "loog-extension-api",
  "ring",
  "serde",
  "serde_json",
@@ -2401,7 +2401,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "loom-markdown-tests"
+name = "loog-markdown-tests"
 version = "0.1.0"
 dependencies = [
  "pulldown-cmark",
@@ -2409,10 +2409,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "loom-workspace-tests"
+name = "loog-workspace-tests"
 version = "0.1.0"
 dependencies = [
- "loom-editor-core",
+ "loog-editor-core",
  "serde",
  "serde_json",
 ]

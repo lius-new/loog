@@ -1,11 +1,11 @@
-//! Wasmtime component host for Loom extensions (design §7, §8).
+//! Wasmtime component host for Loog extensions (design §7, §8).
 //!
 //! One `Instance` owns one Store. The host drives the guest in short rounds:
 //! `dispatch` delivers a batch and must return; host operations are accepted
 //! synchronously and complete in a later round. Epoch deadlines bound every
 //! round and `StoreLimits` bound guest memory, so a looping or hoarding guest
 //! fails its instance instead of the application.
-use loom_extension_api::{ErrorKind, ExtensionError};
+use loog_extension_api::{ErrorKind, ExtensionError};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,7 +16,7 @@ use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder, Trap};
 
 mod bindings {
     wasmtime::component::bindgen!({
-        path: "../../wit/loom-extension",
+        path: "../../wit/loog-extension",
         world: "extension-ui",
         additional_derives: [serde::Serialize],
     });
@@ -27,40 +27,40 @@ pub use aot::{CodeSource, LoadedCode};
 mod completion_batch;
 mod documents;
 mod processes;
-pub use bindings::loom::extension::types::DocumentSnapshot;
+pub use bindings::loog::extension::types::DocumentSnapshot;
 pub use documents::DocumentView;
 pub use processes::ProcessControl;
 mod watches;
-pub use bindings::loom::extension::types::{
+pub use bindings::loog::extension::types::{
     FileChange, FileChangeKind, FileChanged, WatchFailure, WatchRequest,
 };
 pub use watches::WatchControl;
 mod findings;
 mod publication_budget;
 mod service;
-pub use bindings::loom::service::findings::{
+pub use bindings::loog::service::findings::{
     Encoding as FindingEncoding, Finding, Position as FindingPosition,
 };
 pub use findings::{FileFindings, FindingChanges};
 mod ui;
-pub use bindings::loom::extension::types::{
+pub use bindings::loog::extension::types::{
     UiDescription, UiEvent, UiEventPayload, UiKind, UiParent,
 };
-pub use bindings::loom::service::status::{Report as ServiceReport, State as ServiceState};
-pub use bindings::loom::ui::motion::{
+pub use bindings::loog::service::status::{Report as ServiceReport, State as ServiceState};
+pub use bindings::loog::ui::motion::{
     Animation as MotionAnimation, Direction as MotionDirection, Easing as MotionEasing,
     Keyframe as MotionKeyframe, Property as MotionProperty, Smoothing as MotionSmoothing,
     Track as MotionTrack,
 };
-pub use bindings::loom::ui::shared::Contribution as UiContribution;
-pub use bindings::loom::ui::tree::{
+pub use bindings::loog::ui::shared::Contribution as UiContribution;
+pub use bindings::loog::ui::tree::{
     Placement as UiPlacement, Relation as UiRelation, Target as UiTarget,
 };
 pub use ui::UiMotion;
 
 // COMPAT(base-extension-world): Keep placement, motion and shared regions outside the original WIT
 // ui-node record so installed base/tree components retain their ABI. New components
-// use independent loom:ui/tree, motion and shared interfaces. Revisit this split
+// use independent loog:ui/tree, motion and shared interfaces. Revisit this split
 // only when the base 0.1.0 ABI is retired; no removal version has been scheduled.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct UiNode {
@@ -75,27 +75,27 @@ pub struct UiNode {
 }
 pub use publication_budget::{Budget as PublicationBudget, Credit as PublicationCredit};
 
-pub use bindings::loom::extension::types::ProviderConfiguration;
-pub use bindings::loom::extension::types::WorkspaceChange;
-pub use bindings::loom::extension::types::WorkspaceFileChange;
-pub use bindings::loom::extension::types::WorkspaceOperation;
-pub use bindings::loom::extension::types::{
+pub use bindings::loog::extension::types::ProviderConfiguration;
+pub use bindings::loog::extension::types::WorkspaceChange;
+pub use bindings::loog::extension::types::WorkspaceFileChange;
+pub use bindings::loog::extension::types::WorkspaceOperation;
+pub use bindings::loog::extension::types::{
     ApplyEditRequest, ByteRange, CommandContext, CommittedReceipt, Completion, DocumentChange,
     DocumentEdits, DocumentRef, ErrorKind as WitErrorKind, HostError, Inbound, OutputChannel,
     ProcessExit, ProcessFraming, ProcessOutput, ProcessRequest, ProcessWritable, ProviderCommand,
     ProviderCommandCall, ProviderKind, ProviderRequest, RootRef, RoundStatus, Selection, TaskExit,
     TaskOutput, TaskRequest, TextEdit,
 };
-pub use bindings::loom::extension::types::{
+pub use bindings::loog::extension::types::{
     ColumnUnit, FileLocation, FileRange, HierarchyItem as WireHierarchyItem,
     LanguageAnswer as WireLanguageAnswer, ProviderContext, ProviderMode,
     WorkspaceEdit as WireWorkspaceEdit,
 };
-pub use bindings::loom::extension::types::{
+pub use bindings::loog::extension::types::{
     SelectionRange as WireSelectionRange, SignatureEntry, SignatureParameter, SignatureSet,
     TextPosition,
 };
-use bindings::loom::extension::{host, types};
+use bindings::loog::extension::{host, types};
 
 /// Resource limits of one instance.
 #[derive(Clone, Copy, Debug)]
@@ -139,13 +139,13 @@ pub struct AcceptedEdit {
     pub documents: Vec<DocumentEdits>,
 }
 
-pub use bindings::loom::extension::types::CompletionItem as WireCompletionItem;
-pub use bindings::loom::extension::types::Diagnostic as WireDiagnostic;
-pub use bindings::loom::extension::types::{
+pub use bindings::loog::extension::types::CompletionItem as WireCompletionItem;
+pub use bindings::loog::extension::types::Diagnostic as WireDiagnostic;
+pub use bindings::loog::extension::types::{
     CodeAction as WireCodeAction, DocumentSymbol as WireSymbol, HoverAnswer as WireHover,
     InlayHint as WireInlayHint, Location as WireLocation, SignatureAnswer as WireSignature,
 };
-pub use bindings::loom::extension::types::{FileContent, HttpResponse, StorageScope};
+pub use bindings::loog::extension::types::{FileContent, HttpResponse, StorageScope};
 
 /// An answer a provider gave, in the order it was given.
 #[derive(Clone, Debug, serde::Serialize)]
@@ -273,7 +273,7 @@ pub const MAX_READ: usize = 4 * 1024 * 1024;
 /// Most paths one `find-files` returns.
 pub const MAX_FOUND: usize = 1000;
 
-pub use bindings::loom::extension::types::{CreateOp, DeleteOp, FileOp, FileOpsRequest, RenameOp};
+pub use bindings::loog::extension::types::{CreateOp, DeleteOp, FileOp, FileOpsRequest, RenameOp};
 
 /// File operations the guest asked for; the application decides and runs them.
 #[derive(Clone, Debug)]
@@ -551,7 +551,7 @@ fn wit_kind(kind: ErrorKind) -> WitErrorKind {
 
 impl types::Host for HostState {}
 
-impl bindings::loom::service::status::Host for HostState {
+impl bindings::loog::service::status::Host for HostState {
     fn publish(&mut self, report: ServiceReport) -> Result<(), String> {
         self.unrestricted("reporting service status")
             .map_err(|error| error.message)?;
@@ -565,7 +565,7 @@ impl bindings::loom::service::status::Host for HostState {
     }
 }
 
-impl bindings::loom::service::findings::Host for HostState {
+impl bindings::loog::service::findings::Host for HostState {
     fn publish(
         &mut self,
         key: String,
@@ -585,7 +585,7 @@ impl bindings::loom::service::findings::Host for HostState {
     }
 }
 
-impl bindings::loom::ui::shared::Host for HostState {
+impl bindings::loog::ui::shared::Host for HostState {
     fn publish(&mut self, node: u64, contribution: UiContribution) -> Result<(), String> {
         self.unrestricted("publishing shared UI")
             .map_err(|error| error.message)?;
@@ -595,7 +595,7 @@ impl bindings::loom::ui::shared::Host for HostState {
     }
 }
 
-impl bindings::loom::ui::tree::Host for HostState {
+impl bindings::loog::ui::tree::Host for HostState {
     fn place(&mut self, node: u64, placement: UiPlacement) -> Result<(), String> {
         self.unrestricted("placing UI nodes")
             .map_err(|error| error.message)?;
@@ -605,7 +605,7 @@ impl bindings::loom::ui::tree::Host for HostState {
     }
 }
 
-impl bindings::loom::ui::motion::Host for HostState {
+impl bindings::loog::ui::motion::Host for HostState {
     fn animate(&mut self, node: u64, animation: MotionAnimation) -> Result<(), String> {
         self.unrestricted("animating UI nodes")
             .map_err(|error| error.message)?;
@@ -1170,17 +1170,17 @@ pub struct Runtime {
     ticker: Option<JoinHandle<()>>,
 }
 
-/// Loom interfaces a component may import. An import of another version of a
-/// Loom interface is a structural mismatch and is refused before instantiation
+/// Loog interfaces a component may import. An import of another version of a
+/// Loog interface is a structural mismatch and is refused before instantiation
 /// (design §7.4); only toolchain WASI imports are stubbed.
 pub const KNOWN_IMPORTS: &[&str] = &[
-    "loom:extension/types@0.1.0",
-    "loom:extension/host@0.1.0",
-    "loom:ui/tree@0.1.0",
-    "loom:ui/motion@0.1.0",
-    "loom:ui/shared@0.1.0",
-    "loom:service/status@0.1.0",
-    "loom:service/findings@0.1.0",
+    "loog:extension/types@0.1.0",
+    "loog:extension/host@0.1.0",
+    "loog:ui/tree@0.1.0",
+    "loog:ui/motion@0.1.0",
+    "loog:ui/shared@0.1.0",
+    "loog:service/status@0.1.0",
+    "loog:service/findings@0.1.0",
 ];
 
 /// Length of one epoch tick.
@@ -1198,7 +1198,7 @@ impl Runtime {
         let ticker = {
             let (engine, portable, stop) = (engine.clone(), aot_engine.clone(), stop.clone());
             std::thread::Builder::new()
-                .name("loom-extension-epoch".into())
+                .name("loog-extension-epoch".into())
                 .spawn(move || {
                     while !stop.load(Ordering::Relaxed) {
                         std::thread::sleep(TICK);
@@ -1306,7 +1306,7 @@ impl Runtime {
                 "component does not belong to a runtime-managed epoch engine",
             ));
         }
-        // Inspect the real imports (design §9): anything that is neither the Loom
+        // Inspect the real imports (design §9): anything that is neither the Loog
         // contract nor a WASI interface is an unsupported API, rejected before
         // instantiation. Toolchain-required WASI imports are linked as denied
         // stubs that trap if they are ever called.
@@ -1421,7 +1421,7 @@ impl Instance {
         self.store.set_epoch_deadline(self.limits.round_ticks);
         let result = self
             .bindings
-            .loom_extension_guest()
+            .loog_extension_guest()
             .call_dispatch(&mut self.store, batch);
         match result {
             Ok(Ok(status)) => Ok(status),

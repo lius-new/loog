@@ -106,8 +106,8 @@ fn merged(
 #[ignore = "navigation rendering regression; optional local input stays in memory"]
 fn editor_navigation_highlight_continuity() {
     assert!(
-        std::env::var_os("LOOM_TEST_LANGUAGE_PACKS").is_some(),
-        "provide prebuilt language packages through LOOM_TEST_LANGUAGE_PACKS for this syntax benchmark"
+        std::env::var_os("LOOG_TEST_LANGUAGE_PACKS").is_some(),
+        "provide prebuilt language packages through LOOG_TEST_LANGUAGE_PACKS for this syntax benchmark"
     );
     use crate::features::syntax::TokenSpan;
     use std::{collections::HashMap, path::PathBuf};
@@ -121,7 +121,7 @@ fn editor_navigation_highlight_continuity() {
             "Label123 中e\u{301} \"value\" 456 /* note */ ".repeat(200),
         ),
     ];
-    if let Some(path) = std::env::var_os("LOOM_EDITOR_PROFILE_FILE") {
+    if let Some(path) = std::env::var_os("LOOG_EDITOR_PROFILE_FILE") {
         let source = std::fs::read_to_string(&path).expect("read local navigation input");
         cases.push((PathBuf::from(path), source));
     }
@@ -231,18 +231,18 @@ fn editor_navigation_highlight_continuity() {
 }
 
 #[test]
-#[ignore = "real text layout benchmark; optional LOOM_EDITOR_PROFILE_FILE stays in memory"]
+#[ignore = "real text layout benchmark; optional LOOG_EDITOR_PROFILE_FILE stays in memory"]
 fn editor_viewport_benchmark() {
     assert!(
-        std::env::var_os("LOOM_TEST_LANGUAGE_PACKS").is_some(),
-        "provide prebuilt language packages through LOOM_TEST_LANGUAGE_PACKS for this syntax benchmark"
+        std::env::var_os("LOOG_TEST_LANGUAGE_PACKS").is_some(),
+        "provide prebuilt language packages through LOOG_TEST_LANGUAGE_PACKS for this syntax benchmark"
     );
     let js = "const item={name:\"hello\\\"world\",value:12345};function get(a){return a.value+item.value;}";
     let mut cases = vec![
         ("minified-3k.js", (js.repeat(36) + "\n").repeat(50)),
         ("minified-1m.js", js.repeat(12_000)),
     ];
-    if let Some(path) = std::env::var_os("LOOM_EDITOR_PROFILE_FILE") {
+    if let Some(path) = std::env::var_os("LOOG_EDITOR_PROFILE_FILE") {
         let label = if crate::domain::language::from_path(std::path::Path::new(&path)).name()
             == "javascript"
         {
@@ -358,7 +358,7 @@ fn editor_viewport_benchmark() {
             app.workspace
                 .active_editor_mut()
                 .unwrap()
-                .replace(0..0, " ", loom_editor_core::text::EditKind::Other)
+                .replace(0..0, " ", loog_editor_core::text::EditKind::Other)
                 .unwrap();
         });
         let start = Instant::now();

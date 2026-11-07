@@ -2,7 +2,7 @@
 
 Syntax highlighting for Markdown (block and inline grammars, WebAssembly) and
 the injection query that colours fenced code blocks in their own language. It
-ships with Loom.
+ships with Loog.
 
 To change the colours, put a `highlights.scm` for the `markdown` or
 `markdown_inline` grammar in your own queries folder; start it with `; extends` to

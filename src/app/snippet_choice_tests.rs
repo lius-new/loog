@@ -29,7 +29,7 @@ impl std::ops::DerefMut for ChoiceHarness {
 
 fn received_snippet(source: &str, accept_on: &str) -> ChoiceHarness {
     let file = SnippetFile(std::env::temp_dir().join(format!(
-        "loom-choice-{}-{}.txt",
+        "loog-choice-{}-{}.txt",
         std::process::id(),
         LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     )));

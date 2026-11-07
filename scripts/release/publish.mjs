@@ -12,7 +12,7 @@ export async function createDraft({version, repo, notes}, run = gh) {
   let existing = await view();
   if (existing.status !== 0) {
     if (/HTTP (401|403)|permission denied|bad credentials/i.test(existing.stderr || existing.stdout) || !/release not found|^not found$|HTTP 404/i.test(existing.stderr || existing.stdout)) throw Error('Could not inspect release draft: ' + (existing.stderr || existing.stdout));
-    const created = await run(['release', 'create', tag, '--repo', repo, '--draft', '--verify-tag', '--title', `Loom ${version}`, '--notes-file', notes]);
+    const created = await run(['release', 'create', tag, '--repo', repo, '--draft', '--verify-tag', '--title', `Loog ${version}`, '--notes-file', notes]);
     if (created.status !== 0) {
       // Recover a competing manual creation without replacing its edited notes.
       existing = await view();

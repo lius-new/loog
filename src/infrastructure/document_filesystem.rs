@@ -13,7 +13,7 @@ pub(crate) fn options(path: &Path) -> EncodingSettings {
     // Nearest project settings take precedence; settings files themselves are UTF-8.
     if let Some(parent) = path.parent() {
         for ancestor in parent.ancestors() {
-            let candidate = ancestor.join(".loom/settings.json");
+            let candidate = ancestor.join(".loog/settings.json");
             if candidate == path {
                 continue;
             }
@@ -121,7 +121,7 @@ pub fn write(path: &Path, contents: &[u8]) -> io::Result<()> {
     let parent = target.parent().unwrap_or(Path::new("."));
     let name = target.file_name().unwrap_or_default().to_string_lossy();
     let temp = parent.join(format!(
-        ".{name}.loom-{}-{}.tmp",
+        ".{name}.loog-{}-{}.tmp",
         std::process::id(),
         SEQ.fetch_add(1, Ordering::Relaxed)
     ));

@@ -94,8 +94,8 @@ jobs:
       - name: Record production Markdown evidence
         if: inputs.full || inputs.evidence
         env:
-          LOOM_MARKDOWN_EVIDENCE_DIR: markdown-evidence
-        run: cargo test --locked -p loom app::markdown_tests::production_markdown_evidence -- --ignored --exact --nocapture
+          LOOG_MARKDOWN_EVIDENCE_DIR: markdown-evidence
+        run: cargo test --locked -p loog app::markdown_tests::production_markdown_evidence -- --ignored --exact --nocapture
       - name: Upload Markdown evidence
         if: inputs.full || inputs.evidence
         uses: actions/upload-artifact@v7
@@ -114,32 +114,32 @@ jobs:
         if: (inputs.full || inputs.package) && (runner.os == 'macOS')
         shell: bash
         run: |
-          node scripts/package/package.mjs setup --platform macos --expect-version "$LOOM_VERSION"
-          node scripts/package/package.mjs compile --platform macos --expect-version "$LOOM_VERSION"
+          node scripts/package/package.mjs setup --platform macos --expect-version "$LOOG_VERSION"
+          node scripts/package/package.mjs compile --platform macos --expect-version "$LOOG_VERSION"
       - name: Package Linux binary
         if: (inputs.full || inputs.package) && (runner.os == 'Linux')
         shell: bash
         run: |
-          node scripts/package/package.mjs package --platform linux --expect-version "$LOOM_VERSION"
+          node scripts/package/package.mjs package --platform linux --expect-version "$LOOG_VERSION"
           mkdir -p dist
-          cp ".packaging/dist/Loom-$LOOM_VERSION-linux-x86_64.tar.gz" dist/
+          cp ".packaging/dist/Loog-$LOOG_VERSION-linux-x86_64.tar.gz" dist/
       - name: Package macOS app
         if: (inputs.full || inputs.package) && (runner.os == 'macOS')
         shell: bash
         run: |
-          node scripts/package/package.mjs package --platform macos --expect-version "$LOOM_VERSION"
+          node scripts/package/package.mjs package --platform macos --expect-version "$LOOG_VERSION"
           mkdir -p dist
-          cp ".packaging/dist/Loom-$LOOM_VERSION-macos-universal.zip" dist/
+          cp ".packaging/dist/Loog-$LOOG_VERSION-macos-universal.zip" dist/
       - name: Package Windows binary
         if: (inputs.full || inputs.package) && (runner.os == 'Windows')
         shell: pwsh
         env:
-          PACKAGE: Loom-${{ env.LOOM_VERSION }}-${{ matrix.target_name }}
-          ARCHIVE: Loom-${{ env.LOOM_VERSION }}-${{ matrix.target_name }}.${{ matrix.extension }}
+          PACKAGE: Loog-${{ env.LOOG_VERSION }}-${{ matrix.target_name }}
+          ARCHIVE: Loog-${{ env.LOOG_VERSION }}-${{ matrix.target_name }}.${{ matrix.extension }}
         run: |
           $packageDir = Join-Path dist $env:PACKAGE
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
-          Copy-Item target/release/Loom.exe, README.md, LICENSE-MIT, LICENSE-APACHE, THIRD_PARTY_NOTICES.md $packageDir
+          Copy-Item target/release/Loog.exe, README.md, LICENSE-MIT, LICENSE-APACHE, THIRD_PARTY_NOTICES.md $packageDir
           node scripts/package/stage-extensions.mjs (Join-Path $packageDir 'extensions')
           $gitExe = (Get-Command git).Source
           $gitRoot = Split-Path (Split-Path $gitExe -Parent) -Parent
@@ -147,7 +147,7 @@ jobs:
           & scripts/package-git-runtime.ps1 -SourceRoot $gitRoot -PackageRoot $packageDir -Version $gitVersion -SourceUrl "system-package:Windows"
           $runtimeGit = Join-Path $packageDir 'runtime/git/bin/git.exe'
           if (-not (Test-Path $runtimeGit)) { $runtimeGit = Join-Path $packageDir 'runtime/git/cmd/git.exe' }
-          $smoke = Join-Path $env:RUNNER_TEMP 'loom-git-smoke'
+          $smoke = Join-Path $env:RUNNER_TEMP 'loog-git-smoke'
           New-Item -ItemType Directory -Path $smoke -Force | Out-Null
           & $runtimeGit -C $smoke init
           & $runtimeGit -C $smoke status --porcelain=v2
@@ -155,8 +155,8 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Loom-${{ env.LOOM_VERSION }}-${{ matrix.target_name }}
-          path: dist/Loom-${{ env.LOOM_VERSION }}-${{ matrix.target_name }}.${{ matrix.extension }}
+          name: Loog-${{ env.LOOG_VERSION }}-${{ matrix.target_name }}
+          path: dist/Loog-${{ env.LOOG_VERSION }}-${{ matrix.target_name }}.${{ matrix.extension }}
           if-no-files-found: error
           retention-days: 14
         if: (inputs.full || inputs.package)

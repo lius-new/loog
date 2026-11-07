@@ -24,7 +24,7 @@ pub fn start(state: AppContext, enabled: bool) -> impl FnOnce() {
         .flatten()
         .and_then(|platform| {
             thread::Builder::new()
-                .name("loom-update-check".to_owned())
+                .name("loog-update-check".to_owned())
                 .spawn(move || {
                     let mut wait = FIRST_CHECK;
                     while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(wait) {
@@ -50,7 +50,7 @@ fn finish_check(state: &AppContext, platform: crate::features::update::Platform)
     state.update(move |app| app.update.finish_check(result, &current));
 }
 
-/// Handle a click on the title bar update button or the Settings action. Returns true when Loom
+/// Handle a click on the title bar update button or the Settings action. Returns true when Loog
 /// should now close so the installer can run.
 pub fn activate(state: &AppContext) -> bool {
     let mut intent = None;
@@ -60,7 +60,7 @@ pub fn activate(state: &AppContext) -> bool {
             let worker = state.clone();
             let spawned = update::platform().and_then(|platform| {
                 thread::Builder::new()
-                    .name("loom-update-check".to_owned())
+                    .name("loog-update-check".to_owned())
                     .spawn(move || finish_check(&worker, platform))
                     .ok()
             });
@@ -76,7 +76,7 @@ pub fn activate(state: &AppContext) -> bool {
         Some(Intent::Download(asset)) => {
             let worker = state.clone();
             let spawned = thread::Builder::new()
-                .name("loom-update-download".to_owned())
+                .name("loog-update-download".to_owned())
                 .spawn(move || {
                     let progress = worker.clone();
                     let result = update::download(&asset, |received| {

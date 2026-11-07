@@ -2,7 +2,7 @@
 
 ## Application and plugin boundary
 
-Loom MUST provide general capabilities rather than adapters for individual
+Loog MUST provide general capabilities rather than adapters for individual
 plugins or plugin families. Plugin IDs, shared UI keys, server names, status
 wording, state/priority rules and presentation belong to plugins. A new plugin
 using an existing capability must not require an application code change or

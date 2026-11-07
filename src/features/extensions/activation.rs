@@ -108,7 +108,7 @@ mod tests {
         Manifest::parse(
             r#"{
                 "schema": 1, "id": "example.lang", "version": "0.1.0",
-                "api": "loom:extension@0.1.0", "component": "x.wasm",
+                "api": "loog:extension@0.1.0", "component": "x.wasm",
                 "activation": [
                     { "kind": "command", "id": "example.lang.run" },
                     { "kind": "document", "selector": { "languages": ["rust"] } },

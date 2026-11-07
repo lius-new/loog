@@ -203,7 +203,7 @@ fn apply_with(
     let worker_state = state.clone();
     let worker_request = request.clone();
     let spawned = std::thread::Builder::new()
-        .name("loom-edit-read".to_owned())
+        .name("loog-edit-read".to_owned())
         .spawn(move || {
             let request = worker_request;
             let mut loaded = HashMap::new();
@@ -304,7 +304,7 @@ pub fn apply_now(
             match journal.rollback() {
                 Ok(()) => Err(error),
                 Err(rollback) => Err(format!(
-                    "{error}; filesystem rollback incomplete: {rollback}; backups retained in .loom-edit-* directories"
+                    "{error}; filesystem rollback incomplete: {rollback}; backups retained in .loog-edit-* directories"
                 )),
             }
         }
@@ -453,7 +453,7 @@ fn plan(
                     .map(|e| {
                         Edit::replace(
                             e.span.bytes(&text),
-                            loom_editor_core::text::normalize_endings(&e.new_text, ending),
+                            loog_editor_core::text::normalize_endings(&e.new_text, ending),
                         )
                     })
                     .collect();
@@ -629,7 +629,7 @@ mod tests {
         let mut paths = Vec::new();
         for (name, text) in files {
             let path =
-                std::env::temp_dir().join(format!("loom-edit-{}-{name}", std::process::id()));
+                std::env::temp_dir().join(format!("loog-edit-{}-{name}", std::process::id()));
             app.workspace.open_path(path.clone(), (*text).into());
             paths.push(path);
         }
@@ -724,7 +724,7 @@ mod tests {
         app.workspace.active_editor_mut().unwrap().set_cursor(4);
         {
             let mut editor = app.workspace.active_editor_mut().unwrap();
-            loom_editor_core::normal::insert(&mut editor, "!");
+            loog_editor_core::normal::insert(&mut editor, "!");
         }
         let result = apply_now(&mut app, &request, HashMap::new());
         assert!(result.unwrap_err().contains("changed while"));
@@ -735,7 +735,7 @@ mod tests {
     fn a_file_that_is_not_open_is_opened_with_the_edit_unsaved() {
         let (mut app, _) = app_with(&[("open.rs", "x")]);
         let closed =
-            std::env::temp_dir().join(format!("loom-edit-{}-closed.rs", std::process::id()));
+            std::env::temp_dir().join(format!("loog-edit-{}-closed.rs", std::process::id()));
         let edit = edit_json(&[(&closed, (0, 0), (0, 0), "// ")]);
         let request = request(&app, edit);
         let loaded = HashMap::from([(closed.clone(), "code".to_owned())]);
@@ -751,7 +751,7 @@ mod tests {
                 .file_name()
                 .unwrap()
                 .to_string_lossy(),
-            format!("loom-edit-{}-open.rs", std::process::id())
+            format!("loog-edit-{}-open.rs", std::process::id())
         );
     }
 
@@ -770,7 +770,7 @@ mod tests {
         {
             let mut editor = app.workspace.active_editor_mut().unwrap();
             editor.set_cursor(2);
-            loom_editor_core::normal::insert(&mut editor, "!");
+            loog_editor_core::normal::insert(&mut editor, "!");
         }
         // The active document's next undo is its own typing, not the transaction.
         assert_eq!(undo_redo(&mut app, true), None);
@@ -802,7 +802,7 @@ mod tests {
 
     #[test]
     fn a_late_resource_failure_restores_disk_documents_selections_and_undo() {
-        let root = std::env::temp_dir().join(format!("loom-edit-rollback-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("loog-edit-rollback-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let from = root.join("from.rs");
         let to = root.join("to.rs");
@@ -860,7 +860,7 @@ mod tests {
 
     #[test]
     fn ordered_create_edit_rename_edit_uses_one_text_undo_group() {
-        let root = std::env::temp_dir().join(format!("loom-edit-ordered-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("loog-edit-ordered-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let a = root.join("a.rs");
         let b = root.join("b.rs");
@@ -891,7 +891,7 @@ mod tests {
 
     #[test]
     fn an_unopened_rename_reads_the_original_and_preserves_unsaved_text_edits() {
-        let root = std::env::temp_dir().join(format!("loom-edit-alias-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("loog-edit-alias-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let a = root.join("a.rs");
         let b = root.join("b.rs");

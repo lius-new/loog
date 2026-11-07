@@ -1,6 +1,6 @@
 //! Presentation identity and pure per-view state, independent of renderers.
 use crate::domain::identity::{DiffId, FileId, ViewId};
-use loom_editor_core::text::Selection;
+use loog_editor_core::text::Selection;
 
 pub const SETTINGS_TITLE: &str = "Settings";
 pub const KEYMAP_TITLE: &str = "Keymap";

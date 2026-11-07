@@ -2,7 +2,7 @@
 use super::rules::{self as settings_persistence, Overrides, PROJECT_KEYS};
 use std::path::{Path, PathBuf};
 
-pub const DIR_NAME: &str = ".loom";
+pub const DIR_NAME: &str = ".loog";
 pub const FILE_NAME: &str = "settings.json";
 
 /// Overrides read from one project, plus messages for skipped values.
@@ -28,7 +28,7 @@ pub fn is_settings_file(file: &Path) -> bool {
 /// Contents of a new project settings file.
 pub fn template() -> String {
     let mut text = String::from(
-        "// Loom project settings, shared with everyone who opens this folder.\n\
+        "// Loog project settings, shared with everyone who opens this folder.\n\
          // Values here override your user settings.json for this folder.\n\
          //\n\
          // Settings that can be set per project:\n",
@@ -79,8 +79,8 @@ mod tests {
 
     #[test]
     fn recognizes_settings_files() {
-        assert!(is_settings_file(Path::new("/repo/.loom/settings.json")));
+        assert!(is_settings_file(Path::new("/repo/.loog/settings.json")));
         assert!(!is_settings_file(Path::new("/repo/settings.json")));
-        assert!(!is_settings_file(Path::new("/repo/.loom/keymap.json")));
+        assert!(!is_settings_file(Path::new("/repo/.loog/keymap.json")));
     }
 }

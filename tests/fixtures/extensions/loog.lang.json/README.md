@@ -1,7 +1,7 @@
 # JSON Language
 
 Syntax highlighting for JSON, as a Tree-sitter grammar (WebAssembly) and a
-highlight query. It ships with Loom.
+highlight query. It ships with Loog.
 
 You can change how JSON is coloured without touching this extension: put a
 `highlights.scm` for the `json` grammar in your own queries folder. Start the file

@@ -550,7 +550,7 @@ mod vim_tests {
         let mut host = NoHost;
         app.editor.vim.handle_key(
             &mut editor,
-            loom_editor_core::vim::Key::Char('i'),
+            loog_editor_core::vim::Key::Char('i'),
             &mut host,
         );
         drop(editor);
@@ -571,7 +571,7 @@ mod vim_tests {
 
     struct NoHost;
 
-    impl loom_editor_core::vim::Clipboard for NoHost {
+    impl loog_editor_core::vim::Clipboard for NoHost {
         fn read(&mut self) -> Result<Option<String>, String> {
             Ok(None)
         }
@@ -580,13 +580,13 @@ mod vim_tests {
         }
     }
 
-    impl loom_editor_core::vim::Host for NoHost {
+    impl loog_editor_core::vim::Host for NoHost {
         fn page_lines(&self) -> usize {
             10
         }
         fn visible_lines(&self) -> std::ops::Range<usize> {
             0..10
         }
-        fn request(&mut self, _: loom_editor_core::vim::Request) {}
+        fn request(&mut self, _: loog_editor_core::vim::Request) {}
     }
 }

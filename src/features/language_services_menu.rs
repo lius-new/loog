@@ -78,7 +78,7 @@ pub struct Candidate {
     pub name: String,
     pub languages: Vec<String>,
     pub installed: bool,
-    /// The registry has a version for this Loom and this computer.
+    /// The registry has a version for this Loog and this computer.
     pub installable: bool,
     pub installing: bool,
 }
@@ -197,7 +197,7 @@ mod tests {
 
     fn service(name: &str, languages: &[&str], state: State) -> Service {
         Service {
-            extension: format!("loom.lsp.{}", name.to_lowercase()),
+            extension: format!("loog.lsp.{}", name.to_lowercase()),
             name: name.into(),
             languages: languages
                 .iter()
@@ -210,7 +210,7 @@ mod tests {
 
     fn candidate(name: &str, languages: &[&str]) -> Candidate {
         Candidate {
-            extension: format!("loom.lsp.{}", name.to_lowercase()),
+            extension: format!("loog.lsp.{}", name.to_lowercase()),
             name: name.into(),
             languages: languages
                 .iter()

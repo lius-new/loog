@@ -47,7 +47,7 @@ pub fn start_polling(
     let worker_control = control.clone();
     let worker_stopped = Arc::clone(&stopped);
     let _ = thread::Builder::new()
-        .name("loom-git-status".into())
+        .name("loog-git-status".into())
         .spawn(move || match service() {
             Ok(service) => {
                 service.poll(&roots, &worker_control, &worker_stopped, interval, &publish)

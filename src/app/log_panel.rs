@@ -1924,20 +1924,20 @@ mod tests {
 
     #[test]
     fn paths_lose_the_windows_prefix_and_are_relative_to_the_open_folder() {
-        let roots = vec![PathBuf::from(r"D:\Documents\cprojects\loom")];
+        let roots = vec![PathBuf::from(r"D:\Documents\cprojects\loog")];
         assert_eq!(
             readable_path(
                 &roots,
-                std::path::Path::new(r"\\?\D:\Documents\cprojects\loom\src\main.rs")
+                std::path::Path::new(r"\\?\D:\Documents\cprojects\loog\src\main.rs")
             ),
             "src/main.rs"
         );
         // A verbatim root matches a plain path too.
-        let verbatim = vec![PathBuf::from(r"\\?\D:\Documents\cprojects\loom")];
+        let verbatim = vec![PathBuf::from(r"\\?\D:\Documents\cprojects\loog")];
         assert_eq!(
             readable_path(
                 &verbatim,
-                std::path::Path::new(r"D:\Documents\cprojects\loom\a.rs")
+                std::path::Path::new(r"D:\Documents\cprojects\loog\a.rs")
             ),
             "a.rs"
         );
@@ -1950,9 +1950,9 @@ mod tests {
         assert_eq!(
             readable_path(
                 &roots,
-                std::path::Path::new(r"D:\Documents\cprojects\loom2\c.rs")
+                std::path::Path::new(r"D:\Documents\cprojects\loog2\c.rs")
             ),
-            "D:/Documents/cprojects/loom2/c.rs"
+            "D:/Documents/cprojects/loog2/c.rs"
         );
     }
 

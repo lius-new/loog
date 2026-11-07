@@ -188,13 +188,13 @@ mod tests {
 
     #[test]
     fn disabling_hides_the_themes_and_enabling_brings_them_back() {
-        let mut service = ExtensionService::new(std::env::temp_dir().join("loom-disable-cache"));
+        let mut service = ExtensionService::new(std::env::temp_dir().join("loog-disable-cache"));
         let root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/extensions/packages");
-        service.load_package(&root.join("loom-midnight")).unwrap();
+        service.load_package(&root.join("loog-midnight")).unwrap();
         let themes = service.themes().len();
         assert!(themes > 0);
-        service.disable("loom.midnight").unwrap();
+        service.disable("loog.midnight").unwrap();
         assert!(service.themes().is_empty());
         assert!(
             !super::frame(&service).installed[0]
@@ -203,7 +203,7 @@ mod tests {
                 .unwrap()
                 .enabled
         );
-        service.enable("loom.midnight").unwrap();
+        service.enable("loog.midnight").unwrap();
         assert_eq!(service.themes().len(), themes);
         assert!(
             super::frame(&service).installed[0]
@@ -212,27 +212,27 @@ mod tests {
                 .unwrap()
                 .enabled
         );
-        let (dir, _) = service.uninstall("loom.midnight").unwrap();
-        assert!(dir.ends_with("loom-midnight"));
-        assert!(service.package("loom.midnight").is_none());
+        let (dir, _) = service.uninstall("loog.midnight").unwrap();
+        assert!(dir.ends_with("loog-midnight"));
+        assert!(service.package("loog.midnight").is_none());
         assert!(service.themes().is_empty());
     }
 
     #[test]
     fn installed_details_come_from_the_packages_and_their_documents() {
-        let mut service = ExtensionService::new(std::env::temp_dir().join("loom-details-cache"));
+        let mut service = ExtensionService::new(std::env::temp_dir().join("loog-details-cache"));
         let root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/extensions/packages");
-        service.load_package(&root.join("loom-midnight")).unwrap();
-        service.load_package(&root.join("loom-properties")).unwrap();
+        service.load_package(&root.join("loog-midnight")).unwrap();
+        service.load_package(&root.join("loog-properties")).unwrap();
         let frame = frame(&service);
         assert_eq!(frame.installed.len(), 2);
         let entry = frame
             .installed
             .iter()
-            .find(|entry| entry.id == "loom.midnight")
+            .find(|entry| entry.id == "loog.midnight")
             .unwrap();
-        assert_eq!(entry.name, "Loom Midnight");
+        assert_eq!(entry.name, "Loog Midnight");
         let image = entry
             .icon_image
             .as_ref()
@@ -246,8 +246,8 @@ mod tests {
             "preserve the moon's original teal"
         );
         let readme = entry.readme_document.as_ref().unwrap();
-        assert!(readme.content.contains("**Loom Midnight**"));
-        assert!(readme.path.ends_with("loom-midnight/README.md"));
+        assert!(readme.content.contains("**Loog Midnight**"));
+        assert!(readme.path.ends_with("loog-midnight/README.md"));
         assert_eq!(entry.contribution_count(), 2);
         let changelog = entry.changelog_document.as_ref().unwrap();
         assert!(changelog.content.contains("## 0.1.0"));
@@ -258,7 +258,7 @@ mod tests {
             again
                 .installed
                 .iter()
-                .find(|entry| entry.id == "loom.midnight")
+                .find(|entry| entry.id == "loog.midnight")
                 .unwrap()
                 .readme_document
                 .as_ref()
@@ -267,12 +267,12 @@ mod tests {
                 .identity
         );
         assert!(entry.installed.as_ref().unwrap().enabled);
-        service.stop("loom.midnight");
+        service.stop("loog.midnight");
         assert!(
             !super::frame(&service)
                 .installed
                 .iter()
-                .find(|entry| entry.id == "loom.midnight")
+                .find(|entry| entry.id == "loog.midnight")
                 .unwrap()
                 .installed
                 .as_ref()
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn png_artwork_updates_on_reload_and_invalid_artwork_has_a_fallback() {
-        let dir = std::env::temp_dir().join(format!("loom-icon-reload-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loog-icon-reload-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("manifest.json"),

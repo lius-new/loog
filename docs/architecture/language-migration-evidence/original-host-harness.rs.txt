@@ -12,24 +12,24 @@ mod metrics;
 #[test]
 #[ignore = "requires staged official language servers"]
 fn original_host_language_migration_baseline() {
-    let loom = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();
-    let packages = loom.join(".tmp/loom-extensions/language-clients/.work/packages");
-    let fixture_bytes: usize = std::env::var("LOOM_MIGRATION_BYTES").ok().map(|value| value.parse().unwrap()).unwrap_or(0);
+    let loog = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();
+    let packages = loog.join(".tmp/loog-extensions/language-clients/.work/packages");
+    let fixture_bytes: usize = std::env::var("LOOG_MIGRATION_BYTES").ok().map(|value| value.parse().unwrap()).unwrap_or(0);
     assert!([0, 1024 * 1024, 8 * 1024 * 1024].contains(&fixture_bytes));
     for (language, filename, marker, extension) in [
-        ("rust", "src/main.rs", "Cargo.toml", "loom.lsp.rust-analyzer"),
-        ("go", "main.go", "go.mod", "loom.lsp.gopls"),
-        ("javascript", "main.js", "jsconfig.json", "loom.lsp.typescript-language-server"),
-        ("typescript", "main.ts", "tsconfig.json", "loom.lsp.typescript-language-server"),
+        ("rust", "src/main.rs", "Cargo.toml", "loog.lsp.rust-analyzer"),
+        ("go", "main.go", "go.mod", "loog.lsp.gopls"),
+        ("javascript", "main.js", "jsconfig.json", "loog.lsp.typescript-language-server"),
+        ("typescript", "main.ts", "tsconfig.json", "loog.lsp.typescript-language-server"),
     ] {
-        if std::env::var("LOOM_MIGRATION_LANGUAGE").ok().is_some_and(|name| name != language) { continue; }
-        let root = loom.join("target/language-migration/projects").join(if fixture_bytes == 0 { language.to_owned() } else { format!("{language}-{fixture_bytes}") });
+        if std::env::var("LOOG_MIGRATION_LANGUAGE").ok().is_some_and(|name| name != language) { continue; }
+        let root = loog.join("target/language-migration/projects").join(if fixture_bytes == 0 { language.to_owned() } else { format!("{language}-{fixture_bytes}") });
         let _ = std::fs::remove_file(root.join("baseline-observed.json"));
         let path = root.join(filename);
         let text = Arc::new(std::fs::read_to_string(&path).unwrap());
         let cursor = text.rfind("add(").unwrap() + 1;
         let (program, args): (PathBuf, Vec<String>) = if extension.ends_with("typescript-language-server") {
-            (packages.join("loom.runtime.node/node.exe"), vec![packages.join(extension).join("node_modules/typescript-language-server/lib/cli.mjs").to_string_lossy().into_owned(), "--stdio".into()])
+            (packages.join("loog.runtime.node/node.exe"), vec![packages.join(extension).join("node_modules/typescript-language-server/lib/cli.mjs").to_string_lossy().into_owned(), "--stdio".into()])
         } else { (packages.join(extension).join(if language == "rust" { "rust-analyzer.exe" } else { "gopls.exe" }), vec![]) };
         let definition = json!({"name":"migration-baseline","display_name":"Migration baseline","command":program,"args":args,"root":{"markers":[marker],"strategy":if language=="rust"{"outermost"}else{"nearest"},"fallback":"workspace"},"languages":[{"language":language,"language_id":language}]}).to_string();
         let servers = Arc::new(ServerSet::from_sources(&[("migration-baseline", &definition)]).unwrap());

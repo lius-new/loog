@@ -10,8 +10,8 @@ use lgui::prelude::{Element, State, UiRect, VisualStyle, group, panel};
 use lgui::services::ServicesContextExt;
 
 use crate::ui::editor::keys::{self as commands, Command};
-use loom_editor_core::normal::{self, Movement};
-use loom_editor_core::text::{EditorMut, Selection, TextBuffer};
+use loog_editor_core::normal::{self, Movement};
+use loog_editor_core::text::{EditorMut, Selection, TextBuffer};
 
 use super::state_access::StateAccess;
 use super::text::SingleLineText;
@@ -165,7 +165,7 @@ pub struct AccessInputOptions {
     pub on_blur: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
-/// Keep Loom's projected state and actions while LGUI owns text editing/rendering.
+/// Keep Loog's projected state and actions while LGUI owns text editing/rendering.
 pub fn render_portable<T: Clone + Send + 'static>(
     rect: UiRect,
     id: UiId,

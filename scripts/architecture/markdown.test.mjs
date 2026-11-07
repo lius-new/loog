@@ -47,7 +47,7 @@ test('host modules cannot include the independent P0 prototype', () => {
 test('pure Markdown verification compiles production sources without a second parser or GUI dependencies', async () => {
   const fs = await import('node:fs/promises');
   const manifest = await fs.readFile(new URL('../../crates/markdown-tests/Cargo.toml', import.meta.url), 'utf8');
-  assert.doesNotMatch(manifest, /lgui|skia|loom-editor-core|build-dependencies/);
+  assert.doesNotMatch(manifest, /lgui|skia|loog-editor-core|build-dependencies/);
   const entry = await fs.readFile(new URL('../../crates/markdown-tests/src/lib.rs', import.meta.url), 'utf8');
   for (const file of ['content', 'layout', 'model', 'parser', 'reader', 'resources', 'production_tests']) assert.ok(entry.includes('src/features/markdown/' + file + '.rs'));
   assert.doesNotMatch(entry, /fn parse|struct Markdown|std::fs|std::thread/);

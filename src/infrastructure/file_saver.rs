@@ -11,7 +11,7 @@ impl Worker {
     pub(crate) fn new() -> std::io::Result<Self> {
         let (send, receive) = mpsc::sync_channel::<Task>(8);
         std::thread::Builder::new()
-            .name("loom-file-saver".into())
+            .name("loog-file-saver".into())
             .spawn(move || {
                 for task in receive {
                     task();

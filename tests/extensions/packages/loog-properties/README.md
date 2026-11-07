@@ -16,7 +16,7 @@ theme, so they change with it.
 
 ## Good to know
 
-The grammar is loaded when a `.properties` file first needs it. Loom reads
-language grammars at startup, so restart Loom after installing this extension.
+The grammar is loaded when a `.properties` file first needs it. Loog reads
+language grammars at startup, so restart Loog after installing this extension.
 
 The grammar is tree-sitter-properties 0.3.0 (MIT); see `PROVENANCE.md`.

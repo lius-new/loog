@@ -45,7 +45,7 @@ All supported languages, including Markdown and JSON, ship as independent
 dynamic language packages: the editor loads their parsers and queries when
 their content becomes visible. Opening Markdown does not load the languages of
 off-screen code fences. Installed package updates take effect after restarting
-Loom. Packages are discovered in application resources and the user data directory.
+Loog. Packages are discovered in application resources and the user data directory.
 Plain text works without packages. See [Language packages](languages.md).
 
 Colours come from a syntax tree built with Tree-sitter for Rust, JavaScript
@@ -127,7 +127,7 @@ stored with the SVG assets under
 
 ## Language servers
 
-For languages with a language server (Rust uses rust-analyzer), Loom shows the
+For languages with a language server (Rust uses rust-analyzer), Loog shows the
 server's errors and warnings as underlines in the editor and their counts in the
 status bar, and draws the server's semantic highlighting over the syntax colours
 once it has analysed the current text. Nothing changes if the server is missing

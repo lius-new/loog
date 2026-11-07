@@ -17,7 +17,7 @@ use crate::features::settings::jsonc::strip as strip_jsonc;
 const DEFAULT_KEYMAP: &str = include_str!("../../../assets/keymaps/default.json");
 pub const FILE_NAME: &str = "keymap.json";
 
-pub const USER_TEMPLATE: &str = r#"// Loom key bindings. Entries here override the built-in defaults.
+pub const USER_TEMPLATE: &str = r#"// Loog key bindings. Entries here override the built-in defaults.
 //
 // Each section maps keystrokes to actions while its context is active:
 //   - keystrokes: modifiers joined with "-" (ctrl, alt, shift, cmd, secondary),

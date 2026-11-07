@@ -3,18 +3,18 @@
 ## vt100 terminal parser
 
 `vendor/vt100` contains vt100 0.16.2 by Jesse Luehrs, licensed under MIT
-(see `vendor/vt100/LICENSE`). Loom modifies height resizing to preserve terminal
+(see `vendor/vt100/LICENSE`). Loog modifies height resizing to preserve terminal
 history and exposes the row displacement for selection tracking. Upstream:
 https://github.com/doy/vt100-rust.
 
-Official Loom packages may include a managed Git runtime. Git is licensed under
+Official Loog packages may include a managed Git runtime. Git is licensed under
 the GNU General Public License version 2. Runtime packages must retain Git's
 license, source-offer information, upstream version, download URL, and the
 generated `runtime/git/MANIFEST.json` file.
 
 The packaging pipeline treats the runtime as a separate executable component;
-Loom invokes it through its command-line interface and does not link Git into
-the Loom binary.
+Loog invokes it through its command-line interface and does not link Git into
+the Loog binary.
 
 ## Zed GPUI keymap
 
@@ -23,7 +23,7 @@ The key-context predicate language and binding resolution in
 adapted from the `gpui` crate of Zed (https://github.com/zed-industries/zed,
 `crates/gpui/src/keymap*` and `crates/gpui/src/key_dispatch.rs`), Copyright
 Zed Industries, Inc., licensed under the Apache License, Version 2.0. The
-adapted code was rewritten for Loom's types; its behavior and test cases follow
+adapted code was rewritten for Loog's types; its behavior and test cases follow
 the original.
 
 ## Tree-sitter and language grammars
@@ -92,12 +92,12 @@ Software.
 
 ## Language servers
 
-Loom's source and installers contain no language server. Servers are separate
-programs that Loom downloads on demand from its own releases, each pinned by
+Loog's source and installers contain no language server. Servers are separate
+programs that Loog downloads on demand from its own releases, each pinned by
 SHA-256 in `assets/lsp-servers/lsp-servers.toml`, and runs as separate processes
-that it talks to over the Language Server Protocol; Loom does not link them.
+that it talks to over the Language Server Protocol; Loog does not link them.
 
-Each pack Loom publishes repackages an upstream release unchanged (or, for Go and
+Each pack Loog publishes repackages an upstream release unchanged (or, for Go and
 npm servers, builds it from a pinned module or lockfile) and carries the upstream
 license texts in its `licenses/` directory and its provenance in `PROVENANCE.md`.
 The recipes are in `scripts/lsp-servers/build.toml`.
@@ -161,4 +161,4 @@ Apache License, Version 2.0; the text is included in LICENSE-APACHE.
 SVG images in Markdown previews are drawn with resvg, usvg and tiny-skia
 (https://github.com/linebender/resvg; resvg and usvg are licensed under
 Apache-2.0 OR MIT, tiny-skia under BSD-3-Clause), plus fontdb and rustybuzz
-(MIT) for text. Loom enables only the `text` and `system-fonts` features.
+(MIT) for text. Loog enables only the `text` and `system-fonts` features.

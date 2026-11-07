@@ -75,7 +75,7 @@ struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
-            "loom-host-packs-{}-{}",
+            "loog-host-packs-{}-{}",
             std::process::id(),
             RUN.fetch_add(1, Ordering::Relaxed)
         ));
@@ -254,17 +254,17 @@ fn invalid_packages_do_not_corrupt_valid_metadata() {
 
 #[test]
 fn platform_paths_are_absolute_and_portable_directories_are_not_cargo_profiles() {
-    let home = std::env::temp_dir().join("loom-data");
+    let home = std::env::temp_dir().join("loog-data");
     assert_eq!(
         user_resource_directory_from(
             "windows",
-            |key| (key != "LOOM_EXTENSIONS_DIR").then(|| home.clone().into_os_string()),
+            |key| (key != "LOOG_EXTENSIONS_DIR").then(|| home.clone().into_os_string()),
             "extensions"
         ),
-        Some(home.join("Loom/extensions"))
+        Some(home.join("Loog/extensions"))
     );
     let staged = home.join("staged");
-    let get = |key: &str| (key == "LOOM_EXTENSIONS_DIR").then(|| staged.clone().into_os_string());
+    let get = |key: &str| (key == "LOOG_EXTENSIONS_DIR").then(|| staged.clone().into_os_string());
     assert_eq!(
         user_resource_directory_from("windows", get, "extensions"),
         Some(staged.clone())
@@ -278,7 +278,7 @@ fn platform_paths_are_absolute_and_portable_directories_are_not_cargo_profiles()
         None
     );
     assert_eq!(
-        bundled_directory(Path::new("/portable/deps/Loom.exe"), "extensions"),
+        bundled_directory(Path::new("/portable/deps/Loog.exe"), "extensions"),
         PathBuf::from("/portable/deps/extensions")
     );
 }

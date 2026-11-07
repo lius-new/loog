@@ -1,5 +1,5 @@
 name: Install Linux host build dependencies
-description: Native compiler, font and graphics libraries used by Loom CI
+description: Native compiler, font and graphics libraries used by Loog CI
 runs:
   using: composite
   steps:

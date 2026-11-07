@@ -3,7 +3,7 @@ use crate::domain::document::{DiskRead, DiskState};
 use crate::domain::identity::FileId;
 use crate::domain::pane_layout::Direction;
 use crate::domain::workspace::{OpenMode, PreparedTextFile, ReconcileResult, Workspace};
-use loom_editor_core::normal;
+use loog_editor_core::normal;
 
 type PureWorkspace = Workspace<(), ()>;
 fn open(workspace: &mut PureWorkspace, path: &str, text: &str) -> FileId {

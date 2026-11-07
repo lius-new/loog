@@ -1,5 +1,5 @@
 Private Rust language client: MIT OR Apache-2.0.
-Source: https://github.com/lius-new/loom-extensions/tree/main/language-clients/rust
+Source: https://github.com/lius-new/loog-extensions/tree/main/language-clients/rust
 The component contains no JavaScript engine. Rust dependency licenses are included below licenses/rust.
 
 aho-corasick 1.1.5: Unlicense OR MIT; https://github.com/BurntSushi/aho-corasick

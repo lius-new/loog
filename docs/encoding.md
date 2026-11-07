@@ -1,6 +1,6 @@
 # Text file encodings
 
-Loom decodes files to Unicode for editing. It preserves their encoding, BOM and
+Loog decodes files to Unicode for editing. It preserves their encoding, BOM and
 line endings on save. Supported formats are UTF-8 (with or without BOM), UTF-16
 LE/BE (with or without BOM), GBK/CP936, GB18030, Big5, Shift_JIS, EUC-JP, EUC-KR
 and Windows-1252. New documents default to UTF-8 without BOM.
@@ -38,7 +38,7 @@ characters, while the source bytes are retained. Saving text that cannot be repr
 line and column; the destination is unchanged. Saves are staged in the destination
 directory and replaced only after encoding and writing succeed.
 
-User `settings.json` and a project's `.loom/settings.json` accept:
+User `settings.json` and a project's `.loog/settings.json` accept:
 
 ```json
 {
@@ -69,6 +69,6 @@ External language servers and tools still need their own support for legacy
 encodings when they read files from disk.
 
 Verification: `cargo test --workspace`, including the `encoding` test filter.
-An optional private-file regression can be run by setting `LOOM_ENCODING_FIXTURE`
+An optional private-file regression can be run by setting `LOOG_ENCODING_FIXTURE`
 and running `cargo test encoding_private_fixture -- --ignored --nocapture`.
 It checks a temporary copy and never changes or prints the original contents.

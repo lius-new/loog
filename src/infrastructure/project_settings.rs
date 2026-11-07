@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn a_file_with_a_byte_order_mark_is_read() {
-        let root = std::env::temp_dir().join("loom-project-settings-bom-test");
+        let root = std::env::temp_dir().join("loog-project-settings-bom-test");
         fs::create_dir_all(root.join(DIR_NAME)).unwrap();
         fs::write(path(&root), "\u{feff}{ \"default_shell\": \"bash\" }\n").unwrap();
         let settings = read(&root);

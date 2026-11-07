@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn provider_settings_are_written_and_reloaded_without_losing_other_preferences() {
         let path = std::env::temp_dir().join(format!(
-            "loom-server-settings-{}.json",
+            "loog-server-settings-{}.json",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

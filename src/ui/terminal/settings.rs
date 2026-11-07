@@ -59,7 +59,7 @@ pub fn render(rect: UiRect, state: Binding) -> Element {
     let add = state.clone();
     let description = match app.project_shell.clone() {
         Some((folder, shell)) => ellipsize(
-            &format!("This is your default. {folder} uses {shell} from its .loom/settings.json."),
+            &format!("This is your default. {folder} uses {shell} from its .loog/settings.json."),
             (text_right - rect.left).max(0.0),
             theme::SMALL + 1.0,
             400,

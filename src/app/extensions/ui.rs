@@ -3,14 +3,14 @@ use crate::features::extensions::motion::{Animation, Ease, Motion, Prop, Smoothi
 use crate::features::extensions::ui::{
     Attachment, FlatNode, Kind, Origin, Payload, Properties, Relation,
 };
-use loom_extension_host::{
+use loog_extension_host::{
     UiEvent, UiEventPayload, UiKind, UiNode, UiParent, UiRelation, UiTarget,
 };
 use std::sync::Arc;
 
 /// What the extension asked for one node, in the model the renderer plays.
-fn motion_of(asked: &loom_extension_host::UiMotion) -> Motion {
-    use loom_extension_host::{MotionDirection, MotionEasing, MotionProperty};
+fn motion_of(asked: &loog_extension_host::UiMotion) -> Motion {
+    use loog_extension_host::{MotionDirection, MotionEasing, MotionProperty};
     let prop = |property: MotionProperty| match property {
         MotionProperty::Rotation => Prop::Rotation,
         MotionProperty::ScaleX => Prop::ScaleX,
@@ -190,7 +190,7 @@ impl ExtensionService {
             Payload::Input(text) if text.len() <= 4096 => UiEventPayload::Input(text),
             Payload::Input(_) => return vec![],
             Payload::Selection(range) => {
-                UiEventPayload::Selection(loom_extension_host::ByteRange {
+                UiEventPayload::Selection(loog_extension_host::ByteRange {
                     start: range.start as u64,
                     end: range.end as u64,
                 })

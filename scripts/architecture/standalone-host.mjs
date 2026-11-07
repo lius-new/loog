@@ -9,7 +9,7 @@ import {execFileSync} from 'node:child_process';
 export function hostFile(file) {
   return !file.startsWith('tools/ext-validate/') && !file.startsWith('language-packs/') && !file.startsWith('crates/language-packs/') &&
     !file.startsWith('assets/grammars/') && !file.startsWith('assets/languages/') &&
-    !file.startsWith('assets/servers/') && !file.startsWith('tests/fixtures/extensions/loom.lang.');
+    !file.startsWith('assets/servers/') && !file.startsWith('tests/fixtures/extensions/loog.lang.');
 }
 if(path.resolve(process.argv[1]??'')===fileURLToPath(import.meta.url)) {
   const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
@@ -26,13 +26,13 @@ if(path.resolve(process.argv[1]??'')===fileURLToPath(import.meta.url)) {
     fs.mkdirSync(path.dirname(out),{recursive:true});fs.copyFileSync(path.join(root,file),out);
   }
   assert.equal(fs.existsSync(path.join(target,'language-packs')),false);
-  assert.equal(fs.existsSync(path.join(target,'tests/fixtures/extensions/loom.lang.json')),false);
+  assert.equal(fs.existsSync(path.join(target,'tests/fixtures/extensions/loog.lang.json')),false);
   // Avoid overwriting an editor the user may currently be running. Only the
   // output binary name changes; the full application sources are identical.
   const manifest=path.join(target,'Cargo.toml');
-  fs.writeFileSync(manifest,fs.readFileSync(manifest,'utf8').replace('name = "Loom"','name = "LoomStandalone"'));
+  fs.writeFileSync(manifest,fs.readFileSync(manifest,'utf8').replace('name = "Loog"','name = "LoogStandalone"'));
   const metadata=JSON.parse(execFileSync('cargo',['metadata','--manifest-path',manifest,'--locked',...offline,'--format-version','1'],{cwd:target,env,encoding:'utf8',maxBuffer:16*1024*1024}));
-  assert.ok(!metadata.packages.some(p=>p.name.startsWith('loom-grammar-')||(p.name.startsWith('tree-sitter-')&&p.name!=='tree-sitter-language')));
+  assert.ok(!metadata.packages.some(p=>p.name.startsWith('loog-grammar-')||(p.name.startsWith('tree-sitter-')&&p.name!=='tree-sitter-language')));
   const common=['--manifest-path',manifest,'--locked',...offline,'--target-dir',path.join(root,'target')];
   execFileSync('cargo',['fmt','--manifest-path',manifest,'--all','--','--check'],{cwd:target,env,stdio:'inherit'});
   execFileSync('cargo',['build',...common],{cwd:target,env,stdio:'inherit'});

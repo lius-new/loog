@@ -356,8 +356,8 @@ fn progressive_diff_actual_open_publishes_selected_file_before_completion() {
 #[test]
 #[ignore = "manual first-visible benchmark: requires the desktop identical-patch fixture"]
 fn progressive_diff_first_visible_benchmark() {
-    let root = std::fs::canonicalize(std::env::var_os("LOOM_DIFF_BENCH_ROOT").unwrap()).unwrap();
-    let oid = std::env::var("LOOM_DIFF_BENCH_COMMIT").unwrap();
+    let root = std::fs::canonicalize(std::env::var_os("LOOG_DIFF_BENCH_ROOT").unwrap()).unwrap();
+    let oid = std::env::var("LOOG_DIFF_BENCH_COMMIT").unwrap();
     let service = crate::infrastructure::git::service().unwrap();
     let snapshot = service.refresh(std::slice::from_ref(&root), None).unwrap();
     let files = service.backend().commit_files(&root, &oid).unwrap();
@@ -427,7 +427,7 @@ fn progressive_diff_first_visible_benchmark() {
             samples.push(sample);
         }
     }
-    std::fs::write(std::env::var_os("LOOM_DIFF_VISIBLE_OUTPUT").unwrap(),serde_json::to_vec_pretty(&serde_json::json!({"samples":samples,"files":1000,"additions":300000,"deletions":300000,"profile":if cfg!(debug_assertions){"debug"}else{"release"},"note":"Actual open dispatch through UI completion queue to native first frame containing selected code. Repository/commit file listings are already available, as in the visible sidebar/history. Excludes GPU presentation and OS mouse dispatch."})).unwrap()).unwrap();
+    std::fs::write(std::env::var_os("LOOG_DIFF_VISIBLE_OUTPUT").unwrap(),serde_json::to_vec_pretty(&serde_json::json!({"samples":samples,"files":1000,"additions":300000,"deletions":300000,"profile":if cfg!(debug_assertions){"debug"}else{"release"},"note":"Actual open dispatch through UI completion queue to native first frame containing selected code. Repository/commit file listings are already available, as in the visible sidebar/history. Excludes GPU presentation and OS mouse dispatch."})).unwrap()).unwrap();
 }
 
 #[test]

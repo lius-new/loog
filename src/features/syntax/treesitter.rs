@@ -18,7 +18,7 @@ use crate::domain::{
     language::{GrammarId, Registry, ResolvedLanguage},
 };
 use crate::features::highlighting::HighlightId;
-use loom_editor_core::text::{BytePoint, RevisionEdit};
+use loog_editor_core::text::{BytePoint, RevisionEdit};
 use std::{
     cmp::Reverse,
     collections::HashMap,

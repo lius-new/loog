@@ -1,17 +1,17 @@
 {
   "schema": 1,
-  "id": "loom.lang.json",
+  "id": "loog.lang.json",
   "version": "0.1.8",
   "name": "JSON Language",
-  "publisher": "Loom",
+  "publisher": "Loog",
   "description": "Syntax highlighting for JSON.",
   "categories": ["Syntax Highlighting"],
   "keywords": ["json", "syntax", "tree-sitter"],
   "license": "MIT",
-  "repository": "https://github.com/lius-new/loom",
+  "repository": "https://github.com/lius-new/loog",
   "readme": "README.md",
-  "engines": { "loom": ">=0.1.8 <0.3" },
+  "engines": { "loog": ">=0.1.8 <0.3" },
   "contributes": {
-    "highlight": [{ "id": "loom.lang.json.grammar", "path": "tree-sitter.json" }]
+    "highlight": [{ "id": "loog.lang.json.grammar", "path": "tree-sitter.json" }]
   }
 }

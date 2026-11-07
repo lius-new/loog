@@ -26,16 +26,16 @@ test('a build failure without test results is not counted as a passing suite', (
 
 test('workspace validation and doctests retain separate crate and target identities', () => {
   const suites = parseTestSuites([
-    '     Running unittests src/main.rs (target/debug/deps/Loom-deadbeef.exe)',
+    '     Running unittests src/main.rs (target/debug/deps/Loog-deadbeef.exe)',
     'test app::sample ... ok',
     'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out',
-    '     Running unittests src/lib.rs (target/debug/deps/loom_workspace_tests-0123abcdef.exe)',
+    '     Running unittests src/lib.rs (target/debug/deps/loog_workspace_tests-0123abcdef.exe)',
     'test isolated::domain::sample ... ok',
     'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out',
-    '   Doc-tests loom_workspace_tests',
+    '   Doc-tests loog_workspace_tests',
     'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out',
   ].join('\n'));
   assert.deepEqual(suites.map(suite => [suite.crate, suite.kind, suite.passed]), [
-    ['loom', 'unit', 1], ['loom-workspace-tests', 'unit', 1], ['loom-workspace-tests', 'doc', 0],
+    ['loog', 'unit', 1], ['loog-workspace-tests', 'unit', 1], ['loog-workspace-tests', 'doc', 0],
   ]);
 });

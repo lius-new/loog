@@ -154,7 +154,7 @@ pub(super) fn compare(
     }
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let directory = std::env::temp_dir().join(format!(
-        "loom-encoding-diff-{}-{}",
+        "loog-encoding-diff-{}-{}",
         std::process::id(),
         SEQ.fetch_add(1, Ordering::Relaxed)
     ));
@@ -209,7 +209,7 @@ mod tests {
         let runtime = GitRuntimeManager::default().resolve().expect("Git runtime");
         let backend = CliGitBackend::new(runtime);
         let directory =
-            std::env::temp_dir().join(format!("loom-encoding-git-tests-{}", std::process::id()));
+            std::env::temp_dir().join(format!("loog-encoding-git-tests-{}", std::process::id()));
         std::fs::create_dir(&directory).unwrap();
         struct Temp(PathBuf);
         impl Drop for Temp {

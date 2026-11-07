@@ -140,7 +140,7 @@ fn configure_std_command(
     command.envs(integration.env.iter().cloned());
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
-    command.env("TERM_PROGRAM", "loom");
+    command.env("TERM_PROGRAM", "loog");
     Ok(integration)
 }
 
@@ -228,7 +228,7 @@ pub(super) fn spawn_shell_option(
     }
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
-    command.env("TERM_PROGRAM", "loom");
+    command.env("TERM_PROGRAM", "loog");
 
     let child = pair
         .slave

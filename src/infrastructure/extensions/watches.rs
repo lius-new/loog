@@ -1,6 +1,6 @@
 //! Bounded recursive disk events; a slow guest receives an explicit rescan.
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
-use loom_extension_host::{FileChange, FileChangeKind};
+use loog_extension_host::{FileChange, FileChangeKind};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -56,7 +56,7 @@ impl Runner {
         self.watches.lock().unwrap().insert(watch, stop.clone());
         let sink = self.sink.clone();
         let spawn = std::thread::Builder::new()
-            .name("loom-extension-watch".into())
+            .name("loog-extension-watch".into())
             .spawn({
                 let sink = sink.clone();
                 move || {

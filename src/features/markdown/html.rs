@@ -572,16 +572,16 @@ mod tests {
 
     #[test]
     fn a_centered_logo_heading_and_tagline_become_aligned_blocks() {
-        let html = "<p align=\"center\">\n  <img src=\"a.png\" alt=\"Loom\" width=\"96\">\n</p>\n<h1 align=\"center\">Loom</h1>\n<p align=\"center\">\n  A fast editor.\n</p>\n";
+        let html = "<p align=\"center\">\n  <img src=\"a.png\" alt=\"Loog\" width=\"96\">\n</p>\n<h1 align=\"center\">Loog</h1>\n<p align=\"center\">\n  A fast editor.\n</p>\n";
         let ops = plan(html).unwrap();
         assert_eq!(
             kinds(&ops),
             [
                 "open Paragraph Center",
-                "image a.png \"Loom\" Center",
+                "image a.png \"Loog\" Center",
                 "close",
                 "open Heading { level: 1 } Center",
-                "text \"Loom\"",
+                "text \"Loog\"",
                 "close",
                 "open Paragraph Center",
                 "text \"A fast editor.\"",

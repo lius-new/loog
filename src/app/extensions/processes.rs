@@ -1,6 +1,6 @@
 use super::*;
 use crate::infrastructure::extensions::processes::{Framing, ProcessEvent, Spec};
-use loom_extension_host::{
+use loog_extension_host::{
     ProcessControl, ProcessExit, ProcessFraming, ProcessOutput, ProcessWritable,
 };
 
@@ -72,7 +72,7 @@ impl ExtensionService {
                             .map_err(invalid)?;
                         self.plan_task(
                             id,
-                            &loom_extension_host::TaskRequest {
+                            &loog_extension_host::TaskRequest {
                                 call: 0,
                                 root,
                                 program,
@@ -167,8 +167,8 @@ impl ExtensionService {
                 Inbound::ProcessOutput(ProcessOutput {
                     process: local,
                     channel: match channel {
-                        tasks::Channel::Stdout => loom_extension_host::OutputChannel::Stdout,
-                        tasks::Channel::Stderr => loom_extension_host::OutputChannel::Stderr,
+                        tasks::Channel::Stdout => loog_extension_host::OutputChannel::Stdout,
+                        tasks::Channel::Stderr => loog_extension_host::OutputChannel::Stderr,
                     },
                     bytes,
                     text,
@@ -224,12 +224,12 @@ impl ExtensionService {
 /// The findings of one file as the problems list keeps them. A finding whose
 /// severity is not 1 to 4 was refused earlier, so each one is placed.
 pub(super) fn closed_findings(
-    file: &loom_extension_host::FileFindings,
+    file: &loog_extension_host::FileFindings,
 ) -> Vec<crate::features::problems::Finding> {
     use crate::features::language_service::diagnostics::Severity;
     use crate::features::providers::PositionEncoding;
     use crate::features::providers::position::Position;
-    use loom_extension_host::FindingEncoding;
+    use loog_extension_host::FindingEncoding;
     let encoding = match file.encoding {
         FindingEncoding::Utf8 => PositionEncoding::Utf8,
         FindingEncoding::Utf16 => PositionEncoding::Utf16,

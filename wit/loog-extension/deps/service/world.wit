@@ -1,4 +1,4 @@
-package loom:service@0.1.0;
+package loog:service@0.1.0;
 
 /// What an extension says about the service it runs for documents.
 ///

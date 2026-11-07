@@ -7,10 +7,10 @@ import {execFileSync} from 'node:child_process';
 import {manifestVersion,versionFiles,stampVersion} from './version.mjs';
 import {verifySource} from './publish.mjs';
 import {packageRelease} from './package.mjs';
-const manifest = '[package]\nname = "loom"\nversion = "0.1.7"\nedition = "2024"\n\n[dependencies]\n';
-const lock = '# generated lock\nversion = 4\n\n[[package]]\nname = "loom"\nversion = "0.1.7"\n';
+const manifest = '[package]\nname = "loog"\nversion = "0.1.7"\nedition = "2024"\n\n[dependencies]\n';
+const lock = '# generated lock\nversion = 4\n\n[[package]]\nname = "loog"\nversion = "0.1.7"\n';
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(),'loom-tag-version-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(),'loog-tag-version-'));
   t.after(() => fs.rmSync(root,{recursive:true,force:true}));
   const git = (...args) => execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
   git('init','-b','main');git('config','user.name','Version tests');git('config','user.email','version@example.invalid');git('config','commit.gpgsign','false');
@@ -33,7 +33,7 @@ test('generation changes only the root package version and preserves dependencie
 });
 test('a new version tag on an existing product commit needs no source-version commit', t => {
   const f = fixture(t);
-  assert.equal(verifySource({root:f.root,repo:'test/loom',version:'0.2.0',target:'HEAD'}),f.sha);
+  assert.equal(verifySource({root:f.root,repo:'test/loog',version:'0.2.0',target:'HEAD'}),f.sha);
   assert.equal(fs.readFileSync(path.join(f.root,'Cargo.toml'),'utf8'),manifest);
   stampVersion({root:f.root,version:'0.2.0',sha:f.sha});
   assert.equal(f.git('rev-parse','HEAD'),f.sha);

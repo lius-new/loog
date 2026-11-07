@@ -13,9 +13,9 @@ test('the host is independent of the language producer and concrete grammar crat
   }
   assert.equal(fs.existsSync(path.join(root, 'assets/language-packs')), false, 'language packs are extensions now');
   const resources = path.join(root, 'tests/fixtures/extensions');
-  // The grammars that ship with Loom, each inside its own extension package.
+  // The grammars that ship with Loog, each inside its own extension package.
   const languages = fs.readdirSync(resources).filter(id => fs.existsSync(path.join(resources, id, 'tree-sitter.json'))).sort();
-  assert.deepEqual(languages, ['loom.lang.json', 'loom.lang.markdown']);
+  assert.deepEqual(languages, ['loog.lang.json', 'loog.lang.markdown']);
   for (const id of languages) {
     const extension = JSON.parse(fs.readFileSync(path.join(resources, id, 'manifest.json')));
     assert.equal(extension.id, id);
@@ -35,9 +35,9 @@ test('the host is independent of the language producer and concrete grammar crat
   }
   for (const workflow of ['ci.yml', 'validation.yml', 'release.yml']) {
     const text = fs.readFileSync(path.join(root, '.github/workflows', workflow), 'utf8');
-    assert.doesNotMatch(text, /language-packs\/build|loom-grammar-/);
-    assert.doesNotMatch(text, /fetch-languages\.mjs|LOOM_LANGUAGE_PACKS/);
-    assert.doesNotMatch(text, /run-wasm\.mjs/, 'the language runtime suites are gone; extensions are checked by loom-ext-validate');
+    assert.doesNotMatch(text, /language-packs\/build|loog-grammar-/);
+    assert.doesNotMatch(text, /fetch-languages\.mjs|LOOG_LANGUAGE_PACKS/);
+    assert.doesNotMatch(text, /run-wasm\.mjs/, 'the language runtime suites are gone; extensions are checked by loog-ext-validate');
   }
   assert.match(fs.readFileSync(path.join(root, 'scripts/package/macos/entitlements.plist'), 'utf8'), /com\.apple\.security\.cs\.allow-jit/);
 });

@@ -98,7 +98,7 @@ mod windows {
     unsafe extern "system" fn find_window(hwnd: HWND, output: LPARAM) -> i32 {
         let mut title = [0u16; 16];
         let len = unsafe { GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32) };
-        if "Loom"
+        if "Loog"
             .encode_utf16()
             .eq(title[..len as usize].iter().copied())
         {
@@ -204,7 +204,7 @@ mod windows {
                 CreateWindowExW(
                     0,
                     windows_sys::core::w!("STATIC"),
-                    windows_sys::core::w!("Loom"),
+                    windows_sys::core::w!("Loog"),
                     WS_OVERLAPPEDWINDOW,
                     0,
                     0,

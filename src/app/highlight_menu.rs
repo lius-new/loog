@@ -1,4 +1,4 @@
-//! The highlight panel: which languages are highlighted now, which Loom has syntax
+//! The highlight panel: which languages are highlighted now, which Loog has syntax
 //! for, and which the registry offers to install. Opened from the language badge
 //! of the status bar or with `workspace::ShowHighlighting`.
 use crate::app::context::AppContext;
@@ -45,7 +45,7 @@ impl HighlightMenuState {
     }
 }
 
-/// The languages Loom has syntax for now: those with a grammar, plain text left out.
+/// The languages Loog has syntax for now: those with a grammar, plain text left out.
 fn installed_languages() -> Vec<Installed> {
     let registry = Registry::builtin();
     let plain = registry.plain_text().language;

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::diff::{DiffLine, UnifiedDiff};
 use super::{ChangeGroup, DiffContent, DiffRequest, DiffTarget, LineChange};
-use loom_editor_core::text::display_width;
+use loog_editor_core::text::display_width;
 use std::collections::BTreeSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

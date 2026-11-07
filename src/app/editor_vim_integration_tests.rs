@@ -17,7 +17,7 @@ use crate::app::state::AppState;
 use crate::features::git::GitStoreSnapshot;
 use crate::model::pane_layout::PaneId;
 use crate::ui::theme;
-use loom_editor_core::vim::Mode;
+use loog_editor_core::vim::Mode;
 
 struct Ui {
     tasks: crate::app::test_support::UiTasks,
@@ -198,8 +198,8 @@ impl Ui {
 
     /// Type Vim notation: characters, `<Esc>`, `<CR>`, `<BS>` and `<C-x>`.
     fn keys(&mut self, keys: &str) {
-        for key in loom_editor_core::vim::Key::parse(keys) {
-            use loom_editor_core::vim::Key;
+        for key in loog_editor_core::vim::Key::parse(keys) {
+            use loog_editor_core::vim::Key;
             let (logical, modifiers) = match key {
                 Key::Char(c) => {
                     let shift = c.is_uppercase();
@@ -388,7 +388,7 @@ fn application_shortcuts_and_vim_keys_share_the_keyboard() {
     ui.keys("<C-v>j");
     assert_eq!(
         ui.mode(),
-        Mode::Visual(loom_editor_core::vim::VisualKind::Block)
+        Mode::Visual(loog_editor_core::vim::VisualKind::Block)
     );
     ui.keys("d");
     assert_eq!(ui.text(), "ne\nwo");
@@ -500,7 +500,7 @@ impl Ui {
         self.session
             .render_view(&self.view, self.viewport, UiScale::ONE);
     }
-    fn selections(&self) -> Vec<loom_editor_core::text::Selection> {
+    fn selections(&self) -> Vec<loog_editor_core::text::Selection> {
         self.state
             .get()
             .workspace
@@ -512,7 +512,7 @@ impl Ui {
 
 #[test]
 fn vim_editor_pairs_wrap_selections_skip_closers_and_keep_ime_literal() {
-    use loom_editor_core::text::Selection;
+    use loog_editor_core::text::Selection;
     let mut ui = Ui::code("", |_| {});
     ui.keys("i(");
     assert_eq!(ui.text(), "()");
@@ -552,7 +552,7 @@ fn vim_editor_pairs_wrap_selections_skip_closers_and_keep_ime_literal() {
 fn vim_editor_tab_smart_enter_line_endings_and_write_share_preferences() {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let path = std::env::temp_dir().join(format!(
-        "loom-vim-features-{}-{}.rs",
+        "loog-vim-features-{}-{}.rs",
         std::process::id(),
         NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -772,7 +772,7 @@ fn vim_write_and_quit_waits_for_disk_and_keeps_the_tab_on_failure() {
     for case in 0..3 {
         let fail = case == 1;
         let root = std::env::temp_dir().join(format!(
-            "loom-vim-wq-{}-{}",
+            "loog-vim-wq-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));

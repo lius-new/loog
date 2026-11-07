@@ -7,16 +7,16 @@ session (`workspace.json`) live in the user configuration folder:
 
 | Platform | Folder |
 | --- | --- |
-| Windows | `%APPDATA%\Loom` |
-| macOS | `~/Library/Application Support/Loom` |
-| Linux | `$XDG_CONFIG_HOME/loom`, or `~/.config/loom` |
+| Windows | `%APPDATA%\Loog` |
+| macOS | `~/Library/Application Support/Loog` |
+| Linux | `$XDG_CONFIG_HOME/loog`, or `~/.config/loog` |
 
-On Windows, all persistent user data uses `%APPDATA%\Loom` (Roaming), including
+On Windows, all persistent user data uses `%APPDATA%\Loog` (Roaming), including
 installed extensions (including downloaded languages) under `extensions` and your
-own highlight queries under `queries`. Loom does not split
+own highlight queries under `queries`. Loog does not split
 user data between the Roaming and Local AppData folders.
 
-A workspace folder can override settings in `.loom/settings.json`; the
+A workspace folder can override settings in `.loog/settings.json`; the
 `workspace::OpenProjectSettingsFile` action creates and opens it. Appearance
 preferences, such as the theme and the interface scale, can only be set in the
 user `settings.json`. Choose the theme with **Select Theme** in the command
@@ -58,14 +58,14 @@ Both fonts default to weight 400 when the field is omitted. Numeric weights
 outside 100–900 are clamped to that range; values between steps, such as 450,
 can be entered in JSON. The appearance depends on the weights available in the
 chosen font. Font preferences are user settings and cannot be overridden by a
-project's `.loom/settings.json`. Font family, size and line height remain
+project's `.loog/settings.json`. Font family, size and line height remain
 independent of weight.
 
 ## File associations
 
-Loom picks a file's language from the file itself: its name and extension. To
+Loog picks a file's language from the file itself: its name and extension. To
 treat other files as a language, add ordered rules to `settings.json` (or to a
-workspace folder's `.loom/settings.json`):
+workspace folder's `.loog/settings.json`):
 
 ```jsonc
 "file_associations": [
@@ -105,7 +105,7 @@ status color block. There is no language panel. Processes require workspace trus
 
 The retired `language_servers` and `lsp` keys are reported as unknown. Configure a
 client through its contributed settings, for example the JSON-text
-`loom.lsp.rust-analyzer.configuration` and `.initialization` settings. Configuration
+`loog.lsp.rust-analyzer.configuration` and `.initialization` settings. Configuration
 changes update live sessions; initialization changes restart them. Client options
 are stored with other extension settings, rather than registering host servers.
 
@@ -115,8 +115,8 @@ are stored with other extension settings, rather than registering host servers.
 "languages": {
   "typescript": {
     "providers": {
-      "formatting": ["loom.lsp.typescript-language-server"],
-      "completion": ["loom.lsp.typescript-language-server", "..."]
+      "formatting": ["loog.lsp.typescript-language-server"],
+      "completion": ["loog.lsp.typescript-language-server", "..."]
     },
     "format_on_save": true,
     "code_actions_on_save": ["source.organizeImports", "source.removeUnusedImports"]
@@ -154,7 +154,7 @@ for sorting/combining imports and removing unused imports, as in this example.
 ```
 
 These settings are only read from your own `settings.json`: a project's
-`.loom/settings.json` cannot choose which program Loom runs.
+`.loog/settings.json` cannot choose which program Loog runs.
 
 ### Keys
 
@@ -245,7 +245,7 @@ entries with mistakes are reported and skipped.
   Workspace); within one context, later bindings — yours — win.
 
 The default bindings are in [`assets/keymaps/default.json`](../assets/keymaps/default.json).
-`LOOM_LOG_KEYS=1` in a debug build prints how each keystroke resolved.
+`LOOG_LOG_KEYS=1` in a debug build prints how each keystroke resolved.
 
 ## Markdown reading
 
@@ -276,7 +276,7 @@ project defaults. Settings JSON accepts:
 }
 ```
 
-Both objects are allowed in `.loom/settings.json`. Widths accept 1–16.
+Both objects are allowed in `.loog/settings.json`. Widths accept 1–16.
 Effective precedence, highest first: a temporary document choice; project
 language overrides; project editor overrides; matching `.editorconfig` rules;
 user language overrides; user editor defaults. Unspecified fields inherit.

@@ -56,7 +56,7 @@ impl Playback {
         let ready = Arc::new(Mutex::new(HashMap::<FileId, GifPreview>::new()));
         let posted = Arc::new(AtomicBool::new(false));
         let _ = std::thread::Builder::new()
-            .name("loom-gif-playback".into())
+            .name("loog-gif-playback".into())
             .spawn(move || {
                 let publish = |request: &Request, frame: Frame, error: Option<String>| {
                     ready.lock().unwrap().insert(
@@ -260,10 +260,10 @@ impl Drop for Playback {
 mod tests {
     use super::*;
     #[test]
-    #[ignore = "set LOOM_GIF_BENCH_FILE to measure autoplay and two full loops"]
+    #[ignore = "set LOOG_GIF_BENCH_FILE to measure autoplay and two full loops"]
     fn gif_autoplay_and_loop_performance() {
         let path =
-            std::env::var_os("LOOM_GIF_BENCH_FILE").expect("LOOM_GIF_BENCH_FILE is required");
+            std::env::var_os("LOOG_GIF_BENCH_FILE").expect("LOOG_GIF_BENCH_FILE is required");
         // The user opens a file in an existing editor; exclude application startup.
         let mut app = crate::app::state::AppState::new();
         let started = Instant::now();

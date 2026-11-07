@@ -1,6 +1,6 @@
-// Candidate contract for Loom behaviour extensions (EXTENSIONS_DESIGN.md §7).
+// Candidate contract for Loog behaviour extensions (EXTENSIONS_DESIGN.md §7).
 // Status: M0 candidate. Signatures are not frozen until M1-14.
-package loom:extension@0.1.0;
+package loog:extension@0.1.0;
 
 interface types {
     /// Half-open UTF-8 byte range.
@@ -484,7 +484,7 @@ interface types {
     record watch-failure { watch: u64, error: host-error }
     enum ui-kind { block, text, icon, button, row, column, text-input }
     // COMPAT(legacy-ui-mount): Preserve mount(string) for existing statusbar components.
-    // New roots use ui.detached and loom:ui/tree; owned nodes still use node(u64).
+    // New roots use ui.detached and loog:ui/tree; owned nodes still use node(u64).
     // Retire legacy mount names when their support ends, without removing staging or
     // owned-parent support. No removal version has been scheduled.
     variant ui-parent { mount(string), node(u64) }
@@ -503,7 +503,7 @@ interface types {
         label: option<string>,
     }
     // COMPAT(base-extension-world): Keep this original record's ABI unchanged.
-    // Placement is carried by loom:ui/tree and a separate host-side node model.
+    // Placement is carried by loog:ui/tree and a separate host-side node model.
     // Revisit only when the base 0.1.0 ABI is retired; no retirement is scheduled.
     record ui-node { node: u64, parent: ui-parent, description: ui-description }
     variant ui-event-payload { click, input(string), selection(byte-range), visibility(bool), focus(bool) }
@@ -694,9 +694,9 @@ world extension {
 /// Opt-in UI composition contract. Keep the original world source-compatible.
 world extension-ui {
     include extension;
-    import loom:ui/tree@0.1.0;
-    import loom:ui/motion@0.1.0;
-    import loom:ui/shared@0.1.0;
-    import loom:service/status@0.1.0;
-    import loom:service/findings@0.1.0;
+    import loog:ui/tree@0.1.0;
+    import loog:ui/motion@0.1.0;
+    import loog:ui/shared@0.1.0;
+    import loog:service/status@0.1.0;
+    import loog:service/findings@0.1.0;
 }

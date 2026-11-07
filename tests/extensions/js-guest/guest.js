@@ -2,7 +2,7 @@
 // A minimal SDK shim turns host operations into Promises that are settled by a
 // later `dispatch`, so `async`/`await` works across rounds without any export
 // returning a Promise.
-import * as host from 'loom:extension/host@0.1.0';
+import * as host from 'loog:extension/host@0.1.0';
 
 const waiting = new Map(); // operation id -> resolve(completion)
 let running = 0; // callbacks that have started and not finished
@@ -74,8 +74,8 @@ export const guest = {
           const request = message.val;
           if (request.kind === 'completion') {
             host.provideCompletions(request.request, [
-              { label: 'loom_hello', detail: 'from the extension', kind: 3, insertText: 'loom_hello()', data: 'hello', additionalTextEdits: [], commitCharacters: [] },
-              { label: 'loom_world', kind: 3, data: 'world', additionalTextEdits: [], commitCharacters: [] },
+              { label: 'loog_hello', detail: 'from the extension', kind: 3, insertText: 'loog_hello()', data: 'hello', additionalTextEdits: [], commitCharacters: [] },
+              { label: 'loog_world', kind: 3, data: 'world', additionalTextEdits: [], commitCharacters: [] },
             ], false);
             break;
           }

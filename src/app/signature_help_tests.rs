@@ -26,7 +26,7 @@ fn signatures() -> Value {
 impl Case {
     fn new(slow: bool) -> Self {
         let root = std::env::temp_dir().join(format!(
-            "loom-signatures-{}-{}",
+            "loog-signatures-{}-{}",
             std::process::id(),
             LANGUAGE_CASES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));

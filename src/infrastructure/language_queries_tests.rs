@@ -9,7 +9,7 @@ struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
-            "loom-queries-{}-{}",
+            "loog-queries-{}-{}",
             std::process::id(),
             RUN.fetch_add(1, Ordering::Relaxed)
         ));
@@ -29,11 +29,11 @@ impl Drop for Temp {
     }
 }
 
-/// The JSON extension that ships with Loom: the smallest real grammar there is.
+/// The JSON extension that ships with Loog: the smallest real grammar there is.
 /// The standalone host is tested with every language extension removed.
 fn packages() -> Option<Packages> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/extensions");
-    root.join("loom.lang.json")
+    root.join("loog.lang.json")
         .is_dir()
         .then(|| Packages::discover(&root, None))
 }

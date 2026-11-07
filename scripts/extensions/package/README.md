@@ -4,14 +4,14 @@
 node scripts/extensions/package/pack.mjs <extension folder> [--out <directory>]
 ```
 
-The result is `<id>-<version>.loomext` (default directory:
-`target/extension-packages`) and a `.sha256` file beside it. In Loom click
+The result is `<id>-<version>.loogext` (default directory:
+`target/extension-packages`) and a `.sha256` file beside it. In Loog click
 **Import Extension** on the Extensions page (or run **workspace::ImportExtension**)
 and choose the file. The extension is installed, loaded, and selected in the
 detail pane; failures appear as error notifications. An extension with the same
 id is replaced; a failed import leaves the
 installed one as it was. An extension that carries a language grammar needs a
-restart of Loom before the language works.
+restart of Loog before the language works.
 
 ## What a package is
 
@@ -37,7 +37,7 @@ without them:
 | `repository` | An `https://` address. |
 | `icon` | A PNG or SVG file in the package (up to 256 KiB). |
 | `readme`, `changelog` | Markdown files in the package (up to 512 KiB each). |
-| `engines.loom` | The oldest Loom version it runs on, `major.minor.patch`. |
+| `engines.loog` | The oldest Loog version it runs on, `major.minor.patch`. |
 
 Categories describe a specific function. Use `Syntax Highlighting` for grammar
 packs and highlight queries, and `Language Services` for completion, hover,
@@ -54,13 +54,13 @@ the packer and the import insist on them.
 
 The importer (`src/infrastructure/extensions/package.rs`) checks again and is the
 authority: the archive paths, regular files only, no duplicates (ignoring case),
-the manifest, the files it names and the Loom version.
+the manifest, the files it names and the Loog version.
 
 ## Tests
 
 ```sh
 node --test scripts/extensions/package
-cargo test --bin Loom -- extensions::package app::extensions::package_tests
+cargo test --bin Loog -- extensions::package app::extensions::package_tests
 ```
 
 The second runs the packer on the sample extensions in

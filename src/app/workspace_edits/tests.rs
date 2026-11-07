@@ -7,7 +7,7 @@ fn app_with(files: &[(&str, &str)]) -> (AppState, Vec<PathBuf>) {
     let mut app = AppState::new();
     let mut paths = Vec::new();
     for (name, text) in files {
-        let path = std::env::temp_dir().join(format!("loom-wsedit-{}-{name}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("loog-wsedit-{}-{name}", std::process::id()));
         app.workspace.open_path(path.clone(), (*text).into());
         paths.push(path);
     }
@@ -71,7 +71,7 @@ fn a_stale_stamp_changes_nothing() {
     // The person types into the second document after the snapshot was taken.
     let id = id_of(&app, &paths[1]);
     app.workspace.document_editor_mut(id).unwrap().set_cursor(4);
-    loom_editor_core::normal::insert(&mut app.workspace.document_editor_mut(id).unwrap(), "!");
+    loog_editor_core::normal::insert(&mut app.workspace.document_editor_mut(id).unwrap(), "!");
     let error = commit(&mut app, &tx, &EditLimits::default()).unwrap_err();
     assert_eq!(error.kind, ErrorKind::StaleSnapshot);
     assert_eq!(text_of(&app, &paths[0]), "text");

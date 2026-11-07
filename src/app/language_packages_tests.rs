@@ -20,7 +20,7 @@ use std::{
 
 #[test]
 fn directory_search_and_hidden_session_restore_do_not_load_languages() {
-    const CHILD: &str = "LOOM_LANGUAGE_ACTIVITY_TEST";
+    const CHILD: &str = "LOOG_LANGUAGE_ACTIVITY_TEST";
     if let Some(root) = std::env::var_os(CHILD) {
         let root = std::path::PathBuf::from(root);
         language_packs::initialize();
@@ -101,7 +101,7 @@ fn directory_search_and_hidden_session_restore_do_not_load_languages() {
         highlighter.shutdown();
         return;
     }
-    let root = std::env::temp_dir().join(format!("loom-language-activity-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("loog-language-activity-{}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     fs::write(root.join("readme.md"), "# Active core document").unwrap();
     fs::write(root.join("hidden.rs"), "fn needle() {}").unwrap();

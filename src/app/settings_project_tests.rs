@@ -6,7 +6,7 @@ use std::fs;
 #[test]
 fn workspace_folders_apply_their_own_project_settings() {
     let base = std::env::temp_dir().join(format!(
-        "loom-project-settings-{}-{:?}",
+        "loog-project-settings-{}-{:?}",
         std::process::id(),
         std::thread::current().id()
     ));
@@ -79,7 +79,7 @@ fn custom_default_keeps_its_id_across_settings_and_workspace_json() {
 fn file_associations_from_user_and_project_settings_choose_the_language() {
     use crate::features::settings::rules::FileAssociation;
     let base = std::env::temp_dir().join(format!(
-        "loom-associations-{}-{:?}",
+        "loog-associations-{}-{:?}",
         std::process::id(),
         std::thread::current().id()
     ));

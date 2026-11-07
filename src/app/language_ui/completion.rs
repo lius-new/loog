@@ -1137,7 +1137,7 @@ pub fn accept(app: &mut AppState, then: Option<char>) -> bool {
         parsed
     });
     let text = snippet.as_ref().map_or_else(
-        || loom_editor_core::text::normalize_endings(&plan.text, ending),
+        || loog_editor_core::text::normalize_endings(&plan.text, ending),
         |s| s.text.clone(),
     );
     let mut edits: Vec<Edit> = plan
@@ -1146,7 +1146,7 @@ pub fn accept(app: &mut AppState, then: Option<char>) -> bool {
         .map(|(range, new_text)| {
             Edit::replace(
                 range.clone(),
-                loom_editor_core::text::normalize_endings(new_text, ending),
+                loog_editor_core::text::normalize_endings(new_text, ending),
             )
         })
         .collect();
@@ -1307,7 +1307,7 @@ mod tests {
         json!({
             "label": label,
             "insertText": format!("{label}()"),
-            "x-loom": { "extension": "example.tools", "provider": "example.tools.complete", "data": data },
+            "x-loog": { "extension": "example.tools", "provider": "example.tools.complete", "data": data },
         })
     }
 
@@ -1415,8 +1415,8 @@ mod tests {
                 app_with_text_session(original, "中 lo".len());
             let source = crate::features::providers::EXTERNAL_SOURCE | 1;
             let item = Offered {
-                label: "loom".into(),
-                text_edit: Some((start.."中 lo".len(), "loom".into())),
+                label: "loog".into(),
+                text_edit: Some((start.."中 lo".len(), "loog".into())),
                 additional_text_edits: vec![(0..0, "import x;\n".into())],
                 insert_text_format: Some(1),
                 commit_characters: vec![c.to_string()],
@@ -1442,7 +1442,7 @@ mod tests {
                 .unwrap();
             let context = crate::app::test_support::live(app.clone());
             observe(&context, &mut app, Some(c));
-            let expected = format!("import x;\n中 loom{c} rest");
+            let expected = format!("import x;\n中 loog{c} rest");
             let editor = app.workspace.active_editor().unwrap();
             assert_eq!(editor.text_snapshot().as_str(), expected);
             assert_eq!(editor.cursor(), expected.find(" rest").unwrap());
@@ -1456,8 +1456,8 @@ mod tests {
         let (mut app, file, incarnation, start) = app_with_text_session(original, 2);
         let source = crate::features::providers::EXTERNAL_SOURCE | 1;
         let item = Offered {
-            label: "loom".into(),
-            text_edit: Some((0..2, "loom(${1:x})$0".into())),
+            label: "loog".into(),
+            text_edit: Some((0..2, "loog(${1:x})$0".into())),
             additional_text_edits: vec![(0..0, "import x;\n".into())],
             insert_text_format: Some(2),
             ..Default::default()
@@ -1476,11 +1476,11 @@ mod tests {
         );
         assert!(accept(&mut app, None));
         let editor = app.workspace.active_editor().unwrap();
-        assert_eq!(editor.text_snapshot().as_str(), "import x;\nloom(x) tail");
+        assert_eq!(editor.text_snapshot().as_str(), "import x;\nloog(x) tail");
         let selection = editor.selection().unwrap();
         assert_eq!(
             selection,
-            "import x;\nloom(".len().."import x;\nloom(x".len()
+            "import x;\nloog(".len().."import x;\nloog(x".len()
         );
     }
 
@@ -1497,7 +1497,7 @@ mod tests {
             1000,
             Some((
                 vec![
-                    extension_item("loom_hello", "h"),
+                    extension_item("loog_hello", "h"),
                     extension_item("other", "o"),
                 ],
                 false,
@@ -1515,10 +1515,10 @@ mod tests {
             .iter()
             .map(|s| session.data.entries[s.entry].item.label.as_str())
             .collect();
-        assert_eq!(shown, ["loom_hello"], "filtered by the typed \"lo\"");
+        assert_eq!(shown, ["loog_hello"], "filtered by the typed \"lo\"");
         let entry = &session.data.entries[session.shown[0].entry];
         assert_eq!(entry.instance, source);
-        assert_eq!(entry.item.plain_insert(), "loom_hello()");
+        assert_eq!(entry.item.plain_insert(), "loog_hello()");
     }
 
     #[test]
@@ -1533,7 +1533,7 @@ mod tests {
                 start,
                 source,
                 1000,
-                Some((vec![extension_item("loom_hello", "h")], false)),
+                Some((vec![extension_item("loog_hello", "h")], false)),
             );
         }
         let session = app.editor.language.completion.as_ref().unwrap();
@@ -1590,7 +1590,7 @@ mod tests {
             word_start,
             source,
             1000,
-            Some((vec![extension_item("loom_a", "a")], true)),
+            Some((vec![extension_item("loog_a", "a")], true)),
         );
         offer_external(
             &mut app,
@@ -1599,7 +1599,7 @@ mod tests {
             word_start,
             source,
             1000,
-            Some((vec![extension_item("loom_b", "b")], false)),
+            Some((vec![extension_item("loog_b", "b")], false)),
         );
         let session = app.editor.language.completion.as_ref().unwrap();
         let labels: Vec<_> = session
@@ -1608,7 +1608,7 @@ mod tests {
             .iter()
             .map(|e| e.item.label.as_str())
             .collect();
-        assert_eq!(labels, ["loom_b"]);
+        assert_eq!(labels, ["loog_b"]);
         // The stored lists are what a later server answer is merged with.
         assert_eq!(session.external.len(), 1);
     }
@@ -1617,7 +1617,7 @@ mod tests {
     fn a_resolved_item_updates_only_the_entry_that_matches_its_origin() {
         let source = crate::features::providers::EXTERNAL_SOURCE | 1;
         let (mut app, file, incarnation, word_start) = app_with_session();
-        let offered = extension_item("loom_hello", "h");
+        let offered = extension_item("loog_hello", "h");
         offer_external(
             &mut app,
             file,
@@ -1666,7 +1666,7 @@ mod tests {
 
         let cache = crate::app::extensions::tests::precompiled_cache().clone();
         let path =
-            std::env::temp_dir().join(format!("loom-live-completion-{}.txt", std::process::id()));
+            std::env::temp_dir().join(format!("loog-live-completion-{}.txt", std::process::id()));
         let queue = UiTasks::default();
         let runtime = Arc::new(AppRuntime::default());
         runtime.set_application(queue.application());
@@ -1740,7 +1740,7 @@ mod tests {
                     .iter()
                     .map(|e| e.item.label.clone())
                     .collect();
-                assert_eq!(labels, ["loom_hello", "loom_world"]);
+                assert_eq!(labels, ["loog_hello", "loog_world"]);
                 assert_eq!(session.external_pending, 0);
                 assert_eq!(session.shown.len(), 2, "both match the typed \"lo\"");
                 break;
@@ -1811,7 +1811,7 @@ mod tests {
                 .unwrap()
                 .text_snapshot()
                 .as_str(),
-            "loom_hello(x)\n// imported"
+            "loog_hello(x)\n// imported"
         );
         assert!(state.get().editor.language.snippet.is_some());
         let limit = Instant::now() + Duration::from_secs(60);

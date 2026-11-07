@@ -9,7 +9,7 @@ use crate::domain::{
     document::FileId,
     encoding::{Charset, TextFormat},
 };
-use loom_editor_core::text::EditKind;
+use loog_editor_core::text::EditKind;
 use std::{
     path::PathBuf,
     sync::{
@@ -30,7 +30,7 @@ impl Fixture {
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
-            "loom-background-save-{}-{}",
+            "loog-background-save-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

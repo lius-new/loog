@@ -1,24 +1,24 @@
 {
   "schema": 1,
-  "id": "loom.properties",
+  "id": "loog.properties",
   "version": "0.1.0",
   "name": "Properties",
-  "publisher": "Loom",
+  "publisher": "Loog",
   "description": "Syntax highlighting and snippets for Java .properties files.",
   "categories": ["Syntax Highlighting", "Snippets"],
   "keywords": ["properties", "java", "config"],
   "license": "MIT",
-  "repository": "https://github.com/lius-new/loom",
+  "repository": "https://github.com/lius-new/loog",
   "icon": "icon.svg",
   "readme": "README.md",
   "changelog": "CHANGELOG.md",
-  "engines": { "loom": ">=0.1.8 <0.3" },
+  "engines": { "loog": ">=0.1.8 <0.3" },
   "contributes": {
     "highlight": [
-      { "id": "loom.properties.grammar", "path": "grammar/tree-sitter.json" }
+      { "id": "loog.properties.grammar", "path": "grammar/tree-sitter.json" }
     ],
     "snippets": [
-      { "id": "loom.properties.snippets", "path": "snippets/properties.json" }
+      { "id": "loog.properties.snippets", "path": "snippets/properties.json" }
     ]
   }
 }

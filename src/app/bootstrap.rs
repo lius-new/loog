@@ -13,9 +13,9 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     let native_window_options = native_window_options()?;
     let settings = crate::infrastructure::settings_filesystem::load();
     let window_options = window_geometry::restore_options(
-        WindowOptions::new("loom")
+        WindowOptions::new("loog")
             .text_rendering(ui::theme::text_rendering(settings.theme))
-            .title("Loom")
+            .title("Loog")
             .size(Size::new(900.0, 600.0))
             // Frameless: we render our own custom title bar (see ui/titlebar.rs).
             .native_titlebar(false)
@@ -37,7 +37,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
         ))
         .window_options(window_options)
         .run(shell::app)?;
-    // "Restart to update" closed the window; the installer replaces Loom now
+    // "Restart to update" closed the window; the installer replaces Loog now
     // that its files are no longer in use.
     crate::infrastructure::update::run_pending_installer();
     Ok(())

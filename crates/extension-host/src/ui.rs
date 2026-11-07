@@ -192,7 +192,7 @@ impl Tree {
         loop {
             match ancestor {
                 // COMPAT(legacy-ui-mount): Accept the old statusbar mount for existing components.
-                // New roots use ui.detached plus loom:ui/tree relative placement.
+                // New roots use ui.detached plus loog:ui/tree relative placement.
                 // Remove only the statusbar alternative when legacy mount support ends;
                 // no removal version has been scheduled. ui.detached remains required.
                 UiParent::Mount(name)

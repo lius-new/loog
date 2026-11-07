@@ -3,8 +3,8 @@
 //! The guest in `tests/extensions/rust-guest` is built for
 //! `wasm32-unknown-unknown` and wrapped into a component with `wit-component`,
 //! importing the base host and the independent UI placement and motion interfaces.
-use loom_extension_api::ErrorKind;
-use loom_extension_host::{
+use loog_extension_api::ErrorKind;
+use loog_extension_host::{
     ByteRange, CommandContext, CommittedReceipt, Completion, Inbound, Limits, Provided,
     ProviderKind, ProviderRequest, RoundStatus, Runtime, Selection, WireCompletionItem,
 };
@@ -38,7 +38,7 @@ fn guest_component() -> &'static [u8] {
             .expect("cargo is available");
         assert!(status.success(), "the Rust guest failed to build");
         let module =
-            std::fs::read(target.join("wasm32-unknown-unknown/release/loom_rust_guest.wasm"))
+            std::fs::read(target.join("wasm32-unknown-unknown/release/loog_rust_guest.wasm"))
                 .unwrap();
         wit_component::ComponentEncoder::default()
             .module(&module)
@@ -333,8 +333,8 @@ fn a_completion_provider_offers_items_and_resolves_one_back_to_its_origin() {
     assert_eq!(*request, 41);
     assert!(!incomplete);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-    assert_eq!(labels, ["loom_hello", "loom_world"]);
-    assert_eq!(items[0].insert_text.as_deref(), Some("loom_hello()"));
+    assert_eq!(labels, ["loog_hello", "loog_world"]);
+    assert_eq!(items[0].insert_text.as_deref(), Some("loog_hello()"));
 
     // The opaque data comes back unchanged with the resolve request.
     let mut resolve = provider_request(ProviderKind::CompletionResolve, "lo");
@@ -356,7 +356,7 @@ fn a_completion_provider_offers_items_and_resolves_one_back_to_its_origin() {
         panic!("{provided:?}");
     };
     assert_eq!(*request, 42);
-    assert_eq!(resolved[0].label, "loom_world");
+    assert_eq!(resolved[0].label, "loog_world");
     assert_eq!(resolved[0].documentation.as_deref(), Some("docs for world"));
     let _: Option<&WireCompletionItem> = resolved.first();
 }
@@ -378,7 +378,7 @@ fn a_guest_without_the_ports_is_denied_storage_and_files() {
 
 #[test]
 fn a_guest_can_start_and_cancel_a_task_and_see_only_the_folders_it_was_given() {
-    use loom_extension_host::RootRef;
+    use loog_extension_host::RootRef;
     use std::collections::BTreeMap;
     let (runtime, component) = runtime();
     let mut instance = runtime.instantiate(&component, Limits::default()).unwrap();
@@ -415,7 +415,7 @@ fn a_guest_can_start_and_cancel_a_task_and_see_only_the_folders_it_was_given() {
 
 #[test]
 fn an_instance_cannot_have_more_tasks_running_than_its_limit() {
-    use loom_extension_host::RootRef;
+    use loog_extension_host::RootRef;
     use std::collections::BTreeMap;
     let (runtime, component) = runtime();
     let mut instance = runtime
@@ -531,7 +531,7 @@ fn a_save_participant_answers_with_edits_and_that_answer_lifts_the_restriction()
 
 #[test]
 fn a_rust_widget_uses_general_node_operations_and_receives_its_events() {
-    use loom_extension_host::{UiEvent, UiEventPayload};
+    use loog_extension_host::{UiEvent, UiEventPayload};
     let (runtime, component) = runtime();
     let mut instance = runtime.instantiate(&component, Limits::default()).unwrap();
     instance
@@ -567,7 +567,7 @@ fn a_rust_widget_uses_general_node_operations_and_receives_its_events() {
 
 #[test]
 fn relative_ui_placement_crosses_the_versioned_component_interface() {
-    use loom_extension_host::{UiEvent, UiEventPayload, UiRelation, UiTarget};
+    use loog_extension_host::{UiEvent, UiEventPayload, UiRelation, UiTarget};
     let (runtime, component) = runtime();
     let mut instance = runtime.instantiate(&component, Limits::default()).unwrap();
     instance
@@ -606,7 +606,7 @@ fn relative_ui_placement_crosses_the_versioned_component_interface() {
 
 #[test]
 fn motion_crosses_the_versioned_component_interface_as_data() {
-    use loom_extension_host::{
+    use loog_extension_host::{
         MotionDirection, MotionEasing, MotionProperty, UiEvent, UiEventPayload,
     };
     let (runtime, component) = runtime();

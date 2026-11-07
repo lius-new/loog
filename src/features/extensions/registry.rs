@@ -196,9 +196,9 @@ impl Index {
                 if version
                     .engines
                     .as_ref()
-                    .is_some_and(|engines| Range::parse(&engines.loom).is_none())
+                    .is_some_and(|engines| Range::parse(&engines.loog).is_none())
                 {
-                    return bad(here("invalid engines.loom"));
+                    return bad(here("invalid engines.loog"));
                 }
                 if version.artifacts.is_empty() {
                     return bad(here("no packages"));
@@ -254,7 +254,7 @@ impl Index {
     }
 }
 
-/// `any`, or an `<os>-<arch>` pair of the platforms Loom builds for.
+/// `any`, or an `<os>-<arch>` pair of the platforms Loog builds for.
 pub fn valid_platform(platform: &str) -> bool {
     matches!(
         platform,
@@ -283,34 +283,34 @@ pub fn current_platform() -> Option<&'static str> {
 }
 
 impl Entry {
-    /// The newest version a Loom of `loom_version` can run, with the package for
+    /// The newest version a Loog of `loog_version` can run, with the package for
     /// `platform` (or the one for any platform).
     pub fn best_for(
         &self,
-        loom_version: &str,
+        loog_version: &str,
         platform: &str,
     ) -> Option<(&VersionEntry, &Artifact)> {
-        self.best_matching(loom_version, platform, |_| true)
+        self.best_matching(loog_version, platform, |_| true)
     }
 
     /// [`Self::best_for`] among the versions `accept` allows.
     pub fn best_matching(
         &self,
-        loom_version: &str,
+        loog_version: &str,
         platform: &str,
         accept: impl Fn(&VersionEntry) -> bool,
     ) -> Option<(&VersionEntry, &Artifact)> {
-        let loom = parse_version(loom_version)?;
+        let loog = parse_version(loog_version)?;
         self.versions
             .iter()
             .filter(|version| accept(version))
             .filter(|version| {
                 self.language_service.is_none()
-                    || version.api.as_deref() == Some("loom:extension@0.1.0")
+                    || version.api.as_deref() == Some("loog:extension@0.1.0")
             })
             .filter(|version| {
                 version.engines.as_ref().is_none_or(|engines| {
-                    Range::parse(&engines.loom).is_some_and(|range| range.matches(loom))
+                    Range::parse(&engines.loog).is_some_and(|range| range.matches(loog))
                 })
             })
             .filter_map(|version| {
@@ -350,7 +350,7 @@ fn satisfies(range: Option<&Range>, version: &str) -> bool {
     range.is_none_or(|range| parse_version(version).is_some_and(|v| range.matches(v)))
 }
 
-/// What to install so that `id` is at its newest version this Loom can run, with
+/// What to install so that `id` is at its newest version this Loog can run, with
 /// everything it `requires` that is not installed (or not at an acceptable version).
 /// The steps are in the order to install them: a requirement before what needs it.
 /// An empty plan means there is nothing to do. Nothing is planned that would leave an
@@ -359,14 +359,14 @@ pub fn plan_install(
     index: &Index,
     installed: &std::collections::BTreeMap<String, Installed>,
     id: &str,
-    loom_version: &str,
+    loog_version: &str,
     platform: &str,
 ) -> Result<Vec<Step>, String> {
     let mut steps = Vec::new();
     plan_one(
         index,
         installed,
-        (loom_version, platform),
+        (loog_version, platform),
         id,
         None,
         &mut steps,
@@ -399,7 +399,7 @@ pub fn plan_install(
 fn plan_one(
     index: &Index,
     installed: &std::collections::BTreeMap<String, Installed>,
-    (loom_version, platform): (&str, &str),
+    (loog_version, platform): (&str, &str),
     id: &str,
     range: Option<&Range>,
     steps: &mut Vec<Step>,
@@ -431,11 +431,11 @@ fn plan_one(
     // What is installed and needs `id` keeps working: only versions it accepts.
     let limits = limits_on(installed, id);
     let (version, artifact) = entry
-        .best_matching(loom_version, platform, |v| {
+        .best_matching(loog_version, platform, |v| {
             satisfies(range, &v.version) && limits.iter().all(|l| satisfies(Some(l), &v.version))
         })
         .ok_or_else(|| {
-            format!("no version of {id} fits Loom {loom_version} on {platform} and what needs it")
+            format!("no version of {id} fits Loog {loog_version} on {platform} and what needs it")
         })?;
     path.push(id.to_owned());
     for requirement in &version.requires {
@@ -449,7 +449,7 @@ fn plan_one(
         plan_one(
             index,
             installed,
-            (loom_version, platform),
+            (loog_version, platform),
             required,
             Some(&needed),
             steps,
@@ -490,7 +490,7 @@ fn limits_on(installed: &std::collections::BTreeMap<String, Installed>, id: &str
 pub fn updates(
     index: &Index,
     installed: &std::collections::BTreeMap<String, Installed>,
-    loom_version: &str,
+    loog_version: &str,
     platform: &str,
 ) -> Vec<(String, String, String)> {
     installed
@@ -500,7 +500,7 @@ pub fn updates(
             let limits = limits_on(installed, id);
             let (best, _) = index
                 .entry(id)?
-                .best_matching(loom_version, platform, |v| {
+                .best_matching(loog_version, platform, |v| {
                     limits.iter().all(|l| satisfies(Some(l), &v.version))
                 })?;
             (parse_version(&best.version)? > parse_version(&have.version)?)
@@ -541,7 +541,7 @@ pub fn orphaned_runtimes(
         .filter_map(|requirement| super::manifest::parse_requirement(requirement))
         .map(|(required, _)| required)
         .filter(|required| {
-            required.starts_with("loom.runtime.") && installed.contains_key(*required)
+            required.starts_with("loog.runtime.") && installed.contains_key(*required)
         })
         .filter(|required| {
             dependents(installed, required)
@@ -572,16 +572,16 @@ mod tests {
       "schema": 1, "generated": "2026-11-01T00:00:00.000Z", "expires": "2026-12-01T00:00:00.000Z",
       "sequence": 3, "keyId": "index-2026-1",
       "extensions": [
-        { "id": "loom.lang.rust", "name": "Rust", "highlight": [{ "name": "rust", "fileTypes": ["rs"] }],
+        { "id": "loog.lang.rust", "name": "Rust", "highlight": [{ "name": "rust", "fileTypes": ["rs"] }],
           "versions": [
-            { "version": "2.0.0", "engines": { "loom": ">=0.3.0" },
+            { "version": "2.0.0", "engines": { "loog": ">=0.3.0" },
               "artifacts": [{ "platform": "any", "url": "https://x/2.tgz", "sha256": "SHA", "size": 5 }] },
-            { "version": "1.1.0", "engines": { "loom": ">=0.1.8 <0.3" },
+            { "version": "1.1.0", "engines": { "loog": ">=0.1.8 <0.3" },
               "artifacts": [{ "platform": "any", "url": "https://x/1.1.tgz", "sha256": "SHA", "size": 5 }] },
             { "version": "1.0.0",
               "artifacts": [{ "platform": "any", "url": "https://x/1.tgz", "sha256": "SHA", "size": 5 }] }
           ] },
-        { "id": "loom.runtime.node", "name": "Node", "versions": [
+        { "id": "loog.runtime.node", "name": "Node", "versions": [
             { "version": "22.1.0", "artifacts": [
               { "platform": "windows-x86_64", "url": "https://x/w.tgz", "sha256": "SHA", "size": 9 },
               { "platform": "linux-x86_64", "url": "https://x/l.tgz", "sha256": "SHA", "size": 9 }] }] }
@@ -609,18 +609,18 @@ mod tests {
     }
 
     #[test]
-    fn the_best_version_is_the_newest_this_loom_can_run_for_this_platform() {
+    fn the_best_version_is_the_newest_this_loog_can_run_for_this_platform() {
         let index = index();
-        let rust = index.entry("loom.lang.rust").unwrap();
-        let pick = |loom: &str| {
-            rust.best_for(loom, "linux-x86_64")
+        let rust = index.entry("loog.lang.rust").unwrap();
+        let pick = |loog: &str| {
+            rust.best_for(loog, "linux-x86_64")
                 .map(|(v, _)| v.version.as_str())
         };
         assert_eq!(pick("0.2.0"), Some("1.1.0"));
         assert_eq!(pick("0.3.1"), Some("2.0.0"));
         // 1.0.0 states no requirement, so it runs everywhere; 1.1.0 is newer where allowed.
         assert_eq!(pick("0.1.0"), Some("1.0.0"));
-        let node = index.entry("loom.runtime.node").unwrap();
+        let node = index.entry("loog.runtime.node").unwrap();
         assert!(node.best_for("0.2.0", "windows-x86_64").is_some());
         assert!(node.best_for("0.2.0", "macos-aarch64").is_none());
     }
@@ -634,7 +634,7 @@ mod tests {
         });
         assert!(entry.best_for("0.2.0", "linux-x86_64").is_none());
         for version in &mut entry.versions {
-            version.api = Some("loom:extension@0.1.0".into());
+            version.api = Some("loog:extension@0.1.0".into());
         }
         assert!(entry.best_for("0.2.0", "linux-x86_64").is_some());
     }
@@ -644,7 +644,7 @@ mod tests {
         let index = index();
         let found = index.for_file_type("RS");
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].id, "loom.lang.rust");
+        assert_eq!(found[0].id, "loog.lang.rust");
         assert!(index.for_file_type("py").is_empty());
     }
 
@@ -666,22 +666,22 @@ mod tests {
       "schema": 1, "generated": "2026-11-01T00:00:00.000Z", "expires": "2026-12-01T00:00:00.000Z",
       "sequence": 1, "keyId": "k",
       "extensions": [
-        { "id": "loom.runtime.node", "name": "Node", "versions": [
+        { "id": "loog.runtime.node", "name": "Node", "versions": [
             { "version": "24.0.0", "artifacts": [{ "platform": "linux-x86_64", "url": "https://x/n24", "sha256": "SHA", "size": 9 }] },
             { "version": "22.4.0", "artifacts": [{ "platform": "linux-x86_64", "url": "https://x/n22", "sha256": "SHA", "size": 9 }] }] },
-        { "id": "loom.lsp.pyright", "name": "Pyright", "versions": [
-            { "version": "2.0.0", "requires": ["loom.runtime.node@^22"],
+        { "id": "loog.lsp.pyright", "name": "Pyright", "versions": [
+            { "version": "2.0.0", "requires": ["loog.runtime.node@^22"],
               "artifacts": [{ "platform": "linux-x86_64", "url": "https://x/p2", "sha256": "SHA", "size": 9 }] },
-            { "version": "1.0.0", "requires": ["loom.runtime.node@^22"],
+            { "version": "1.0.0", "requires": ["loog.runtime.node@^22"],
               "artifacts": [{ "platform": "linux-x86_64", "url": "https://x/p1", "sha256": "SHA", "size": 9 }] }] },
-        { "id": "loom.lsp.bash", "name": "Bash", "versions": [
-            { "version": "1.0.0", "requires": ["loom.runtime.node@^22"],
+        { "id": "loog.lsp.bash", "name": "Bash", "versions": [
+            { "version": "1.0.0", "requires": ["loog.runtime.node@^22"],
               "artifacts": [{ "platform": "linux-x86_64", "url": "https://x/b1", "sha256": "SHA", "size": 9 }] }] },
-        { "id": "loom.lsp.loop-a", "name": "A", "versions": [
-            { "version": "1.0.0", "requires": ["loom.lsp.loop-b@^1"],
+        { "id": "loog.lsp.loop-a", "name": "A", "versions": [
+            { "version": "1.0.0", "requires": ["loog.lsp.loop-b@^1"],
               "artifacts": [{ "platform": "any", "url": "https://x/a", "sha256": "SHA", "size": 9 }] }] },
-        { "id": "loom.lsp.loop-b", "name": "B", "versions": [
-            { "version": "1.0.0", "requires": ["loom.lsp.loop-a@^1"],
+        { "id": "loog.lsp.loop-b", "name": "B", "versions": [
+            { "version": "1.0.0", "requires": ["loog.lsp.loop-a@^1"],
               "artifacts": [{ "platform": "any", "url": "https://x/b", "sha256": "SHA", "size": 9 }] }] }
       ]
     }"#;
@@ -720,41 +720,41 @@ mod tests {
             |installed, id: &str| plan_install(&index, &installed, id, "0.2.0", "linux-x86_64");
         // The runtime that fits ^22 is chosen, not the newest one.
         assert_eq!(
-            ids(&plan(have(&[]), "loom.lsp.pyright").unwrap()),
-            ["loom.runtime.node 22.4.0", "loom.lsp.pyright 2.0.0"]
+            ids(&plan(have(&[]), "loog.lsp.pyright").unwrap()),
+            ["loog.runtime.node 22.4.0", "loog.lsp.pyright 2.0.0"]
         );
         // A second server shares the runtime that is already there.
-        let node = have(&[("loom.runtime.node", "22.1.0", &[])]);
+        let node = have(&[("loog.runtime.node", "22.1.0", &[])]);
         assert_eq!(
-            ids(&plan(node.clone(), "loom.lsp.bash").unwrap()),
-            ["loom.lsp.bash 1.0.0"]
+            ids(&plan(node.clone(), "loog.lsp.bash").unwrap()),
+            ["loog.lsp.bash 1.0.0"]
         );
         // A runtime too new for what is asked is replaced only where nothing is broken.
-        let wrong = have(&[("loom.runtime.node", "20.0.0", &[])]);
-        assert_eq!(plan(wrong, "loom.lsp.bash").unwrap().len(), 2);
+        let wrong = have(&[("loog.runtime.node", "20.0.0", &[])]);
+        assert_eq!(plan(wrong, "loog.lsp.bash").unwrap().len(), 2);
         // Nothing to do for what is already current.
         let current = have(&[
-            ("loom.lsp.bash", "1.0.0", &["loom.runtime.node@^22"]),
-            ("loom.runtime.node", "22.4.0", &[]),
+            ("loog.lsp.bash", "1.0.0", &["loog.runtime.node@^22"]),
+            ("loog.runtime.node", "22.4.0", &[]),
         ]);
-        assert!(plan(current, "loom.lsp.bash").unwrap().is_empty());
+        assert!(plan(current, "loog.lsp.bash").unwrap().is_empty());
         // Unknown, unavailable on this platform, and circular requirements are errors.
         assert!(
-            plan(have(&[]), "loom.lsp.nope")
+            plan(have(&[]), "loog.lsp.nope")
                 .unwrap_err()
                 .contains("not in the registry")
         );
         let error = plan_install(
             &index,
             &have(&[]),
-            "loom.lsp.pyright",
+            "loog.lsp.pyright",
             "0.2.0",
             "windows-x86_64",
         )
         .unwrap_err();
         assert!(error.contains("no version"), "{error}");
         assert!(
-            plan(have(&[]), "loom.lsp.loop-a")
+            plan(have(&[]), "loog.lsp.loop-a")
                 .unwrap_err()
                 .contains("requires itself")
         );
@@ -764,56 +764,56 @@ mod tests {
     fn a_runtime_is_not_replaced_by_one_an_installed_extension_cannot_use() {
         let index = servers();
         let installed = have(&[
-            ("loom.runtime.node", "22.1.0", &[]),
-            ("loom.lsp.bash", "1.0.0", &["loom.runtime.node@^22"]),
+            ("loog.runtime.node", "22.1.0", &[]),
+            ("loog.lsp.bash", "1.0.0", &["loog.runtime.node@^22"]),
         ]);
         // Asking for the runtime itself moves it to 22.4.0, not 24.0.0, which the server rejects.
         let steps = plan_install(
             &index,
             &installed,
-            "loom.runtime.node",
+            "loog.runtime.node",
             "0.2.0",
             "linux-x86_64",
         )
         .unwrap();
-        assert_eq!(ids(&steps), ["loom.runtime.node 22.4.0"]);
+        assert_eq!(ids(&steps), ["loog.runtime.node 22.4.0"]);
         // With the server gone, nothing holds the runtime back.
-        let alone = have(&[("loom.runtime.node", "22.1.0", &[])]);
+        let alone = have(&[("loog.runtime.node", "22.1.0", &[])]);
         let steps =
-            plan_install(&index, &alone, "loom.runtime.node", "0.2.0", "linux-x86_64").unwrap();
-        assert_eq!(ids(&steps), ["loom.runtime.node 24.0.0"]);
+            plan_install(&index, &alone, "loog.runtime.node", "0.2.0", "linux-x86_64").unwrap();
+        assert_eq!(ids(&steps), ["loog.runtime.node 24.0.0"]);
     }
 
     #[test]
     fn updates_skip_pinned_extensions_and_dependents_and_orphans_are_found() {
         let index = servers();
         let mut installed = have(&[
-            ("loom.runtime.node", "22.1.0", &[]),
-            ("loom.lsp.pyright", "1.0.0", &["loom.runtime.node@^22"]),
-            ("loom.lsp.bash", "1.0.0", &["loom.runtime.node@^22"]),
+            ("loog.runtime.node", "22.1.0", &[]),
+            ("loog.lsp.pyright", "1.0.0", &["loog.runtime.node@^22"]),
+            ("loog.lsp.bash", "1.0.0", &["loog.runtime.node@^22"]),
         ]);
         let found = updates(&index, &installed, "0.2.0", "linux-x86_64");
-        assert!(found.contains(&("loom.lsp.pyright".into(), "1.0.0".into(), "2.0.0".into())));
+        assert!(found.contains(&("loog.lsp.pyright".into(), "1.0.0".into(), "2.0.0".into())));
         // The servers hold the runtime to what they accept.
-        assert!(found.contains(&("loom.runtime.node".into(), "22.1.0".into(), "22.4.0".into())));
-        installed.get_mut("loom.lsp.pyright").unwrap().pinned = true;
+        assert!(found.contains(&("loog.runtime.node".into(), "22.1.0".into(), "22.4.0".into())));
+        installed.get_mut("loog.lsp.pyright").unwrap().pinned = true;
         assert!(
             updates(&index, &installed, "0.2.0", "linux-x86_64")
                 .iter()
-                .all(|(id, _, _)| id != "loom.lsp.pyright")
+                .all(|(id, _, _)| id != "loog.lsp.pyright")
         );
 
         assert_eq!(
-            dependents(&installed, "loom.runtime.node"),
-            ["loom.lsp.bash", "loom.lsp.pyright"]
+            dependents(&installed, "loog.runtime.node"),
+            ["loog.lsp.bash", "loog.lsp.pyright"]
         );
-        assert!(dependents(&installed, "loom.lsp.bash").is_empty());
+        assert!(dependents(&installed, "loog.lsp.bash").is_empty());
         // The runtime is still needed by the other server.
-        assert!(orphaned_runtimes(&installed, "loom.lsp.bash").is_empty());
-        installed.remove("loom.lsp.pyright");
+        assert!(orphaned_runtimes(&installed, "loog.lsp.bash").is_empty());
+        installed.remove("loog.lsp.pyright");
         assert_eq!(
-            orphaned_runtimes(&installed, "loom.lsp.bash"),
-            ["loom.runtime.node"]
+            orphaned_runtimes(&installed, "loog.lsp.bash"),
+            ["loog.runtime.node"]
         );
     }
 
@@ -826,7 +826,7 @@ mod tests {
             ("2026-12-01T00:00:00.000Z", "2026-10-01T00:00:00.000Z"),
             ("https://x/2.tgz", "http://x/2.tgz"),
             ("\"size\": 5", "\"size\": 0"),
-            ("loom.runtime.node", "loom.lang.rust"),
+            ("loog.runtime.node", "loog.lang.rust"),
             ("\"platform\": \"linux-x86_64\"", "\"platform\": \"any\""),
             (
                 "\"platform\": \"windows-x86_64\"",

@@ -101,7 +101,7 @@ pub(crate) fn start_async_scoped(
     let stopped = Arc::new(AtomicBool::new(false));
     let worker_stopped = stopped.clone();
     thread::Builder::new()
-        .name("loom-watch-setup".into())
+        .name("loog-watch-setup".into())
         .spawn(move || {
             let batch_stopped = worker_stopped.clone();
             match start(roots, move |batch| {
@@ -181,7 +181,7 @@ fn start_filtered(
 
     let (stop, stop_receiver) = mpsc::channel();
     let worker = thread::Builder::new()
-        .name("loom-file-watcher".into())
+        .name("loog-file-watcher".into())
         .spawn(move || {
             // Keep the watcher alive for the lifetime of the receiver loop.
             let _backend = backend;

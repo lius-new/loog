@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     fn long_errors_keep_every_character_and_do_not_rewrap_when_scaled() {
-        let error = r"Could not open \\?\C:\Users\yys\loom\.packaging\windows\stage\Loom-0.1.5-windows-x86_64\resources\中文文件目录\a-long-file-name-with-many-separators.exe: Binary file";
+        let error = r"Could not open \\?\C:\Users\yys\loog\.packaging\windows\stage\Loog-0.1.5-windows-x86_64\resources\中文文件目录\a-long-file-name-with-many-separators.exe: Binary file";
         let context = ApplicationContext::empty(Default::default());
         let _fonts = lgui::backend::install_text_environment(
             &context,

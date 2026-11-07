@@ -1,4 +1,4 @@
-# vt100 0.16.2, with Loom's history-preserving height resize in grid.rs.
+# vt100 0.16.2, with Loog's history-preserving height resize in grid.rs.
 # Upstream: https://github.com/doy/vt100-rust (MIT; see LICENSE).
 [package]
 name = "vt100"

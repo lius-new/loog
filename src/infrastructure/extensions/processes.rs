@@ -106,7 +106,7 @@ impl Runner {
         let running = self.running.clone();
         let sink = self.sink.clone();
         let spawn = std::thread::Builder::new()
-            .name("loom-extension-process".into())
+            .name("loog-extension-process".into())
             .spawn(move || {
                 let run = || -> Result<Option<i32>, String> {
                     if cancel.load(Ordering::Acquire) {

@@ -133,7 +133,7 @@ pub struct StatusFrame {
     pub extension_widgets: Vec<Arc<crate::features::extensions::ui::Node>>,
     pub pending: Vec<crate::features::keymap::keystroke::Keystroke>,
     pub file: Option<FileStatus>,
-    pub vim: Option<(loom_editor_core::vim::Mode, loom_editor_core::vim::Status)>,
+    pub vim: Option<(loog_editor_core::vim::Mode, loog_editor_core::vim::Status)>,
     /// What the active file's diagnostics and syntax downloads say.
     pub language: Vec<StatusNote>,
     /// How the language services that answer for the active file are doing together;

@@ -29,7 +29,7 @@ node scripts/baseline/run.mjs --checks --isolated --native-smoke --performance a
 ```
 
 - `--checks` 执行架构检查及其四组自测、baseline 工具自测、格式检查、Clippy、
-  workspace debug/release 测试和 release Loom 构建。
+  workspace debug/release 测试和 release Loog 构建。
 - `--isolated` 额外执行一次 workspace debug 测试，子进程使用合成 Git 配置，
   禁用系统/用户 Git 配置并固定 LF；不修改用户配置。
 - `--native-smoke` 仅限 Windows，逐项运行四个精确指定的 ignored 终端测试，
@@ -85,7 +85,7 @@ node scripts/baseline/run.mjs --performance language-service --samples 3 --offli
 node --test scripts/baseline/startup-smoke.test.mjs
 ~~~
 
-先构建并准备运行时资源，然后启动真实 Loom。每次使用新的空输出目录：
+先构建并准备运行时资源，然后启动真实 Loog。每次使用新的空输出目录：
 
 ```sh
 node scripts/build/cargo.mjs build --release --locked --offline
@@ -93,7 +93,7 @@ node scripts/build/stage-resources.mjs target/release
 node scripts/baseline/startup-smoke.mjs --output-directory target/baseline/startup-check
 ```
 
-可用 `--executable <path>` 指定其他 Loom.exe。APPDATA、LOCALAPPDATA 和工作目录
+可用 `--executable <path>` 指定其他 Loog.exe。APPDATA、LOCALAPPDATA 和工作目录
 都位于测试目录，工作区包含中文名和 emoji 内容的文件；启动设置 `windowsHide`。
 观察存活四秒后，通过本地 Rust 辅助程序向该进程的顶层窗口发送 `WM_CLOSE`，
 最多等待十秒正常退出，并核验退出码和保存的工作区路径。
@@ -130,4 +130,4 @@ workspace 验证 crate 复用生产规则，其通过数量不代表新增独立
 源码盘点和旧阶段依赖候选扫描已移除，不再生成 `inventory.json`。
 `tests/fixtures` 中的会话、设置和快捷键旧格式夹具仍由 Rust 兼容性测试读取，应保留。
 Windows 工具自测使用隐藏的合成 GUI，验证正常关闭、会话错误、早退、非零退出、
-超时清理和进程身份检查，不会启动用户的 Loom。
+超时清理和进程身份检查，不会启动用户的 Loog。

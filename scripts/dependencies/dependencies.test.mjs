@@ -12,7 +12,7 @@ import {MANIFEST, ROOT, scopedEnvironment, prepareDependencies} from './ensure.m
 import {requirements} from '../build/cargo.mjs';
 
 function fixture(t) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-dependencies-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'loog-dependencies-'));
   t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
   return directory;
 }
@@ -127,14 +127,14 @@ test('Skia explicit archive accepts spaces and checks digest and embedded versio
 });
 
 test('Cargo wrapper skips dependency downloads for core-only and utility commands, recognizes target/offline', () => {
-  for (const args of [['fmt','--all'],['--version'],['tree'],['test','--locked','-p','loom-editor-core'],['test','--package=loom-workspace-tests']]) assert.equal(requirements(args), null);
-  assert.deepEqual(requirements(['test','--workspace','-p','loom-editor-core'], {}), {target:undefined, offline:false});
+  for (const args of [['fmt','--all'],['--version'],['tree'],['test','--locked','-p','loog-editor-core'],['test','--package=loog-workspace-tests']]) assert.equal(requirements(args), null);
+  assert.deepEqual(requirements(['test','--workspace','-p','loog-editor-core'], {}), {target:undefined, offline:false});
   assert.deepEqual(requirements(['build','--target=aarch64-apple-darwin','--offline']), {target:'aarch64-apple-darwin', offline:true});
   assert.deepEqual(requirements(['build','--target','x86_64-apple-darwin','--frozen']), {target:'x86_64-apple-darwin', offline:true});
   assert.equal(requirements(['build'], {CARGO_BUILD_TARGET:'x86_64-apple-darwin'}).target, 'x86_64-apple-darwin');
   const wrapper = path.join(ROOT, 'scripts/build/cargo.mjs');
   assert.match(execFileSync(process.execPath, [wrapper, '--version'], {encoding:'utf8'}), /cargo/);
-  const failed = spawnSync(process.execPath, [wrapper, 'help', '--invalid-loom-option'], {encoding:'utf8'});
+  const failed = spawnSync(process.execPath, [wrapper, 'help', '--invalid-loog-option'], {encoding:'utf8'});
   assert.notEqual(failed.status, 0);
 });
 
@@ -149,7 +149,7 @@ test('native CI prepares once; release compile owns target preparation and setup
   const core = ci.slice(ci.search(/^  core:/m),ci.search(/^  build:/m));
   assert.ok(!core.includes('actions/dependencies'));
   const host = ci.slice(ci.search(/^  build:/m),ci.search(/^  result:/m));
-  assert.ok(host.indexOf('uses: ./.github/actions/dependencies') < host.indexOf('cargo test --locked -p loom'));
+  assert.ok(host.indexOf('uses: ./.github/actions/dependencies') < host.indexOf('cargo test --locked -p loog'));
   const action = read('.github/actions/dependencies/action.yml');
   assert.ok(action.includes('node scripts/dependencies/ensure.mjs --github'));
   assert.doesNotMatch(action,/node --test|smoke\.mjs/);

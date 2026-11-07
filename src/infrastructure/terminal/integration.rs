@@ -41,7 +41,7 @@ impl ShellIntegration {
         if let Some(cwd) = cwd {
             integration
                 .env
-                .push(("LOOM_TERMINAL_CWD".into(), cwd.as_os_str().to_owned()));
+                .push(("LOOG_TERMINAL_CWD".into(), cwd.as_os_str().to_owned()));
         }
         let family = program
             .file_stem()
@@ -113,7 +113,7 @@ impl ShellIntegration {
             "bash" => {
                 static NEXT: AtomicU64 = AtomicU64::new(1);
                 let path = std::env::temp_dir().join(format!(
-                    "loom-bash-{}-{}.sh",
+                    "loog-bash-{}-{}.sh",
                     std::process::id(),
                     NEXT.fetch_add(1, Ordering::Relaxed)
                 ));
@@ -135,7 +135,7 @@ impl ShellIntegration {
             "zsh" => {
                 static NEXT: AtomicU64 = AtomicU64::new(1);
                 let dir = std::env::temp_dir().join(format!(
-                    "loom-zsh-{}-{}",
+                    "loog-zsh-{}-{}",
                     std::process::id(),
                     NEXT.fetch_add(1, Ordering::Relaxed)
                 ));
@@ -151,30 +151,30 @@ impl ShellIntegration {
                 std::fs::write(dir.join(".zshenv"), ZSH_ENV)?;
                 std::fs::write(
                     dir.join(".zprofile"),
-                    "ZDOTDIR=$LOOM_ZDOTDIR\n[[ -r $ZDOTDIR/.zprofile ]] && source $ZDOTDIR/.zprofile\nLOOM_ZDOTDIR=${ZDOTDIR:-$HOME}\nZDOTDIR=$LOOM_INTEGRATION_DIR\n",
+                    "ZDOTDIR=$LOOG_ZDOTDIR\n[[ -r $ZDOTDIR/.zprofile ]] && source $ZDOTDIR/.zprofile\nLOOG_ZDOTDIR=${ZDOTDIR:-$HOME}\nZDOTDIR=$LOOG_INTEGRATION_DIR\n",
                 )?;
                 std::fs::write(dir.join(".zshrc"), ZSH_RC)?;
                 integration.env.push((
-                    "LOOM_ZDOTDIR".into(),
+                    "LOOG_ZDOTDIR".into(),
                     std::env::var_os("ZDOTDIR")
                         .or_else(|| std::env::var_os("HOME"))
                         .unwrap_or_default(),
                 ));
                 integration
                     .env
-                    .push(("LOOM_INTEGRATION_DIR".into(), dir.as_os_str().to_owned()));
+                    .push(("LOOG_INTEGRATION_DIR".into(), dir.as_os_str().to_owned()));
                 integration
                     .env
                     .push(("ZDOTDIR".into(), dir.into_os_string()));
                 integration.args = vec!["-l".into(), "-i".into()];
             }
             "fish" => {
-                integration.args = vec!["-i".into(), "-C".into(), "function __loom_report_cwd --on-event fish_prompt; printf '\\e]9;9;%s\\a' \"$PWD\"; end".into()];
+                integration.args = vec!["-i".into(), "-C".into(), "function __loog_report_cwd --on-event fish_prompt; printf '\\e]9;9;%s\\a' \"$PWD\"; end".into()];
             }
             "sh" | "dash" | "ksh" => {
                 static NEXT: AtomicU64 = AtomicU64::new(1);
                 let path = std::env::temp_dir().join(format!(
-                    "loom-sh-{}-{}.sh",
+                    "loog-sh-{}-{}.sh",
                     std::process::id(),
                     NEXT.fetch_add(1, Ordering::Relaxed)
                 ));
@@ -190,7 +190,7 @@ impl ShellIntegration {
                 integration.script = Some(path.clone());
                 file.write_all(SH.as_bytes())?;
                 if let Some(original) = std::env::var_os("ENV") {
-                    integration.env.push(("LOOM_ORIGINAL_ENV".into(), original));
+                    integration.env.push(("LOOG_ORIGINAL_ENV".into(), original));
                 }
                 integration.env.push(("ENV".into(), path.into_os_string()));
                 integration.args = vec!["-i".into()];
@@ -232,76 +232,76 @@ impl Drop for ShellIntegration {
 }
 
 const POWERSHELL: &str = r#"
-if ($env:LOOM_TERMINAL_CWD) {
-    Set-Location -LiteralPath $env:LOOM_TERMINAL_CWD
-    Remove-Item Env:LOOM_TERMINAL_CWD
+if ($env:LOOG_TERMINAL_CWD) {
+    Set-Location -LiteralPath $env:LOOG_TERMINAL_CWD
+    Remove-Item Env:LOOG_TERMINAL_CWD
 }
-$global:__LoomOriginalPrompt = $function:prompt
+$global:__LoogOriginalPrompt = $function:prompt
 function global:prompt {
-    $loomPrompt = & $global:__LoomOriginalPrompt
+    $loogPrompt = & $global:__LoogOriginalPrompt
     if ($PWD.Provider.Name -eq 'FileSystem') {
         $Host.UI.Write(([char]27).ToString() + ']9;9;"' + $PWD.ProviderPath + '"' + [char]7)
     }
-    $loomPrompt
+    $loogPrompt
 }
 "#;
 
 const ZSH_ENV: &str = r#"
-ZDOTDIR=$LOOM_ZDOTDIR
-[[ -r $LOOM_ZDOTDIR/.zshenv ]] && source $LOOM_ZDOTDIR/.zshenv
-LOOM_ZDOTDIR=${ZDOTDIR:-$HOME}
-ZDOTDIR=$LOOM_INTEGRATION_DIR
+ZDOTDIR=$LOOG_ZDOTDIR
+[[ -r $LOOG_ZDOTDIR/.zshenv ]] && source $LOOG_ZDOTDIR/.zshenv
+LOOG_ZDOTDIR=${ZDOTDIR:-$HOME}
+ZDOTDIR=$LOOG_INTEGRATION_DIR
 "#;
 
 const ZSH_RC: &str = r#"
-ZDOTDIR=$LOOM_ZDOTDIR
+ZDOTDIR=$LOOG_ZDOTDIR
 [[ -r $ZDOTDIR/.zshrc ]] && source $ZDOTDIR/.zshrc
-function __loom_report_cwd() { printf '\033]9;9;%s\007' "$PWD"; }
-precmd_functions=(${precmd_functions:#__loom_report_cwd} __loom_report_cwd)
-unset LOOM_INTEGRATION_DIR LOOM_ZDOTDIR LOOM_TERMINAL_CWD
+function __loog_report_cwd() { printf '\033]9;9;%s\007' "$PWD"; }
+precmd_functions=(${precmd_functions:#__loog_report_cwd} __loog_report_cwd)
+unset LOOG_INTEGRATION_DIR LOOG_ZDOTDIR LOOG_TERMINAL_CWD
 "#;
 
 const SH: &str = r#"
-if [ -n "$LOOM_ORIGINAL_ENV" ] && [ -r "$LOOM_ORIGINAL_ENV" ]; then . "$LOOM_ORIGINAL_ENV"; fi
+if [ -n "$LOOG_ORIGINAL_ENV" ] && [ -r "$LOOG_ORIGINAL_ENV" ]; then . "$LOOG_ORIGINAL_ENV"; fi
 # Bash running as sh (macOS /bin/sh) counts unmarked prompt escapes as visible
 # text and splits long ones with carriage returns, so report outside PS1 there.
 if [ -n "$BASH_VERSION" ]; then
-    __loom_report_cwd() {
-        __loom_status=$?
+    __loog_report_cwd() {
+        __loog_status=$?
         printf '\033]9;9;%s\007' "$PWD"
-        return "$__loom_status"
+        return "$__loog_status"
     }
-    PROMPT_COMMAND="__loom_report_cwd${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+    PROMPT_COMMAND="__loog_report_cwd${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
 else
     PS1='$(printf "\033]9;9;%s\007" "$PWD")'"${PS1:-\$ }"
 fi
-unset LOOM_ORIGINAL_ENV LOOM_TERMINAL_CWD
+unset LOOG_ORIGINAL_ENV LOOG_TERMINAL_CWD
 "#;
 
 // Read the same profiles as the former --login launch, then install the hook
 // after custom prompt setup. No user profile files are modified.
 const BASH: &str = r#"
 if [ -r /etc/profile ]; then . /etc/profile; fi
-for __loom_profile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
-    if [ -r "$__loom_profile" ]; then . "$__loom_profile"; break; fi
+for __loog_profile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+    if [ -r "$__loog_profile" ]; then . "$__loog_profile"; break; fi
 done
-unset __loom_profile
-if [ -n "$LOOM_TERMINAL_CWD" ]; then
-    __loom_cwd=$LOOM_TERMINAL_CWD
-    if command -v cygpath >/dev/null 2>&1; then __loom_cwd=$(cygpath -u "$__loom_cwd"); fi
-    builtin cd -- "$__loom_cwd"
-    unset __loom_cwd LOOM_TERMINAL_CWD
+unset __loog_profile
+if [ -n "$LOOG_TERMINAL_CWD" ]; then
+    __loog_cwd=$LOOG_TERMINAL_CWD
+    if command -v cygpath >/dev/null 2>&1; then __loog_cwd=$(cygpath -u "$__loog_cwd"); fi
+    builtin cd -- "$__loog_cwd"
+    unset __loog_cwd LOOG_TERMINAL_CWD
 fi
-__loom_report_cwd() {
-    local __loom_status=$? __loom_path=$PWD
-    if command -v cygpath >/dev/null 2>&1; then __loom_path=$(cygpath -w "$PWD"); fi
-    builtin printf '\033]9;9;%s\007' "$__loom_path"
-    return "$__loom_status"
+__loog_report_cwd() {
+    local __loog_status=$? __loog_path=$PWD
+    if command -v cygpath >/dev/null 2>&1; then __loog_path=$(cygpath -w "$PWD"); fi
+    builtin printf '\033]9;9;%s\007' "$__loog_path"
+    return "$__loog_status"
 }
 if [[ $(declare -p PROMPT_COMMAND 2>/dev/null) == 'declare -a '* ]]; then
-    PROMPT_COMMAND=(__loom_report_cwd "${PROMPT_COMMAND[@]}")
+    PROMPT_COMMAND=(__loog_report_cwd "${PROMPT_COMMAND[@]}")
 else
-    PROMPT_COMMAND="__loom_report_cwd${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+    PROMPT_COMMAND="__loog_report_cwd${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
 fi
 "#;
 
@@ -351,7 +351,7 @@ mod tests {
                 continue;
             }
             let root = std::env::temp_dir().join(format!(
-                "loom-unix-cwd-{}-{}",
+                "loog-unix-cwd-{}-{}",
                 std::process::id(),
                 Path::new(program).file_name().unwrap().to_string_lossy()
             ));
@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn invalid_or_missing_saved_directories_use_workspace_then_process_directory() {
         let workspace = std::env::temp_dir();
-        let missing = workspace.join(format!("loom-missing-cwd-{}", std::process::id()));
+        let missing = workspace.join(format!("loog-missing-cwd-{}", std::process::id()));
         assert_eq!(
             starting_directory(Some(&workspace), Some(&missing)),
             Some(workspace.clone())

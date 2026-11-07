@@ -10,7 +10,7 @@ import {evaluateReport, parseMeasurements, validateExactTest} from './report-cor
 
 const spec = BENCHMARKS.find(item => item.id === 'tab-pointer');
 const summary = (passed = 1) => `test result: ok. ${passed} passed; 0 failed; 0 ignored; 0 measured; 200 filtered out`;
-const text = value => `Running unittests src/main.rs (target/release/deps/Loom-deadbeef.exe)\ntest ${spec.filter} ... 100 tabs: ${value}ms per pointer update\n500 tabs: ${value * 2}ms per pointer update\nok\n${summary()}`;
+const text = value => `Running unittests src/main.rs (target/release/deps/Loog-deadbeef.exe)\ntest ${spec.filter} ... 100 tabs: ${value}ms per pointer update\n500 tabs: ${value * 2}ms per pointer update\nok\n${summary()}`;
 function fixture() {
   const logs = Object.fromEntries([0, 1, 2].map(sample => [`perf-tab-pointer-${sample}.log`, text(sample === 0 ? 1000 : sample)]));
   const checks = Object.keys(logs).map(log => ({log: `logs/${log}`, exit_code: 0, exact_filter: spec.filter}));
@@ -29,7 +29,7 @@ test('warmup is excluded, median uses formal samples, and each suite retains its
   assert.equal(report.records.length, 4);
   assert.equal(report.statistics[0].median, 1.5);
   assert.equal(report.statistics[0].samples, 2);
-  assert.equal(report.suites[0].crate, 'loom');
+  assert.equal(report.suites[0].crate, 'loog');
 });
 
 test('missing samples, missing metrics and duplicate records are explicit failures', () => {
@@ -60,7 +60,7 @@ test('nonzero commands override earlier passing summaries; missing logs and null
 
 test('unobserved search cancellation is a warning with no fabricated measurement', () => {
   const search = BENCHMARKS.find(item => item.id === 'search');
-  const output = `test ${search.filter} ... LOOM_BASELINE {"scenario":"100-files-6.25m","metric":"search_scan_cached","value":2,"unit":"ms"}\nLOOM_BASELINE_STATUS cancellation_not_observed scan_completed_before_request\nok\n${summary()}`;
+  const output = `test ${search.filter} ... LOOG_BASELINE {"scenario":"100-files-6.25m","metric":"search_scan_cached","value":2,"unit":"ms"}\nLOOG_BASELINE_STATUS cancellation_not_observed scan_completed_before_request\nok\n${summary()}`;
   const report = evaluateReport({logs: {'perf-search-1.log': output}, checks: [{log: 'logs/perf-search-1.log', exit_code: 0}]});
   assert.equal(report.complete, true);
   assert.ok(report.notices.some(item => item.reason.includes('Not measured:') && item.severity === 'warning'));
@@ -72,13 +72,13 @@ test('old JSON markers and human timing formats remain readable and malformed va
     '1 MB: typing 2µs/char, paste 1 MB 1ms, undo 1ms, select-all indent 2ms, history 3.0 MB',
     '8 MiB single line: 8.0 MiB, prepare 1ms, 100 viewport renders and clicks 2ms',
     '8 MiB single line: 20 end-of-file edits and renders 3ms',
-    'LOOM_BASELINE {"scenario":"file","metric":"read","value":2,"unit":"ms"}',
+    'LOOG_BASELINE {"scenario":"file","metric":"read","value":2,"unit":"ms"}',
     'R7_TERMINAL_PERF {"sessions":8,"metric":"frame_projection_500","milliseconds":3,"iterations":500,"nodes":0}',
   ].join('\n'), 1);
   assert.equal(parsed.rows.length, 10);
   assert.equal(parsed.rows[0].value, 0.002);
   assert.ok(parsed.rows.some(row => row.scenario === 'terminal-8-sessions'));
-  assert.throws(() => parseMeasurements('LOOM_BASELINE {"scenario":"x","metric":"y","value":-1,"unit":"ms"}', 1), /Invalid measurement/);
+  assert.throws(() => parseMeasurements('LOOG_BASELINE {"scenario":"x","metric":"y","value":-1,"unit":"ms"}', 1), /Invalid measurement/);
 });
 
 test('historical logs are marked unverified and missing warmup is detected from old environment metadata', () => {
@@ -99,7 +99,7 @@ test('historical module paths remain readable without weakening new exact-filter
 });
 
 test('CLI writes failure artifacts and returns nonzero rather than hiding a compile failure', t => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-baseline-report-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'loog-baseline-report-'));
   t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
   fs.mkdirSync(path.join(directory, 'logs'));
   fs.writeFileSync(path.join(directory, 'logs/build.log'), 'error: could not compile');
@@ -112,7 +112,7 @@ test('CLI writes failure artifacts and returns nonzero rather than hiding a comp
 
 test('the language-service benchmark remains an explicit release measurement', () => {
   const spec = BENCHMARKS.find(item => item.id === 'language-service');
-  const sample = parseMeasurements('LOOM_BASELINE {"scenario":"8 MiB document","metric":"incremental_edit","value":12.345,"unit":"ms"}', 1).rows;
+  const sample = parseMeasurements('LOOG_BASELINE {"scenario":"8 MiB document","metric":"incremental_edit","value":12.345,"unit":"ms"}', 1).rows;
   assert.ok(spec.filter.endsWith('planning_an_edit_in_a_big_document_is_fast'));
   assert.equal(sample.length, 1);
   assert.equal(sample[0].scenario + '/' + sample[0].metric, spec.metrics[0]);

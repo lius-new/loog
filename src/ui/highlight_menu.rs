@@ -59,7 +59,7 @@ pub struct Row {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Frame {
-    /// Installed, but languages are read when Loom starts.
+    /// Installed, but languages are read when Loog starts.
     pub restart: Vec<String>,
     pub active: Vec<Badge>,
     pub all: Vec<Badge>,
@@ -429,7 +429,7 @@ pub fn render(
                     banner.right - PAD_X,
                     banner.bottom,
                 ),
-                format!("Restart Loom to use {}", frame.restart.join(", ")),
+                format!("Restart Loog to use {}", frame.restart.join(", ")),
                 theme::mono(palette.warning, theme::SMALL + 1.0),
             ));
         y += BANNER_H;
@@ -761,10 +761,10 @@ mod tests {
             restart: vec!["TOML".into()],
             active: vec![badge("RS")],
             all: vec![badge("RS"), badge("MD")],
-            recommended: vec![row("loom.lang.yaml", "YAML", "YAML", "2 open files")],
+            recommended: vec![row("loog.lang.yaml", "YAML", "YAML", "2 open files")],
             more: vec![
-                row("loom.lang.go", "Go", "GO", ""),
-                row("loom.lang.lua", "Lua", "LUA", ""),
+                row("loog.lang.go", "Go", "GO", ""),
+                row("loog.lang.lua", "Lua", "LUA", ""),
             ],
             more_total: 2,
             more_open: true,
@@ -777,7 +777,7 @@ mod tests {
     fn the_four_groups_and_the_restart_note_are_drawn_and_install_reports_its_extension() {
         let (mut session, context, seen) = rendered(sample());
         for label in [
-            "Restart Loom to use TOML",
+            "Restart Loog to use TOML",
             "ACTIVE · 1",
             "ALL · 2",
             "RECOMMENDED · 1",
@@ -803,7 +803,7 @@ mod tests {
             .collect();
         assert_eq!(installs.len(), 3, "one per language to install");
         click(&mut session, &context, installs[0]);
-        assert_eq!(*seen.lock().unwrap(), ["install loom.lang.yaml"]);
+        assert_eq!(*seen.lock().unwrap(), ["install loog.lang.yaml"]);
         let link = centre_of(&session, "Open Extensions page");
         click(&mut session, &context, link);
         assert_eq!(seen.lock().unwrap().last().unwrap(), "extensions");

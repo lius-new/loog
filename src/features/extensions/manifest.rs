@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::collections::BTreeSet;
 
 /// The only behaviour contract version understood by v0.1 hosts (exact match).
-pub const API_VERSION: &str = "loom:extension@0.1.0";
+pub const API_VERSION: &str = "loog:extension@0.1.0";
 pub const SCHEMA: u32 = 1;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -63,7 +63,7 @@ pub struct Manifest {
     #[serde(default)]
     pub engines: Option<Engines>,
     /// Extensions that must be installed with this one, as `id@range`
-    /// (`loom.runtime.node@^22`).
+    /// (`loog.runtime.node@^22`).
     #[serde(default)]
     pub requires: Vec<String>,
     /// Extension ids worth suggesting when this one is installed.
@@ -78,8 +78,8 @@ pub struct Manifest {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Engines {
-    /// The Loom versions that can run it, as a range such as `>=0.1.8 <0.3`.
-    pub loom: String,
+    /// The Loog versions that can run it, as a range such as `>=0.1.8 <0.3`.
+    pub loog: String,
 }
 
 /// An entry of `requires`: the extension and the versions of it that will do.
@@ -490,9 +490,9 @@ impl Manifest {
             }
         }
         if let Some(engines) = &self.engines
-            && super::range::Range::parse(&engines.loom).is_none()
+            && super::range::Range::parse(&engines.loog).is_none()
         {
-            return bad("`engines.loom` must be a version range such as >=0.1.8 <0.3".to_owned());
+            return bad("`engines.loog` must be a version range such as >=0.1.8 <0.3".to_owned());
         }
         for entry in &self.requires {
             match parse_requirement(entry) {
@@ -565,8 +565,8 @@ impl Manifest {
         );
         need(
             self.engines.is_some(),
-            "engines.loom",
-            "the oldest Loom version it runs on",
+            "engines.loog",
+            "the oldest Loog version it runs on",
         );
         for (field, path, limit) in [
             ("icon", &self.icon, MAX_ICON_BYTES),
@@ -587,14 +587,14 @@ impl Manifest {
         problems
     }
 
-    /// Whether a Loom of version `current` meets `engines.loom`.
+    /// Whether a Loog of version `current` meets `engines.loog`.
     pub fn runs_on(&self, current: &str) -> bool {
         let Some(engines) = &self.engines else {
             return true;
         };
         match (
             super::range::parse_version(current),
-            super::range::Range::parse(&engines.loom),
+            super::range::Range::parse(&engines.loog),
         ) {
             (Some(current), Some(range)) => range.matches(current),
             _ => false,
@@ -776,7 +776,7 @@ mod tests {
         "schema": 1,
         "id": "example.selection-tools",
         "version": "0.1.0",
-        "api": "loom:extension@0.1.0",
+        "api": "loog:extension@0.1.0",
         "component": "extension.wasm",
         "activation": [{ "kind": "command", "id": "example.selection-tools.uppercase" }],
         "capabilities": ["documents.read", "workspace.edit"],
@@ -812,7 +812,7 @@ mod tests {
     #[test]
     fn api_must_match_exactly_and_travel_with_component() {
         assert!(matches!(
-            with("loom:extension@0.1.0", "loom:extension@0.2.0"),
+            with("loog:extension@0.1.0", "loog:extension@0.2.0"),
             Err(ManifestError::UnsupportedApi(_))
         ));
         assert!(matches!(
@@ -920,7 +920,7 @@ mod tests {
         "name": "Acme Night", "publisher": "Acme", "description": "A quieter palette.",
         "categories": ["Themes"], "keywords": ["dark"], "license": "MIT",
         "repository": "https://example.com/acme/night", "icon": "icon.svg",
-        "readme": "README.md", "changelog": "CHANGELOG.md", "engines": { "loom": ">=0.1.8 <1" },
+        "readme": "README.md", "changelog": "CHANGELOG.md", "engines": { "loog": ">=0.1.8 <1" },
         "contributes": { "themes": [{ "id": "acme.night.dark", "path": "themes/dark.json" }] }
     }"##;
 
@@ -931,7 +931,7 @@ mod tests {
     }
 
     #[test]
-    fn a_complete_manifest_has_nothing_missing_and_knows_which_loom_runs_it() {
+    fn a_complete_manifest_has_nothing_missing_and_knows_which_loog_runs_it() {
         let manifest = Manifest::parse(COMPLETE).unwrap();
         assert!(manifest.publishing_problems(sizes).is_empty());
         assert!(
@@ -952,7 +952,7 @@ mod tests {
             "icon",
             "readme",
             "changelog",
-            "engines.loom",
+            "engines.loog",
         ] {
             assert!(
                 missing.iter().any(|p| p.starts_with(&format!("`{field}`"))),
@@ -990,7 +990,7 @@ mod tests {
             ("icon.svg", "icon.gif", "PNG or SVG"),
             ("README.md", "README.txt", "Markdown"),
             ("README.md", "../README.md", "stay inside"),
-            ("0.1.8", "latest", "engines.loom"),
+            ("0.1.8", "latest", "engines.loog"),
         ] {
             let error = Manifest::parse(&COMPLETE.replace(from, to))
                 .err()
@@ -1004,14 +1004,14 @@ mod tests {
         let with =
             |extra: &str| COMPLETE.replace("\"schema\": 1,", &format!("\"schema\": 1, {extra},"));
         let manifest = Manifest::parse(&with(
-            r#""requires": ["loom.runtime.node@^22"], "recommends": ["loom.lsp.pyright"], "executables": ["bin/server"]"#,
+            r#""requires": ["loog.runtime.node@^22"], "recommends": ["loog.lsp.pyright"], "executables": ["bin/server"]"#,
         ))
         .unwrap();
-        assert_eq!(manifest.requires, ["loom.runtime.node@^22"]);
+        assert_eq!(manifest.requires, ["loog.runtime.node@^22"]);
         assert_eq!(manifest.executables, ["bin/server"]);
         for (extra, expected) in [
-            (r#""requires": ["loom.runtime.node"]"#, "requires"),
-            (r#""requires": ["loom.runtime.node@latest"]"#, "requires"),
+            (r#""requires": ["loog.runtime.node"]"#, "requires"),
+            (r#""requires": ["loog.runtime.node@latest"]"#, "requires"),
             (r#""requires": ["acme.night@^1"]"#, "requires"),
             (r#""recommends": ["Not An Id"]"#, "recommends"),
             (r#""executables": ["../bin/server"]"#, "inside the package"),

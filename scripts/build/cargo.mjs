@@ -8,7 +8,7 @@ export function requirements(args, env = process.env) {
   const command = args[0];
   if (['fmt', 'metadata', 'tree', 'clean', '--version', '-V', 'help'].includes(command) || args.includes('--help') || args.includes('-V')) return null;
   const packages = args.flatMap((arg, i) => arg === '-p' || arg === '--package' ? [args[i + 1]] : arg.startsWith('--package=') ? [arg.slice(10)] : []);
-  if (!args.includes('--workspace') && packages.length && packages.every(p => ['loom-editor-core', 'loom-workspace-tests'].includes(p))) return null;
+  if (!args.includes('--workspace') && packages.length && packages.every(p => ['loog-editor-core', 'loog-workspace-tests'].includes(p))) return null;
   return {target: args.some(arg => arg === '--target' || arg.startsWith('--target=')) ? option('--target') : env.CARGO_BUILD_TARGET, offline: args.includes('--offline') || args.includes('--frozen')};
 }
 

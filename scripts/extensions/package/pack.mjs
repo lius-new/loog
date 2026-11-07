@@ -1,10 +1,10 @@
-// Packs an extension folder into a `.loomext` package.
+// Packs an extension folder into a `.loogext` package.
 //
 //   node scripts/extensions/package/pack.mjs <folder> [--out <directory>]
 //
 // The package is a gzip-compressed tar archive with one root folder, named after
 // the extension id, that holds the folder's files, `manifest.json` among them. The output is
-// `<id>-<version>.loomext` (default directory: target/extension-packages) and a
+// `<id>-<version>.loogext` (default directory: target/extension-packages) and a
 // `.sha256` file beside it. The same folder always gives the same bytes.
 //
 // Everything the extensions page and the import show about an extension has to
@@ -27,7 +27,7 @@ const MAX_DOCUMENT = 512 * 1024;
 const MAX_ARCHIVE = 64 * 1024 * 1024;
 const MAX_UNPACKED = 128 * 1024 * 1024;
 const MAX_ENTRIES = 2048;
-const SKIPPED = new Set(['.git', 'node_modules', '.DS_Store', 'Thumbs.db', '.loomext-source.json']);
+const SKIPPED = new Set(['.git', 'node_modules', '.DS_Store', 'Thumbs.db', '.loogext-source.json']);
 
 const VERSION = /^\d+\.\d+\.\d+([-+][0-9A-Za-z.+-]*)?$/;
 const ID = /^[a-z0-9]+(-[a-z0-9]+)*(\.[a-z0-9]+(-[a-z0-9]+)*)+$/;
@@ -95,7 +95,7 @@ export function manifestProblems(manifest, sizeOf) {
     else if (size === 0) problems.push(`\`${field}\`: ${path} is empty`);
     else if (size > limit) problems.push(`\`${field}\`: ${path} is larger than ${limit / 1024} KiB`);
   }
-  need(validEngineRange(manifest.engines?.loom), '`engines.loom` must be a version range such as >=0.1.8 <0.3');
+  need(validEngineRange(manifest.engines?.loog), '`engines.loog` must be a version range such as >=0.1.8 <0.3');
 
   if (manifest.component !== undefined) {
     if (!safePath(manifest.component)) problems.push(`\`component\`: ${manifest.component} must stay inside the package`);
@@ -117,7 +117,7 @@ export function collect(folder) {
   const found = [];
   const walk = (directory) => {
     for (const name of readdirSync(directory).sort()) {
-      if (SKIPPED.has(name) || name.endsWith('.loomext') || name.endsWith('.loomext.sha256')) continue;
+      if (SKIPPED.has(name) || name.endsWith('.loogext') || name.endsWith('.loogext.sha256')) continue;
       const path = join(directory, name);
       const info = lstatSync(path);
       if (info.isSymbolicLink()) throw new Error(`${relative(folder, path)} is a link; a package holds regular files only`);
@@ -154,10 +154,10 @@ export function pack(folder, out) {
   const archive = gzipSync(createTar(files.map((f) => ({ ...f, path: `${manifest.id}/${f.path}` }))), { level: 9 });
   if (archive.length > MAX_ARCHIVE) throw new Error('the package is larger than 64 MiB');
   mkdirSync(out, { recursive: true });
-  const file = join(out, `${manifest.id}-${manifest.version}.loomext`);
+  const file = join(out, `${manifest.id}-${manifest.version}.loogext`);
   const sha256 = createHash('sha256').update(archive).digest('hex');
   writeFileSync(file, archive);
-  writeFileSync(`${file}.sha256`, `${sha256}  ${manifest.id}-${manifest.version}.loomext\n`);
+  writeFileSync(`${file}.sha256`, `${sha256}  ${manifest.id}-${manifest.version}.loogext\n`);
   return { file, sha256, size: archive.length, files: files.length, id: manifest.id, version: manifest.version, name: manifest.name };
 }
 
