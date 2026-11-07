@@ -3,8 +3,7 @@
 //! of the whole panel. A thin rule separates the groups.
 
 use lgui::core::{CursorIcon, EventPolicy, SemanticRole, Semantics, UiElement, UiId, UiScale};
-use lgui::prelude::{Color, Element, TextStyle, UiRect, VisualStyle, panel};
-use lgui::text::{self, TextLayoutRequest};
+use lgui::prelude::{Color, Element, UiRect, VisualStyle, panel};
 
 use crate::ui::theme;
 
@@ -198,52 +197,24 @@ pub(crate) fn dock_tools(header: UiRect, count: usize) -> DockTools {
 /// A compact segmented switch, distinct from the full-height session tabs.
 pub(super) fn category(
     header: UiRect,
-    sessions: usize,
     selected: super::state::PanelTab,
-    badges: [super::state::Badge; 2],
     switch: std::sync::Arc<dyn Fn(super::state::PanelTab) + Send + Sync>,
 ) -> (Element, f32) {
-    use super::state::{Badge, PanelTab};
+    use super::state::PanelTab;
     use crate::ui::components::text::SingleLineText;
-    use crate::ui::tabs::measure;
     let compact = header.width() < 640.0;
     let size = if compact {
         theme::SMALL
     } else {
         theme::UI_SIZE
     };
-    let count = sessions.to_string();
-    let count_w = if compact {
-        0.0
-    } else {
-        measure(&count, theme::SMALL, 400)
-    };
     let label_width = |label| {
         SingleLineText::new(
             label,
             UiRect::new(0.0, 0.0, 10_000.0, size),
-            theme::sans_semibold(theme::c().text, size),
+            theme::sans(theme::c().text, size),
         )
         .width()
-    };
-    // The Output and Problems badges, in tab order.
-    let badge_of = |tab: PanelTab| match tab {
-        PanelTab::Output => badges[0],
-        PanelTab::Problems => badges[1],
-        _ => Badge::None,
-    };
-    let badge_text = |badge: Badge| match badge {
-        Badge::Count(n) => Some(if n > 99 {
-            "99+".to_owned()
-        } else {
-            n.to_string()
-        }),
-        _ => None,
-    };
-    let badge_w = |badge: Badge| match badge {
-        Badge::None => 0.0,
-        Badge::Dot => 6.0 + 6.0,
-        Badge::Count(_) => 6.0 + measure(&badge_text(badge).unwrap_or_default(), theme::SMALL, 400),
     };
     // A narrow header shows every tab as an icon, so four tabs leave the session
     // tabs their room. Which tab is selected never decides this, so switching tabs
@@ -255,12 +226,7 @@ pub(super) fn category(
         } else {
             0.0
         };
-        let count = if tab == PanelTab::Terminal && !compact {
-            count_w + 6.0
-        } else {
-            0.0
-        };
-        name + count + 14.0 + 12.0 + badge_w(badge_of(tab))
+        name + 14.0 + 12.0
     };
     let widths = PanelTab::ALL.map(slot_w);
     let track_h = 22.0;
@@ -285,7 +251,6 @@ pub(super) fn category(
     let mut left = track.left + 3.0;
     for (tab, width) in PanelTab::ALL.into_iter().zip(widths) {
         let (label, glyph, id) = (tab.label(), tab.glyph(), tab.node_id());
-        let badge = badge_of(tab);
         let slot = UiRect::new(left, track.top + 2.0, left + width, track.bottom - 2.0);
         left = slot.right + 2.0;
         let active = tab == selected;
@@ -337,15 +302,7 @@ pub(super) fn category(
         } else {
             -6.0
         };
-        let content_w = 14.0
-            + 6.0
-            + label_w
-            + if tab == PanelTab::Terminal && !compact {
-                6.0 + count_w
-            } else {
-                0.0
-            }
-            + badge_w(badge);
+        let content_w = 14.0 + 6.0 + label_w;
         let icon_left = slot.left + (slot.width() - content_w) / 2.0;
         let label_rect = UiRect::new(
             icon_left + 20.0,
@@ -353,9 +310,9 @@ pub(super) fn category(
             icon_left + 20.0 + label_w + 2.0,
             slot.bottom,
         );
-        // Every tab uses the selected one's weight, so choosing a tab changes
-        // its colour and fill but never the width of its name.
-        let label_style = theme::sans_semibold(color, size);
+        // Every tab uses one regular weight, so choosing a tab changes its
+        // colour and fill but never the width of its name.
+        let label_style = theme::sans(color, size);
         button = button.child(super::view::icon(
             id,
             glyph,
@@ -370,64 +327,9 @@ pub(super) fn category(
         if shows_label {
             button = button.child(lgui::prelude::text(label_rect, label, label_style));
         }
-        if tab == PanelTab::Terminal && !compact {
-            let count_rect = UiRect::new(
-                icon_left + 26.0 + label_w,
-                slot.top,
-                slot.right - 4.0,
-                slot.bottom,
-            );
-            let count_style = theme::mono(theme::c().text_faint, theme::SMALL);
-            let baseline_offset = category_baseline(label, label_rect, label_style)
-                .zip(category_baseline(&count, count_rect, count_style))
-                .map_or(0.0, |(label, count)| label - count);
-            button = button.child(lgui::prelude::text(
-                count_rect.translate(0.0, baseline_offset),
-                count.clone(),
-                count_style,
-            ));
-        }
-        let badge_left = icon_left + 20.0 + label_w + 6.0;
-        match badge {
-            Badge::None => {}
-            Badge::Dot => {
-                let size = 6.0;
-                let y = slot.top + (slot.height() - size) / 2.0;
-                button = button.child(
-                    lgui::prelude::panel(
-                        UiRect::new(badge_left, y, badge_left + size, y + size),
-                        VisualStyle::filled(theme::c().error).radius(size / 2.0),
-                    )
-                    .key(format!("{id}-badge")),
-                );
-            }
-            Badge::Count(_) => {
-                let value = badge_text(badge).unwrap_or_default();
-                let rect = UiRect::new(
-                    badge_left,
-                    slot.top,
-                    badge_left + badge_w(badge) - 6.0 + 2.0,
-                    slot.bottom,
-                );
-                button = button.child(lgui::prelude::text(
-                    rect,
-                    value,
-                    theme::mono(theme::c().error_text, theme::SMALL),
-                ));
-            }
-        }
         root = root.child(button);
     }
     (root, track.right)
-}
-
-/// Smaller monospace counts share the label's baseline, rather than centring
-/// each font's capital-height box independently.
-fn category_baseline(value: &str, rect: UiRect, style: TextStyle) -> Option<f32> {
-    text::layout(&TextLayoutRequest::for_style(value, rect, &style))?
-        .lines()
-        .first()
-        .map(|line| line.baseline)
 }
 
 /// Keep both edges of the border on physical pixels, including when a 22px

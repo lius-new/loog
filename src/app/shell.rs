@@ -87,7 +87,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         crate::features::output::app_log(crate::features::output::Level::Info, "Loom started");
         || {}
     });
-    crate::features::problems::set_error_count(super::log_panel::error_count(&state));
+    crate::features::problems::set_counts(super::log_panel::counts(&state));
     cx.use_effect((), move || {
         let restore = crate::app::workspace_restore::SessionRestore::new(
             loading_state.clone(),

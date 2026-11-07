@@ -190,20 +190,23 @@ impl LanguageServices {
     }
 
     /// Errors in files that are not open, for the Problems badge.
-    pub fn closed_error_count(&self, open: &std::collections::BTreeSet<String>) -> usize {
-        use crate::features::language_service::diagnostics::Severity;
-        self.closed
+    pub fn closed_counts(
+        &self,
+        open: &std::collections::BTreeSet<String>,
+    ) -> crate::features::problems::Counts {
+        let mut counts = crate::features::problems::Counts::default();
+        for (_, file) in self
+            .closed
             .lock()
             .unwrap()
             .iter()
             .filter(|((key, _), _)| !open.contains(key))
-            .map(|(_, file)| {
-                file.items
-                    .iter()
-                    .filter(|f| f.severity == Severity::Error)
-                    .count()
-            })
-            .sum()
+        {
+            for finding in file.items.iter() {
+                counts.add(finding.severity);
+            }
+        }
+        counts
     }
 
     /// Everything `source` found in files that are not open.

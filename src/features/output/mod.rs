@@ -277,16 +277,6 @@ impl LogHub {
         list
     }
 
-    /// Whether any channel holds an error nobody has looked at.
-    pub fn any_unread_error(&self) -> bool {
-        self.inner
-            .lock()
-            .unwrap()
-            .channels
-            .values()
-            .any(|channel| channel.unread_error)
-    }
-
     /// Lines at or above `min` that contain `needle` (case-insensitive; empty
     /// matches all), oldest first.
     pub fn lines(&self, id: &ChannelId, min: Level, needle: &str) -> Vec<Line> {
@@ -429,12 +419,11 @@ mod tests {
     fn unread_error_is_set_by_errors_and_cleared_when_seen() {
         let (hub, id) = hub_with("a");
         hub.append(&id, Level::Warn, "careful");
-        assert!(!hub.any_unread_error());
+        assert!(!hub.channels()[0].unread_error);
         hub.append(&id, Level::Error, "failed");
-        assert!(hub.any_unread_error());
         assert!(hub.channels()[0].unread_error);
         hub.mark_seen(&id);
-        assert!(!hub.any_unread_error());
+        assert!(!hub.channels()[0].unread_error);
     }
 
     #[test]
@@ -443,7 +432,7 @@ mod tests {
         hub.append(&id, Level::Error, "failed");
         hub.clear(&id);
         assert!(hub.lines(&id, Level::Trace, "").is_empty());
-        assert!(!hub.any_unread_error());
+        assert!(!hub.channels()[0].unread_error);
         hub.append(&id, Level::Info, "again");
         assert_eq!(hub.lines(&id, Level::Trace, "")[0].seq, 1);
     }

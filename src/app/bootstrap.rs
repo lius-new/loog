@@ -67,6 +67,12 @@ pub(crate) fn svg_icons() -> SvgIconRegistry {
             .with_icon("copy", icondata::VsCopy)
             .with_icon("enter", r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M13 3v6H3m4-4L3 9l4 4"/></svg>"#)
             .with_icon("terminal", icondata::VsTerminal)
+            // Bottom-panel tabs: one outline family (Lucide) so the four share
+            // stroke weight and none carries a frame the others lack.
+            .with_icon("panel-terminal", icondata::LuTerminal)
+            .with_icon("panel-commits", icondata::LuGitCommitHorizontal)
+            .with_icon("panel-output", icondata::LuScrollText)
+            .with_icon("panel-problems", icondata::LuCircleAlert)
             .with_icon("terminal-stop", icondata::VsDebugStop)
             .with_icon("terminal-split", icondata::VsSplitHorizontal)
             .with_icon("terminal-more", icondata::VsEllipsis)

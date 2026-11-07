@@ -457,7 +457,6 @@ pub(crate) fn render_view(
         };
         let (category, right) = categories(
             header,
-            tab_items.len(),
             state.clone(),
             terminal_focus.clone(),
             editor_focus.clone(),
@@ -624,7 +623,6 @@ pub(crate) fn resize_panel(
 
 pub(crate) fn categories(
     header: UiRect,
-    sessions: usize,
     state: Binding,
     terminal_focus: UiFocusHandle,
     editor_focus: UiFocusHandle,
@@ -632,22 +630,7 @@ pub(crate) fn categories(
     let selected = state.get().ui.panel_tab;
     header::category(
         header,
-        sessions,
         selected,
-        [
-            // Errors nobody has looked at yet; the open channel counts as seen.
-            if selected != super::state::PanelTab::Output
-                && crate::features::output::hub().any_unread_error()
-            {
-                super::state::Badge::Dot
-            } else {
-                super::state::Badge::None
-            },
-            match crate::features::problems::error_count() {
-                0 => super::state::Badge::None,
-                n => super::state::Badge::Count(n),
-            },
-        ],
         std::sync::Arc::new(move |panel| {
             if state.get().ui.panel_tab != panel {
                 state.run(Command::SelectPanel(panel));
@@ -664,7 +647,6 @@ pub(crate) fn categories(
 /// Common dock header while its content is the existing commit history.
 pub(crate) fn commits_header(
     rect: UiRect,
-    sessions: usize,
     state: Binding,
     terminal_focus: UiFocusHandle,
     editor_focus: UiFocusHandle,
@@ -674,7 +656,6 @@ pub(crate) fn commits_header(
     let header = UiRect::new(rect.left, rect.top + 1.0, rect.right, rect.top + HEADER_H);
     let (category, right) = categories(
         header,
-        sessions,
         state.clone(),
         terminal_focus,
         editor_focus.clone(),

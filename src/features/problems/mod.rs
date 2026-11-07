@@ -88,13 +88,17 @@ impl Counts {
     pub fn of(groups: &[FileProblems]) -> Self {
         let mut counts = Self::default();
         for problem in groups.iter().flat_map(|group| &group.items) {
-            match problem.severity {
-                Severity::Error => counts.errors += 1,
-                Severity::Warning => counts.warnings += 1,
-                Severity::Information | Severity::Hint => counts.infos += 1,
-            }
+            counts.add(problem.severity);
         }
         counts
+    }
+
+    pub fn add(&mut self, severity: Severity) {
+        match severity {
+            Severity::Error => self.errors += 1,
+            Severity::Warning => self.warnings += 1,
+            Severity::Information | Severity::Hint => self.infos += 1,
+        }
     }
 }
 
@@ -202,19 +206,31 @@ pub(crate) fn filtered(groups: &[FileProblems], filter: Filter) -> Vec<FileProbl
 /// Shared so a panel can hold the result of one scan across frames.
 pub(crate) type Snapshot = Arc<Vec<FileProblems>>;
 
-static ERRORS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static TOTALS: [std::sync::atomic::AtomicU32; 3] = [
+    std::sync::atomic::AtomicU32::new(0),
+    std::sync::atomic::AtomicU32::new(0),
+    std::sync::atomic::AtomicU32::new(0),
+];
 
-/// How many errors the open documents have, for the tab's badge. Written once
-/// per frame by the shell; read by the dock's header.
-pub(crate) fn set_error_count(count: usize) {
-    ERRORS.store(
-        count.min(u32::MAX as usize) as u32,
-        std::sync::atomic::Ordering::Relaxed,
-    );
+/// How many problems of each severity the open documents and the services'
+/// other files have, for the status bar. Written once per frame by the shell.
+pub(crate) fn set_counts(counts: Counts) {
+    let clamp = |n: usize| n.min(u32::MAX as usize) as u32;
+    for (slot, n) in TOTALS
+        .iter()
+        .zip([counts.errors, counts.warnings, counts.infos])
+    {
+        slot.store(clamp(n), std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
-pub(crate) fn error_count() -> u32 {
-    ERRORS.load(std::sync::atomic::Ordering::Relaxed)
+pub(crate) fn counts() -> Counts {
+    let read = |i: usize| TOTALS[i].load(std::sync::atomic::Ordering::Relaxed) as usize;
+    Counts {
+        errors: read(0),
+        warnings: read(1),
+        infos: read(2),
+    }
 }
 
 #[cfg(test)]

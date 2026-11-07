@@ -139,6 +139,15 @@ pub struct StatusFrame {
     /// How the language services that answer for the active file are doing together;
     /// none when no service answers for it.
     pub language_services: Option<crate::features::language_services_menu::State>,
+    /// Errors, warnings and information in the open files; none hides the item.
+    pub problems: Option<ProblemCounts>,
+}
+/// How many findings of each severity the status bar shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProblemCounts {
+    pub errors: usize,
+    pub warnings: usize,
+    pub infos: usize,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoteLevel {
@@ -162,6 +171,8 @@ pub enum StatusCommand {
     HighlightMenu,
     /// The language services icon: how each service is doing, and what to install.
     LanguageServices,
+    /// The problem counts: shows or hides the Problems panel.
+    Problems,
     Encoding,
     LineEnding,
     Indent,

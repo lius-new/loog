@@ -22,10 +22,10 @@ impl PanelTab {
     /// Registered icon key.
     pub fn glyph(self) -> &'static str {
         match self {
-            Self::Terminal => "terminal",
-            Self::Commits => "git-commit",
-            Self::Output => "output",
-            Self::Problems => "warning",
+            Self::Terminal => "panel-terminal",
+            Self::Commits => "panel-commits",
+            Self::Output => "panel-output",
+            Self::Problems => "panel-problems",
         }
     }
     /// Stable node id of the tab button.
@@ -42,15 +42,6 @@ impl PanelTab {
     pub fn is_log(self) -> bool {
         matches!(self, Self::Output | Self::Problems)
     }
-}
-/// What a tab shows beside its label.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Badge {
-    #[default]
-    None,
-    /// Something new happened while the panel was in the background.
-    Dot,
-    Count(u32),
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct TerminalTabContextMenuState {

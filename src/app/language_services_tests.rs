@@ -31,12 +31,13 @@ fn files_that_are_not_open_keep_their_findings_per_source_and_yield_to_open_ones
     // Two sources about one file are one file with both findings.
     assert_eq!(shown.len(), 2);
     assert_eq!(shown.iter().find(|f| f.path == a).unwrap().items.len(), 2);
-    assert_eq!(services.closed_error_count(&none), 2);
+    let all = services.closed_counts(&none);
+    assert_eq!((all.errors, all.warnings, all.infos), (2, 1, 0));
 
     // A file that is open shows its document's findings instead.
     let open = std::collections::BTreeSet::from([crate::features::problems::file_key(&a)]);
     assert_eq!(services.closed_problems(&open).len(), 1);
-    assert_eq!(services.closed_error_count(&open), 1);
+    assert_eq!(services.closed_counts(&open).errors, 1);
 
     // Publishing none removes the file; clearing a source removes all of its files.
     services.publish_findings(2, a.clone(), vec![]);

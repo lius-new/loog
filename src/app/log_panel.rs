@@ -231,13 +231,15 @@ fn open_files(app: &super::state::AppState) -> BTreeSet<String> {
         .collect()
 }
 
-/// Errors in open documents, without building any rows.
-pub(crate) fn error_count(state: &AppContext) -> usize {
+/// Problems of every severity in the open documents and the files the services
+/// found by themselves, without building any rows.
+pub(crate) fn counts(state: &AppContext) -> problems::Counts {
+    let mut counts = problems::Counts::default();
     let Some(services) = super::language_ui::services(state) else {
-        return 0;
+        return counts;
     };
     let app = state.get();
-    let open = app
+    for found in app
         .workspace
         .documents
         .iter()
@@ -247,14 +249,16 @@ pub(crate) fn error_count(state: &AppContext) -> usize {
                 .results(&doc.meta.path, &doc.stamp(*id))
                 .diagnostics
         })
-        .map(|found| {
-            found
-                .iter()
-                .filter(|d| d.severity == Severity::Error)
-                .count()
-        })
-        .sum::<usize>();
-    open + services.closed_error_count(&open_files(&app))
+    {
+        for finding in found.iter() {
+            counts.add(finding.severity);
+        }
+    }
+    let closed = services.closed_counts(&open_files(&app));
+    counts.errors += closed.errors;
+    counts.warnings += closed.warnings;
+    counts.infos += closed.infos;
+    counts
 }
 
 enum Row {
@@ -304,13 +308,6 @@ pub(crate) fn render(
     // The editor area above the dock: where a jump reveals its target.
     editor: UiRect,
 ) -> Element {
-    let sessions = state
-        .get()
-        .layout
-        .application_layout
-        .as_ref()
-        .and_then(|layout| region.and_then(|id| layout.terminal_view(id)))
-        .map_or(0, |(ids, _)| ids.len());
     let body = UiRect::new(rect.left, rect.top + theme::TABS_H, rect.right, rect.bottom);
     let (binding, _, _) = super::terminal_view::binding(&state, &terminal_tabs, &application);
     let panel_state = state.get().log_panel;
@@ -346,7 +343,6 @@ pub(crate) fn render(
     };
     let header = view::commits_header(
         rect,
-        sessions,
         binding.clone(),
         terminal_focus,
         editor_focus,

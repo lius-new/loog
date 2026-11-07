@@ -25,6 +25,10 @@ const TEXT_MARGIN: f32 = 6.0;
 const SERVICE_ICON: f32 = 12.0;
 const SERVICE_ICON_ROOM: f32 = SERVICE_ICON + 6.0;
 
+/// The problem counts' icon, and the gap between it and its number.
+const PROBLEM_ICON: f32 = 14.0;
+const PROBLEM_ICON_GAP: f32 = 4.0;
+
 /// Natural width of `s` in the monospace status bar font at `weight`,
 /// measured with the renderer's text system so it matches the rendered
 /// pixels. Measuring with the default sans font underestimated monospace
@@ -111,9 +115,22 @@ pub fn render(rect: UiRect, state: StatusBinding) -> Element {
             .sum::<f32>()
             + GAP * labels.len().saturating_sub(1) as f32
     });
-    let available =
-        (rect.width() - EDGE_PAD * 2.0 - vim_width - if vim_width > 0.0 { GAP } else { 0.0 })
-            .max(0.0);
+    let problems = s.problems.map(problem_entries);
+    let has_problems = problems.is_some();
+    let problems_width = problems.as_ref().map_or(0.0, |entries| {
+        entries
+            .iter()
+            .map(|entry| problem_width(entry.2))
+            .sum::<f32>()
+            + GAP * (entries.len() - 1) as f32
+    });
+    let available = (rect.width()
+        - EDGE_PAD * 2.0
+        - vim_width
+        - if vim_width > 0.0 { GAP } else { 0.0 }
+        - problems_width
+        - if problems_width > 0.0 { GAP } else { 0.0 })
+    .max(0.0);
     let mut settings = lgui::core::group(row(items.total()))
         .layout(LayoutSpec::Flex(FlexLayout {
             gap: GAP,
@@ -226,6 +243,27 @@ pub fn render(rect: UiRect, state: StatusBinding) -> Element {
             ));
         }
     }
+    let mut problem_group = lgui::core::group(row(problems_width))
+        .public_id("statusbar.problems")
+        .layout(LayoutSpec::Flex(FlexLayout {
+            gap: GAP,
+            ..Default::default()
+        }))
+        .size_constraints(SizeConstraints::new(
+            Dimension::Content,
+            Dimension::Points(height),
+        ))
+        .dock(DockSide::Left);
+    for (name, key, count, icon, color) in problems.into_iter().flatten() {
+        problem_group = problem_group.child(
+            problem_entry(height, name, key, count, icon, color, state.clone()).flex_item(
+                FlexItem {
+                    shrink: 0.0,
+                    ..Default::default()
+                },
+            ),
+        );
+    }
     let vim = lgui::core::described(row(0.0), "statusbar.vim", vim_nodes)
         .layout(LayoutSpec::Flex(FlexLayout {
             gap: GAP,
@@ -281,6 +319,7 @@ pub fn render(rect: UiRect, state: StatusBinding) -> Element {
                     gap: Dimension::Points(GAP),
                 })
                 .child(settings)
+                .children(has_problems.then_some(problem_group))
                 .child(vim)
                 .child(mount),
         )
@@ -477,6 +516,87 @@ fn service_entry(
         ))
 }
 
+/// Errors, warnings and information, left to right: name, node id, count, icon
+/// key and color. A severity with none found is drawn quietly.
+fn problem_entries(
+    counts: crate::ui::chrome::ProblemCounts,
+) -> [(&'static str, &'static str, usize, &'static str, lgui::prelude::Color); 3] {
+    let palette = theme::c();
+    let tint = |count: usize, color| if count > 0 { color } else { palette.text_faint };
+    [
+        (
+            "Errors",
+            "statusbar-problems-errors",
+            counts.errors,
+            "problem-error",
+            tint(counts.errors, palette.error_text),
+        ),
+        (
+            "Warnings",
+            "statusbar-problems-warnings",
+            counts.warnings,
+            "warning",
+            tint(counts.warnings, palette.warning),
+        ),
+        (
+            "Information",
+            "statusbar-problems-infos",
+            counts.infos,
+            "info",
+            tint(counts.infos, palette.accent),
+        ),
+    ]
+}
+
+fn problem_width(count: usize) -> f32 {
+    PROBLEM_ICON + PROBLEM_ICON_GAP + measure(&count.to_string(), 400)
+}
+
+/// One severity: its icon and number, which show or hide the Problems panel.
+fn problem_entry(
+    height: f32,
+    name: &'static str,
+    key: &'static str,
+    count: usize,
+    icon: &'static str,
+    color: lgui::prelude::Color,
+    binding: StatusBinding,
+) -> Element {
+    use lgui::core::{IconStyle, UiElement};
+    let width = problem_width(count);
+    let middle = height / 2.0;
+    let icon_box = UiRect::new(
+        0.0,
+        middle - PROBLEM_ICON / 2.0,
+        PROBLEM_ICON,
+        middle + PROBLEM_ICON / 2.0,
+    );
+    let value = count.to_string();
+    panel(UiRect::new(0.0, 0.0, width, height), VisualStyle::default())
+        .key(key)
+        .public_id(key)
+        .event_policy(EventPolicy::INTERACTIVE)
+        .cursor(CursorIcon::Pointer)
+        .semantics(Semantics::new(SemanticRole::Button).name(format!("{name}: {count}")))
+        .on_click(move || binding.run(StatusCommand::Problems))
+        .child(
+            Element::new(move |cx| {
+                UiElement::icon(cx.id, icon_box, icon).icon_style(IconStyle::new(color))
+            })
+            .key(format!("{key}-icon")),
+        )
+        .child(text(
+            UiRect::new(
+                PROBLEM_ICON + PROBLEM_ICON_GAP,
+                0.0,
+                width + TEXT_MARGIN,
+                height,
+            ),
+            value,
+            theme::mono(color, theme::SMALL),
+        ))
+}
+
 /// Vim's mode, then its command line, message or pending keys, and macro
 /// recording, left to right.
 fn vim_status_items(
@@ -621,6 +741,7 @@ mod tests {
                     level: NoteLevel::Warning,
                 }],
                 language_services: None,
+                problems: None,
             };
             let commands = Arc::new(Mutex::new(Vec::new()));
             let seen = commands.clone();
@@ -632,6 +753,7 @@ mod tests {
                         StatusCommand::ExtensionWidget { .. } => "extension",
                         StatusCommand::HighlightMenu => "highlighting",
                         StatusCommand::LanguageServices => "language services",
+                        StatusCommand::Problems => "problems",
                         StatusCommand::Encoding => "encoding",
                         StatusCommand::LineEnding => "ending",
                         StatusCommand::Indent => "indent",
@@ -890,6 +1012,7 @@ mod tests {
                 level: NoteLevel::Quiet,
             }],
             language_services: None,
+            problems: None,
         };
         let binding = StatusBinding::new(move || frame.clone(), |_| {});
         let context = ApplicationContext::empty(Default::default());
@@ -1092,6 +1215,7 @@ mod tests {
             }),
             language: Vec::new(),
             language_services: None,
+            problems: None,
         };
         let binding = StatusBinding::new(move || frame.clone(), |_| {});
         let roots = Arc::new(Mutex::new(vec![root]));
@@ -1268,6 +1392,76 @@ mod tests {
         }
     }
 
+    /// The three severities sit at the left end of the bar, and pressing any of them
+    /// asks for the Problems panel.
+    #[test]
+    fn the_problem_counts_show_at_the_left_and_open_the_problems_panel() {
+        use crate::ui::chrome::ProblemCounts;
+        let context = ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let rect = UiRect::new(0.0, 0.0, 700.0, 28.0);
+        let frame = StatusFrame {
+            extension_widgets: Vec::new(),
+            pending: Vec::new(),
+            vim: None,
+            file: None,
+            language: Vec::new(),
+            language_services: None,
+            problems: Some(ProblemCounts {
+                errors: 3,
+                warnings: 12,
+                infos: 0,
+            }),
+        };
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let seen = commands.clone();
+        let binding = StatusBinding::new(
+            move || frame.clone(),
+            move |command| {
+                if matches!(command, StatusCommand::Problems) {
+                    seen.lock().unwrap().push("problems");
+                }
+            },
+        );
+        let view: AppView = Arc::new(move |_| render(rect, binding.clone()));
+        let mut session = UiSession::new();
+        session.render_view(&view, rect, UiScale::ONE);
+        let mut left = 0.0_f32;
+        for (id, value) in [
+            ("statusbar-problems-errors", "3"),
+            ("statusbar-problems-warnings", "12"),
+            ("statusbar-problems-infos", "0"),
+        ] {
+            let bounds = session
+                .tree()
+                .public_node(id)
+                .unwrap_or_else(|| panic!("`{id}` is not drawn"))
+                .bounds;
+            assert!(bounds.left >= left, "{id} is out of order");
+            assert!(bounds.left < 100.0, "{id} is not at the left end");
+            left = bounds.right;
+            assert!(
+                session
+                    .tree()
+                    .nodes()
+                    .iter()
+                    .any(|node| node.text.as_deref() == Some(value)),
+                "{id} shows no `{value}`"
+            );
+            commands.lock().unwrap().clear();
+            click(
+                &mut session,
+                &context,
+                (bounds.left + bounds.right) / 2.0,
+                14.0,
+            );
+            assert_eq!(*commands.lock().unwrap(), ["problems"], "{id}");
+        }
+    }
+
     /// The language services item is the first of the bar's right side, says one phrase
     /// for every service, and opens the panel when pressed.
     #[test]
@@ -1302,6 +1496,7 @@ mod tests {
                 }),
                 language: Vec::new(),
                 language_services: Some(state),
+                problems: None,
             };
             let commands = Arc::new(Mutex::new(Vec::new()));
             let seen = commands.clone();
@@ -1345,6 +1540,7 @@ mod tests {
             file: None,
             language: Vec::new(),
             language_services: None,
+            problems: None,
         };
         let binding = StatusBinding::new(move || frame.clone(), |_| {});
         let view: AppView = Arc::new(move |_| render(rect, binding.clone()));

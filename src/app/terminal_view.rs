@@ -390,13 +390,6 @@ pub(crate) fn render_commits(
     max_height: f32,
     query_focus: UiFocusHandle,
 ) -> Element {
-    let sessions = state
-        .get()
-        .layout
-        .application_layout
-        .as_ref()
-        .and_then(|layout| region.and_then(|id| layout.terminal_view(id)))
-        .map_or(0, |(ids, _)| ids.len());
     let body = UiRect::new(
         rect.left,
         rect.top + crate::ui::theme::TABS_H,
@@ -414,7 +407,6 @@ pub(crate) fn render_commits(
     let (binding, _, _) = binding(&state, &terminal_tabs, &application);
     let header = view::commits_header(
         rect,
-        sessions,
         binding.clone(),
         terminal_focus,
         editor_focus,
