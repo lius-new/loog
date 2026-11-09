@@ -157,6 +157,8 @@ pub(crate) fn svg_icons() -> SvgIconRegistry {
             .with_icon("git-ref-current", icondata::VsTarget)
             .with_icon("git-ref-tag", icondata::VsTag)
             .with_icon("diff", icondata::LuArrowLeftRight)
+            .with_icon("diff-link", icondata::LuLink2)
+            .with_icon("diff-link-off", icondata::LuLink2Off)
             // No Codicon equivalent yet.
             .with_icon("git-branch", icondata::LuGitBranch)
             .with_icon("command", icondata::LuCommand)

@@ -63,6 +63,9 @@ pub struct Settings {
     pub git_inline_blame: bool,
     #[serde(default)]
     pub git_split_diff: bool,
+    /// Preview and focus corresponding changes in a split diff.
+    #[serde(default = "default_true")]
+    pub git_diff_change_highlight: bool,
     #[serde(default)]
     pub git_tree_view: bool,
     #[serde(default)]
@@ -136,6 +139,7 @@ impl Default for Settings {
             explorer_auto_reveal: true,
             git_inline_blame: false,
             git_split_diff: false,
+            git_diff_change_highlight: true,
             git_tree_view: false,
             vim: VimSettings::default(),
             check_for_updates: true,
@@ -457,6 +461,7 @@ mod tests {
             explorer_auto_reveal: false,
             git_inline_blame: true,
             git_split_diff: true,
+            git_diff_change_highlight: false,
             git_tree_view: true,
             vim: VimSettings {
                 enabled: true,

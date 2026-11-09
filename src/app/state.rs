@@ -193,6 +193,7 @@ impl AppState {
             check_for_updates: self.preferences.values().check_for_updates,
             git_inline_blame: self.git.ui.inline_blame,
             git_split_diff: self.git.ui.split_diff,
+            git_diff_change_highlight: self.git.ui.diff_change_highlight,
             git_tree_view: self.git.ui.tree_view,
             vim: self.editor.vim.options.into(),
             editor_font: self.preferences.values().editor_font.clone(),
@@ -234,6 +235,10 @@ impl AppState {
         self.preferences.values_mut().language_features = settings.language_features;
         self.git.ui.inline_blame = settings.git_inline_blame;
         self.git.ui.split_diff = settings.git_split_diff;
+        self.git.ui.diff_change_highlight = settings.git_diff_change_highlight;
+        if !settings.git_diff_change_highlight {
+            self.editor.diff_change_focus = None;
+        }
         self.git.ui.tree_view = settings.git_tree_view;
         self.set_editor_font(settings.editor_font);
         self.set_terminal_font(settings.terminal_font);

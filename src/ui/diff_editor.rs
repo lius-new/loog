@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use lgui::core::{
-    CursorIcon, EventPolicy, IconStyle, SemanticRole, Semantics, UiElement, UiFocusHandle, UiId,
-    WheelUnit, clip, precompiled,
+    Color, CursorIcon, EventPolicy, IconStyle, SemanticRole, Semantics, UiElement, UiFocusHandle,
+    UiId, WheelUnit, clip, precompiled,
 };
 use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel, text};
 
@@ -14,6 +14,7 @@ use crate::features::git::actions::BlockAction;
 use crate::features::git::diff_document::{ChangesLayout, DiffDocument, DiffRow, DiffRowKind};
 use crate::ui::chrome::diff_binding::{Binding, Command};
 use crate::ui::diff_selection::Geometry;
+use crate::ui::diff_split::Interaction as SplitInteraction;
 use crate::ui::editor::view::{self as editor_view, SCROLLBAR_SIZE, ScrollMetrics};
 use crate::ui::fonts;
 use crate::ui::git::commands::{Binding as GitBinding, Command as GitCommand};
@@ -41,9 +42,13 @@ pub fn render(
     scrollbars: crate::ui::editor_binding::Binding,
 ) -> Element {
     let app = state.snapshot();
-    let Some(document) = app.workspace.diff(pane) else {
+    let Some(view) = app.workspace.pane(pane).and_then(|pane| pane.active()) else {
         return panel(rect, VisualStyle::filled(theme::c().bg));
     };
+    let Some(record) = app.workspace.diff_record(view) else {
+        return panel(rect, VisualStyle::filled(theme::c().bg));
+    };
+    let document = &record.content;
 
     let split = app.split;
     let collapsed = app.workspace.collapsed_diffs(pane);
@@ -121,6 +126,17 @@ pub fn render(
         pointer_state.run(Command::Activate(pane));
         pointer_focus.focus();
     });
+    if app
+        .editor
+        .change_focus
+        .as_ref()
+        .is_some_and(|focus| focus.view == view)
+    {
+        let dismiss = state.clone();
+        root = root.on_outside_pointer(move |_, _, _| {
+            dismiss.run(Command::DismissChangeFocus(view));
+        });
+    }
     let select_state = state.clone();
     let split_columns = super::diff_split::Columns::new(body_rect, app.editor.diff_split.ratio);
     let mirrored_scrollbar = split && document.sections.is_none();
@@ -169,6 +185,7 @@ pub fn render(
         deletions,
         document.loading.is_some(),
         split,
+        app.change_highlight,
         starts.clone(),
         current_change,
         absolute_path,
@@ -219,6 +236,16 @@ pub fn render(
     }
 
     // Rows run under the overlay scrollbars, whose tracks are transparent.
+    let interaction = SplitInteraction {
+        pane,
+        view,
+        state: state.clone(),
+        focus: editor_focus.clone(),
+        enabled: app.change_highlight,
+        locked: app.editor.change_focus,
+        viewport_height: body_rect.height(),
+        max_y,
+    };
     root = if let Some(overview) = &overview {
         root.child(render_changes(
             pane,
@@ -232,6 +259,7 @@ pub fn render(
             &state,
             &git_commands,
             editor_focus,
+            &interaction,
         ))
     } else if split {
         root.child(super::diff_split::render(
@@ -241,6 +269,8 @@ pub fn render(
             scroll_y,
             app.editor.diff_split.ratio,
             &git_commands,
+            &interaction,
+            0,
         ))
     } else {
         root.child(render_inline(body_rect, &document.rows, scroll_x, scroll_y))
@@ -450,6 +480,7 @@ fn toolbar(
     deletions: usize,
     loading: bool,
     split: bool,
+    change_highlight: bool,
     starts: std::sync::Arc<Vec<usize>>,
     current_change: Option<usize>,
     absolute_path: Option<PathBuf>,
@@ -464,6 +495,47 @@ fn toolbar(
     let compact = rect.width() < 560.0;
     let button_top = rect.top + (rect.height() - BUTTON_H) / 2.0;
     let mut right = rect.right - 8.0;
+
+    if split {
+        let toggle_rect = take_button_rect(&mut right, button_top, 24.0);
+        let toggle_state = state.clone();
+        let mut semantics = Semantics::new(SemanticRole::CheckBox).name("Highlight linked changes");
+        semantics.state.checked = Some(change_highlight);
+        let (style, icon, color) = if change_highlight {
+            (
+                VisualStyle::filled(theme::c().active_line),
+                "diff-link",
+                theme::c().accent,
+            )
+        } else {
+            (
+                VisualStyle::default(),
+                "diff-link-off",
+                theme::c().text_muted,
+            )
+        };
+        bar = bar.child(
+            panel(toggle_rect, style.radius(3.0))
+                .key("diff-change-highlight")
+                .event_policy(EventPolicy::INTERACTIVE)
+                .cursor(CursorIcon::Pointer)
+                .semantics(semantics)
+                .on_click(move || {
+                    toggle_state.run(Command::ToggleChangeHighlight);
+                })
+                .child(crate::ui::drawer::drawer_icon(
+                    UiId::owned(format!("diff-change-highlight-icon-{}", pane.get())),
+                    icon,
+                    UiRect::new(
+                        toggle_rect.left + 5.0,
+                        toggle_rect.top + 4.0,
+                        toggle_rect.right - 5.0,
+                        toggle_rect.bottom - 4.0,
+                    ),
+                    color,
+                )),
+        );
+    }
 
     if let Some(absolute_path) = absolute_path {
         let open_rect = take_button_rect(&mut right, button_top, if compact { 42.0 } else { 68.0 });
@@ -668,6 +740,7 @@ fn render_changes(
     state: &Binding,
     git_commands: &GitBinding,
     editor_focus: UiFocusHandle,
+    interaction: &SplitInteraction,
 ) -> Element {
     let sections = overview.sections.as_ref().unwrap();
     let mut body = clip(rect, 0.0, 0.0);
@@ -864,7 +937,16 @@ fn render_changes(
             ));
         } else {
             file_body = file_body.child(if split {
-                super::diff_split::render(visible, document, scroll_x, local_y, ratio, git_commands)
+                super::diff_split::render(
+                    visible,
+                    document,
+                    scroll_x,
+                    local_y,
+                    ratio,
+                    git_commands,
+                    interaction,
+                    item.body_top,
+                )
             } else {
                 render_inline(visible, &document.rows, scroll_x, local_y)
             });
@@ -947,8 +1029,18 @@ pub(crate) fn render_inline(
         }
 
         body = body
-            .child(line_number(rect.left, top, row.old_line))
-            .child(line_number(rect.left + NUMBER_W, top, row.new_line))
+            .child(line_number(
+                rect.left,
+                top,
+                row.old_line,
+                theme::c().text_faint,
+            ))
+            .child(line_number(
+                rect.left + NUMBER_W,
+                top,
+                row.new_line,
+                theme::c().text_faint,
+            ))
             .child(text(
                 UiRect::new(rect.left + NUMBER_W * 2.0, top, text_left, top + row_h()),
                 marker,
@@ -988,11 +1080,11 @@ pub(super) fn row_background(rect: UiRect, color: lgui::core::Color) -> Element 
     })
 }
 
-pub(super) fn line_number(left: f32, top: f32, number: Option<usize>) -> Element {
+pub(super) fn line_number(left: f32, top: f32, number: Option<usize>, color: Color) -> Element {
     text(
         UiRect::new(left, top, left + NUMBER_W - 8.0, top + row_h()),
         number.map(|line| line.to_string()).unwrap_or_default(),
-        theme::mono_right(theme::c().text_faint, theme::SMALL),
+        theme::mono_right(color, theme::SMALL),
     )
     .into()
 }

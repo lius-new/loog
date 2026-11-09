@@ -19,6 +19,7 @@ pub fn binding(state: &AppContext) -> Binding {
             Snapshot {
                 workspace: app.workspace.core,
                 split: app.git.ui.split_diff,
+                change_highlight: app.git.ui.diff_change_highlight,
                 editor: EditorFrame {
                     diff_split: app.editor.diff_split,
                     editor_hovered: app.editor.editor_hovered,
@@ -29,6 +30,7 @@ pub fn binding(state: &AppContext) -> Binding {
                         .editor
                         .editor_horizontal_scrollbar_dragging,
                     selection: app.editor.diff_selection,
+                    change_focus: app.editor.diff_change_focus.clone(),
                 },
             }
         },
@@ -56,9 +58,13 @@ pub fn run(state: &AppContext, c: Command) -> bool {
                 .set_scroll(pane, (x - dx).clamp(0.0, mx), (y - dy).clamp(0.0, my));
         }
         Command::Activate(pane) => {
+            app.editor.diff_change_focus = None;
             app.workspace.activate_pane(pane);
         }
-        Command::SplitStart(pane) => app.editor.diff_split.drag = Some(pane),
+        Command::SplitStart(pane) => {
+            app.editor.diff_change_focus = None;
+            app.editor.diff_split.drag = Some(pane);
+        }
         Command::SplitDrag(pane, rect, x) => {
             if app.editor.diff_split.drag == Some(pane) && rect.width() > 0.0 {
                 let position = crate::ui::pane_sash::split_position(rect.left, rect.right, x);
@@ -68,21 +74,81 @@ pub fn run(state: &AppContext, c: Command) -> bool {
         Command::SplitEnd => app.editor.diff_split.drag = None,
         Command::Layout(pane, split) => {
             app.editor.diff_selection = None;
+            app.editor.diff_change_focus = None;
             app.git.ui.split_diff = split;
             app.workspace.activate_pane(pane);
             app.workspace.set_scroll(pane, 0.0, 0.0);
+        }
+        Command::ToggleChangeHighlight => {
+            app.git.ui.diff_change_highlight ^= true;
+            if !app.git.ui.diff_change_highlight {
+                app.editor.diff_change_focus = None;
+            }
         }
         Command::Navigate(pane, starts, next) => {
             app.workspace.activate_pane(pane);
             navigate_change(app, &starts, next);
         }
+        Command::FocusChange(pane, focus, reveal_y) => {
+            let Some(view) = app.workspace.pane(pane).and_then(|pane| pane.active()) else {
+                return;
+            };
+            if !app.git.ui.split_diff
+                || !app.git.ui.diff_change_highlight
+                || !app
+                    .workspace
+                    .diff_record(view)
+                    .is_some_and(|record| focus.is_current(view, &record.content))
+            {
+                return;
+            }
+            app.workspace.activate_pane(pane);
+            let same_block = app
+                .editor
+                .diff_change_focus
+                .as_ref()
+                .is_some_and(|current| {
+                    current.view == focus.view
+                        && current.document.ptr_eq(&focus.document)
+                        && current.block == focus.block
+                });
+            app.editor.diff_change_focus = (!same_block).then_some(focus);
+            if !same_block && let Some(y) = reveal_y {
+                let (x, _) = app.workspace.scroll(pane);
+                app.workspace.set_scroll(pane, x, y);
+            }
+        }
+        Command::DismissChangeFocus(view) => {
+            if app
+                .editor
+                .diff_change_focus
+                .as_ref()
+                .is_some_and(|focus| focus.view == view)
+            {
+                app.editor.diff_change_focus = None;
+            }
+        }
         Command::Toggle(pane, request) => {
             app.editor.diff_selection = None;
+            if app.editor.diff_change_focus.as_ref().is_some_and(|focus| {
+                app.workspace.pane(pane).and_then(|pane| pane.active()) == Some(focus.view)
+                    && focus
+                        .document
+                        .upgrade()
+                        .is_some_and(|doc| doc.request() == request)
+            }) {
+                app.editor.diff_change_focus = None;
+            }
             app.workspace.activate_pane(pane);
             app.workspace.toggle_diff_section(pane, request);
         }
         Command::ToggleAll(pane) => {
             app.editor.diff_selection = None;
+            if app.editor.diff_change_focus.as_ref().is_some_and(|focus| {
+                app.workspace.pane(pane).and_then(|pane| pane.active()) == Some(focus.view)
+            }) {
+                app.editor.diff_change_focus = None;
+            }
             let Some(sections) = app
                 .workspace
                 .diff(pane)
@@ -265,6 +331,16 @@ pub(crate) fn key_action(
         .editor
         .diff_selection
         .filter(|selection| selection.pane == pane);
+    let change_focused = action == Action::Cancel
+        && split
+        && app.workspace.active().is_some_and(|view| {
+            app.workspace.diff_record(view).is_some_and(|record| {
+                app.editor
+                    .diff_change_focus
+                    .as_ref()
+                    .is_some_and(|focus| focus.is_current(view, &record.content))
+            })
+        });
     match action {
         Action::Copy => {
             let Some(text) =
@@ -290,9 +366,14 @@ pub(crate) fn key_action(
             state.update(|app| app.editor.diff_selection = all);
             true
         }
-        Action::Cancel if selection.is_some() => {
+        Action::Cancel if selection.is_some() || change_focused => {
             drop(app);
-            state.update(|app| app.editor.diff_selection = None);
+            state.update(|app| {
+                app.editor.diff_selection = None;
+                if change_focused {
+                    app.editor.diff_change_focus = None;
+                }
+            });
             true
         }
         _ => false,
@@ -841,7 +922,7 @@ mod tests {
     fn split_diff_keeps_numbers_central_and_updates_curves_while_scrolling() {
         use crate::features::git::diff::parse_unified;
         use lgui::application::{AppView, ApplicationContext};
-        use lgui::core::{UiPathCommand, UiScale};
+        use lgui::core::{InputEvent, PointerData, UiPathCommand, UiScale};
         use lgui::session::UiSession;
         use std::sync::{Arc, Mutex};
         let mut patch = "diff --git a/.env.example b/.env.example\n--- a/.env.example\n+++ b/.env.example\n@@ -1,52 +1,55 @@\n".to_owned();
@@ -920,6 +1001,36 @@ mod tests {
                 "existing control {label} must remain available"
             );
         }
+        let stage = session
+            .tree()
+            .nodes()
+            .iter()
+            .find(|node| {
+                node.semantics
+                    .as_ref()
+                    .and_then(|semantics| semantics.name.as_deref())
+                    == Some("Stage change")
+            })
+            .expect("the working diff has a stage button");
+        let button = stage.layout_rect;
+        let point = lgui::core::Point::new(
+            (button.left + button.right) / 2.0,
+            (button.top + button.bottom) / 2.0,
+        );
+        assert_eq!(session.tree().hit_test(point).unwrap().id, stage.id);
+        let pointer = PointerData::mouse(point);
+        let hover = session.handle_input(InputEvent::PointerMove(pointer));
+        assert!(
+            hover.animation_changed,
+            "a Git button schedules the change preview"
+        );
+        assert!(
+            hover.dirty_bounds.is_some_and(|bounds| {
+                bounds.left == viewport.left && bounds.right == viewport.right
+            }),
+            "hover invalidates both code columns"
+        );
+        let _ = session.handle_input(InputEvent::PointerLeave(pointer));
         let slope = |session: &UiSession| {
             session
                 .tree()
@@ -975,6 +1086,213 @@ mod tests {
             }
             image::save_buffer(output, &pixels, 1650, 660, image::ColorType::Rgba8).unwrap();
         }
+    }
+
+    #[test]
+    fn split_change_focus_follows_the_curve_and_reveals_the_other_side() {
+        use crate::features::git::diff::parse_unified;
+        use lgui::application::{AppView, ApplicationContext};
+        use lgui::core::{
+            CursorIcon, InputEvent, Point, PointerButton, PointerData, UiScale,
+            dispatch_event_handlers, dispatch_runtime_output,
+        };
+        use lgui::session::UiSession;
+        use std::sync::{Arc, Mutex};
+
+        let patch = format!(
+            "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -2,16 +2,32 @@\n start\n{} between\n still here\n-old value\n+new value\n{}",
+            "+added\n".repeat(16),
+            " context\n".repeat(12)
+        );
+        let document = DiffDocument::commit(
+            "repo".into(),
+            "a.txt".into(),
+            "1234567".into(),
+            parse_unified(&patch).unwrap(),
+        );
+        let exposed = Arc::new(Mutex::new(None::<AppContext>));
+        let output = exposed.clone();
+        let height = row_h();
+        let viewport = UiRect::new(0.0, 0.0, 840.0, TOOLBAR_H + 8.0 * height);
+        let view: AppView = Arc::new(move |cx| {
+            let state = AppContext::detached(cx.state_with(|| {
+                let mut app = AppState::new();
+                app.git.ui.split_diff = true;
+                app.workspace.open_diff(document.clone());
+                app
+            }));
+            *output.lock().unwrap() = Some(state.clone());
+            let id = cx.use_stable_id();
+            let store = cx.state_with(GitStoreSnapshot::default);
+            let pane = state.get().workspace.active_pane();
+            super::render(
+                pane,
+                viewport,
+                state.clone(),
+                crate::app::git_view::binding(&state, &store),
+                id.clone(),
+                cx.focus_handle(id),
+                crate::app::editor_view::binding(state, store, pane, viewport),
+            )
+        });
+        let context = ApplicationContext::empty(Default::default());
+        let mut session = UiSession::new();
+        session.render_view(&view, viewport, UiScale::ONE);
+        let state = exposed.lock().unwrap().clone().unwrap();
+        let window = lgui::window::WindowId::new("diff-change-focus-test");
+        let send = |session: &mut UiSession, input| {
+            let events = session.handle_input(input);
+            let hover_frame = events.animation_changed;
+            dispatch_runtime_output(
+                events,
+                &context,
+                &window,
+                |action| session.handle_default_action(action),
+                |_| {},
+            );
+            for event in session.apply_pending_updates().focus_events {
+                for handler in session.tree().handler_events(&event) {
+                    dispatch_event_handlers(&handler, &context, &window);
+                }
+            }
+            if hover_frame {
+                let _ = session.advance(16.0);
+            }
+            session.render_view(&view, viewport, UiScale::ONE);
+            hover_frame
+        };
+        let click = |session: &mut UiSession, point| {
+            let pointer = PointerData::mouse(point);
+            send(
+                session,
+                InputEvent::PointerDown {
+                    pointer,
+                    button: PointerButton::Left,
+                },
+            );
+            send(
+                session,
+                InputEvent::PointerUp {
+                    pointer,
+                    button: PointerButton::Left,
+                },
+            );
+        };
+        let shows = |session: &UiSession, label| {
+            session
+                .tree()
+                .nodes()
+                .iter()
+                .any(|node| node.text.as_deref() == Some(label))
+        };
+        let ribbon_fills = |session: &UiSession| {
+            session
+                .tree()
+                .nodes()
+                .iter()
+                .filter_map(|node| {
+                    let stroke = node.path_style.stroke?;
+                    assert_eq!(stroke.width, 1.0, "the ribbon outline stays thin");
+                    node.path_style.fill
+                })
+                .collect::<Vec<_>>()
+        };
+        let initial_fills = ribbon_fills(&session);
+        let columns = crate::ui::diff_split::Columns::new(viewport, 0.5);
+        let bridge_x = (columns.bridge.left + columns.bridge.right) / 2.0;
+        let addition = Point::new(bridge_x, TOOLBAR_H + 6.0 * height);
+        assert!(send(
+            &mut session,
+            InputEvent::PointerMove(PointerData::mouse(addition)),
+        ));
+        assert_eq!(
+            session.tree().cursor_at(addition),
+            Some(CursorIcon::Pointer)
+        );
+        assert_ne!(ribbon_fills(&session), initial_fills);
+        assert!(
+            session.tree().nodes().iter().any(|node| {
+                node.text.as_deref() == Some("3")
+                    && node.layout_rect.left == columns.numbers[1].left
+                    && node
+                        .text_style
+                        .as_ref()
+                        .is_some_and(|style| style.color == theme::c().text_bright)
+            }),
+            "a highlighted line number uses the brighter text color"
+        );
+        assert!(
+            session.tree().nodes().iter().any(|node| {
+                node.style.fill == Some(theme::c().diff.add_mark)
+                    && (node.layout_rect.top - (TOOLBAR_H + 2.0 * height)).abs() < 1.0
+                    && node.layout_rect.left >= columns.numbers[0].left
+                    && node.layout_rect.right <= columns.numbers[0].right
+            }),
+            "a pure addition has a marker on the old side"
+        );
+        assert!(send(
+            &mut session,
+            InputEvent::PointerLeave(PointerData::mouse(addition)),
+        ));
+        assert_eq!(
+            ribbon_fills(&session),
+            initial_fills,
+            "window leave clears the preview"
+        );
+        assert!(send(
+            &mut session,
+            InputEvent::PointerMove(PointerData::mouse(addition)),
+        ));
+        click(&mut session, addition);
+        assert_eq!(
+            state.get().editor.diff_change_focus.as_ref().unwrap().block,
+            0
+        );
+        click(&mut session, addition);
+        assert!(state.get().editor.diff_change_focus.is_none());
+
+        let blank = Point::new(bridge_x, TOOLBAR_H + height);
+        assert!(send(
+            &mut session,
+            InputEvent::PointerMove(PointerData::mouse(blank)),
+        ));
+        assert_ne!(session.tree().cursor_at(blank), Some(CursorIcon::Pointer));
+        assert_eq!(ribbon_fills(&session), initial_fills);
+        assert!(!shows(&session, "new value"));
+
+        let number = columns.numbers[0];
+        let old_line = Point::new((number.left + number.right) / 2.0, TOOLBAR_H + 4.5 * height);
+        send(
+            &mut session,
+            InputEvent::PointerMove(PointerData::mouse(old_line)),
+        );
+        click(&mut session, old_line);
+        assert_eq!(
+            state.get().editor.diff_change_focus.as_ref().unwrap().block,
+            1
+        );
+        assert!(state.get().editor.diff_selection.is_none());
+        assert!(
+            shows(&session, "new value"),
+            "the other side was scrolled into view"
+        );
+        let focused_fills = ribbon_fills(&session);
+        send(
+            &mut session,
+            InputEvent::PointerMove(PointerData::mouse(blank)),
+        );
+        assert_eq!(
+            ribbon_fills(&session),
+            focused_fills,
+            "focus survives mouse movement"
+        );
+        assert!(
+            state.get().editor.focused,
+            "a change click focuses the diff editor"
+        );
+        click(&mut session, Point::new(100.0, TOOLBAR_H + height));
+        assert!(state.get().editor.diff_change_focus.is_none());
+        assert_ne!(ribbon_fills(&session), focused_fills);
     }
 
     #[test]

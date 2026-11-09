@@ -1,10 +1,14 @@
 //! Diff view snapshot and semantic command port.
-use crate::domain::identity::PaneId;
+use crate::domain::identity::{PaneId, ViewId};
 use crate::features::git::DiffRequest;
+use crate::features::git::diff_document::DiffDocument;
 use crate::features::git::diff_selection::DiffSelection;
 use crate::ui::chrome::tabs_binding::Core;
 use lgui::prelude::UiRect;
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Weak},
+};
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DiffSplit {
     pub drag: Option<PaneId>,
@@ -18,16 +22,40 @@ impl Default for DiffSplit {
         }
     }
 }
+#[derive(Clone)]
+pub struct ChangeFocus {
+    pub view: ViewId,
+    pub document: Weak<DiffDocument>,
+    pub block: usize,
+}
+
+impl ChangeFocus {
+    pub fn is_in(&self, view: ViewId, document: &Arc<DiffDocument>) -> bool {
+        self.view == view && std::ptr::eq(self.document.as_ptr(), Arc::as_ptr(document))
+    }
+
+    pub fn is_current(&self, view: ViewId, document: &Arc<DiffDocument>) -> bool {
+        self.is_in(view, document)
+            || document.sections.as_ref().is_some_and(|sections| {
+                sections
+                    .iter()
+                    .any(|section| self.is_in(view, &section.document))
+            })
+    }
+}
+
 pub struct EditorFrame {
     pub diff_split: DiffSplit,
     pub editor_hovered: Option<PaneId>,
     pub editor_vertical_scrollbar_dragging: bool,
     pub editor_horizontal_scrollbar_dragging: bool,
     pub selection: Option<DiffSelection>,
+    pub change_focus: Option<ChangeFocus>,
 }
 pub struct Snapshot {
     pub workspace: Core,
     pub split: bool,
+    pub change_highlight: bool,
     pub editor: EditorFrame,
 }
 pub enum Command {
@@ -38,7 +66,10 @@ pub enum Command {
     SplitEnd,
     Open(PathBuf),
     Layout(PaneId, bool),
+    ToggleChangeHighlight,
     Navigate(PaneId, Arc<Vec<usize>>, bool),
+    FocusChange(PaneId, ChangeFocus, Option<f32>),
+    DismissChangeFocus(ViewId),
     Toggle(PaneId, DiffRequest),
     ToggleAll(PaneId),
     SelectStart(PaneId, UiRect, (f32, f32)),

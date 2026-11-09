@@ -99,6 +99,8 @@ pub struct GitUiState {
     pub tree_view: bool,
     /// Show diffs side by side.
     pub split_diff: bool,
+    /// Highlight corresponding changes when interacting with a split diff.
+    pub diff_change_highlight: bool,
     /// Blame the caret line in the editor.
     pub inline_blame: bool,
     /// Changed files picked with Ctrl/Shift-click, as `(section, path)`.
@@ -175,6 +177,7 @@ impl Default for GitUiState {
             .collect(),
             tree_view: false,
             split_diff: false,
+            diff_change_highlight: true,
             inline_blame: false,
             selection: HashSet::new(),
             selection_anchor: None,
