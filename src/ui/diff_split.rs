@@ -2,9 +2,9 @@
 use std::sync::Arc;
 
 use lgui::core::{
-    AnimProperty, AnimationBinding, CursorIcon, EventPolicy, PathStyle, Point, PointerButton,
-    SemanticRole, Semantics, Stroke, UiElement, UiFocusHandle, UiId, UiPath, UiPathCommand,
-    UiRenderContext, clip, path,
+    AnimProperty, AnimationBinding, CursorIcon, EventPolicy, PathStyle, PhysicalRect, Point,
+    PointerButton, SemanticRole, Semantics, Stroke, UiElement, UiFocusHandle, UiId, UiPath,
+    UiPathCommand, UiRenderContext, clip, path,
 };
 use lgui::prelude::{Color, Element, UiRect, VisualStyle, panel, text};
 
@@ -443,10 +443,7 @@ fn paint(
         columns.bridge.right,
         columns.gutter.right,
     ] {
-        out = out.child(row_background(
-            UiRect::new(x, rect.top, x + 1.0, rect.bottom),
-            theme::c().border,
-        ));
+        out = out.child(rule(x, rect.top, rect.bottom));
     }
     if !targets.is_empty() {
         out = out.child(clip(rect, 0.0, 0.0).children(targets));
@@ -514,6 +511,22 @@ impl ChangeControls<'_> {
                 cx.stop_propagation();
             })
     }
+}
+
+/// A one-pixel vertical line. The fractional x of a gutter edge, and a scale
+/// above 100%, would otherwise round its two sides apart and draw it thicker.
+fn rule(x: f32, top: f32, bottom: f32) -> Element {
+    Element::new(move |cx| {
+        let scale = cx.context.scale();
+        let left = scale.physical_value(x);
+        let rect = scale.logical_rect(PhysicalRect::new(
+            left,
+            scale.physical_value(top),
+            left + 1,
+            scale.physical_value(bottom),
+        ));
+        UiElement::panel(cx.id, rect, VisualStyle::filled(theme::c().border))
+    })
 }
 
 fn change_areas(columns: Columns, ends: [(f32, f32); 2]) -> Vec<UiRect> {
@@ -640,4 +653,34 @@ fn connector(rect: UiRect, ends: [(f32, f32); 2], fill: Color, border: Color) ->
             stroke: Some(Stroke::new(border, 1.0, 100)),
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lgui::application::AppView;
+    use lgui::core::UiScale;
+    use lgui::prelude::group;
+    use lgui::session::UiSession;
+
+    #[test]
+    fn gutter_rules_stay_one_physical_pixel_wide() {
+        let viewport = UiRect::new(0.0, 0.0, 200.0, 40.0);
+        for factor in [1.0, 1.25, 1.5, 1.75, 2.0] {
+            for x in [10.0, 10.3, 10.5, 10.7, 77.4, 120.9] {
+                let view: AppView = Arc::new(move |_| group(viewport).child(rule(x, 0.0, 40.0)));
+                let mut session = UiSession::new();
+                session.render_view(&view, viewport, UiScale::new(factor));
+                let scale = UiScale::new(factor);
+                let node = session
+                    .tree()
+                    .nodes()
+                    .iter()
+                    .find(|n| n.style.fill == Some(theme::c().border))
+                    .unwrap();
+                let physical = scale.physical_rect(node.layout_rect);
+                assert_eq!(physical.right - physical.left, 1, "x {x} at {factor}");
+            }
+        }
+    }
 }
