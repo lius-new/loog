@@ -203,6 +203,10 @@
       "owner": "ui/chrome/diff_binding DiffSplit",
       "migrated_in": "R8.4"
     },
+    "diff_change_focus": {
+      "owner": "ui/chrome/diff_binding ChangeFocus",
+      "migrated_in": "Split diff linked changes"
+    },
     "tabs": {
       "owner": "ui/chrome/tab_state UiState",
       "migrated_in": "R8.4"
@@ -684,6 +688,11 @@
       "owner": "ui/git/state",
       "migrated_in": "R6.3",
       "from": "git_split_diff"
+    },
+    "diff_change_highlight": {
+      "owner": "ui/git/state",
+      "migrated_in": "Split diff linked changes",
+      "reason": "User preference for highlighting corresponding changes in a split diff"
     },
     "inline_blame": {
       "owner": "ui/git/state",
