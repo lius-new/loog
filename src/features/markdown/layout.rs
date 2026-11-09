@@ -21,6 +21,8 @@ pub struct InlineStyle {
     pub quote: bool,
     /// Extra room after this glyph, where Han text meets Latin text or digits.
     pub spaced: bool,
+    /// A few pixels of room after this glyph, around inline code chips.
+    pub pad: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StyleSpan {
@@ -424,10 +426,53 @@ fn spans(
     if card {
         spans
     } else {
-        separate_scripts(document.text(range.clone()).unwrap_or(""), spans)
+        let text = document.text(range.clone()).unwrap_or("");
+        pad_chips(text, separate_scripts(text, spans))
     }
 }
 
+/// Real room on both sides of an inline code chip: the glyph before it and its
+/// own last glyph get extra advance, so the chip's padding never covers the
+/// neighbouring text. Display text and offsets are unchanged.
+pub(crate) fn pad_chips(text: &str, mut spans: Vec<StyleSpan>) -> Vec<StyleSpan> {
+    spans.sort_by_key(|span| span.bytes.start);
+    let mut padded = vec![false; spans.len()];
+    for (index, span) in spans.iter().enumerate() {
+        if span.style.chip {
+            padded[index] = true;
+            if index > 0 && spans[index - 1].bytes.end == span.bytes.start {
+                padded[index - 1] = true;
+            }
+        }
+    }
+    let mut out = Vec::with_capacity(spans.len() + 2);
+    for (span, pad) in spans.into_iter().zip(padded) {
+        let last = text
+            .get(span.bytes.clone())
+            .and_then(|slice| slice.chars().next_back())
+            .map(char::len_utf8);
+        match last {
+            Some(width) if pad => {
+                let split = span.bytes.end - width;
+                if split > span.bytes.start {
+                    out.push(StyleSpan {
+                        bytes: span.bytes.start..split,
+                        style: span.style,
+                    });
+                }
+                out.push(StyleSpan {
+                    bytes: split..span.bytes.end,
+                    style: InlineStyle {
+                        pad: true,
+                        ..span.style
+                    },
+                });
+            }
+            _ => out.push(span),
+        }
+    }
+    out
+}
 fn is_han(c: char) -> bool {
     matches!(c, '㐀'..='䶿' | '一'..='鿿' | '豈'..='﫿')
 }

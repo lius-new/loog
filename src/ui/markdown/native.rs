@@ -78,7 +78,7 @@ impl Ink {
                 crate::ui::theme::c().text.0,
                 crate::ui::theme::c().text_dim.0,
             ),
-            chip: 0xff000000 | crate::ui::theme::c().active_line.0,
+            chip: 0xff000000 | crate::ui::theme::c().border.0,
             ..Default::default()
         };
         for class in crate::features::highlighting::HighlightId::all() {
@@ -170,13 +170,9 @@ fn text_style(style: InlineStyle, r: &ParagraphRequest<'_>, ink: Ink) -> TextSty
                 ink.text
             }
         })));
-    if style.chip {
-        let mut background = sk::Paint::default();
-        background.set_color(sk::Color::from(ink.chip));
-        out.set_background_paint(&background);
-    }
-    if style.spaced {
-        out.set_letter_spacing(size * r.scale * 0.25);
+    let spacing = if style.spaced { size * 0.25 } else { 0.0 } + if style.pad { 3.0 } else { 0.0 };
+    if spacing > 0.0 {
+        out.set_letter_spacing(spacing * r.scale);
     }
     out.set_font_style(sk::FontStyle::new(
         if style.bold {
@@ -200,7 +196,8 @@ fn text_style(style: InlineStyle, r: &ParagraphRequest<'_>, ink: Ink) -> TextSty
     } else {
         multiplier
     })
-    .set_height_override(true);
+    .set_height_override(true)
+    .set_half_leading(true);
     let mut decoration = TextDecoration::NO_DECORATION;
     if style.strike {
         decoration |= TextDecoration::LINE_THROUGH;
@@ -384,6 +381,7 @@ impl NativeBackend {
         }
         let props = lgui::render_skia::TextRasterization::Grayscale
             .surface_props_with_options(self.ink.rendering);
+        let chip_color = self.ink.chip;
         let cached = self.get(r)?;
         let info = sk::ImageInfo::new_n32_premul((w, h), None);
         let mut surface =
@@ -394,6 +392,54 @@ impl NativeBackend {
         // The UI presents this tile at exactly its native pixel dimensions.
         canvas.scale((density, density));
         canvas.translate((-left, -top));
+        // Inline code sits on rounded chips drawn under the text, one per line.
+        // They are part of this tile, so they scroll and cache with it.
+        let index = ParagraphIndex::new(r.text);
+        let mut chip = sk::Paint::default();
+        chip.set_anti_alias(true);
+        chip.set_color(sk::Color::from(chip_color));
+        for span in r.spans.iter().filter(|span| span.style.chip) {
+            let (Some(a), Some(b)) = (
+                index.scalar(span.bytes.start).and_then(|s| index.utf16(s)),
+                index.scalar(span.bytes.end).and_then(|s| index.utf16(s)),
+            ) else {
+                continue;
+            };
+            let mut line: Option<sk::Rect> = None;
+            let mut boxes = cached
+                .paragraph
+                .get_rects_for_range(a..b, RectHeightStyle::Tight, RectWidthStyle::Tight)
+                .into_iter()
+                .map(|text_box| text_box.rect)
+                .collect::<Vec<_>>();
+            boxes.sort_by(|x, y| x.top.total_cmp(&y.top).then(x.left.total_cmp(&y.left)));
+            let mut lines = Vec::new();
+            for rect in boxes {
+                match &mut line {
+                    Some(current) if (rect.top - current.top).abs() < 1.0 => {
+                        current.right = current.right.max(rect.right);
+                        current.left = current.left.min(rect.left);
+                    }
+                    _ => lines.extend(line.replace(rect)),
+                }
+            }
+            lines.extend(line);
+            for rect in lines {
+                // The tight box already hugs the glyphs; the chip adds a little
+                // room on every side.
+                canvas.draw_round_rect(
+                    sk::Rect::new(
+                        rect.left - 3.0,
+                        rect.top - 1.0,
+                        rect.right,
+                        rect.bottom + 1.0,
+                    ),
+                    4.0,
+                    4.0,
+                    &chip,
+                );
+            }
+        }
         cached.paragraph.paint(canvas, (0.0, 0.0));
         let data = surface
             .image_snapshot()

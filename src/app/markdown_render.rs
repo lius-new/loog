@@ -620,6 +620,12 @@ fn render(
             } else {
                 placed.viewport_width.min(key.width - placed.x).max(1.0)
             };
+            // A chip's padding reaches past the text column; the tile covers it.
+            let (left, width) = if placed.wrap && r.spans.iter().any(|span| span.style.chip) {
+                (left - 4.0, width + 8.0)
+            } else {
+                (left, width)
+            };
             let mut y = top;
             while y < bottom {
                 // Keep the native tile allocation bounded even at large device scales.
