@@ -594,14 +594,25 @@ mod tests {
                     .filter_map(|node| node.text.as_deref())
                     .collect::<Vec<_>>()
             };
-            // Both modes must share the same toolbar geometry and file headings.
-            // Only the Inline/Split button's selected appearance may differ.
+            // Both modes must share the same toolbar sizes and file headings.
+            // Only the Inline/Split button's selected appearance may differ, and
+            // split adds the linked-change toggle at the right end, which moves
+            // the right-aligned buttons sideways, so toolbar x positions are left out.
             let mut chrome = session
                 .tree()
                 .nodes()
                 .iter()
                 .filter(|node| node.layout_rect.bottom <= TOOLBAR_H && node.text.is_some())
-                .map(|node| format!("{:?} {:?}", node.layout_rect, node.text))
+                .map(|node| {
+                    let rect = node.layout_rect;
+                    format!(
+                        "{} {} {} {:?}",
+                        rect.width(),
+                        rect.top,
+                        rect.bottom,
+                        node.text
+                    )
+                })
                 .collect::<Vec<_>>();
             for expected in ["src/app.rs", "src/ui/git_panel.rs", "notes/review.md"] {
                 assert!(texts().contains(&expected), "Missing {expected}");
