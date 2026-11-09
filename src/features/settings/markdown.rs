@@ -11,8 +11,8 @@ impl Default for MarkdownSettings {
     fn default() -> Self {
         Self {
             font_size: 16,
-            line_height: 22,
-            max_width: 960,
+            line_height: 26,
+            max_width: 840,
         }
     }
 }

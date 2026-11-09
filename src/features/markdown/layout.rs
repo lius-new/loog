@@ -10,11 +10,17 @@ pub struct InlineStyle {
     pub italic: bool,
     pub strike: bool,
     pub code: bool,
+    /// Inline code in a page, drawn on a tinted chip to stand out from prose.
+    pub chip: bool,
     pub heading: u8,
     pub link: Option<NodeId>,
     pub foreground: Option<u32>,
     /// Quieter text, such as the module path above a signature.
     pub muted: bool,
+    /// Text inside a quotation: dimmer than body text, brighter than `muted`.
+    pub quote: bool,
+    /// Extra room after this glyph, where Han text meets Latin text or digits.
+    pub spaced: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StyleSpan {
@@ -232,6 +238,8 @@ pub enum Decoration {
         node: NodeId,
         rect: TextRect,
         header: bool,
+        /// Every second body row, tinted to guide the eye along wide tables.
+        stripe: bool,
         first_column: bool,
         alignment: ColumnAlignment,
     },
@@ -369,6 +377,10 @@ fn spans(
         if matches!(node.kind, NodeKind::TableRow { header: true }) {
             base.bold = true;
         }
+        // A page quotes in a quieter colour; a card keeps its own palette.
+        if !card && matches!(node.kind, NodeKind::Quote) {
+            base.quote = true;
+        }
         parent = node.parent;
     }
     let mut spans = Vec::new();
@@ -388,6 +400,7 @@ fn spans(
             NodeKind::Strikethrough => style.strike = true,
             NodeKind::Code | NodeKind::CodeBlock { .. } | NodeKind::Html { block: true } => {
                 style.code = true;
+                style.chip = !card && matches!(node.kind, NodeKind::Code);
                 style.muted = card && is_path_block(document, id);
             }
             NodeKind::Link { .. } => style.link = Some(id),
@@ -408,7 +421,67 @@ fn spans(
             }
         }
     }
-    spans
+    if card {
+        spans
+    } else {
+        separate_scripts(document.text(range.clone()).unwrap_or(""), spans)
+    }
+}
+
+fn is_han(c: char) -> bool {
+    matches!(c, '㐀'..='䶿' | '一'..='鿿' | '豈'..='﫿')
+}
+fn is_latin(c: char) -> bool {
+    c.is_ascii_alphanumeric()
+}
+/// Opens a quarter-em gap where Han text meets Latin letters or digits, as
+/// typesetters do between the scripts. Only the glyph before the boundary gets
+/// extra advance, so the display text, offsets and selection are unchanged.
+pub(crate) fn separate_scripts(text: &str, spans: Vec<StyleSpan>) -> Vec<StyleSpan> {
+    let mut out = Vec::with_capacity(spans.len());
+    for span in spans {
+        let Some(slice) = text.get(span.bytes.clone()) else {
+            out.push(span);
+            continue;
+        };
+        if span.style.code {
+            out.push(span);
+            continue;
+        }
+        let mut chars = slice.char_indices().peekable();
+        let mut from = 0;
+        while let Some((at, current)) = chars.next() {
+            let Some(&(_, next)) = chars.peek() else {
+                break;
+            };
+            if (is_han(current) && is_latin(next)) || (is_latin(current) && is_han(next)) {
+                let end = at + current.len_utf8();
+                if from < at {
+                    out.push(StyleSpan {
+                        bytes: span.bytes.start + from..span.bytes.start + at,
+                        style: span.style,
+                    });
+                }
+                out.push(StyleSpan {
+                    bytes: span.bytes.start + at..span.bytes.start + end,
+                    style: InlineStyle {
+                        spaced: true,
+                        ..span.style
+                    },
+                });
+                from = end;
+            }
+        }
+        if from == 0 {
+            out.push(span);
+        } else if from < slice.len() {
+            out.push(StyleSpan {
+                bytes: span.bytes.start + from..span.bytes.end,
+                style: span.style,
+            });
+        }
+    }
+    out
 }
 struct Placer<'a, B> {
     out: DocumentLayout,
@@ -603,13 +676,18 @@ impl<B: ParagraphBackend> Placer<'_, B> {
         let cell_width = (width / count as f32).max(self.out.style.minimum_cell_width);
         let padding = self.out.style.padding;
         let rows = self.out.document.children(id).collect::<Vec<_>>();
+        // Cells need less air above and below than beside their text.
+        let pad_y = (padding * 0.6).round();
+        let mut body_rows = 0usize;
         for row in rows {
             let begin = self.out.paragraphs.len();
-            let mut height = self.out.style.line_height + padding * 2.0;
+            let mut height = self.out.style.line_height + pad_y * 2.0;
             let header = matches!(
                 self.out.document.nodes[row.0].kind,
                 NodeKind::TableRow { header: true }
             );
+            let stripe = !header && body_rows % 2 == 1;
+            body_rows += usize::from(!header);
             let cells = self.out.document.children(row).collect::<Vec<_>>();
             for (column, cell) in cells.into_iter().enumerate() {
                 let range = self.out.document.nodes[cell.0].display.clone();
@@ -617,7 +695,7 @@ impl<B: ParagraphBackend> Placer<'_, B> {
                     cell,
                     range,
                     x + column as f32 * cell_width + padding,
-                    y + padding,
+                    y + pad_y,
                     cell_width - padding * 2.0,
                     true,
                     columns
@@ -625,7 +703,7 @@ impl<B: ParagraphBackend> Placer<'_, B> {
                         .copied()
                         .unwrap_or(ColumnAlignment::None),
                 )?;
-                height = height.max(self.out.paragraphs[paragraph].summary.height + padding * 2.0);
+                height = height.max(self.out.paragraphs[paragraph].summary.height + pad_y * 2.0);
                 self.out.decorations.push(Decoration::TableCell {
                     node: cell,
                     rect: TextRect {
@@ -635,6 +713,7 @@ impl<B: ParagraphBackend> Placer<'_, B> {
                         bottom: 0.0,
                     },
                     header,
+                    stripe,
                     first_column: column == 0,
                     alignment: columns
                         .get(column)
@@ -728,7 +807,8 @@ pub fn layout_with_images(
         lines: 0,
     };
     let mut pending = vec![(NodeId(0), 0usize, 0usize)];
-    let mut y = style.padding;
+    // A page keeps its first line close to the top edge; a card has no padding.
+    let mut y = if style.card { style.padding } else { 4.0 };
     while let Some((id, indent, quote)) = pending.pop() {
         if cancelled() {
             return Err(LayoutFailure {
@@ -870,6 +950,15 @@ pub fn layout_with_images(
             // A heading in a card sits closer to what it introduces than to what precedes it.
             if style.card && heading && y > 0.0 {
                 y += 4.0;
+            } else if heading && y > 0.0 {
+                // A page heading opens a section: more air above than below,
+                // growing with its rank.
+                y += match node.kind {
+                    NodeKind::Heading { level: 1 } => 18.0,
+                    NodeKind::Heading { level: 2 } => 16.0,
+                    NodeKind::Heading { level: 3 } => 10.0,
+                    _ => 6.0,
+                };
             }
             let start = placer.out.paragraphs.len();
             let mut range = node.display;
@@ -1024,7 +1113,7 @@ pub fn layout_with_images(
                     rect: TextRect {
                         left: x - style.indent * 0.5,
                         top: y,
-                        right: x - style.indent * 0.5 + 2.0,
+                        right: x - style.indent * 0.5 + 3.0,
                         bottom: y + height,
                     },
                 });
@@ -1049,6 +1138,18 @@ pub fn layout_with_images(
                 pending.push((child, indent, quote));
             }
         }
+    }
+    // The first block also owns the room above it. A reading position inside
+    // that room then maps back to itself, instead of snapping to the block's
+    // text and hiding the margin.
+    if let Some(first) = placer
+        .out
+        .boxes
+        .iter_mut()
+        .min_by(|a, b| a.top.total_cmp(&b.top))
+    {
+        first.height += first.top;
+        first.top = 0.0;
     }
     placer.out.source_boxes = (0..placer.out.boxes.len()).collect();
     placer.out.source_boxes.sort_by_key(|index| {

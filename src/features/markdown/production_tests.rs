@@ -864,3 +864,27 @@ fn markdown_selection_scrolls_at_code_block_edges_and_clamps_offsets() {
     assert!(state.drag_point.is_none());
     assert!(state.pressed.is_none());
 }
+
+#[test]
+fn han_text_meeting_latin_gets_extra_advance_only_on_the_glyph_before_the_boundary() {
+    let text = "中文ab数字 x";
+    let span = StyleSpan {
+        bytes: 0..text.len(),
+        style: InlineStyle::default(),
+    };
+    let spans = separate_scripts(text, vec![span]);
+    // Every byte stays covered once, in order, so display offsets are unchanged.
+    let mut next = 0;
+    for span in &spans {
+        assert_eq!(span.bytes.start, next);
+        next = span.bytes.end;
+    }
+    assert_eq!(next, text.len());
+    let spaced = spans
+        .iter()
+        .filter(|span| span.style.spaced)
+        .map(|span| &text[span.bytes.clone()])
+        .collect::<Vec<_>>();
+    // 文|a and b|数 are boundaries; "字 x" has a real space and gets none.
+    assert_eq!(spaced, ["文", "b"]);
+}

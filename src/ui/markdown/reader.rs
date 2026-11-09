@@ -309,6 +309,24 @@ pub fn render_in(
                     ));
                     let copy = binding.clone();
                     let node = *node;
+                    if let crate::features::markdown::model::NodeKind::CodeBlock {
+                        language: Some(language),
+                        ..
+                    } = &frame.document.nodes[node.0].kind
+                        && !language.is_empty()
+                    {
+                        // The language sits left of the copy button.
+                        content = content.child(text(
+                            UiRect::new(
+                                (bounds.right - 36.0 - 120.0).max(bounds.left),
+                                bounds.top + 6.0,
+                                (bounds.right - 36.0).max(bounds.left),
+                                bounds.top + 28.0,
+                            ),
+                            language.clone(),
+                            theme::mono_right(theme::c().text_dim, theme::SMALL),
+                        ));
+                    }
                     let copied = recently_copied(node);
                     let button = UiRect::new(
                         (bounds.right - 30.0).max(bounds.left),
@@ -413,7 +431,7 @@ pub fn render_in(
                                 .trim()
                                 .to_owned(),
                         },
-                        theme::sans(theme::c().text, 16.0 * frame.layout.style.scale),
+                        theme::sans(theme::c().text_soft, 16.0 * frame.layout.style.scale),
                     ));
                 }
             }
@@ -421,6 +439,7 @@ pub fn render_in(
                 node,
                 rect: bounds,
                 header,
+                stripe,
                 first_column,
                 ..
             } => {
@@ -433,6 +452,12 @@ pub fn render_in(
                 bounds.left -= offset;
                 bounds.right -= offset;
                 if bounds.bottom > rect.top && bounds.top < rect.bottom {
+                    if *stripe {
+                        content = content.child(panel(
+                            bounds,
+                            VisualStyle::filled(theme::c().active_line).alpha(80),
+                        ));
+                    }
                     if *header {
                         content = content
                             .child(panel(bounds, VisualStyle::filled(theme::c().active_line)))

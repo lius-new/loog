@@ -29,6 +29,9 @@ pub struct Ink {
     pub link: u32,
     pub code: u32,
     pub muted: u32,
+    pub quote: u32,
+    /// Fill behind inline code.
+    pub chip: u32,
     pub syntax: [u32; crate::features::highlighting::HighlightId::COUNT],
 }
 impl Default for Ink {
@@ -39,6 +42,8 @@ impl Default for Ink {
             link: 0xff70a5ff,
             code: 0xffd4d4d4,
             muted: 0xff9a9a9a,
+            quote: 0xffb4b4b4,
+            chip: 0xff2a2a2a,
             syntax: [0xffd4d4d4; crate::features::highlighting::HighlightId::COUNT],
         }
     }
@@ -56,6 +61,11 @@ struct Key {
     line: f32,
     ink: Ink,
 }
+/// Halfway between two `0xRRGGBB` colours, fully opaque.
+fn mix(a: u32, b: u32) -> u32 {
+    let channel = |shift: u32| (((a >> shift) & 0xff) + ((b >> shift) & 0xff)) / 2;
+    0xff000000 | channel(16) << 16 | channel(8) << 8 | channel(0)
+}
 impl Ink {
     pub fn current() -> Self {
         let mut out = Self {
@@ -64,6 +74,11 @@ impl Ink {
             link: 0xff000000 | crate::ui::theme::c().accent.0,
             code: 0xff000000 | crate::ui::theme::c().text_bright.0,
             muted: 0xff000000 | crate::ui::theme::c().text_dim.0,
+            quote: mix(
+                crate::ui::theme::c().text.0,
+                crate::ui::theme::c().text_dim.0,
+            ),
+            chip: 0xff000000 | crate::ui::theme::c().active_line.0,
             ..Default::default()
         };
         for class in crate::features::highlighting::HighlightId::all() {
@@ -131,10 +146,11 @@ fn text_style(style: InlineStyle, r: &ParagraphRequest<'_>, ink: Ink) -> TextSty
     lgui::render_skia::TextRasterization::Grayscale.configure_with_options(&mut out, ink.rendering);
     let size = if style.heading > 0 {
         match style.heading {
-            1 => 30.0,
-            2 => 25.0,
+            1 => 32.0,
+            2 => 26.0,
             3 => 21.0,
-            _ => 18.0,
+            4 => 18.0,
+            _ => 16.0,
         }
     } else {
         16.0
@@ -146,12 +162,22 @@ fn text_style(style: InlineStyle, r: &ParagraphRequest<'_>, ink: Ink) -> TextSty
                 ink.link
             } else if style.muted {
                 ink.muted
+            } else if style.quote {
+                ink.quote
             } else if style.code {
                 ink.code
             } else {
                 ink.text
             }
         })));
+    if style.chip {
+        let mut background = sk::Paint::default();
+        background.set_color(sk::Color::from(ink.chip));
+        out.set_background_paint(&background);
+    }
+    if style.spaced {
+        out.set_letter_spacing(size * r.scale * 0.25);
+    }
     out.set_font_style(sk::FontStyle::new(
         if style.bold {
             sk::font_style::Weight::BOLD
@@ -165,7 +191,16 @@ fn text_style(style: InlineStyle, r: &ParagraphRequest<'_>, ink: Ink) -> TextSty
             sk::font_style::Slant::Upright
         },
     ));
-    out.set_height(r.line_height / (16.0 * r.scale).max(1.0));
+    // Without the override Skia ignores the multiplier and uses each font's own
+    // spacing, so the line height setting would have no effect. A large
+    // heading keeps a tighter multiplier than body text.
+    let multiplier = r.line_height / (16.0 * r.scale).max(1.0);
+    out.set_height(if style.heading > 0 {
+        multiplier.min(1.35)
+    } else {
+        multiplier
+    })
+    .set_height_override(true);
     let mut decoration = TextDecoration::NO_DECORATION;
     if style.strike {
         decoration |= TextDecoration::LINE_THROUGH;

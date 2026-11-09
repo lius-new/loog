@@ -249,7 +249,7 @@ The default bindings are in [`assets/keymaps/default.json`](../assets/keymaps/de
 
 ## Markdown reading
 
-Use `"markdown": {"font_size": 16, "line_height": 22, "max_width": 960}` in user
+Use `"markdown": {"font_size": 16, "line_height": 26, "max_width": 840}` in user
 or project settings. See [Markdown reading](markdown.md) for ranges, actions
 and resource policy.
 

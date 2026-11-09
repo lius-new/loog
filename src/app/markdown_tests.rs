@@ -1254,3 +1254,17 @@ fn markdown_code_selection_automatically_scrolls_right_and_left_until_release() 
             ))
     );
 }
+
+#[test]
+fn a_page_opens_with_room_above_its_first_line_and_can_still_scroll() {
+    let source = format!(
+        "# Heading\n\n{}",
+        (0..200)
+            .map(|line| format!("paragraph {line} content\n\n"))
+            .collect::<String>()
+    );
+    let mut reader = Reader::new(source);
+    reader.wait(|reader| reader.text_rect("Heading").is_some());
+    let top = reader.text_rect("Heading").unwrap().top;
+    assert!(top >= 2.0, "first line starts {top}px from the top");
+}
