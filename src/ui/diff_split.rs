@@ -2,9 +2,9 @@
 use std::sync::Arc;
 
 use lgui::core::{
-    AnimProperty, AnimationBinding, CursorIcon, EventPolicy, PathStyle, PhysicalRect, Point,
-    PointerButton, SemanticRole, Semantics, Stroke, UiElement, UiFocusHandle, UiId, UiPath,
-    UiPathCommand, UiRenderContext, clip, path,
+    AnimProperty, AnimationBinding, CursorIcon, EventPolicy, PathStyle, Point, PointerButton,
+    SemanticRole, Semantics, Stroke, UiElement, UiFocusHandle, UiId, UiPath, UiPathCommand,
+    UiRenderContext, clip, path,
 };
 use lgui::prelude::{Color, Element, UiRect, VisualStyle, panel, text};
 
@@ -513,19 +513,22 @@ impl ChangeControls<'_> {
     }
 }
 
-/// A one-pixel vertical line. The fractional x of a gutter edge, and a scale
-/// above 100%, would otherwise round its two sides apart and draw it thicker.
+/// A vertical line centred on `x` and snapped like the resize divider drawn
+/// over the first gutter edge (`resize_handle`). Both must cover the same
+/// physical pixels, or the two lines sit side by side and read as one thick one.
 fn rule(x: f32, top: f32, bottom: f32) -> Element {
     Element::new(move |cx| {
         let scale = cx.context.scale();
-        let left = scale.physical_value(x);
-        let rect = scale.logical_rect(PhysicalRect::new(
-            left,
-            scale.physical_value(top),
-            left + 1,
-            scale.physical_value(bottom),
-        ));
-        UiElement::panel(cx.id, rect, VisualStyle::filled(theme::c().border))
+        let factor = scale.factor();
+        let left = scale.physical_value(x - 0.5) as f32 / factor;
+        let width = scale.physical_length(1.0) as f32 / factor;
+        let top = scale.physical_value(top) as f32 / factor;
+        let bottom = scale.physical_value(bottom) as f32 / factor;
+        UiElement::panel(
+            cx.id,
+            UiRect::new(left, top, left + width, bottom),
+            VisualStyle::filled(theme::c().border),
+        )
     })
 }
 
@@ -663,23 +666,34 @@ mod tests {
     use lgui::prelude::group;
     use lgui::session::UiSession;
 
+    fn physical_span(session: &UiSession, scale: UiScale) -> (i32, i32) {
+        let node = session
+            .tree()
+            .nodes()
+            .iter()
+            .find(|n| n.style.fill == Some(theme::c().border))
+            .unwrap();
+        let rect = scale.physical_rect(node.layout_rect);
+        (rect.left, rect.right)
+    }
+
     #[test]
-    fn gutter_rules_stay_one_physical_pixel_wide() {
+    fn gutter_rules_cover_the_same_pixels_as_the_resize_divider_over_them() {
         let viewport = UiRect::new(0.0, 0.0, 200.0, 40.0);
         for factor in [1.0, 1.25, 1.5, 1.75, 2.0] {
+            let scale = UiScale::new(factor);
             for x in [10.0, 10.3, 10.5, 10.7, 77.4, 120.9] {
                 let view: AppView = Arc::new(move |_| group(viewport).child(rule(x, 0.0, 40.0)));
                 let mut session = UiSession::new();
-                session.render_view(&view, viewport, UiScale::new(factor));
-                let scale = UiScale::new(factor);
-                let node = session
-                    .tree()
-                    .nodes()
-                    .iter()
-                    .find(|n| n.style.fill == Some(theme::c().border))
-                    .unwrap();
-                let physical = scale.physical_rect(node.layout_rect);
-                assert_eq!(physical.right - physical.left, 1, "x {x} at {factor}");
+                session.render_view(&view, viewport, scale);
+                // The divider's line: centred on x, snapped by its left edge.
+                let left = scale.physical_value(x - 0.5);
+                let expected = (left, left + scale.physical_length(1.0));
+                assert_eq!(
+                    physical_span(&session, scale),
+                    expected,
+                    "x {x} at {factor}"
+                );
             }
         }
     }
