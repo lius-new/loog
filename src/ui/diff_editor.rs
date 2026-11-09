@@ -81,7 +81,13 @@ pub fn render(
     let additions = document.additions();
     let deletions = document.deletions();
     let (stored_x, stored_y) = app.workspace.scroll(pane);
-    let current_line = (stored_y / row_h()).floor() as usize;
+    // The pinned file heading covers the top rows of the all-files view.
+    let heading_inset = if overview.is_some() {
+        file_heading_h()
+    } else {
+        0.0
+    };
+    let current_line = ((stored_y + heading_inset) / row_h()).floor() as usize;
     let current_change = current_change_number(&starts, current_line);
 
     let body_top = rect.top + TOOLBAR_H;
@@ -728,6 +734,12 @@ fn block_buttons(
 /// Build only visible file sections; the existing inline/split renderers
 /// further limit each visible section to the rows inside the viewport.
 #[allow(clippy::too_many_arguments)]
+/// Height of a file heading in the all-files view, which stays pinned at the top
+/// while its file's rows scroll beneath it.
+pub(crate) fn file_heading_h() -> f32 {
+    row_h() * 2.0
+}
+
 fn render_changes(
     pane: PaneId,
     rect: UiRect,
@@ -744,6 +756,8 @@ fn render_changes(
 ) -> Element {
     let sections = overview.sections.as_ref().unwrap();
     let mut body = clip(rect, 0.0, 0.0);
+    // The heading of the file under the top edge, drawn last so it covers rows.
+    let mut pinned = None;
     let first = layout
         .sections
         .partition_point(|item| (item.body_top + item.body_rows) as f32 * row_h() < scroll_y);
@@ -754,7 +768,16 @@ fn render_changes(
         }
         let section = &sections[item.index];
         let document = &section.document;
-        let header = UiRect::new(rect.left, top, rect.right, top + row_h() * 2.0);
+        let body_end = rect.top + (item.body_top + item.body_rows) as f32 * row_h() - scroll_y;
+        // A file whose heading has scrolled off keeps it at the top edge until
+        // its last row passes, when the next file's heading pushes it out.
+        let is_pinned = item.body_rows > 0 && top < rect.top && body_end > rect.top;
+        let top = if is_pinned {
+            rect.top.min(body_end - file_heading_h())
+        } else {
+            top
+        };
+        let header = UiRect::new(rect.left, top, rect.right, top + file_heading_h());
         let toggle_state = state.clone();
         let request = section.request();
         let toggle_request = request.clone();
@@ -900,7 +923,11 @@ fn render_changes(
                     }
                 }),
         );
-        body = body.child(file_header);
+        if is_pinned {
+            pinned = Some(file_header);
+        } else {
+            body = body.child(file_header);
+        }
         if collapsed {
             continue;
         }
@@ -962,6 +989,9 @@ fn render_changes(
             }
         }
         body = body.child(file_body);
+    }
+    if let Some(pinned) = pinned {
+        body = body.child(pinned);
     }
     body
 }

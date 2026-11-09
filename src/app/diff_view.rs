@@ -444,7 +444,18 @@ fn navigate_change(app: &mut AppState, starts: &[usize], next: bool) {
         return;
     }
     let (x, y) = app.workspace.active_scroll();
-    let current = (y / row_h()).floor() as usize;
+    // In the all-files view a pinned heading covers the top rows, so a change
+    // counts as at the top when it sits just below it.
+    let inset = if app
+        .workspace
+        .active_diff()
+        .is_some_and(|diff| diff.sections.is_some())
+    {
+        crate::ui::diff_editor::file_heading_h()
+    } else {
+        0.0
+    };
+    let current = ((y + inset) / row_h()).floor() as usize;
     let target = if next {
         starts
             .iter()
@@ -459,7 +470,8 @@ fn navigate_change(app: &mut AppState, starts: &[usize], next: bool) {
             .find(|start| *start < current)
             .unwrap_or(*starts.last().expect("change list is not empty"))
     };
-    app.workspace.set_active_scroll(x, target as f32 * row_h());
+    app.workspace
+        .set_active_scroll(x, (target as f32 * row_h() - inset).max(0.0));
 }
 #[cfg(test)]
 mod tests {
@@ -770,6 +782,58 @@ mod tests {
                 session.tree().nodes().len() < 600,
                 "Offscreen files must not create UI nodes"
             );
+            // The heading of a file whose first rows scrolled off stays at the
+            // top, and is pushed out as the file's last row leaves.
+            state.update(|app| {
+                app.workspace.open_diff(sample_overview(1000));
+            });
+            let (layout, name) = {
+                let app = state.get();
+                let collapsed = app.workspace.collapsed_diffs(app.workspace.active_pane());
+                let document = app.workspace.active_diff().unwrap();
+                let layout = document.changes_layout(split, &collapsed);
+                let item = layout
+                    .sections
+                    .iter()
+                    .find(|item| item.body_rows > 0)
+                    .expect("an expanded file");
+                (
+                    (item.index, item.top, item.body_top, item.body_rows),
+                    document.sections.as_ref().unwrap()[item.index]
+                        .document
+                        .path
+                        .clone(),
+                )
+            };
+            let (_, top, body_top, body_rows) = layout;
+            let label = format!("Collapse {}", name.display());
+            let heading_top = |session: &UiSession| {
+                session
+                    .tree()
+                    .nodes()
+                    .iter()
+                    .find(|node| {
+                        node.semantics.as_ref().and_then(|s| s.name.as_deref())
+                            == Some(label.as_str())
+                    })
+                    .map(|node| node.layout_rect.top)
+            };
+            let heading_h = crate::ui::diff_editor::file_heading_h();
+            for (scroll, expected) in [
+                ((top + 1) as f32 * row_h(), TOOLBAR_H),
+                (
+                    (body_top + body_rows) as f32 * row_h() - heading_h / 2.0,
+                    TOOLBAR_H - heading_h / 2.0,
+                ),
+            ] {
+                state.update(|app| app.workspace.set_active_scroll(0.0, scroll));
+                session.render_view(&view, viewport, UiScale::ONE);
+                assert_eq!(
+                    heading_top(&session),
+                    Some(expected),
+                    "pinned heading at scroll {scroll}, split={split}"
+                );
+            }
         }
     }
 
