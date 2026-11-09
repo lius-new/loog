@@ -1304,6 +1304,13 @@ mod panel_virtualization_tests {
             terminal_button
         );
         assert_eq!(named(&session, "Commits"), Some(commits_button));
+        for button in [terminal_button, commits_button] {
+            assert_eq!(
+                session.tree().cursor_at(center(button)),
+                Some(lgui::core::CursorIcon::Pointer),
+                "{button:?}"
+            );
+        }
         assert!(named(&session, "New terminal").is_none());
         assert!(
             named(&session, "History").is_none(),

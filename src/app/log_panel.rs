@@ -421,6 +421,17 @@ fn chip(
     button
 }
 
+/// A toolbar spans the whole header to place its tools, but must not catch
+/// the pointer: the dock switcher underneath it keeps its own hit area and cursor.
+fn toolbar_root(bar: UiRect, key: &'static str) -> Element {
+    Element::new(move |cx| {
+        UiElement::group(cx.id, bar)
+            .hit_rect(UiRect::new(bar.left, bar.top, bar.left, bar.top))
+            .children(cx.children)
+    })
+    .key(key)
+}
+
 fn set(state: &AppContext, change: impl FnOnce(&mut LogPanel) + Send + 'static) {
     state.model().update(move |app| change(&mut app.log_panel));
 }
@@ -444,9 +455,7 @@ fn output_toolbar(
     let slots = tools.slots.clone();
     let tools_left = tools.left - 8.0;
     // The header's own space, so the tools sit at its right end like the terminal's.
-    let mut root = group(bar)
-        .key("log-toolbar")
-        .child(header::rule(bar, tools.rule));
+    let mut root = toolbar_root(bar, "log-toolbar").child(header::rule(bar, tools.rule));
 
     // The channel picker takes the room the tools leave.
     let title = shown
@@ -1046,9 +1055,7 @@ fn problems_toolbar(
 ) -> Element {
     let c = theme::c();
     let tools = header::dock_tools(bar, 1);
-    let mut root = group(bar)
-        .key("problems-toolbar")
-        .child(header::rule(bar, tools.rule));
+    let mut root = toolbar_root(bar, "problems-toolbar").child(header::rule(bar, tools.rule));
     let _ = free;
     let top = bar.top + (bar.height() - 22.0) / 2.0;
     // The three severities are icons with their counts at the right end, beside the
@@ -1664,6 +1671,21 @@ mod tests {
     /// Renders the panel for `tab` in a `width`×`height` dock and returns the
     /// node names it produced, so layout or paint panics show up at odd sizes.
     fn render_names(tab: PanelTab, width: f32, height: f32, open_find: bool) -> Vec<String> {
+        render_session(tab, width, height, open_find, true)
+            .tree()
+            .nodes()
+            .iter()
+            .filter_map(|n| n.semantics.as_ref().and_then(|s| s.name.clone()))
+            .collect()
+    }
+
+    fn render_session(
+        tab: PanelTab,
+        width: f32,
+        height: f32,
+        open_find: bool,
+        menu: bool,
+    ) -> lgui::session::UiSession {
         use crate::app::state::AppState;
         use crate::app::terminal_binding::TerminalTabs;
         use lgui::application::{AppView, ApplicationContext};
@@ -1683,7 +1705,7 @@ mod tests {
                 app.terminal_chrome.show_terminal = true;
                 app.terminal.ui.panel_tab = tab;
                 app.log_panel.find_open = open_find;
-                app.log_panel.menu = Some(Menu::Channels((20.0, 60.0)));
+                app.log_panel.menu = menu.then_some(Menu::Channels((20.0, 60.0)));
                 app
             }));
             let tabs = crate::app::terminal_binding::test_store(
@@ -1716,11 +1738,30 @@ mod tests {
         let mut session = UiSession::new();
         session.render_view(&view, viewport, UiScale::new(1.0));
         session
-            .tree()
-            .nodes()
-            .iter()
-            .filter_map(|n| n.semantics.as_ref().and_then(|s| s.name.clone()))
-            .collect()
+    }
+
+    #[test]
+    fn the_dock_switcher_keeps_its_hand_cursor_over_every_panel() {
+        for tab in [PanelTab::Output, PanelTab::Problems] {
+            let session = render_session(tab, 900.0, 260.0, false, false);
+            for id in [
+                "bottom-panel-terminal",
+                "bottom-panel-commits",
+                "bottom-panel-output",
+                "bottom-panel-problems",
+            ] {
+                let rect = session.tree().node(&UiId::new(id)).unwrap().layout_rect;
+                let centre = lgui::core::Point::new(
+                    (rect.left + rect.right) / 2.0,
+                    (rect.top + rect.bottom) / 2.0,
+                );
+                assert_eq!(
+                    session.tree().cursor_at(centre),
+                    Some(CursorIcon::Pointer),
+                    "{id} on {tab:?}"
+                );
+            }
+        }
     }
 
     #[test]

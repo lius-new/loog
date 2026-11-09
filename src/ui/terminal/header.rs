@@ -247,7 +247,10 @@ pub(super) fn category(
         )
         .children(cx.children)
     })
-    .key("bottom-panel-categories");
+    .key("bottom-panel-categories")
+    // The segmented control is one target: the padding and the gaps between
+    // its segments keep the hand instead of flickering back to an arrow.
+    .cursor(CursorIcon::Pointer);
     let mut left = track.left + 3.0;
     for (tab, width) in PanelTab::ALL.into_iter().zip(widths) {
         let (label, glyph, id) = (tab.label(), tab.glyph(), tab.node_id());

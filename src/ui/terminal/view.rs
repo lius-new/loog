@@ -1274,6 +1274,9 @@ pub(crate) fn render_terminal_tabs(
                 .children(cx.children)
         })
         .key(format!("terminal-tab-{tab_id}"))
+        // Padding and the gap before the close button belong to the tab, so
+        // they share its hand instead of showing an arrow.
+        .cursor(CursorIcon::Pointer)
         .event_policy(EventPolicy {
             hover: true,
             press: false,
