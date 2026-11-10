@@ -59,6 +59,7 @@ jobs:
           cargo fmt --all -- --check
           cargo fmt --manifest-path tools/ext-validate/Cargo.toml -- --check
           node scripts/architecture/check.mjs
+          node scripts/dependencies/tree-sitter-patch.mjs check
   core:
     name: Independent editor and workspace rules
     runs-on: ubuntu-24.04

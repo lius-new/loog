@@ -82,7 +82,9 @@ that resource rather than silently selecting another backend.
 
 Manifest discovery and parsing are separate: discovering a collection does not
 load its grammar. WASM uses a shared lazily initialized engine and a mutable
-store per parser. Native handles outlive their languages/trees/queries. Failures
+store per parser. Grammars are compiled by a short-lived engine and loaded as
+serialized modules, because an engine keeps its compiler state alive (see
+`vendor/tree-sitter/LOOG-PATCH.md`). Native handles outlive their languages/trees/queries. Failures
 are isolated and cached, with resource generation allowing newly available
 resources to be reconsidered. Legacy collection compatibility, overrides,
 restart behavior and on-demand installation are specified in

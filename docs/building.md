@@ -89,7 +89,7 @@ loog/
 ├── icons/           # application icons for every platform
 ├── scripts/         # packaging, build-cache and architecture checks
 ├── src/             # application, editor, terminal, Git and UI modules
-└── vendor/vt100/    # terminal parser with Loog's patches
+└── vendor/          # vt100 and tree-sitter with Loog's patches
 ```
 
 ## Tests

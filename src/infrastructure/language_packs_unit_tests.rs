@@ -639,3 +639,52 @@ fn standard_rust_keeps_application_editing_defaults_without_external_editor_meta
     let rust = registry.resolve_path(Path::new("new.rs"));
     assert_eq!(rust.definition().comments.line.as_deref(), Some("//"));
 }
+
+/// Opt-in compatibility gate for grammars built outside this repository.
+///
+/// Run it after changing the vendored `tree-sitter` or the grammar toolchain:
+///
+/// ```text
+/// LOOG_GRAMMAR_DIRS=D:\path\to\modules cargo test --release --bin Loog bundled_grammars -- --ignored
+/// ```
+///
+/// Every `.wasm` that exports a `tree_sitter_*` language must load through the
+/// production path (precompiled module included) with an ABI the host supports.
+/// Other modules, such as extension components, are skipped.
+#[test]
+#[ignore = "needs LOOG_GRAMMAR_DIRS pointing at built grammar modules"]
+fn bundled_grammars_load_with_a_supported_abi() {
+    let dirs = std::env::var_os("LOOG_GRAMMAR_DIRS").expect("set LOOG_GRAMMAR_DIRS");
+    let mut checked = 0;
+    let mut failures = Vec::new();
+    for dir in std::env::split_paths(&dirs) {
+        for entry in fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|extension| extension != "wasm") {
+                continue;
+            }
+            let bytes = fs::read(&path).unwrap();
+            let head = String::from_utf8_lossy(&bytes[..bytes.len().min(200_000)]).into_owned();
+            let name = head.match_indices("tree_sitter_").find_map(|(at, _)| {
+                let name: String = head[at + "tree_sitter_".len()..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                (!name.is_empty() && !name.contains("external_scanner")).then_some(name)
+            });
+            let Some(name) = name else { continue };
+            checked += 1;
+            if let Err(error) = load_wasm(&path, &name) {
+                failures.push(format!("{}: {error}", path.display()));
+            }
+        }
+    }
+    assert!(checked > 0, "no grammar modules found in {dirs:?}");
+    assert!(
+        failures.is_empty(),
+        "host supports ABI {}..={}:\n{}",
+        tree_sitter::MIN_COMPATIBLE_LANGUAGE_VERSION,
+        tree_sitter::LANGUAGE_VERSION,
+        failures.join("\n")
+    );
+}

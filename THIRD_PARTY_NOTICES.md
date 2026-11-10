@@ -7,6 +7,13 @@
 history and exposes the row displacement for selection tracking. Upstream:
 https://github.com/doy/vt100-rust.
 
+## tree-sitter
+
+`vendor/tree-sitter` contains tree-sitter 0.27.1, licensed under MIT (see
+`vendor/tree-sitter/LICENSE`). Loog adds a function that loads a precompiled
+WebAssembly grammar module; see `vendor/tree-sitter/LOOG-PATCH.md`. Upstream:
+https://github.com/tree-sitter/tree-sitter.
+
 Official Loog packages may include a managed Git runtime. Git is licensed under
 the GNU General Public License version 2. Runtime packages must retain Git's
 license, source-offer information, upstream version, download URL, and the

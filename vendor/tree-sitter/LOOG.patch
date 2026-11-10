@@ -1,0 +1,168 @@
+diff --git a/binding_rust/bindings.rs b/binding_rust/bindings.rs
+index 39fdca7..cede27f 100644
+--- a/binding_rust/bindings.rs
++++ b/binding_rust/bindings.rs
+@@ -932,6 +932,18 @@ unsafe extern "C" {
+         error: *mut TSWasmError,
+     ) -> *const TSLanguage;
+ }
++unsafe extern "C" {
++    #[doc = " LOOG-PATCH(precompiled-wasm): load a language from a serialized, precompiled module."]
++    pub fn ts_wasm_store_load_language_precompiled(
++        arg1: *mut TSWasmStore,
++        name: *const ::core::ffi::c_char,
++        wasm: *const ::core::ffi::c_char,
++        wasm_len: u32,
++        compiled: *const ::core::ffi::c_char,
++        compiled_len: u32,
++        error: *mut TSWasmError,
++    ) -> *const TSLanguage;
++}
+ unsafe extern "C" {
+     #[doc = " Get the number of languages instantiated in the given Wasm store."]
+     pub fn ts_wasm_store_language_count(arg1: *const TSWasmStore) -> usize;
+diff --git a/binding_rust/wasm_language.rs b/binding_rust/wasm_language.rs
+index edf09b8..1fda210 100644
+--- a/binding_rust/wasm_language.rs
++++ b/binding_rust/wasm_language.rs
+@@ -80,6 +80,40 @@ impl WasmStore {
+         }
+     }
+ 
++    /// LOOG-PATCH(precompiled-wasm): like [`Self::load_language`], but uses
++    /// `compiled`, the output of `wasmtime::Module::serialize` for `bytes`, in
++    /// place of compiling `bytes` in this store's engine.
++    ///
++    /// # Safety
++    ///
++    /// `compiled` must be trusted output of a compatible engine and match `bytes`;
++    /// Wasmtime documents deserializing untrusted modules as undefined behavior.
++    pub unsafe fn load_language_precompiled(
++        &mut self,
++        name: &str,
++        bytes: &[u8],
++        compiled: &[u8],
++    ) -> Result<Language, WasmError> {
++        let name = CString::new(name).unwrap();
++        unsafe {
++            let mut error = MaybeUninit::<ffi::TSWasmError>::uninit();
++            let language = ffi::ts_wasm_store_load_language_precompiled(
++                self.0,
++                name.as_ptr(),
++                bytes.as_ptr().cast::<c_char>(),
++                bytes.len() as u32,
++                compiled.as_ptr().cast::<c_char>(),
++                compiled.len() as u32,
++                error.as_mut_ptr(),
++            );
++            if language.is_null() {
++                Err(WasmError::new(error.assume_init()))
++            } else {
++                Ok(Language(language))
++            }
++        }
++    }
++
+     #[must_use]
+     pub fn language_count(&self) -> usize {
+         unsafe { ffi::ts_wasm_store_language_count(self.0) }
+diff --git a/include/tree_sitter/api.h b/include/tree_sitter/api.h
+index 334b25f..c05137b 100644
+--- a/include/tree_sitter/api.h
++++ b/include/tree_sitter/api.h
+@@ -1468,6 +1468,23 @@ const TSLanguage *ts_wasm_store_load_language(
+   TSWasmError *error
+ );
+ 
++/**
++ * LOOG-PATCH(precompiled-wasm): like `ts_wasm_store_load_language`, but the
++ * module comes from `compiled`, the output of Wasmtime's module serialization
++ * for a compatible engine, instead of being compiled from `wasm`. `wasm` is
++ * still required for its dylink section. `compiled` must be trusted: Wasmtime
++ * treats deserializing it as unsafe.
++ */
++const TSLanguage *ts_wasm_store_load_language_precompiled(
++  TSWasmStore *,
++  const char *name,
++  const char *wasm,
++  uint32_t wasm_len,
++  const char *compiled,
++  uint32_t compiled_len,
++  TSWasmError *error
++);
++
+ /**
+  * Get the number of languages instantiated in the given Wasm store.
+  */
+diff --git a/src/wasm_store.c b/src/wasm_store.c
+index 525b8c7..ccf6325 100644
+--- a/src/wasm_store.c
++++ b/src/wasm_store.c
+@@ -1316,12 +1316,53 @@ static bool ts_wasm_store__sentinel_lex_fn(TSLexer *_lexer, TSStateId state) {
+   return false;
+ }
+ 
++// LOOG-PATCH(precompiled-wasm): the body below is upstream's
++// ts_wasm_store_load_language, renamed so that a precompiled module can replace
++// the in-process compilation. Wasmtime keeps compiler state in the engine that
++// compiled a module (about 20 MB for a Markdown grammar), so callers compile
++// with a short-lived engine and load the serialized result here. See
++// vendor/tree-sitter/LOOG-PATCH.md.
++static const TSLanguage *ts_wasm_store__load_language(
++  TSWasmStore *self,
++  const char *language_name,
++  const char *wasm,
++  uint32_t wasm_len,
++  const char *compiled,
++  uint32_t compiled_len,
++  TSWasmError *wasm_error
++);
++
+ const TSLanguage *ts_wasm_store_load_language(
+   TSWasmStore *self,
+   const char *language_name,
+   const char *wasm,
+   uint32_t wasm_len,
+   TSWasmError *wasm_error
++) {
++  return ts_wasm_store__load_language(self, language_name, wasm, wasm_len, NULL, 0, wasm_error);
++}
++
++// LOOG-PATCH(precompiled-wasm): Loog addition.
++const TSLanguage *ts_wasm_store_load_language_precompiled(
++  TSWasmStore *self,
++  const char *language_name,
++  const char *wasm,
++  uint32_t wasm_len,
++  const char *compiled,
++  uint32_t compiled_len,
++  TSWasmError *wasm_error
++) {
++  return ts_wasm_store__load_language(self, language_name, wasm, wasm_len, compiled, compiled_len, wasm_error);
++}
++
++static const TSLanguage *ts_wasm_store__load_language(
++  TSWasmStore *self,
++  const char *language_name,
++  const char *wasm,
++  uint32_t wasm_len,
++  const char *compiled,
++  uint32_t compiled_len,
++  TSWasmError *wasm_error
+ ) {
+   WasmDylinkInfo dylink_info;
+   wasmtime_module_t *module = NULL;
+@@ -1340,8 +1381,11 @@ const TSLanguage *ts_wasm_store_load_language(
+     goto error;
+   }
+ 
+-  // Compile the Wasm code.
+-  error = wasmtime_module_new(self->engine, (const uint8_t *)wasm, wasm_len, &module);
++  // Compile the Wasm code, or (LOOG-PATCH(precompiled-wasm)) load the module
++  // the caller already compiled with a compatible engine.
++  error = compiled
++    ? wasmtime_module_deserialize(self->engine, (const uint8_t *)compiled, compiled_len, &module)
++    : wasmtime_module_new(self->engine, (const uint8_t *)wasm, wasm_len, &module);
+   if (error) {
+     wasm_message_t message;
+     wasmtime_error_message(error, &message);

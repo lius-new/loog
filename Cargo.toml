@@ -11,11 +11,12 @@ readme = "README.md"
 [workspace]
 members = ["crates/editor-core", "crates/extension-api", "crates/extension-host", "crates/workspace-tests", "crates/markdown-tests"]
 default-members = [".", "crates/editor-core"]
-exclude = ["vendor/vt100", ".tmp/lgui"]
+exclude = ["vendor/vt100", "vendor/tree-sitter", ".tmp/lgui"]
 resolver = "3"
 
 [patch.crates-io]
 vt100 = { path = "vendor/vt100" }
+tree-sitter = { path = "vendor/tree-sitter" }
 
 [[bin]]
 name = "Loog"

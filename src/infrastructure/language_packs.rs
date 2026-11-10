@@ -567,9 +567,36 @@ impl Packages {
 static WASM_ENGINE: OnceLock<Result<wasmtime::Engine, String>> = OnceLock::new();
 fn wasm_engine() -> Result<&'static wasmtime::Engine, String> {
     WASM_ENGINE
-        .get_or_init(|| wasmtime::Engine::new(&wasmtime::Config::new()).map_err(|e| e.to_string()))
+        .get_or_init(|| wasmtime::Engine::new(&wasm_config()).map_err(|e| e.to_string()))
         .as_ref()
         .map_err(Clone::clone)
+}
+/// The one configuration for every engine that compiles or runs grammars. A module
+/// serialized by one engine loads only into an engine with identical settings.
+fn wasm_config() -> wasmtime::Config {
+    wasmtime::Config::new()
+}
+/// Compiles a grammar with a short-lived engine and returns the serialized module.
+///
+/// Wasmtime keeps compiler state in the engine that compiled a module, about 20 MB
+/// for a Markdown grammar, and nothing releases it while the engine lives. The
+/// long-lived execution engine therefore never compiles: it only loads the result.
+fn precompile(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let engine = wasmtime::Engine::new(&wasm_config()).map_err(|e| e.to_string())?;
+    let module = wasmtime::Module::new(&engine, bytes).map_err(|e| e.to_string())?;
+    module.serialize().map_err(|e| e.to_string())
+}
+/// Loads a grammar through [`precompile`]. Any failure on that path falls back to
+/// compiling in the execution engine, which is correct but keeps the compiler state.
+fn load_language(store: &mut WasmStore, name: &str, bytes: &[u8]) -> Result<Language, String> {
+    if let Ok(compiled) = precompile(bytes) {
+        // SAFETY: `compiled` was produced a moment ago, in this process, from `bytes`
+        // by an engine with the same configuration as the execution engine.
+        if let Ok(language) = unsafe { store.load_language_precompiled(name, bytes, &compiled) } {
+            return Ok(language);
+        }
+    }
+    store.load_language(name, bytes).map_err(|e| e.to_string())
 }
 fn load_wasm(path: &Path, name: &str) -> Result<Language, String> {
     let file = fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -590,8 +617,7 @@ fn load_wasm(path: &Path, name: &str) -> Result<Language, String> {
         ));
     }
     let mut store = WasmStore::new(wasm_engine()?).map_err(|e| e.to_string())?;
-    let language = store
-        .load_language(name, &bytes)
+    let language = load_language(&mut store, name, &bytes)
         .map_err(|e| format!("{}: {e}", path.display()))?;
     validate_abi(path, &language)?;
     Ok(language)
