@@ -267,8 +267,8 @@ pub fn format(state: &AppContext, rect: UiRect, selection_only: bool) {
     let app = state.get();
     let pane = app.workspace.active_pane();
     let Some(t) = target(&app, pane) else { return };
+    let options = json!({ "options": super::indentation(&app, t.document) });
     drop(app);
-    let options = json!({ "options": { "tabSize": 4, "insertSpaces": true } });
     match (selection_only, t.selection.clone()) {
         (true, Some(range)) => start(
             state,
@@ -324,7 +324,7 @@ pub fn on_type(ctx: &AppContext, app: &mut AppState, typed: char) {
                 t.cursor,
             )
             .extra(json!({ "ch": typed.to_string(),
-                           "options": { "tabSize": 4, "insertSpaces": true } })),
+                           "options": super::indentation(app, t.document) })),
         ),
     );
     let stamps = edit::stamps(app);

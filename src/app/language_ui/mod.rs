@@ -199,6 +199,19 @@ pub(crate) fn target(app: &AppState, pane: PaneId) -> Option<Target> {
     })
 }
 
+/// The indentation of `document` as a formatting request carries it: how wide one
+/// indent level is and whether it is made of spaces. These describe the document;
+/// what a formatter does with them is the extension's business.
+pub(crate) fn indentation(app: &AppState, document: FileId) -> serde_json::Value {
+    let settings = super::editing::effective(app, document);
+    let (tab_size, insert_spaces) = if settings.use_tabs {
+        (settings.tab_width, false)
+    } else {
+        (settings.indent_size, true)
+    };
+    serde_json::json!({ "tabSize": tab_size, "insertSpaces": insert_spaces })
+}
+
 /// The language services of the running application, if started.
 pub(crate) fn services(
     state: &AppContext,
@@ -529,5 +542,41 @@ pub(super) fn flush_files(state: &AppContext) {
         for change in changes {
             services.files_changed(change);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn indentation_of(configure: impl FnOnce(&mut AppState)) -> serde_json::Value {
+        let mut app = AppState::new();
+        configure(&mut app);
+        let view = app
+            .workspace
+            .test_open_view(PathBuf::from("/w/a.txt"), "a".into());
+        let id = app.workspace.view_document(view).unwrap();
+        indentation(&app, id)
+    }
+
+    #[test]
+    fn formatting_requests_report_the_documents_own_indentation() {
+        let spaces = indentation_of(|app| {
+            app.preferences.values_mut().editor.indent_size = 2;
+            app.preferences.values_mut().editor.use_tabs = false;
+        });
+        assert_eq!(
+            spaces,
+            serde_json::json!({"tabSize": 2, "insertSpaces": true})
+        );
+        // With tabs the width of a tab is what a formatter needs.
+        let tabs = indentation_of(|app| {
+            app.preferences.values_mut().editor.tab_width = 8;
+            app.preferences.values_mut().editor.use_tabs = true;
+        });
+        assert_eq!(
+            tabs,
+            serde_json::json!({"tabSize": 8, "insertSpaces": false})
+        );
     }
 }

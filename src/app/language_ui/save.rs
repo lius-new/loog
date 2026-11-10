@@ -216,7 +216,7 @@ fn begin_stage(state: &AppContext, app: &mut AppState, mut run: Run) -> bool {
         }
         Stage::Format => {
             let mut spec = RequestSpec::new(Feature::Formatting, t.path.clone(), t.lsp_stamp(), 0)
-                .extra(json!({ "options": { "tabSize": 4, "insertSpaces": true } }));
+                .extra(json!({ "options": super::indentation(app, t.document) }));
             if let Some(name) = &run.format {
                 spec = spec.server(name.clone());
             }
