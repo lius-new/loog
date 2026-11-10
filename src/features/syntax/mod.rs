@@ -15,6 +15,9 @@ mod presentation_tests;
 pub(crate) mod provider;
 mod queries;
 pub(crate) use self::queries::check_query;
+// Lets adapter tests drive injection discovery with a real grammar.
+#[cfg(test)]
+pub(crate) use self::injections::{compile_source as compile_injections, find as find_injections};
 pub(crate) mod query_stack;
 mod treesitter;
 mod window;

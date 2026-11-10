@@ -202,7 +202,9 @@ fn spell_hints_are_ignored_but_unknown_captures_still_fail() {
 }
 
 #[test]
-fn shebang_injection_patterns_compile_and_other_unknown_captures_still_fail() {
+fn shebang_injection_patterns_are_skipped_and_other_unknown_captures_still_fail() {
+    use crate::features::syntax::{compile_injections, find_injections};
+    use std::sync::atomic::AtomicBool;
     let Some(packages) = packages() else {
         return;
     };
@@ -212,6 +214,21 @@ fn shebang_injection_patterns_compile_and_other_unknown_captures_still_fail() {
                    (pair value: (number) @injection.content (#set! injection.language \"yaml\"))
 ";
     assert!(check(shebang).is_ok());
+    // Patterns that use the shebang capture are skipped; the others still apply.
+    let query = compile_injections(&language, shebang).unwrap();
+    let text = r##"{"a": "#!/bin/sh", "b": 12}"##;
+    let tree = packages.parser("json").unwrap().parse(text, None).unwrap();
+    let regions = find_injections(&tree, text, &query, &AtomicBool::new(false)).unwrap();
+    assert_eq!(regions.len(), 1, "{regions:?}");
+    assert_eq!(regions[0].language, "yaml");
+    let only = compile_injections(
+        &language,
+        "(string) @injection.shebang @injection.content
+",
+    )
+    .unwrap();
+    let none = find_injections(&tree, text, &only, &AtomicBool::new(false)).unwrap();
+    assert!(none.is_empty());
     assert!(
         check(
             "(string) @injection.shebang @injection.content

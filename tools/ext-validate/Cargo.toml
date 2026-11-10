@@ -6,6 +6,10 @@ publish = false
 
 [workspace]
 
+# Loog's tree-sitter patch: the validator shares language_packs.rs with the application.
+[patch.crates-io]
+tree-sitter = { path = "../../vendor/tree-sitter" }
+
 [dependencies]
 loog-editor-core = { path = "../../crates/editor-core", features = ["diagnostics"] }
 serde = { version = "1", features = ["derive", "rc"] }
