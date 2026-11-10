@@ -1,5 +1,9 @@
 //! The detail pane: the selected extension's identity and actions, its tabs,
 //! and the body of the tab that is open.
+use lgui::core::{
+    LogicalKey, NamedKey, Overflow, PhysicalRect, SemanticAction, SemanticRole, Semantics,
+    UiElement, group,
+};
 use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel};
 
 use super::content::{self, Body};
@@ -12,15 +16,82 @@ const PAD_X: f32 = 32.0;
 const PAD_TOP: f32 = 26.0;
 const TILE: f32 = 72.0;
 const BUTTON_H: f32 = 28.0;
-const TABS_H: f32 = 38.0;
+const TABS_H: f32 = 32.0;
+const TABS: [(DetailTab, &str); 3] = [
+    (DetailTab::Details, "Details"),
+    (DetailTab::Contributions, "Contributions"),
+    (DetailTab::Changelog, "Changelog"),
+];
 
-/// The tabs of a detail.
-pub(super) fn tabs() -> Vec<(DetailTab, &'static str)> {
-    vec![
-        (DetailTab::Details, "Details"),
-        (DetailTab::Contributions, "Contributions"),
-        (DetailTab::Changelog, "Changelog"),
-    ]
+fn tab_strip(header: UiRect, active: DetailTab, count: usize, state: &Binding) -> Element {
+    let width = header.width() / TABS.len() as f32;
+    let tabs = TABS
+        .into_iter()
+        .enumerate()
+        .map(|(index, (tab, label))| {
+            let left = header.left + width * index as f32;
+            let rect = UiRect::new(left, header.top, left + width, header.bottom);
+            let label = if tab == DetailTab::Contributions {
+                format!("{label} ({count})")
+            } else {
+                label.to_owned()
+            };
+            let selected = tab == active;
+            let run = state.clone();
+            Element::new(move |cx| {
+                let c = theme::c();
+                let mut semantics = Semantics::new(SemanticRole::Tab)
+                    .name(label.clone())
+                    .action(SemanticAction::Click);
+                semantics.state.selected = selected;
+                let mut button = UiElement::button(cx.id.clone(), rect, VisualStyle::default())
+                    .semantics(semantics)
+                    .child(
+                        UiElement::text(
+                            cx.auto_id(),
+                            rect,
+                            label,
+                            theme::sans(c.text, theme::UI_SIZE).centered(),
+                        )
+                        .overflow(Overflow::Ellipsis),
+                    );
+                if selected && rect.height() > 0.0 {
+                    let scale = cx.context.scale();
+                    let bottom = scale.physical_value(rect.bottom);
+                    let edge = scale.logical_rect(PhysicalRect::new(
+                        scale.physical_value(rect.left),
+                        (bottom - scale.physical_length(2.0)).max(scale.physical_value(rect.top)),
+                        scale.physical_value(rect.right),
+                        bottom,
+                    ));
+                    button = button.child(
+                        UiElement::panel(cx.auto_id(), edge, VisualStyle::filled(c.accent))
+                            .hit_rect(UiRect::new(edge.left, edge.bottom, edge.left, edge.bottom)),
+                    );
+                }
+                button
+            })
+            .key(index.to_string())
+            .on_click(move || run.run(Command::SetTab(tab)))
+        })
+        .collect::<Vec<_>>();
+    let run = state.clone();
+    group(header)
+        .semantics(Semantics::new(SemanticRole::TabList))
+        .children(tabs)
+        .on_key_down(move |cx, key| {
+            let active = run.ui.get().tab;
+            let current = TABS.iter().position(|(tab, _)| *tab == active).unwrap_or(0);
+            let next = match key.key {
+                LogicalKey::Named(NamedKey::ArrowRight) => (current + 1) % TABS.len(),
+                LogicalKey::Named(NamedKey::ArrowLeft) => (current + TABS.len() - 1) % TABS.len(),
+                LogicalKey::Named(NamedKey::Home) => 0,
+                LogicalKey::Named(NamedKey::End) => TABS.len() - 1,
+                _ => return,
+            };
+            cx.prevent_default();
+            run.run(Command::SetTab(TABS[next].0));
+        })
 }
 
 /// The state shown at the top right of the head, with its colour.
@@ -268,46 +339,15 @@ pub(super) fn render(
         y = box_rect.bottom;
     }
 
-    // Tabs, over a rule the selected one's underline covers.
     let tabs_top = (y + 22.0).max(tile_rect.bottom + 22.0);
-    let tabs_bottom = tabs_top + TABS_H;
-    root = root.child(widgets::rule(UiRect::new(
-        area.left,
-        tabs_bottom - 1.0,
-        area.right,
-        tabs_bottom,
-    )));
-    let current = state.clone();
-    let update = state.clone();
-    let index = lgui::WidgetValue::new(
-        move || match current.ui.get().tab {
-            DetailTab::Details => 0,
-            DetailTab::Contributions => 1,
-            DetailTab::Changelog => 2,
-        },
-        move |index| {
-            update.run(Command::SetTab(match index {
-                1 => DetailTab::Contributions,
-                2 => DetailTab::Changelog,
-                _ => DetailTab::Details,
-            }))
-        },
-    );
-    let labels = tabs()
-        .into_iter()
-        .map(|(kind, label)| {
-            if kind == DetailTab::Contributions {
-                format!("{label} ({})", entry.contribution_count())
-            } else {
-                label.to_owned()
-            }
-        })
-        .collect::<Vec<_>>();
-    // The portable control owns header selection and confines arrow keys to it.
-    root.child(lgui::tabs(
-        UiRect::new(area.left, tabs_top, area.right, area.bottom),
-        labels.into(),
-        index,
-        |_, region| content::render(region, &mut ids, Body { entry, tab, state }),
-    ))
+    let tabs_bottom = (tabs_top + TABS_H).min(area.bottom.max(tabs_top));
+    let header = UiRect::new(area.left, tabs_top, area.right, tabs_bottom);
+    let body = UiRect::new(area.left, tabs_bottom, area.right, area.bottom);
+    root.child(crate::ui::components::divider::bottom(header))
+        .child(tab_strip(header, tab, entry.contribution_count(), state))
+        .child(
+            group(body)
+                .semantics(Semantics::new(SemanticRole::TabPanel))
+                .child(content::render(body, &mut ids, Body { entry, tab, state })),
+        )
 }

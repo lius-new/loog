@@ -237,6 +237,27 @@ mod tests {
                     });
                     let mut session = UiSession::new();
                     session.render_view(&view, rect, UiScale::ONE);
+                    let nodes = session.tree().nodes();
+                    let selected = nodes
+                        .iter()
+                        .find(|node| {
+                            node.semantics.as_ref().is_some_and(|semantics| {
+                                semantics.role == lgui::core::SemanticRole::Tab
+                                    && semantics.state.selected
+                            })
+                        })
+                        .expect("the selected detail tab");
+                    assert!(selected.style.fill.is_none());
+                    let edge = nodes
+                        .iter()
+                        .find(|node| {
+                            node.parent.as_ref() == Some(&selected.id)
+                                && node.style.fill == Some(crate::ui::theme::c().accent)
+                        })
+                        .expect("the selected tab bottom edge");
+                    assert_eq!(edge.layout_rect.bottom, selected.layout_rect.bottom);
+                    assert_eq!(edge.layout_rect.height(), 2.0);
+                    assert_eq!(edge.hit_rect.width(), 0.0);
                     // A narrow pane may shorten the title with an ellipsis.
                     let shown = texts(&session);
                     assert!(
