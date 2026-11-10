@@ -415,6 +415,14 @@ fn next_transaction(app: &mut AppState) -> u64 {
     workspace_edits::next_transaction(app)
 }
 
+/// The path under which `path`'s document is open, when it is open.
+fn open_spelling(app: &AppState, path: PathBuf) -> PathBuf {
+    app.workspace
+        .file_id_for_path(&path)
+        .and_then(|id| app.workspace.documents.get(&id))
+        .map_or(path, |document| document.meta.path.clone())
+}
+
 fn plan(
     app: &AppState,
     request: &Request,
@@ -434,7 +442,10 @@ fn plan(
     for change in &request.edit.changes {
         match change {
             Change::Edit(document) => {
-                let path = path_of(&document.uri)?;
+                // A URI spells the path the way servers do, but an open document may
+                // carry another spelling of it (the file tree opens `\\?\D:\dir\a.rs`).
+                // `unopened` already matches them; so must the plan.
+                let path = open_spelling(app, path_of(&document.uri)?);
                 let (text, origin) = virtual_docs
                     .get(&path)
                     .cloned()
@@ -690,6 +701,20 @@ mod tests {
         assert_eq!(undo_redo(&mut app, false), Some(Ok(())));
         assert_eq!(text_of(&app, &paths[0]), "ONE two");
         assert_eq!(text_of(&app, &paths[1]), "three FOUR");
+    }
+
+    /// The file tree opens files by their verbatim path; servers and the format
+    /// request name the same file by the plain one.
+    #[cfg(windows)]
+    #[test]
+    fn an_edit_names_a_file_opened_under_its_verbatim_path() {
+        let plain = std::env::temp_dir().join(format!("loog-edit-{}-v.rs", std::process::id()));
+        let verbatim = PathBuf::from(format!(r"\\?\{}", plain.display()));
+        let mut app = AppState::new();
+        app.workspace.open_path(verbatim, "one two".into());
+        let request = request(&app, edit_json(&[(&plain, (0, 0), (0, 3), "ONE")]));
+        assert_eq!(apply_now(&mut app, &request, HashMap::new()), Ok(1));
+        assert_eq!(text_of(&app, &plain), "ONE two");
     }
 
     #[test]
