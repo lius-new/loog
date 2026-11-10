@@ -184,3 +184,48 @@ fn changing_the_sources_advances_the_generation_and_calls_listeners() {
     assert_eq!(packages.generation(), before + 2);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
+
+#[test]
+fn spell_hints_are_ignored_but_unknown_captures_still_fail() {
+    let Some(packages) = packages() else {
+        return;
+    };
+    let language = packages.language("json").unwrap();
+    let check = |source| crate::features::syntax::check_query(&language, "highlights.scm", source);
+    // Upstream queries mark text for spell checking; Loog has no spell checker.
+    assert!(check("(string) @string @spell\n(number) @nospell\n").is_ok());
+    let error = check("(string) @bogus\n").unwrap_err();
+    assert!(
+        error.contains("@bogus is not a known highlight class"),
+        "{error}"
+    );
+}
+
+#[test]
+fn shebang_injection_patterns_compile_and_other_unknown_captures_still_fail() {
+    let Some(packages) = packages() else {
+        return;
+    };
+    let language = packages.language("json").unwrap();
+    let check = |source| crate::features::syntax::check_query(&language, "injections.scm", source);
+    let shebang = "(pair value: (string) @injection.shebang @injection.content)
+                   (pair value: (number) @injection.content (#set! injection.language \"yaml\"))
+";
+    assert!(check(shebang).is_ok());
+    assert!(
+        check(
+            "(string) @injection.shebang @injection.content
+"
+        )
+        .is_ok()
+    );
+    let error = check(
+        "(string) @injection.content @injection.other
+",
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("@injection.other is not supported"),
+        "{error}"
+    );
+}

@@ -6,7 +6,8 @@
 //! * Captures named like a highlight class (`@function.method`) or one of its
 //!   ancestors (`@keyword.control` is a `@keyword`). `@escape` and `@label` are
 //!   upstream spellings Loog maps to `string.escape` and `type`; `@embedded`
-//!   carries no highlight; captures starting with `_` are helpers for predicates.
+//!   and `@spell`/`@nospell` (spell-checking hints) carry no highlight;
+//!   captures starting with `_` are helpers for predicates.
 //! * The text predicates `#eq?`, `#not-eq?`, `#match?`, `#not-match?`,
 //!   `#any-of?` and `#not-any-of?`, which Tree-sitter evaluates itself.
 //! * `#is-not? local`, accepted because Loog has no scope analysis yet: such a
@@ -25,8 +26,9 @@ const HIGHLIGHTS: &str = "highlights.scm";
 
 /// Upstream capture names Loog spells as another class.
 const ALIASES: &[(&str, &str)] = &[("escape", "string.escape"), ("label", "type")];
-/// Captures that deliberately carry no highlight.
-const IGNORED: &[&str] = &["embedded"];
+/// Captures that deliberately carry no highlight. `spell` and `nospell` are editor
+/// hints in upstream queries that Loog has no spell checker for.
+const IGNORED: &[&str] = &["embedded", "spell", "nospell"];
 
 pub(crate) struct CompiledQuery {
     pub(crate) query: Query,

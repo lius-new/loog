@@ -617,8 +617,8 @@ fn load_wasm(path: &Path, name: &str) -> Result<Language, String> {
         ));
     }
     let mut store = WasmStore::new(wasm_engine()?).map_err(|e| e.to_string())?;
-    let language = load_language(&mut store, name, &bytes)
-        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let language =
+        load_language(&mut store, name, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
     validate_abi(path, &language)?;
     Ok(language)
 }

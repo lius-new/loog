@@ -7,6 +7,10 @@
 //! Helper captures beginning with `_` may be used by text predicates; they do
 //! not contribute a language or an injected range.
 //!
+//! `@injection.shebang` names the language through a script's interpreter, which Loog
+//! does not read. A pattern that uses it is skipped; the other patterns of the query
+//! still apply.
+//!
 //! Supported properties, all others are errors:
 //!
 //! * `injection.language` — a fixed language name.
@@ -18,7 +22,7 @@
 //!   code.
 use super::Resources;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tree_sitter::{Node, Point, Query, QueryCursor, Range, Tree};
+use tree_sitter::{CaptureQuantifier, Node, Point, Query, QueryCursor, Range, Tree};
 
 use streaming_iterator::StreamingIterator;
 
@@ -34,6 +38,8 @@ struct PatternRules {
     language: Option<Box<str>>,
     combined: bool,
     include_children: bool,
+    /// The pattern relies on `@injection.shebang`, which is not supported.
+    skipped: bool,
 }
 
 /// One embedded stretch: the language as written, and where it is.
@@ -64,10 +70,12 @@ pub(crate) fn compile_source(
     let query = Query::new(language, source).map_err(|error| error.to_string())?;
     let mut content = None;
     let mut language_capture = None;
+    let mut shebang = None;
     for (index, name) in query.capture_names().iter().enumerate() {
         match *name {
             "injection.content" => content = Some(index as u32),
             "injection.language" => language_capture = Some(index as u32),
+            "injection.shebang" => shebang = Some(index),
             helper if helper.starts_with('_') => {}
             other => return Err(format!("the capture @{other} is not supported")),
         }
@@ -97,6 +105,17 @@ pub(crate) fn compile_source(
                     return Err(format!("pattern {pattern}: #set! {key} is not supported"));
                 }
             }
+        }
+        let uses_shebang = shebang.is_some_and(|capture| {
+            query
+                .capture_quantifiers(pattern)
+                .get(capture)
+                .is_some_and(|quantifier| *quantifier != CaptureQuantifier::Zero)
+        });
+        if uses_shebang {
+            rules.skipped = true;
+            patterns.push(rules);
+            continue;
         }
         if rules.language.is_none() && language_capture.is_none() {
             return Err(format!("pattern {pattern} names no language"));
@@ -172,6 +191,9 @@ pub(crate) fn find(
             return None;
         }
         let rules = &query.patterns[found.pattern_index];
+        if rules.skipped {
+            continue;
+        }
         let language = match &rules.language {
             Some(fixed) => Some(fixed.to_string()),
             None => found
@@ -222,4 +244,50 @@ pub(crate) fn find(
         region.ranges = kept;
     }
     Some(regions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tree_sitter::{Parser, WasmStore, wasmtime};
+
+    /// The JSON grammar that ships with Loog, when the fixture is present.
+    fn json() -> Option<(tree_sitter::Language, Parser)> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/extensions/loog.lang.json/tree-sitter-json.wasm");
+        let bytes = std::fs::read(path).ok()?;
+        let engine = wasmtime::Engine::new(&wasmtime::Config::new()).ok()?;
+        let language = WasmStore::new(&engine)
+            .ok()?
+            .load_language("json", &bytes)
+            .ok()?;
+        let mut parser = Parser::new();
+        parser.set_wasm_store(WasmStore::new(&engine).ok()?).ok()?;
+        parser.set_language(&language).ok()?;
+        Some((language, parser))
+    }
+
+    #[test]
+    fn patterns_using_the_shebang_capture_are_skipped_and_the_rest_still_apply() {
+        let Some((language, mut parser)) = json() else {
+            return;
+        };
+        // The first pattern names its language through the interpreter of a script.
+        let source = "(pair value: (string) @injection.shebang @injection.content)
+                      (pair value: (number) @injection.content (#set! injection.language \"yaml\"))
+";
+        let query = compile_source(&language, source).unwrap();
+        let text = r##"{"a": "#!/bin/sh", "b": 12}"##;
+        let tree = parser.parse(text, None).unwrap();
+        let regions = find(&tree, text, &query, &AtomicBool::new(false)).unwrap();
+        assert_eq!(regions.len(), 1, "{regions:?}");
+        assert_eq!(regions[0].language, "yaml");
+
+        // A query made only of shebang patterns loads and finds nothing.
+        let only = "(string) @injection.shebang @injection.content
+";
+        let only = compile_source(&language, only).unwrap();
+        let found = find(&tree, text, &only, &AtomicBool::new(false)).unwrap();
+        assert!(found.is_empty());
+    }
 }
