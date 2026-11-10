@@ -57,7 +57,7 @@ impl EditorSettings {
             match_brackets: self.match_brackets,
             indent_guides: self.indent_guides,
             show_whitespace: self.show_whitespace,
-            language: "text",
+            language: "text".into(),
             indent_size: self.indent_size,
             tab_width: self.tab_width,
             use_tabs: self.use_tabs,

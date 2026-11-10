@@ -429,17 +429,17 @@ impl AppState {
             .iter()
             .map(FileAssociation::spec)
             .collect();
-        // Settings validate rules when they are read, so compiling reports nothing
-        // new; a rule that still fails is skipped and the rest apply.
+        // Associations whose language is unavailable are skipped until it returns.
+        let registry = Registry::builtin();
         let (rules, _) = LanguageRules::compile(
-            Registry::builtin(),
+            &registry,
             PATH_CASE_INSENSITIVE,
             self.explorer.model.roots(),
             &user,
             &project_specs,
         );
         self.workspace
-            .set_language_rules(std::sync::Arc::new(rules))
+            .set_language_rules(registry, std::sync::Arc::new(rules))
     }
 
     pub fn shell_name(&self, kind: ShellKind) -> String {

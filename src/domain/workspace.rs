@@ -265,6 +265,7 @@ pub struct Workspace<D, K> {
     next_incarnation: u64,
     /// File associations from settings, tried before the built-in recognition.
     language_rules: Arc<LanguageRules>,
+    language_registry: Arc<crate::domain::language::Registry>,
     pub(crate) next_pane_id: u64,
     retired: Vec<Retired<D, K>>,
 }
@@ -451,6 +452,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
             next_file_id: 1,
             next_incarnation: 1,
             language_rules: Arc::default(),
+            language_registry: crate::domain::language::Registry::builtin(),
             next_pane_id: 2,
             retired: Vec::new(),
         }
@@ -679,7 +681,13 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         id
     }
 
-    pub(crate) fn insert_diff(&mut self, pane: PaneId, meta: FileMeta, content: Arc<D>) -> ViewId {
+    pub(crate) fn insert_diff(
+        &mut self,
+        pane: PaneId,
+        mut meta: FileMeta,
+        content: Arc<D>,
+    ) -> ViewId {
+        meta.lang = self.language_for(&meta.path);
         let id = DiffId::new(self.next_diff_id);
         self.next_diff_id += 1;
         let view = self.create_view(ViewTarget::Diff(id), Presentation::Source);
@@ -1825,26 +1833,34 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
     pub(crate) fn language_for(&self, path: &Path) -> ResolvedLanguage {
         self.language_rules
             .resolve(path)
-            .unwrap_or_else(|| crate::domain::language::from_path(path))
+            .unwrap_or_else(|| self.language_registry.resolve_path(path))
     }
 
     /// Installs new associations and re-recognizes every open file. A document
     /// whose language changes gets a new language generation, so results for
     /// the old language stop matching. Returns whether any document changed.
-    pub(crate) fn set_language_rules(&mut self, rules: Arc<LanguageRules>) -> bool {
-        self.language_rules = rules;
+    pub(crate) fn set_language_rules(
+        &mut self,
+        registry: Arc<crate::domain::language::Registry>,
+        rules: Arc<LanguageRules>,
+    ) -> bool {
         let mut changed = false;
-        let ids: Vec<FileId> = self.documents.keys().copied().collect();
-        for id in ids {
-            let Some(document) = self.documents.get(&id) else {
-                continue;
-            };
-            let language = self.language_for(&document.meta.path);
-            let document = self.documents.get_mut(&id).expect("checked above");
-            let generation = document.meta.language_generation;
-            document.meta.set_language(language);
-            changed |= document.meta.language_generation != generation;
+        let text = self
+            .documents
+            .values_mut()
+            .filter(|document| document.is_text())
+            .map(|document| &mut document.meta);
+        let diffs = self.diffs.values_mut().map(|diff| &mut diff.meta);
+        for meta in text.chain(diffs) {
+            let language = rules
+                .resolve(&meta.path)
+                .unwrap_or_else(|| registry.resolve_path(&meta.path));
+            let generation = meta.language_generation;
+            meta.set_language(language);
+            changed |= meta.language_generation != generation;
         }
+        self.language_registry = registry;
+        self.language_rules = rules;
         changed
     }
 

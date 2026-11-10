@@ -218,11 +218,7 @@ impl ExtensionService {
                     version: saved.stamp.version,
                     path: saved.path.display().to_string(),
                     language: document.meta.lang.definition().name.to_string(),
-                    variant: Some(
-                        crate::domain::language::Registry::builtin()
-                            .variant_name(document.meta.lang)
-                            .to_owned(),
-                    ),
+                    variant: Some(document.meta.lang.variant_name().to_owned()),
                 },
                 text: saved.text,
             }));
@@ -273,11 +269,7 @@ impl ExtensionService {
                     lifecycle,
                     path,
                     language,
-                    variant: Some(
-                        crate::domain::language::Registry::builtin()
-                            .variant_name(document.meta.lang)
-                            .to_owned(),
-                    ),
+                    variant: Some(document.meta.lang.variant_name().to_owned()),
                     language_generation: document.meta.language_generation,
                     synchronized,
                 };

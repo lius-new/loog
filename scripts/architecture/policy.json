@@ -265,6 +265,10 @@
       "owner": "domain/workspace",
       "migrated_in": "P2"
     },
+    "language_registry": {
+      "owner": "domain/workspace",
+      "migrated_in": "Live extension resources"
+    },
     "next_pane_id": {
       "owner": "domain/workspace",
       "migrated_in": "R4"

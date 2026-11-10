@@ -231,7 +231,7 @@ impl TextBuffer {
     /// reset because it describes a different file revision.
     pub fn reload(&mut self, contents: String) {
         let version = self.version + 1;
-        let options = self.options;
+        let options = self.options.clone();
         let file_options = self.file_options;
         *self = Self::new(contents);
         self.configure(options);
@@ -240,7 +240,7 @@ impl TextBuffer {
     }
 
     pub fn install_prepared(&mut self, mut prepared: Self) {
-        prepared.configure(self.options);
+        prepared.configure(self.options.clone());
         if prepared.file_options == Default::default() {
             prepared.file_options = self.file_options;
         }
@@ -549,7 +549,7 @@ impl TextBuffer {
     pub fn matching_brackets(&self, cursor: usize) -> Option<(usize, usize)> {
         let pairs = self
             .bracket_index
-            .get_or_init(|| super::brackets::index(self.text(), self.options.language));
+            .get_or_init(|| super::brackets::index(self.text(), &self.options.language));
         let cursor = self.grapheme_floor(cursor);
         for at in [cursor, self.prev_grapheme(cursor)] {
             if let Ok(index) = pairs.binary_search_by_key(&at, |&(open, _)| open) {
@@ -558,8 +558,8 @@ impl TextBuffer {
         }
         None
     }
-    pub fn options(&self) -> super::options::EditingOptions {
-        self.options
+    pub fn options(&self) -> &super::options::EditingOptions {
+        &self.options
     }
     pub fn configure(&mut self, options: super::options::EditingOptions) {
         let options = options.clamped();

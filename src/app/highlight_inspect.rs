@@ -1,7 +1,6 @@
 //! Commands for working on highlight queries: see how the code at the cursor is
 //! coloured and by which rule, and list custom queries that were left out.
 use super::context::AppContext;
-use crate::domain::language::Registry;
 use crate::features::syntax::{MAX_DOCUMENT_BYTES, inspect};
 use crate::infrastructure::language_packs;
 
@@ -14,12 +13,12 @@ pub(crate) fn inspect_cursor(state: &AppContext) {
             .workspace
             .active_document()
             .and_then(|id| app.workspace.documents.get(&id).filter(|d| d.is_text()))
-            .map(|document| (document.meta.lang, document.buffer.text_snapshot()));
+            .map(|document| (document.meta.lang.clone(), document.buffer.text_snapshot()));
         let Some((lang, text)) = target else {
             app.show_toast("Open a text file to inspect its highlighting.");
             return;
         };
-        let Some(grammar) = lang.grammar else {
+        let Some(grammar) = lang.grammar().cloned() else {
             app.show_toast(format!(
                 "{} has no syntax grammar, so there are no query rules to inspect.",
                 lang.display_name()
@@ -34,10 +33,9 @@ pub(crate) fn inspect_cursor(state: &AppContext) {
             .workspace
             .active_editor()
             .map_or(0, |editor| editor.cursor());
-        let name = Registry::builtin().grammar_name(grammar).to_owned();
+        let resources = language_packs::resources().current();
         std::thread::spawn(move || {
-            let resources = language_packs::resources();
-            let report = inspect::inspect(resources.as_ref(), &name, &text, offset);
+            let report = inspect::inspect(resources.as_ref(), &grammar, &text, offset);
             background.update(move |app| match report {
                 Ok(found) => app.show_toast(inspect::describe(&found, |class| {
                     format!("#{:06x}", crate::ui::theme::c().syntax_color(class).0)

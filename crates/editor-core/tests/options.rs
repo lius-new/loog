@@ -107,7 +107,7 @@ fn configurable_sparse_tab_indexes_and_mixed_endings_survive_edits() {
         normal::insert(&mut ed, "a");
     }
     let mut rebuilt = TextBuffer::new(ed.text());
-    rebuilt.configure(ed.options());
+    rebuilt.configure(ed.options().clone());
     assert_eq!(
         ed.max_line_display_width(),
         rebuilt.max_line_display_width()

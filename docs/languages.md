@@ -21,8 +21,13 @@ The user's extensions are in `%APPDATA%/Loog/extensions/` on Windows,
 `~/Library/Application Support/Loog/extensions/` on macOS and
 `$XDG_DATA_HOME/loog/extensions/` (otherwise `~/.local/share/loog/extensions/`) on
 Linux. `XDG_DATA_HOME` must be absolute; locations never depend on the working
-directory. Grammars are read when Loog starts: install, remove, enable or disable
-an extension and restart, including languages installed from the registry.
+directory. Installing, enabling, disabling, updating, rolling back, or removing
+an extension refreshes its language resources in the running editor. Open text
+files and diffs are resolved again using project and user file associations
+before the enabled languages' file rules. The editor updates only the metadata
+of files whose effective language changed. An association for an unavailable
+language stays in settings and applies again when the language becomes available.
+Use Reload Extensions after editing an extension manifest directly.
 
 ## The highlight panel
 
@@ -39,8 +44,8 @@ The panel has four groups:
 
 Active and All show only each language's short mark; hold the pointer over one
 and its name appears in the footer. Install downloads the extension in the
-background; languages are read when Loog starts, so a banner at the top says
-which ones wait for a restart until then. Languages come from the cached or
+background and makes its language available when installation finishes.
+Languages come from the cached or
 shipped registry index at once, and a newer index is fetched in the background.
 Esc closes the panel; a press outside it does too.
 
@@ -193,8 +198,7 @@ Installed versions live in `extensions/<id>/<version>/` and
 `extensions/extensions.json` records their source, enabled state, pinned version
 and previous version. **Pin Version** excludes an extension from updates;
 **Go Back** selects its previous version and pins it. An installed runtime cannot
-be removed while another installed extension requires it. Restart Loog after
-installing or changing a language extension to use its syntax. Installing a
+be removed while another installed extension requires it. Installing a
 language may also name recommended server extensions; those are installed
 separately from Browse.
 

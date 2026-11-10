@@ -225,7 +225,8 @@ pub fn status_binding(state: &AppContext) -> crate::ui::chrome::StatusBinding {
                         .workspace
                         .view_meta(id)
                         .expect("active document metadata exists")
-                        .lang,
+                        .lang
+                        .clone(),
                     missing: app
                         .workspace
                         .view_document(id)

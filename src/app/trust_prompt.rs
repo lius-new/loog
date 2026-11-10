@@ -5,7 +5,6 @@
 //! from the stored decisions, so answering is what ends the question.
 use crate::app::context::AppContext;
 use crate::app::state::AppState;
-use crate::domain::language::Registry;
 use crate::features::extensions::trust::Decision;
 use crate::features::keymap::action::Action;
 use crate::infrastructure::extensions::trust_store::TrustStore;
@@ -53,7 +52,7 @@ fn loose_directory(
     if trust.decision_of(directory) != Decision::Undecided {
         return None;
     }
-    let language = Registry::builtin().definition_of(document.meta.lang);
+    let language = document.meta.lang.definition();
     serves(&language.name).then(|| directory.to_path_buf())
 }
 

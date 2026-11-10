@@ -12,7 +12,9 @@ use crate::infrastructure::extensions::tasks;
 use crate::infrastructure::extensions::trust_store::TrustStore;
 use crate::infrastructure::extensions::watches;
 use crate::infrastructure::extensions::{Event, Executor, Job, Outcome};
+use crate::infrastructure::language_packs::{self, ExtensionSources};
 use lgui::ApplicationHandle;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -35,8 +37,9 @@ struct Inner {
     language_sinks: Mutex<std::collections::HashMap<u64, (PartSink, usize)>>,
     next_language: std::sync::atomic::AtomicU64,
     hooked: std::sync::atomic::AtomicBool,
-    /// The themes revision last published.
-    themes_seen: std::sync::atomic::AtomicU64,
+    /// The resource revision last published.
+    resources_seen: std::sync::atomic::AtomicU64,
+    language_sources: OnceLock<Mutex<Option<BTreeMap<String, u64>>>>,
     /// The registry index and what is being done with it.
     registry: Mutex<registry::State>,
 }
@@ -466,7 +469,8 @@ impl ExternalAnswers for LanguageHook {
             .cloned()
             .unwrap_or_else(|| {
                 registry
-                    .definition_of(registry.resolve_path(&spec.path))
+                    .resolve_path(&spec.path)
+                    .definition()
                     .name
                     .to_string()
             });
@@ -602,7 +606,8 @@ impl ExtensionHost {
             language_sinks: Mutex::new(std::collections::HashMap::new()),
             next_language: std::sync::atomic::AtomicU64::new(1),
             hooked: std::sync::atomic::AtomicBool::new(false),
-            themes_seen: std::sync::atomic::AtomicU64::new(0),
+            resources_seen: std::sync::atomic::AtomicU64::new(0),
+            language_sources: OnceLock::new(),
             registry: Mutex::new(registry::State::default()),
         });
         let _ = inner.self_ref.set(Arc::downgrade(&inner));
@@ -897,21 +902,73 @@ impl ExtensionHost {
     /// Tell subscribed extensions about document changes this update made.
     pub(crate) fn observe(&self, app: &AppState) {
         self.attach_language_hook();
-        let (effects, themes) = {
-            let mut service = self.inner.service.lock().unwrap();
-            let effects = service.observe(app);
-            let revision = service.themes_revision();
-            let themes = (self.inner.themes_seen.swap(revision, Ordering::Relaxed) != revision)
-                .then(|| service.themes());
-            (effects, themes)
-        };
-        if let Some(themes) = themes {
-            self.publish_themes(themes);
-        }
-        for effect in effects {
-            if let (Effect::Submit(job), Some(executor)) = (effect, self.inner.executor.get()) {
-                executor.submit(job);
+        let effects = self.inner.service.lock().unwrap().observe(app);
+        self.submit(effects);
+    }
+
+    pub(super) fn start_language_resources(&self, app: &mut AppState) {
+        self.inner.language_sources.get_or_init(Mutex::default);
+        self.inner.resources_seen.store(u64::MAX, Ordering::Relaxed);
+        self.publish_resources(app);
+    }
+
+    /// Publish the enabled contribution set before syncing open documents and
+    /// providers. Every operation that changes the package set advances its
+    /// resource revision, including replacement at the same disk path.
+    pub(crate) fn publish_resources(&self, app: &mut AppState) -> bool {
+        let (themes, language_sources) = {
+            let service = self.inner.service.lock().unwrap();
+            let revision = service.resources_revision();
+            if self.inner.resources_seen.swap(revision, Ordering::Relaxed) == revision {
+                return false;
             }
+            let sources = self.inner.language_sources.get().and_then(|published| {
+                let packages = service.contributing_packages().filter(|package| {
+                    let contributes = &package.manifest.contributes;
+                    !contributes.languages.is_empty()
+                        || !contributes.highlight.is_empty()
+                        || !contributes.highlight_queries.is_empty()
+                });
+                let stamps = packages
+                    .clone()
+                    .map(|p| (p.manifest.id.clone(), p.resource_revision))
+                    .collect();
+                let mut published = published.lock().unwrap();
+                if published.as_ref() == Some(&stamps) {
+                    return None;
+                }
+                *published = Some(stamps);
+                Some(ExtensionSources::new(
+                    packages.map(|p| (p.dir.as_path(), &p.manifest)),
+                ))
+            });
+            (service.themes(), sources)
+        };
+        self.publish_themes(themes);
+        if let Some(sources) = language_sources {
+            self.publish_language_resources(app, sources);
+        }
+        true
+    }
+
+    fn publish_language_resources(&self, app: &mut AppState, sources: ExtensionSources) {
+        let packages = sources.load();
+        match packages.registry() {
+            Ok(registry) => {
+                let errors = packages.activity().errors;
+                Registry::install(registry);
+                language_packs::resources().replace(packages);
+                if app.refresh_language_rules() {
+                    crate::app::editing::configure_all(app);
+                }
+                if !errors.is_empty() {
+                    app.show_error(format!(
+                        "Could not load some language resources. {}",
+                        errors.into_iter().take(4).collect::<Vec<_>>().join("\n")
+                    ));
+                }
+            }
+            Err(error) => app.show_error(format!("Could not load language resources: {error}")),
         }
     }
 
@@ -1145,7 +1202,7 @@ impl ExtensionHost {
                             return;
                         }
                         app.show_success(format!(
-                            "{} {} {}{}",
+                            "{} {} {}",
                             if done.replaced.is_some() {
                                 "Updated"
                             } else {
@@ -1153,11 +1210,6 @@ impl ExtensionHost {
                             },
                             done.name,
                             done.version,
-                            if done.needs_restart {
-                                " (restart Loog to use its language)"
-                            } else {
-                                ""
-                            }
                         ));
                     }
                 }
@@ -1184,35 +1236,34 @@ impl ExtensionHost {
         }
     }
 
-    /// Turn an extension off or on. The choice is kept for the next run; what a
-    /// language contributes follows it after a restart. Nothing is announced.
+    /// Turn an extension off or on now and keep the choice for the next run.
     pub(crate) fn set_enabled(&self, context: &AppContext, id: &str, enabled: bool) {
         context.update(|app| {
-            let (result, name) = {
+            let result = {
                 let mut service = self.inner.service.lock().unwrap();
-                let name = service
-                    .package(id)
-                    .and_then(|package| package.manifest.name.clone())
-                    .unwrap_or_else(|| id.to_owned());
-                let result = if enabled {
+                let Some(package) = service.package(id) else {
+                    return app.show_error(format!("{id}: unknown extension"));
+                };
+                if let Some(directory) = self.directory()
+                    && let Err(error) = crate::infrastructure::extensions::state::set_enabled(
+                        directory, id, enabled,
+                    )
+                {
+                    let name = package.manifest.name.as_deref().unwrap_or(id);
+                    return app
+                        .show_error(format!("Could not keep the choice for {name}: {error}"));
+                }
+                if enabled {
                     service.enable(id).map(|()| Vec::new())
                 } else {
                     service.disable(id)
-                };
-                (result, name)
+                }
             };
             let effects = match result {
                 Ok(effects) => effects,
                 Err(error) => return app.show_error(format!("{id}: {error}")),
             };
             self.inner.apply(app, effects);
-            if let Some(directory) = self.directory() {
-                if let Err(error) =
-                    crate::infrastructure::extensions::state::set_enabled(directory, id, enabled)
-                {
-                    app.show_error(format!("Could not keep the choice for {name}: {error}"));
-                }
-            }
         });
     }
 
@@ -1260,6 +1311,17 @@ impl ExtensionHost {
             if let Err(error) = crate::infrastructure::extensions::state::remove(&directory, id) {
                 return app.show_error(format!(
                     "Uninstalled {name} but could not delete it: {error}"
+                ));
+            }
+            // A user-installed version can shadow an extension that ships with Loog.
+            // Removing the override exposes the bundled version again.
+            if let Some(bundled) =
+                language_packs::bundled_extensions_directory().map(|root| root.join(id))
+                && bundled.join("manifest.json").is_file()
+                && let Err(error) = self.load_package(&bundled)
+            {
+                return app.show_error(format!(
+                    "Could not restore the bundled version of {name}. {error}"
                 ));
             }
             if !unused_runtimes.is_empty() {

@@ -153,8 +153,8 @@ fn a_language_without_a_grammar_is_a_description_with_highlight_rules() {
         definition.highlight.keywords.as_deref(),
         Some(&["select".to_owned(), "from".to_owned()][..])
     );
-    assert!(registry.default_resolved(language).grammar.is_none());
-    assert!(registry.resolve_path(Path::new("q.sqlish")).language == language);
+    assert!(registry.default_resolved(language).grammar().is_none());
+    assert!(registry.resolve_path(Path::new("q.sqlish")) == registry.default_resolved(language));
 }
 
 #[test]

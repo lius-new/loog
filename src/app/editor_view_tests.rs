@@ -201,7 +201,7 @@ fn real_layout_keeps_scrolled_carets_hits_ime_and_selection_in_agreement() {
         let asynchronous = app.workspace.documents[&document]
             .meta
             .lang
-            .grammar
+            .grammar()
             .is_some();
         app.editor.focused = true;
         let rect = UiRect::new(0.0, 0.0, 800.0, 400.0);
@@ -1579,7 +1579,11 @@ fn diagnostics_from_a_server_are_underlined_in_the_editor() {
                 .workspace
                 .documents
                 .values()
-                .map(|d| (d.is_text(), d.meta.path.clone(), d.meta.lang.name()))
+                .map(|d| (
+                    d.is_text(),
+                    d.meta.path.clone(),
+                    d.meta.lang.name().to_owned()
+                ))
                 .collect::<Vec<_>>()
         );
         std::thread::sleep(std::time::Duration::from_millis(50));

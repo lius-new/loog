@@ -572,12 +572,13 @@ impl ExtensionHost {
             Err(error) => return app.show_error(format!("Cannot install {id}: {error}")),
         };
         let ids: Vec<String> = steps.iter().map(|step| step.id.clone()).collect();
-        self.inner
-            .registry
-            .lock()
-            .unwrap()
-            .installing
-            .extend(ids.iter().cloned());
+        {
+            let mut state = self.inner.registry.lock().unwrap();
+            if let Some(busy) = ids.iter().find(|id| state.installing.contains(*id)) {
+                return app.show_toast(format!("{busy} is already being installed"));
+            }
+            state.installing.extend(ids.iter().cloned());
+        }
         let inner = self.inner.clone();
         let context = context.clone();
         let planned = ids.clone();
@@ -648,18 +649,13 @@ impl ExtensionHost {
         let also = done.len() - 1;
         let suggested = self.recommended_after(asked);
         app.show_success(format!(
-            "{} {} installed{}{}{}",
+            "{} {} installed{}{}",
             asked.name,
             asked.version,
             if also > 0 {
                 format!(", with {also} it needs")
             } else {
                 String::new()
-            },
-            if done.iter().any(|imported| imported.needs_restart) {
-                " (restart Loog to use its language)"
-            } else {
-                ""
             },
             if suggested.is_empty() {
                 String::new()

@@ -343,10 +343,11 @@ pub fn enter(editor: &mut EditorMut<'_>) {
                 .chars()
                 .next();
             let code =
-                crate::normal::code_context(editor.text(), r.start, editor.options().language);
+                crate::normal::code_context(editor.text(), r.start, &editor.options().language);
             let extra = if code
                 && (matches!(a, Some('{' | '[' | '('))
-                    || a == Some(':') && matches!(editor.options().language, "python" | "yaml"))
+                    || a == Some(':')
+                        && matches!(editor.options().language.as_ref(), "python" | "yaml"))
             {
                 editor.options().indent()
             } else {

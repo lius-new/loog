@@ -16,16 +16,8 @@ fn language_identities_work_without_syntax_and_keep_independent_parser_bindings(
         .registry()
         .unwrap()
         .resolve_path(Path::new("a.identity"));
-    assert!(language.grammar.is_none());
-    assert_eq!(
-        service_only
-            .registry()
-            .unwrap()
-            .definition_of(language)
-            .name
-            .as_ref(),
-        "sample"
-    );
+    assert!(language.grammar().is_none());
+    assert_eq!(language.name(), "sample");
     assert!(service_only.grammar_names().is_empty());
 
     write_sample(&temp);
@@ -34,8 +26,8 @@ fn language_identities_work_without_syntax_and_keep_independent_parser_bindings(
     let registry = with_syntax.registry().unwrap();
     for path in ["a.sample", "a.identity"] {
         let language = registry.resolve_path(Path::new(path));
-        assert_eq!(registry.definition_of(language).name.as_ref(), "sample");
-        assert!(language.grammar.is_some());
+        assert_eq!(language.definition().name.as_ref(), "sample");
+        assert!(language.grammar().is_some());
     }
     assert!(
         with_syntax.activity().language_loads == 0,
@@ -59,14 +51,8 @@ fn identity_metadata_rejects_parser_bindings_and_preserves_a_previous_valid_iden
         source
             .registry()
             .unwrap()
-            .definition_of(
-                source
-                    .registry()
-                    .unwrap()
-                    .resolve_path(Path::new("a.sample"))
-            )
-            .name
-            .as_ref(),
+            .resolve_path(Path::new("a.sample"))
+            .name(),
         "sample"
     );
     assert!(!source.activity().errors.is_empty());
@@ -152,9 +138,7 @@ fn no_packages_provide_plain_text_and_no_resource_activity() {
     assert_eq!(registry.languages().len(), 1);
     for file in ["a.md", "a.json", "a.rs"] {
         assert_eq!(
-            &*registry
-                .definition_of(registry.resolve_path(Path::new(file)))
-                .name,
+            &*registry.resolve_path(Path::new(file)).definition().name,
             "plaintext"
         );
     }
@@ -169,7 +153,8 @@ fn metadata_recognition_is_lazy_and_missing_payload_failure_is_cached() {
     let registry = source.registry().unwrap();
     assert_eq!(
         &*registry
-            .definition_of(registry.resolve_path(Path::new("a.sample")))
+            .resolve_path(Path::new("a.sample"))
+            .definition()
             .name,
         "sample"
     );
@@ -302,7 +287,8 @@ fn upstream_manifest_alone_registers_suffixes_without_loading_any_payload() {
     for path in ["hello.sample", "my.special.test", "special.test"] {
         assert_eq!(
             registry
-                .definition_of(registry.resolve_path(Path::new(path)))
+                .resolve_path(Path::new(path))
+                .definition()
                 .name
                 .as_ref(),
             "sample"
@@ -310,7 +296,8 @@ fn upstream_manifest_alone_registers_suffixes_without_loading_any_payload() {
     }
     assert_eq!(
         registry
-            .definition_of(registry.resolve_path(Path::new("hello.test")))
+            .resolve_path(Path::new("hello.test"))
+            .definition()
             .name
             .as_ref(),
         "plaintext"
@@ -380,7 +367,8 @@ fn a_language_pack_inside_an_extension_package_is_found_at_startup() {
     for (file, expected) in [("a.wv", "weave"), ("a.ou", "plaintext")] {
         assert_eq!(
             registry
-                .definition_of(registry.resolve_path(Path::new(file)))
+                .resolve_path(Path::new(file))
+                .definition()
                 .name
                 .as_ref(),
             expected,
@@ -411,8 +399,8 @@ fn an_extension_can_contribute_a_language_that_is_only_a_description() {
     assert_eq!(found, [package.join("lang").canonicalize().unwrap()]);
     let registry = Packages::from_directories(found).registry().unwrap();
     let resolved = registry.resolve_path(Path::new("a.notes"));
-    assert_eq!(registry.definition_of(resolved).name.as_ref(), "notes");
-    assert!(resolved.grammar.is_none());
+    assert_eq!(resolved.definition().name.as_ref(), "notes");
+    assert!(resolved.grammar().is_none());
 }
 
 #[test]
@@ -428,7 +416,8 @@ fn an_extension_pack_cannot_replace_a_bundled_collection_but_a_user_copy_replace
     let registry = source.registry().unwrap();
     let name = |file: &str| {
         registry
-            .definition_of(registry.resolve_path(Path::new(file)))
+            .resolve_path(Path::new(file))
+            .definition()
             .name
             .to_string()
     };
@@ -451,7 +440,8 @@ fn an_extension_pack_cannot_replace_a_bundled_collection_but_a_user_copy_replace
         .unwrap();
     assert_eq!(
         registry
-            .definition_of(registry.resolve_path(Path::new("a.mine")))
+            .resolve_path(Path::new("a.mine"))
+            .definition()
             .name
             .as_ref(),
         "weave"
@@ -480,7 +470,8 @@ fn standard_suffixes_include_dotfiles_and_longest_suffix_wins() {
     ] {
         assert_eq!(
             registry
-                .definition_of(registry.resolve_path(Path::new(file)))
+                .resolve_path(Path::new(file))
+                .definition()
                 .name
                 .as_ref(),
             expected
@@ -646,8 +637,5 @@ fn standard_rust_keeps_application_editing_defaults_without_external_editor_meta
     );
     let registry = Packages::discover(&temp.0, None).registry().unwrap();
     let rust = registry.resolve_path(Path::new("new.rs"));
-    assert_eq!(
-        registry.definition_of(rust).comments.line.as_deref(),
-        Some("//")
-    );
+    assert_eq!(rust.definition().comments.line.as_deref(), Some("//"));
 }

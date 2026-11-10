@@ -11,6 +11,10 @@ pub(crate) trait Resources: Send + Sync {
     fn generation(&self) -> u64 {
         0
     }
+    /// Pin a resource set while a worker builds parsers and queries.
+    fn snapshot(&self) -> Option<Arc<dyn Resources>> {
+        None
+    }
     fn pending(&self, _grammar: &str) -> bool {
         false
     }

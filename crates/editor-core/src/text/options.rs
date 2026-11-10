@@ -33,13 +33,13 @@ impl LineEnding {
 }
 pub const ENDING_MASK: u32 = 3 << 8;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EditingOptions {
     pub soft_wrap: bool,
     pub match_brackets: bool,
     pub indent_guides: bool,
     pub show_whitespace: bool,
-    pub language: &'static str,
+    pub language: std::sync::Arc<str>,
     pub indent_size: usize,
     pub tab_width: usize,
     pub use_tabs: bool,
@@ -52,7 +52,7 @@ impl Default for EditingOptions {
             match_brackets: true,
             indent_guides: true,
             show_whitespace: false,
-            language: "text",
+            language: "text".into(),
             indent_size: 2,
             tab_width: 4,
             use_tabs: false,
@@ -68,7 +68,7 @@ impl EditingOptions {
             ..self
         }
     }
-    pub fn indent(self) -> String {
+    pub fn indent(&self) -> String {
         if self.use_tabs {
             "\t".into()
         } else {

@@ -106,7 +106,6 @@ fn a_complete_package_is_installed_whole_and_remembers_where_it_came_from() {
     );
     assert_eq!(imported.publisher, "Acme");
     assert_eq!(imported.replaced, None);
-    assert!(!imported.needs_restart);
     for file in ["manifest.json", "icon.svg", "README.md", "themes/dark.json"] {
         assert!(imported.directory.join(file).is_file(), "{file}");
     }
@@ -344,14 +343,4 @@ fn the_root_folder_must_be_the_extension_and_the_only_one() {
         .is_err()
     );
     assert!(!extensions.join("acme.night").exists());
-}
-
-#[test]
-fn an_extension_with_a_language_pack_asks_for_a_restart() {
-    let temp = Temp::new();
-    let mut entries = files("1.0.0");
-    entries[0].1 = manifest("1.0.0", "")
-        .replace("\"themes\": [", "\"highlight\": [{ \"id\": \"acme.night.g\", \"path\": \"g/tree-sitter.json\" }], \"themes\": [")
-        .into_bytes();
-    assert!(import_files(&temp, &entries).unwrap().needs_restart);
 }

@@ -99,11 +99,14 @@ struct Wanted {
 fn wanted(app: &AppState) -> Option<Wanted> {
     let pane = app.workspace.active_pane();
     let t = target(app, pane)?;
-    let language = app.workspace.documents.get(&t.document)?.meta.lang;
-    let name = crate::domain::language::Registry::builtin()
-        .definition_of(language)
-        .name
-        .to_string();
+    let name = app
+        .workspace
+        .documents
+        .get(&t.document)?
+        .meta
+        .lang
+        .name()
+        .to_owned();
     let setting = app.preferences.values().languages.get(&name)?;
     (setting.format_on_save || !setting.code_actions_on_save.is_empty()).then(|| Wanted {
         kinds: setting.code_actions_on_save.clone(),

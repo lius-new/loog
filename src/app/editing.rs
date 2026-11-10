@@ -83,7 +83,7 @@ pub fn configure(app: &mut AppState, view: ViewId) {
     let settings = effective(app, id);
     if let Some(doc) = app.workspace.documents.get_mut(&id) {
         let mut options = settings.core();
-        options.language = doc.meta.lang.name();
+        options.language = doc.meta.lang.shared_name();
         doc.buffer.configure(options);
         if doc.buffer.needs_default_line_ending() {
             doc.buffer
@@ -158,8 +158,8 @@ pub fn configure_all(app: &mut AppState) -> bool {
         let settings = effective(app, id);
         let doc = app.workspace.documents.get_mut(&id).unwrap();
         let mut desired = settings.core();
-        desired.language = doc.meta.lang.name();
-        if doc.buffer.options() != desired {
+        desired.language = doc.meta.lang.shared_name();
+        if doc.buffer.options() != &desired {
             doc.buffer.configure(desired);
             changed = true;
         }

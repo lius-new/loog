@@ -1017,9 +1017,9 @@ fn a_package_theme_is_read_completely_offered_by_id_and_withdrawn_with_its_packa
     crate::ui::theme::set_package_themes(themes);
     let chosen = crate::features::settings::theme_id::ThemeId::parse("acme.look.night").unwrap();
     assert_eq!(chosen.theme().palette.bg.0, 0x101418);
-    let revision = service.themes_revision();
+    let revision = service.resources_revision();
     service.stop("acme.look");
-    assert!(service.themes_revision() > revision);
+    assert!(service.resources_revision() > revision);
     crate::ui::theme::set_package_themes(service.themes());
     assert!(crate::features::settings::theme_id::ThemeId::parse("acme.look.night").is_none());
     assert_eq!(

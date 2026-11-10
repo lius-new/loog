@@ -111,7 +111,7 @@ mod tests {
                 crate::domain::identity::PaneId::new(1),
                 doc.stamp(*id),
                 Source::new(&doc.buffer),
-                doc.meta.lang,
+                doc.meta.lang.clone(),
                 vec![Window {
                     line: doc.buffer.line_range(0),
                     range: doc.buffer.line_range(0),

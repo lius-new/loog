@@ -74,8 +74,6 @@ pub struct Menu {
     pub more: Vec<Offer>,
     /// How many there are before the filter.
     pub more_total: usize,
-    /// Installed, but read only when Loog starts.
-    pub restart: Vec<String>,
 }
 
 /// The file types a file name is recognized by, longest first: `a.d.ts` is `d.ts`
@@ -110,10 +108,6 @@ pub fn badge_text(name: &str, file_types: &[String]) -> String {
     }
 }
 
-fn is_language(installed: &Installed, name: &str) -> bool {
-    installed.name.eq_ignore_ascii_case(name) || installed.display.eq_ignore_ascii_case(name)
-}
-
 pub fn build(input: Input) -> Menu {
     let mut all: Vec<Language> = input
         .installed
@@ -131,24 +125,10 @@ pub fn build(input: Input) -> Menu {
         .cloned()
         .collect();
 
-    let mut restart = Vec::new();
     let mut recommended = Vec::new();
     let mut more = Vec::new();
     for candidate in input.candidates {
-        if candidate.installed {
-            // Read at startup: until then the language is not among the installed ones.
-            let loaded = candidate.languages.iter().any(|name| {
-                input
-                    .installed
-                    .iter()
-                    .any(|installed| is_language(installed, name))
-            });
-            if !loaded {
-                restart.push(candidate.name.clone());
-            }
-            continue;
-        }
-        if !candidate.installable && !candidate.installing {
+        if candidate.installed || (!candidate.installable && !candidate.installing) {
             continue;
         }
         let matching = input
@@ -181,7 +161,6 @@ pub fn build(input: Input) -> Menu {
             more.push(offer);
         }
     }
-    restart.sort();
     let by_name = |offer: &Offer| offer.name.to_lowercase();
     recommended.sort_by_key(by_name);
     more.sort_by_key(by_name);
@@ -196,7 +175,6 @@ pub fn build(input: Input) -> Menu {
         recommended,
         more,
         more_total,
-        restart,
     }
 }
 
@@ -319,7 +297,7 @@ mod tests {
     }
 
     #[test]
-    fn an_installed_extension_whose_language_is_not_loaded_waits_for_a_restart() {
+    fn an_installed_extension_is_not_offered_again() {
         let mut waiting = candidate("loog.lang.yaml", "YAML", &["yaml"]);
         waiting.installed = true;
         let mut loaded = candidate("loog.lang.rust", "Rust", &["rs"]);
@@ -332,7 +310,6 @@ mod tests {
             candidates: &[waiting, loaded],
             filter: "",
         });
-        assert_eq!(menu.restart, ["YAML"]);
         assert!(menu.recommended.is_empty() && menu.more.is_empty());
     }
 

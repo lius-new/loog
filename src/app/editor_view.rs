@@ -94,7 +94,7 @@ pub(crate) fn snapshot(
                 stamp: app.workspace.documents.get(&document)?.stamp(document),
                 meta: DocumentMeta {
                     path: meta.path.clone(),
-                    lang: meta.lang,
+                    lang: meta.lang.clone(),
                 },
                 projection: super::editing::projection(&app, id, rect),
                 buffer: value.buffer().clone(),
@@ -628,7 +628,7 @@ pub(crate) fn binding(
                     pane,
                     document.stamp,
                     crate::features::syntax::Source::new(&document.buffer),
-                    document.meta.lang,
+                    document.meta.lang.clone(),
                     windows,
                 );
                 // The server's semantic tokens, when they describe exactly this text,

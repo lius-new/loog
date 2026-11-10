@@ -20,7 +20,6 @@ use crate::ui::theme;
 const CARD_W: f32 = 560.0;
 const SIDE_MARGIN: f32 = 12.0;
 const PAD_X: f32 = 14.0;
-const BANNER_H: f32 = 28.0;
 const HEADER_H: f32 = 28.0;
 /// The last group's header holds the filter, so it is taller; the field has the
 /// same room above and below.
@@ -60,7 +59,6 @@ pub struct Row {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Frame {
     /// Installed, but languages are read when Loog starts.
-    pub restart: Vec<String>,
     pub active: Vec<Badge>,
     pub all: Vec<Badge>,
     pub recommended: Vec<Row>,
@@ -221,9 +219,6 @@ fn more_height(frame: &Frame) -> f32 {
 
 fn card_height(frame: &Frame, available: f32) -> f32 {
     let mut height = 1.0 + FOOT_H;
-    if !frame.restart.is_empty() {
-        height += BANNER_H;
-    }
     height += badges_height(&frame.active, available);
     height += 1.0 + badges_height(&frame.all, available);
     if !frame.recommended.is_empty() {
@@ -415,25 +410,6 @@ pub fn render(
         });
 
     let mut y = card.top + 1.0;
-    if !frame.restart.is_empty() {
-        let banner = UiRect::new(card.left + 1.0, y, card.right - 1.0, y + BANNER_H);
-        surface = surface
-            .child(panel(
-                banner,
-                VisualStyle::filled(palette.conflict.marker_bg),
-            ))
-            .child(text(
-                UiRect::new(
-                    banner.left + PAD_X,
-                    banner.top,
-                    banner.right - PAD_X,
-                    banner.bottom,
-                ),
-                format!("Restart Loog to use {}", frame.restart.join(", ")),
-                theme::mono(palette.warning, theme::SMALL + 1.0),
-            ));
-        y += BANNER_H;
-    }
 
     // In use, then everything installed.
     surface = surface.child(header(card, y, format!("ACTIVE · {}", frame.active.len())));
@@ -758,7 +734,6 @@ mod tests {
 
     fn sample() -> Frame {
         Frame {
-            restart: vec!["TOML".into()],
             active: vec![badge("RS")],
             all: vec![badge("RS"), badge("MD")],
             recommended: vec![row("loog.lang.yaml", "YAML", "YAML", "2 open files")],
@@ -774,10 +749,9 @@ mod tests {
     }
 
     #[test]
-    fn the_four_groups_and_the_restart_note_are_drawn_and_install_reports_its_extension() {
+    fn the_four_groups_are_drawn_and_install_reports_its_extension() {
         let (mut session, context, seen) = rendered(sample());
         for label in [
-            "Restart Loog to use TOML",
             "ACTIVE · 1",
             "ALL · 2",
             "RECOMMENDED · 1",

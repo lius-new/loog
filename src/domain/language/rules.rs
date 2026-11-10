@@ -163,11 +163,13 @@ pub struct AssociationSpec<'a> {
     pub language: &'a str,
 }
 
-/// Checks one rule the way compiling does, so settings can report a bad rule
-/// without discarding the others.
-pub fn validate(registry: &Registry, spec: AssociationSpec<'_>) -> Result<(), String> {
+/// Check the saved rule without requiring its language extension to be active.
+pub fn validate(spec: AssociationSpec<'_>) -> Result<(), String> {
     Glob::parse(spec.pattern, PATH_CASE_INSENSITIVE)?;
-    language_of(registry, spec.language).map(|_| ())
+    if !crate::domain::language::descriptor::is_canonical_name(spec.language) {
+        return Err(format!("invalid language name {}", spec.language));
+    }
+    Ok(())
 }
 
 fn language_of(registry: &Registry, name: &str) -> Result<LanguageId, String> {
@@ -271,7 +273,7 @@ impl LanguageRules {
             .chain(&self.user)
             .filter(|rule| root.is_some() || rule.glob.matches_without_folder())
             .find(|rule| rule.glob.matches(&relative))
-            .map(|rule| rule.language)
+            .map(|rule| rule.language.clone())
     }
 }
 
@@ -358,10 +360,9 @@ mod tests {
         AssociationSpec { pattern, language }
     }
     fn name(rules: &LanguageRules, path: &str) -> Option<String> {
-        let registry = Registry::builtin();
         rules
             .resolve(std::path::Path::new(path))
-            .map(|resolved| registry.definition_of(resolved).name.to_string())
+            .map(|resolved| resolved.definition().name.to_string())
     }
     fn roots() -> Vec<PathBuf> {
         vec![
@@ -375,7 +376,7 @@ mod tests {
     fn project_rules_come_first_then_user_rules_and_the_first_match_wins() {
         let registry = Registry::builtin();
         let (rules, errors) = LanguageRules::compile(
-            registry,
+            &registry,
             false,
             &roots(),
             &[
@@ -428,7 +429,7 @@ mod tests {
     fn the_innermost_folder_owns_a_file_for_project_rules() {
         let registry = Registry::builtin();
         let (rules, errors) = LanguageRules::compile(
-            registry,
+            &registry,
             false,
             &roots(),
             &[],
@@ -452,7 +453,7 @@ mod tests {
     fn files_outside_every_folder_only_match_plain_name_patterns() {
         let registry = Registry::builtin();
         let (rules, _) = LanguageRules::compile(
-            registry,
+            &registry,
             false,
             &roots(),
             &[
@@ -483,7 +484,7 @@ mod tests {
     fn bad_rules_are_reported_and_the_rest_still_apply() {
         let registry = Registry::builtin();
         let (rules, errors) = LanguageRules::compile(
-            registry,
+            &registry,
             false,
             &roots(),
             &[
@@ -510,15 +511,11 @@ mod tests {
     }
 
     #[test]
-    fn validate_matches_what_compiling_accepts() {
-        let registry = Registry::builtin();
-        assert!(validate(registry, spec("**/*.custom", "rust")).is_ok());
-        assert!(validate(registry, spec("**/*.custom", "cs")).is_ok());
-        assert!(
-            validate(registry, spec("**/*.custom", "nope"))
-                .unwrap_err()
-                .contains("unknown language")
-        );
-        assert!(validate(registry, spec("{a}", "rust")).is_err());
+    fn a_well_formed_rule_can_name_an_unavailable_language() {
+        assert!(validate(spec("**/*.custom", "rust")).is_ok());
+        assert!(validate(spec("**/*.custom", "cs")).is_ok());
+        assert!(validate(spec("**/*.custom", "not_installed")).is_ok());
+        assert!(validate(spec("**/*.custom", "not valid")).is_err());
+        assert!(validate(spec("{a}", "rust")).is_err());
     }
 }

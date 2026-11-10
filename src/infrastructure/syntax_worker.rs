@@ -80,7 +80,7 @@ impl Epoch {
             && self.lang == request.lang
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Key {
     document: FileId,
     incarnation: u64,
@@ -99,7 +99,7 @@ impl Key {
             language_generation: request.stamp.language_generation,
             identity: request.source.identity(),
             version: request.source.version,
-            lang: request.lang,
+            lang: request.lang.clone(),
             start: window.range.start,
             end: window.range.end,
         }
@@ -243,6 +243,7 @@ impl Worker {
             }
             let mut state = shared.state.lock().unwrap();
             state.ready.clear();
+            state.structural.clear();
             state.bytes = 0;
             state.retained = RetainedSet::default();
             for epoch in state.epochs.values_mut() {
@@ -330,7 +331,7 @@ impl Worker {
                     let result = trees.prepare(
                         request.document,
                         request.source.clone(),
-                        request.lang,
+                        request.lang.clone(),
                         &windows,
                         &cancel,
                     );
@@ -378,12 +379,13 @@ impl Worker {
                         state.bytes += bytes;
                     }
                     while state.bytes > WINDOW_BUDGET || state.ready.len() > 2048 {
-                        let key = *state
+                        let key = state
                             .ready
                             .iter()
                             .min_by_key(|(_, entry)| entry.used)
                             .unwrap()
-                            .0;
+                            .0
+                            .clone();
                         state.bytes -= state.ready.remove(&key).unwrap().bytes;
                         state.evictions += 1;
                     }
@@ -418,7 +420,8 @@ impl Worker {
             "the stamp and the source must describe the same text"
         );
         let document = stamp.document;
-        if lang.grammar.is_none() || source.text.len() > crate::features::syntax::MAX_DOCUMENT_BYTES
+        if lang.grammar().is_none()
+            || source.text.len() > crate::features::syntax::MAX_DOCUMENT_BYTES
         {
             // Plain rendering needs no source, epoch, or asynchronous viewport
             // request. In particular it must not force a copy on the next edit.
@@ -476,7 +479,7 @@ impl Worker {
             stamp,
             document,
             source,
-            lang,
+            lang: lang.clone(),
             windows: Vec::new(),
         };
         let changed_data = !state
@@ -497,7 +500,7 @@ impl Worker {
                     version: request.source.version,
                     incarnation: request.stamp.incarnation,
                     language_generation: request.stamp.language_generation,
-                    lang,
+                    lang: lang.clone(),
                     cancel: Arc::new(AtomicBool::new(false)),
                 },
             );
@@ -516,11 +519,11 @@ impl Worker {
                     .collect();
                 match old {
                     Some(old)
-                        if (old.incarnation, old.language_generation, old.lang)
+                        if (old.incarnation, old.language_generation, &old.lang)
                             == (
                                 request.stamp.incarnation,
                                 request.stamp.language_generation,
-                                lang,
+                                &lang,
                             ) =>
                     {
                         if !pages.is_empty() {
@@ -627,7 +630,7 @@ impl Worker {
                 &request.source,
                 request.stamp.incarnation,
                 request.stamp.language_generation,
-                lang,
+                &lang,
                 &window,
             ) {
                 // Nothing is ready for this version yet: draw the previous

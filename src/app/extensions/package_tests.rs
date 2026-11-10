@@ -106,8 +106,8 @@ fn the_sample_language_extension_is_found_at_startup_and_highlights_with_its_mod
     let packages = Arc::new(Packages::discover_with(&nowhere, &found, None));
     let registry = packages.registry().unwrap();
     let resolved = registry.resolve_path(Path::new("server.properties"));
-    assert_eq!(registry.definition_of(resolved).name.as_ref(), "properties");
-    let grammar = registry.grammar_name(resolved.grammar.expect("a grammar"));
+    assert_eq!(resolved.definition().name.as_ref(), "properties");
+    let grammar = resolved.grammar().expect("a grammar").as_ref();
     assert_eq!(grammar, "properties");
     assert_eq!(
         packages.activity().wasm_loads,
@@ -356,4 +356,151 @@ fn the_samples_are_packed_with_the_script_and_import_with_everything_to_show() {
     // The language pack inside the installed extension is found at startup.
     assert_eq!(extension_packs(&installed).len(), 1);
     let _ = std::fs::remove_dir_all(&work);
+}
+
+#[test]
+fn language_package_operations_take_effect_in_the_open_editor() {
+    use crate::features::syntax::{Source, Window};
+    use crate::infrastructure::language_packs;
+    use std::{fs, process::Command, sync::atomic::AtomicBool};
+
+    // Isolate the application-wide catalog from other test hosts.
+    const CHILD: &str = "LOOG_LIVE_LANGUAGE_TEST";
+    let Some(work) = std::env::var_os(CHILD).map(PathBuf::from) else {
+        let work = std::env::temp_dir().join(format!("loog-live-language-{}", std::process::id()));
+        fs::create_dir_all(&work).unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "app::extensions::package_tests::language_package_operations_take_effect_in_the_open_editor", "--nocapture"])
+            .env(CHILD, &work)
+            .output()
+            .unwrap();
+        let _ = fs::remove_dir_all(&work);
+        assert!(
+            output.status.success() && String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    };
+
+    const ID: &str = "loog.properties";
+    let sample = samples().join("loog-properties");
+    let pack = |id: &str, version: &str, query: &str| {
+        let archive = work.join(format!("{id}-{version}.loogext"));
+        let encoder = flate2::write::GzEncoder::new(
+            fs::File::create(&archive).unwrap(),
+            flate2::Compression::default(),
+        );
+        let mut tar = tar::Builder::new(encoder);
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(sample.join("manifest.json")).unwrap()).unwrap();
+        manifest["id"] = id.into();
+        manifest["version"] = version.into();
+        manifest["contributes"]["highlight"][0]["id"] = format!("{id}.grammar").into();
+        manifest["contributes"]["snippets"][0]["id"] = format!("{id}.snippets").into();
+        for file in [
+            "manifest.json",
+            "icon.svg",
+            "README.md",
+            "CHANGELOG.md",
+            "snippets/properties.json",
+            "grammar/tree-sitter.json",
+            "grammar/tree-sitter-properties.wasm",
+            "grammar/queries/highlights.scm",
+        ] {
+            let bytes = match file {
+                "manifest.json" => manifest.to_string().into_bytes(),
+                "grammar/queries/highlights.scm" => query.as_bytes().to_vec(),
+                _ => fs::read(sample.join(file)).unwrap(),
+            };
+            let mut header = tar::Header::new_ustar();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            tar.append_data(&mut header, format!("{id}/{file}"), bytes.as_slice())
+                .unwrap();
+        }
+        tar.into_inner().unwrap().finish().unwrap();
+        archive
+    };
+    let first = pack(ID, "1.0.0", "(comment) @comment");
+    let next = pack(ID, "1.1.0", "(comment) @keyword");
+    let mut app = AppState::new();
+    let path = work.join("open.properties");
+    app.workspace.open_path(path.clone(), "# hello\n".into());
+    let id = app.workspace.file_id_for_path(&path).unwrap();
+    let ui = crate::app::test_support::SavingUi::new(app);
+    let directory = work.join("extensions");
+    let host = host::ExtensionHost::start(
+        ui.state.clone(),
+        ui.tasks.application(),
+        work.join("cache"),
+        ui.runtime.trust().clone(),
+        Some(directory.join("settings.json")),
+    )
+    .unwrap();
+    ui.state.update(|app| host.start_language_resources(app));
+    ui.runtime.install_extensions(host);
+    let host = ui.runtime.extensions().unwrap();
+    let mut index = language_packs::index();
+    let mut check = |language: &str, class| {
+        let app = ui.state.get();
+        let doc = &app.workspace.documents[&id];
+        assert_eq!(
+            doc.meta.lang.name(),
+            language,
+            "{:?}",
+            app.chrome.toast.as_ref().map(|toast| &toast.message)
+        );
+        let source = Source::new(&doc.buffer);
+        let window = Window {
+            line: 0..8,
+            range: 0..8,
+        };
+        let tokens = index
+            .prepare(
+                id,
+                source,
+                doc.meta.lang.clone(),
+                &[window],
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        assert_eq!(tokens[0].spans.first().and_then(|span| span.class), class);
+        doc.stamp(id)
+    };
+
+    let plain = check("plaintext", None);
+    host.import_into(&ui.state, &first, &directory);
+    let highlighted = check("properties", Some(HighlightId::COMMENT));
+    assert_ne!(plain.language_generation, highlighted.language_generation);
+    assert_eq!(plain.version, highlighted.version);
+    host.import_into(&ui.state, &next, &directory);
+    assert_eq!(check("properties", Some(HighlightId::KEYWORD)), highlighted);
+    host.roll_back(&ui.state, ID);
+    check("properties", Some(HighlightId::COMMENT));
+    let revised = pack(ID, "1.0.0", "(comment) @keyword");
+    host.import_into(&ui.state, &revised, &directory);
+    check("properties", Some(HighlightId::KEYWORD));
+    host.set_enabled(&ui.state, ID, false);
+    check("plaintext", None);
+    host.reload_all(&ui.state);
+    check("plaintext", None);
+    host.set_enabled(&ui.state, ID, true);
+    check("properties", Some(HighlightId::KEYWORD));
+    host.uninstall(&ui.state, ID);
+    check("plaintext", None);
+
+    let bundled_id = "loog.lang.json";
+    if language_packs::bundled_extensions_directory()
+        .is_some_and(|root| root.join(bundled_id).is_dir())
+    {
+        let overlay = pack(bundled_id, "1.0.0", "(comment) @comment");
+        host.import_into(&ui.state, &overlay, &directory);
+        check("properties", Some(HighlightId::COMMENT));
+        host.uninstall(&ui.state, bundled_id);
+        check("plaintext", None);
+        assert!(host.service().package(bundled_id).unwrap().is_bundled());
+    }
 }

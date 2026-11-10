@@ -98,7 +98,7 @@ fn file_associations_from_user_and_project_settings_choose_the_language() {
         .restore(vec![project.clone(), other.clone()], Vec::new());
     let language = |app: &crate::app::state::AppState, file: &std::path::Path| {
         let id = app.workspace.file_id_for_path(file).unwrap();
-        app.workspace.documents[&id].meta.lang.name()
+        app.workspace.documents[&id].meta.lang.name().to_owned()
     };
     let (in_project, in_other) = (project.join("a.cfg"), other.join("a.cfg"));
     app.workspace.open_path(in_project.clone(), "x".into());

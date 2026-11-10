@@ -2,9 +2,8 @@
 //! they are called comes from installed package descriptions, not from code:
 //! adding a language adds data, not a branch anywhere.
 //!
-//! Ids are small and `Copy` so caches can key on them cheaply. They are only
-//! meaningful for the registry that issued them and are never stored; settings
-//! and sessions use the canonical names.
+//! Resolved languages own their metadata so work in flight can finish safely
+//! after the catalog changes. Settings and sessions use canonical names.
 mod descriptor;
 mod embedded;
 mod registry;
@@ -25,57 +24,83 @@ pub use self::rules::{
     AssociationSpec, LanguageRules, PATH_CASE_INSENSITIVE, validate as validate_association,
 };
 
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LanguageId(u32);
 
-/// A variant of a language, for example `tsx` of `typescript`. Ids are global to
-/// the registry, not per language.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct VariantId(u32);
-
-/// A grammar resource. It names data, not a parser object.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct GrammarId(u32);
-
-macro_rules! index {
-    ($($id:ident),*) => {$(impl $id { pub fn index(self) -> usize { self.0 as usize } })*};
+impl LanguageId {
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
 }
-index!(LanguageId, VariantId, GrammarId);
 
-/// What a document's language is right now.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// The effective language and selected variant of a document.
+#[derive(Clone, Debug)]
 pub struct ResolvedLanguage {
-    pub language: LanguageId,
-    pub variant: VariantId,
-    pub grammar: Option<GrammarId>,
+    definition: Arc<LanguageDefinition>,
+    position: usize,
+}
+
+impl PartialEq for ResolvedLanguage {
+    fn eq(&self, other: &Self) -> bool {
+        let a = self.definition();
+        let b = other.definition();
+        (Arc::ptr_eq(&self.definition, &other.definition) && self.position == other.position)
+            || (self.name() == other.name()
+                && self.variant() == other.variant()
+                && a.display_name == b.display_name
+                && a.badge == b.badge
+                && a.comments == b.comments
+                && a.highlight == b.highlight)
+    }
+}
+impl Eq for ResolvedLanguage {}
+impl Hash for ResolvedLanguage {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name().hash(state);
+        self.variant().hash(state);
+    }
 }
 
 impl ResolvedLanguage {
-    pub fn definition(self) -> &'static LanguageDefinition {
-        Registry::builtin().definition(self.language)
+    pub fn definition(&self) -> &LanguageDefinition {
+        &self.definition
     }
 
-    /// The canonical language name, such as `rust`.
-    pub fn name(self) -> &'static str {
-        &self.definition().name
+    pub fn name(&self) -> &str {
+        &self.definition.name
     }
 
-    pub fn badge(self) -> &'static str {
-        &self.definition().badge
+    pub fn shared_name(&self) -> Arc<str> {
+        self.definition.name.clone()
     }
 
-    pub fn display_name(self) -> &'static str {
-        &self.definition().display_name
+    pub fn badge(&self) -> &str {
+        &self.definition.badge
+    }
+
+    pub fn display_name(&self) -> &str {
+        &self.definition.display_name
+    }
+
+    fn variant(&self) -> &registry::LanguageVariant {
+        &self.definition.variants[self.position]
+    }
+
+    pub fn variant_name(&self) -> &str {
+        &self.variant().name
+    }
+
+    pub fn grammar(&self) -> Option<&Arc<str>> {
+        self.variant().grammar.as_ref()
     }
 }
 
-/// The built-in language for a file path.
+/// Recognize the path using the current catalog.
 pub fn from_path(path: &std::path::Path) -> ResolvedLanguage {
     Registry::builtin().resolve_path(path)
-}
-
-pub fn grammar_names() -> Vec<&'static str> {
-    Registry::builtin().grammar_names().collect()
 }
 
 /// A built-in language by canonical name or alias, in its default variant.

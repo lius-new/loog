@@ -283,11 +283,11 @@ pub(crate) fn apply_command(
                 .workspace
                 .active()
                 .and_then(|id| app.workspace.view_meta(id))
-                .and_then(|m| m.lang.definition().comments.line.as_deref());
+                .and_then(|m| m.lang.definition().comments.line.clone());
             if let Some(prefix) = prefix {
                 app.workspace.promote_active_preview();
                 if let Some(mut buffer) = app.workspace.active_editor_mut() {
-                    normal::comment(&mut buffer, prefix);
+                    normal::comment(&mut buffer, &prefix);
                 }
             } else {
                 app.show_toast("This language has no line comment marker");
@@ -562,8 +562,7 @@ pub fn insert_text(app: &mut AppState, input: &str, rect: UiRect) {
     let language = app
         .workspace
         .view_meta(document)
-        .map(|m| m.lang.name())
-        .unwrap_or("text");
+        .map(|m| m.lang.shared_name());
     if let Some(mut editor) = app.workspace.view_editor_mut(pane, document) {
         // A composition commit is an undo step of its own.
         if session.is_some() {
@@ -572,7 +571,7 @@ pub fn insert_text(app: &mut AppState, input: &str, rect: UiRect) {
         if session.is_some() {
             normal::insert(&mut editor, input);
         } else {
-            normal::type_text(&mut editor, input, language);
+            normal::type_text(&mut editor, input, language.as_deref().unwrap_or("text"));
         }
         if session.is_some() {
             editor.break_undo_group();

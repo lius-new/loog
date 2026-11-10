@@ -103,8 +103,8 @@ impl Vim {
             InsertEvent::Literal(text) if replacing => self.overwrite(editor, text),
             InsertEvent::Literal(text) => normal::insert(editor, text),
             InsertEvent::Text(text) => {
-                let language = editor.options().language;
-                normal::type_text(editor, text, language);
+                let language = editor.options().language.clone();
+                normal::type_text(editor, text, &language);
             }
             InsertEvent::Backspace if replacing => self.restore(editor),
             InsertEvent::Backspace => normal::backspace(editor),

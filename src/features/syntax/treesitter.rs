@@ -15,7 +15,7 @@ use super::queries::{self, CompiledQuery};
 use super::{Source, TokenSpan, Window, WindowTokens};
 use crate::domain::{
     identity::FileId,
-    language::{GrammarId, Registry, ResolvedLanguage},
+    language::{Registry, ResolvedLanguage},
 };
 use crate::features::highlighting::HighlightId;
 use loog_editor_core::text::{BytePoint, RevisionEdit};
@@ -64,21 +64,22 @@ struct DocTree {
     /// Embedded languages, parsed as windows reach them.
     layers: Layers,
     source: Source,
-    grammar: GrammarId,
+    grammar: Arc<str>,
     used: u64,
 }
 
 pub(crate) struct TreeIndex {
-    parsers: HashMap<GrammarId, Parser>,
+    parsers: HashMap<Arc<str>, Parser>,
     /// Parsers for embedded regions, which carry included ranges and so are never
     /// shared with whole-document parses.
-    layer_parsers: HashMap<&'static str, Parser>,
+    layer_parsers: HashMap<Arc<str>, Parser>,
     /// `None` remembers a query that failed to compile, so it is not retried.
-    queries: HashMap<&'static str, Option<Arc<CompiledQuery>>>,
-    injection_queries: HashMap<&'static str, Option<Arc<InjectionQuery>>>,
+    queries: HashMap<Arc<str>, Option<Arc<CompiledQuery>>>,
+    injection_queries: HashMap<Arc<str>, Option<Arc<InjectionQuery>>>,
     docs: HashMap<FileId, DocTree>,
     clock: u64,
     pub stats: TreeStats,
+    source: Arc<dyn super::Resources>,
     resources: Arc<dyn super::Resources>,
     resource_generation: u64,
 }
@@ -105,7 +106,8 @@ impl TreeIndex {
             docs: HashMap::new(),
             clock: 0,
             stats: TreeStats::default(),
-            resources,
+            resources: resources.snapshot().unwrap_or_else(|| resources.clone()),
+            source: resources,
             resource_generation,
         }
     }
@@ -202,7 +204,7 @@ impl TreeIndex {
         windows: &[Window],
         cancel: &AtomicBool,
     ) -> Option<Vec<WindowTokens>> {
-        let generation = self.resources.generation();
+        let generation = self.source.generation();
         if generation != self.resource_generation {
             self.parsers.clear();
             self.layer_parsers.clear();
@@ -210,6 +212,10 @@ impl TreeIndex {
             self.injection_queries.clear();
             self.docs.clear();
             self.stats.trees = 0;
+            self.resources = self
+                .source
+                .snapshot()
+                .unwrap_or_else(|| self.source.clone());
             self.resource_generation = generation;
         }
         self.clock += 1;
@@ -220,7 +226,7 @@ impl TreeIndex {
             return None;
         }
         // Without a grammar the text is plain.
-        let Some(grammar) = language.grammar else {
+        let Some(grammar) = language.grammar() else {
             self.docs.remove(&id);
             return Some(windows.iter().map(plain).collect());
         };
@@ -229,14 +235,14 @@ impl TreeIndex {
             self.stats.plain_fallbacks += 1;
             return Some(windows.iter().map(plain).collect());
         }
-        let Some(query) = self.query_by_name(Registry::builtin().grammar_name(grammar)) else {
+        let Some(query) = self.query_by_name(grammar) else {
             self.stats.plain_fallbacks += 1;
             return Some(windows.iter().map(plain).collect());
         };
         let current = self
             .docs
             .get(&id)
-            .is_some_and(|doc| doc.grammar == grammar && doc.source.same(&source));
+            .is_some_and(|doc| &doc.grammar == grammar && doc.source.same(&source));
         if !current {
             match self.reparse(id, &source, grammar, cancel) {
                 Ok(()) => {}
@@ -262,15 +268,15 @@ impl TreeIndex {
             doc.layers.ensure(&mut tools, &reached, &doc.source.text)?;
         }
         // The queries of the embedded languages, in the order of the layers.
-        let layer_names: Vec<Option<&'static str>> = self.docs[&id]
+        let layer_names: Vec<Option<Arc<str>>> = self.docs[&id]
             .layers
             .list
             .iter()
-            .map(|layer| layer.tree.as_ref().map(|_| layer.grammar))
+            .map(|layer| layer.tree.as_ref().map(|_| layer.grammar.clone()))
             .collect();
         let layer_queries: Vec<Option<Arc<CompiledQuery>>> = layer_names
             .into_iter()
-            .map(|name| name.and_then(|name| self.query_by_name(name)))
+            .map(|name| name.as_ref().and_then(|name| self.query_by_name(name)))
             .collect();
         let doc = self.docs.get_mut(&id).expect("parsed or current");
         doc.used = self.clock;
@@ -303,10 +309,10 @@ impl TreeIndex {
         Some(result)
     }
 
-    fn query_by_name(&mut self, name: &'static str) -> Option<Arc<CompiledQuery>> {
+    fn query_by_name(&mut self, name: &Arc<str>) -> Option<Arc<CompiledQuery>> {
         let stats = &mut self.stats;
         self.queries
-            .entry(name)
+            .entry(name.clone())
             .or_insert_with(|| {
                 let started = Instant::now();
                 let compiled = queries::compile(self.resources.as_ref(), name);
@@ -328,20 +334,21 @@ impl TreeIndex {
         &mut self,
         id: FileId,
         source: &Source,
-        grammar: GrammarId,
+        grammar: &Arc<str>,
         cancel: &AtomicBool,
     ) -> Result<(), bool> {
-        let name = Registry::builtin().grammar_name(grammar);
-        if let std::collections::hash_map::Entry::Vacant(entry) = self.parsers.entry(grammar) {
-            let parser = self.resources.parser(name).map_err(|error| {
+        if let std::collections::hash_map::Entry::Vacant(entry) =
+            self.parsers.entry(grammar.clone())
+        {
+            let parser = self.resources.parser(grammar).map_err(|error| {
                 self.resources.report(&error);
                 false
             })?;
             entry.insert(parser);
         }
-        let parser = self.parsers.get_mut(&grammar).expect("initialized parser");
+        let parser = self.parsers.get_mut(grammar).expect("initialized parser");
         let started = Instant::now();
-        let previous = self.docs.get(&id).filter(|doc| doc.grammar == grammar);
+        let previous = self.docs.get(&id).filter(|doc| &doc.grammar == grammar);
         let edited = previous.and_then(|doc| {
             let revisions = source.changes_since(&doc.source)?;
             let mut tree = doc.tree.clone();
@@ -368,7 +375,7 @@ impl TreeIndex {
         let Some(layers) = Layers::rebuild(
             self.docs.get(&id).map(|doc| &doc.layers),
             &mut tools,
-            name,
+            grammar,
             &tree,
             &source.text,
         ) else {
@@ -388,7 +395,7 @@ impl TreeIndex {
                 tree,
                 layers,
                 source: source.clone(),
-                grammar,
+                grammar: grammar.clone(),
                 used: self.clock,
             },
         );
@@ -397,7 +404,7 @@ impl TreeIndex {
 
     /// The embedded languages parsed so far and how deep each is, for tests.
     #[cfg(test)]
-    pub(crate) fn layer_summary(&self, id: FileId) -> Vec<(&'static str, u8)> {
+    pub(crate) fn layer_summary(&self, id: FileId) -> Vec<(&str, u8)> {
         self.docs
             .get(&id)
             .map(|doc| doc.layers.parsed())
@@ -680,6 +687,7 @@ pub(crate) fn highlight_with(
 /// Bounded snippets reuse the grammar/query resources without inventing file or
 /// workspace identities. Only visible fenced blocks enter this adapter.
 pub(crate) struct SnippetHighlighter {
+    source: Arc<dyn super::Resources>,
     resources: Arc<dyn super::Resources>,
     generation: u64,
     parser: Option<(String, Parser)>,
@@ -690,7 +698,8 @@ impl SnippetHighlighter {
     pub fn new(resources: Arc<dyn super::Resources>) -> Self {
         let generation = resources.generation();
         Self {
-            resources,
+            resources: resources.snapshot().unwrap_or_else(|| resources.clone()),
+            source: resources,
             generation,
             parser: None,
             queries: HashMap::new(),
@@ -698,17 +707,21 @@ impl SnippetHighlighter {
         }
     }
     pub fn generation(&self) -> u64 {
-        self.resources.generation()
+        self.source.generation()
     }
     pub fn highlight(&mut self, language: &str, text: &str, cancel: &AtomicBool) -> Vec<TokenSpan> {
         if text.len() > 16 * 1024 || cancel.load(Ordering::Acquire) {
             return Vec::new();
         }
-        let generation = self.resources.generation();
+        let generation = self.source.generation();
         if generation != self.generation {
             self.cached.clear();
             self.queries.clear();
             self.parser = None;
+            self.resources = self
+                .source
+                .snapshot()
+                .unwrap_or_else(|| self.source.clone());
             self.generation = generation;
         }
         let registry = Registry::builtin();
@@ -723,10 +736,10 @@ impl SnippetHighlighter {
             .unwrap_or_else(|| {
                 registry.resolve_path(std::path::Path::new(&format!("snippet.{name}")))
             });
-        let Some(grammar) = resolved.grammar else {
+        let Some(grammar) = resolved.grammar() else {
             return Vec::new();
         };
-        let grammar = registry.grammar_name(grammar).to_owned();
+        let grammar = grammar.to_string();
         if let Some(index) = self
             .cached
             .iter()

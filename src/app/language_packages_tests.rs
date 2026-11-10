@@ -24,7 +24,7 @@ fn directory_search_and_hidden_session_restore_do_not_load_languages() {
     if let Some(root) = std::env::var_os(CHILD) {
         let root = std::path::PathBuf::from(root);
         language_packs::initialize();
-        let source = language_packs::resources();
+        let source = language_packs::resources().current();
         assert_eq!(source.activity(), Default::default());
         let md = root.join("readme.md");
         let mut app = AppState::new();

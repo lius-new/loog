@@ -139,7 +139,7 @@ mod tests {
 
     #[test]
     fn metadata_gets_its_language_from_the_path() {
-        let name = |path: &str| FileMeta::from_path(path.into()).lang.name();
+        let name = |path: &str| FileMeta::from_path(path.into()).lang.name().to_owned();
         assert_eq!(name("main.RS"), "rust");
         assert_eq!(name("component.tsx"), "typescript");
         assert_eq!(name("script.mjs"), "javascript");
@@ -150,8 +150,8 @@ mod tests {
     #[test]
     fn changing_the_language_bumps_the_generation_only_when_it_changes() {
         let mut meta = FileMeta::from_path("a.rs".into());
-        let rust = meta.lang;
-        meta.set_language(rust);
+        let rust = meta.lang.clone();
+        meta.set_language(rust.clone());
         assert_eq!(meta.language_generation, 0);
         meta.set_language(crate::domain::language::builtin("plaintext"));
         assert_eq!(meta.language_generation, 1);

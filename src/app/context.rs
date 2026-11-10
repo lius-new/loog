@@ -38,6 +38,11 @@ impl AppContext {
             });
         }
     }
+    fn sync_extension_resources(&self, app: &mut AppState) -> bool {
+        self.services()
+            .and_then(|runtime| runtime.extensions())
+            .is_some_and(|host| host.publish_resources(app))
+    }
     /// Tells the language servers about document changes this update made.
     fn sync_document_services(&self, app: &AppState) {
         if let Some(services) = self.services().and_then(|r| r.language_services()) {
@@ -54,6 +59,7 @@ impl AppContext {
         self.model.update(|app| {
             let before = app.editor.pending_file.as_ref().map(|p| p.generation);
             change(app);
+            self.sync_extension_resources(app);
             super::markdown_view::sync_sources(app);
             app.editor
                 .markdown_views
@@ -69,6 +75,7 @@ impl AppContext {
         self.model.try_update(|app| {
             let before = app.editor.pending_file.as_ref().map(|p| p.generation);
             let changed = change(app);
+            let changed = self.sync_extension_resources(app) || changed;
             super::image_preview::cleanup(app);
             if changed {
                 super::markdown_view::sync_sources(app);

@@ -135,6 +135,7 @@ pub(crate) fn start(
     }
     state.update(|app| {
         host.restore_disabled(app);
+        host.start_language_resources(app);
         host.refresh_settings(app);
     });
     runtime.install_extensions(host);
@@ -492,7 +493,7 @@ fn accept_resources(
         }
     }
     for resource in &c.highlight {
-        // A highlight resource is a language pack; startup discovery loads it
+        // A highlight resource is a language pack; live discovery loads it
         // (design §6.6.1), so it is held to the rules of a pack here.
         match crate::infrastructure::language_packs::check_extension_pack(dir, &resource.path) {
             Ok(()) => accepted.highlight.push(resource.id.clone()),
@@ -511,6 +512,8 @@ pub struct Package {
     pub readme: Option<crate::features::markdown::content::Markup>,
     pub changelog: Option<crate::features::markdown::content::Markup>,
     pub resources: Accepted,
+    disabled: bool,
+    resource_revision: u64,
     /// The accepted themes, ready to draw with.
     themes: Vec<PackageTheme>,
     /// The accepted snippet files.
@@ -592,8 +595,9 @@ pub struct ExtensionService {
     trust: Option<std::sync::Arc<crate::infrastructure::extensions::trust_store::TrustStore>>,
     /// Provider request -> the language request it answers.
     language_calls: HashMap<u64, u64>,
-    /// Moves on whenever the set of package themes may have changed.
-    themes_revision: u64,
+    /// Advances whenever the enabled set of package resources may have changed.
+    resources_revision: u64,
+    last_retired_generation: u64,
 }
 
 /// The setting files as last read.
@@ -726,12 +730,13 @@ impl ExtensionService {
             storage_dir,
             trust: None,
             language_calls: HashMap::new(),
-            themes_revision: 0,
+            resources_revision: 0,
+            last_retired_generation: 0,
         }
     }
 
-    pub(crate) fn themes_revision(&self) -> u64 {
-        self.themes_revision
+    pub(crate) fn resources_revision(&self) -> u64 {
+        self.resources_revision
     }
 
     pub fn set_clock(&mut self, clock: impl Fn() -> u64 + Send + 'static) {
@@ -785,12 +790,11 @@ impl ExtensionService {
         self.packages.get(id)
     }
 
-    pub fn packages(&self) -> impl Iterator<Item = &Package> {
+    pub fn packages(&self) -> impl Iterator<Item = &Package> + Clone {
         self.packages.values()
     }
 
-    /// Read and validate a package from a user-selected directory. Nothing runs.
-    pub fn load_package(&mut self, dir: &Path) -> Result<String, String> {
+    fn read_package(dir: &Path) -> Result<(Manifest, Vec<u8>, PackageIdentity), String> {
         let source = std::fs::read_to_string(dir.join("manifest.json"))
             .map_err(|e| format!("manifest.json: {e}"))?;
         let manifest = Manifest::parse(&source).map_err(|e| e.to_string())?;
@@ -802,14 +806,33 @@ impl ExtensionService {
             id: manifest.id.clone(),
             digest: digest(&[source.as_bytes(), &component].concat()),
         };
+        Ok((manifest, component, identity))
+    }
+
+    /// Read and validate a package from a user-selected directory. Nothing runs.
+    pub fn load_package(&mut self, dir: &Path) -> Result<String, String> {
+        let package = Self::read_package(dir)?;
+        Ok(self.replace_package(dir, package))
+    }
+
+    fn replace_package(
+        &mut self,
+        dir: &Path,
+        (manifest, component, identity): (Manifest, Vec<u8>, PackageIdentity),
+    ) -> String {
         let id = manifest.id.clone();
+        let disabled = self.packages.get(&id).is_some_and(|old| old.disabled);
         let mut lifecycle = self
             .packages
             .get(&id)
             .map(|old| Lifecycle::after(old.lifecycle.generation()))
-            .unwrap_or_default();
-        lifecycle.validated().map_err(|e| e.to_string())?;
-        lifecycle.dormant().map_err(|e| e.to_string())?;
+            .unwrap_or_else(|| Lifecycle::after(self.last_retired_generation));
+        lifecycle.validated().expect("discovered package");
+        lifecycle.dormant().expect("validated package");
+        if disabled {
+            lifecycle.stopping().expect("dormant package");
+            lifecycle.stopped().expect("stopping package");
+        }
         // A reload replaces the old package: its generation moves on first.
         if let Some(old) = self.packages.remove(&id) {
             self.calls
@@ -838,7 +861,7 @@ impl ExtensionService {
         };
         let readme = document("readme", manifest.readme.as_deref());
         let changelog = document("changelog", manifest.changelog.as_deref());
-        self.themes_revision += 1;
+        self.resources_revision += 1;
         let resolved = crate::features::extensions::settings::resolve(
             &manifest.contributes.settings,
             &self.settings.user,
@@ -853,6 +876,8 @@ impl ExtensionService {
                 readme,
                 changelog,
                 resources,
+                disabled,
+                resource_revision: self.resources_revision,
                 themes,
                 snippets,
                 dir: dir.to_path_buf(),
@@ -874,7 +899,7 @@ impl ExtensionService {
                 code_source: None,
             },
         );
-        Ok(id)
+        id
     }
 
     /// Re-read a package from its directory (development reload, design §8.2).
@@ -890,9 +915,13 @@ impl ExtensionService {
             .ok_or("unknown extension")?
             .dir
             .clone();
+        let package = Self::read_package(&dir)?;
+        if package.0.id != id {
+            return Err(format!("manifest now identifies {}", package.0.id));
+        }
         let old_digest = self.packages[id].identity.digest.clone();
         let mut effects = self.stop(id);
-        let new_id = self.load_package(&dir)?;
+        let new_id = self.replace_package(&dir, package);
         if self.packages[&new_id].identity.digest == old_digest {
             self.grant_declared(&new_id);
         } else {
@@ -908,15 +937,13 @@ impl ExtensionService {
     /// capabilities the package declares are granted, because the user asked for
     /// this install (and confirmed what it asks for). Returns its id.
     pub fn adopt(&mut self, dir: &Path) -> Result<(String, Vec<Effect>), String> {
-        let source = std::fs::read_to_string(dir.join("manifest.json"))
-            .map_err(|e| format!("manifest.json: {e}"))?;
-        let manifest = Manifest::parse(&source).map_err(|e| e.to_string())?;
-        let effects = if self.packages.contains_key(&manifest.id) {
-            self.stop(&manifest.id)
+        let package = Self::read_package(dir)?;
+        let effects = if self.packages.contains_key(&package.0.id) {
+            self.stop(&package.0.id)
         } else {
             Vec::new()
         };
-        let id = self.load_package(dir)?;
+        let id = self.replace_package(dir, package);
         self.grant_declared(&id);
         Ok((id, effects))
     }
@@ -1238,6 +1265,7 @@ impl ExtensionService {
         if package.lifecycle.state() == State::Failed {
             self.retry(id)?;
         }
+        self.packages.get_mut(id).expect("known package").disabled = true;
         Ok(self.stop(id))
     }
 
@@ -1246,8 +1274,9 @@ impl ExtensionService {
         let package = self.packages.get(id).ok_or("unknown extension")?;
         if package.lifecycle.state() == State::Stopped {
             self.retry(id)?;
-            self.themes_revision += 1;
+            self.resources_revision += 1;
         }
+        self.packages.get_mut(id).expect("known package").disabled = false;
         Ok(())
     }
 
@@ -1259,6 +1288,9 @@ impl ExtensionService {
         }
         let effects = self.stop(id);
         let package = self.packages.remove(id).ok_or("unknown extension")?;
+        self.last_retired_generation = self
+            .last_retired_generation
+            .max(package.lifecycle.generation());
         Ok((package.dir, effects))
     }
 
@@ -1270,7 +1302,7 @@ impl ExtensionService {
         if package.lifecycle.stopping().is_ok() {
             let _ = package.lifecycle.stopped();
         }
-        self.themes_revision += 1;
+        self.resources_revision += 1;
         self.service_status.remove(id);
         self.calls.retain(|_, call| call.extension != id);
         let mut effects = self.clear_sources(id);
@@ -1861,11 +1893,7 @@ impl ExtensionService {
                         stream,
                         path: path.clone(),
                         language: language.clone(),
-                        variant: Some(
-                            crate::domain::language::Registry::builtin()
-                                .variant_name(document.meta.lang)
-                                .to_owned(),
-                        ),
+                        variant: Some(document.meta.lang.variant_name().to_owned()),
                         language_generation: document.meta.language_generation,
                         version: *version,
                         incarnation: document.incarnation,
@@ -1885,11 +1913,7 @@ impl ExtensionService {
                     feed.synchronized = synchronized;
                     feed.version = *version;
                     feed.language_generation = document.meta.language_generation;
-                    feed.variant = Some(
-                        crate::domain::language::Registry::builtin()
-                            .variant_name(document.meta.lang)
-                            .to_owned(),
-                    );
+                    feed.variant = Some(document.meta.lang.variant_name().to_owned());
                 } else if feed.version != *version {
                     feed.stream.changed(feed.version, *version, 1);
                     feed.version = *version;
@@ -3428,13 +3452,16 @@ impl ExtensionService {
         path.to_string_lossy().into_owned()
     }
 
+    pub(super) fn contributing_packages(&self) -> impl Iterator<Item = &Package> + Clone {
+        self.packages()
+            .filter(|p| p.lifecycle.state() != State::Stopped)
+    }
+
     /// The themes of loaded packages that were not stopped, in id order. Themes
     /// are data, so they need no grant and no trusted folder.
     pub(crate) fn themes(&self) -> Vec<PackageTheme> {
         let mut themes: Vec<PackageTheme> = self
-            .packages
-            .values()
-            .filter(|package| package.lifecycle.state() != State::Stopped)
+            .contributing_packages()
             .flat_map(|package| package.themes.iter().cloned())
             .collect();
         themes.sort_by(|a, b| a.0.cmp(&b.0));

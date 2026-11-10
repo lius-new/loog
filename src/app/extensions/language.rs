@@ -268,12 +268,7 @@ impl ExtensionService {
             self.document_languages
                 .get(path)
                 .cloned()
-                .unwrap_or_else(|| {
-                    registry
-                        .definition_of(registry.resolve_path(path))
-                        .name
-                        .to_string()
-                })
+                .unwrap_or_else(|| registry.resolve_path(path).definition().name.to_string())
         });
         let mut declarations = Vec::new();
         for (owner, package) in &self.packages {

@@ -8,7 +8,7 @@ use crate::domain::language::ResolvedLanguage;
 impl ResolvedLanguage {
     /// The badge color for the language. Languages the theme has no color for
     /// read as muted text, which is also what plain text uses.
-    pub fn badge_color(self) -> Color {
+    pub fn badge_color(&self) -> Color {
         match self.name() {
             "csharp" => theme::c().badge.csharp,
             "rust" => theme::c().badge.rust,

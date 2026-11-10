@@ -36,8 +36,6 @@ pub struct Imported {
     pub sha256: String,
     /// The version that was installed before, when this replaced one.
     pub replaced: Option<String>,
-    /// Language packs inside an extension are read at startup.
-    pub needs_restart: bool,
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -287,8 +285,6 @@ pub fn import_expecting(
     let digest = sha256(&bytes);
     let name = manifest.name.clone().unwrap_or_default();
     let publisher = manifest.publisher.clone().unwrap_or_default();
-    let needs_restart =
-        !manifest.contributes.highlight.is_empty() || !manifest.contributes.languages.is_empty();
 
     let target = super::state::version_dir(extensions, &manifest.id, &manifest.version);
     fs::create_dir_all(target.parent().unwrap_or(extensions)).map_err(|e| e.to_string())?;
@@ -331,7 +327,6 @@ pub fn import_expecting(
         directory: target,
         sha256: digest,
         replaced,
-        needs_restart,
     })
 }
 

@@ -9,7 +9,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    Mutex,
+    atomic::{AtomicU64, Ordering},
+};
 
 const FILE: &str = "extensions.json";
 
@@ -83,6 +86,9 @@ pub fn write(root: &Path, state: &State) -> Result<(), String> {
 
 /// Read, change and write the state.
 pub fn update<T>(root: &Path, change: impl FnOnce(&mut State) -> T) -> Result<T, String> {
+    // Downloads and UI actions can update different parts of the same record.
+    static UPDATE: Mutex<()> = Mutex::new(());
+    let _guard = UPDATE.lock().unwrap();
     let mut state = read(root);
     let result = change(&mut state);
     write(root, &state)?;

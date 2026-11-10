@@ -141,14 +141,14 @@ impl RetainedSet {
         source: &Source,
         incarnation: u64,
         language_generation: u64,
-        language: ResolvedLanguage,
+        language: &ResolvedLanguage,
         window: &Window,
     ) -> Option<WindowTokens> {
         let retained = self.documents.get_mut(&document)?;
         if (
             retained.incarnation,
             retained.language_generation,
-            retained.language,
+            &retained.language,
         ) != (incarnation, language_generation, language)
         {
             self.forget(document);

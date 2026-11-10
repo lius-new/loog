@@ -41,7 +41,7 @@ fn wait_ready(state: &AppContext, queue: &UiTasks, rect: UiRect, verify: bool) {
             pane,
             doc.stamp(id),
             Source::new(&doc.buffer),
-            doc.meta.lang,
+            doc.meta.lang.clone(),
             windows.clone(),
         );
         if ready.len() == windows.len() && ready.iter().all(|tokens| tokens.complete) {
@@ -53,7 +53,7 @@ fn wait_ready(state: &AppContext, queue: &UiTasks, rect: UiRect, verify: bool) {
                     .prepare(
                         id,
                         Source::new(&doc.buffer),
-                        doc.meta.lang,
+                        doc.meta.lang.clone(),
                         &windows,
                         &AtomicBool::new(false),
                     )

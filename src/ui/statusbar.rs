@@ -735,7 +735,7 @@ mod tests {
                     indent: "Spaces: 2".into(),
                     line_ending: "LF".into(),
                     encoding: "UTF-8".into(),
-                    lang,
+                    lang: lang.clone(),
                     missing: false,
                     conflict: false,
                     cursor: Some((0, 0)),

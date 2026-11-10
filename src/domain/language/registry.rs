@@ -3,13 +3,17 @@
 use crate::domain::language::descriptor::{
     Comments, Descriptor, Highlight, normalize_extension, normalize_file_name, normalize_suffix,
 };
-use crate::domain::language::{GrammarId, LanguageId, ResolvedLanguage, VariantId};
+use crate::domain::language::{LanguageId, ResolvedLanguage};
 use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, LazyLock, RwLock};
 
-static CURRENT: OnceLock<Registry> = OnceLock::new();
+static CURRENT: LazyLock<RwLock<Arc<Registry>>> = LazyLock::new(|| {
+    let registry = crate::domain::language::embedded::registry()
+        .unwrap_or_else(|error| panic!("invalid built-in language resources: {error}"));
+    RwLock::new(Arc::new(registry))
+});
 
 /// The language every unrecognised file gets. A registry must define it.
 pub const PLAIN_TEXT: &str = "plaintext";
@@ -29,21 +33,18 @@ fn fail<T>(message: impl Into<String>) -> Result<T, RegistryError> {
     Err(RegistryError(message.into()))
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct LanguageVariant {
-    pub id: VariantId,
     pub name: Box<str>,
-    pub grammar: Option<GrammarId>,
+    pub grammar: Option<Arc<str>>,
 }
 
 #[derive(Debug)]
 pub struct LanguageDefinition {
-    pub id: LanguageId,
     /// Stable name for settings and sessions; ids are not.
-    pub name: Box<str>,
+    pub name: Arc<str>,
     pub display_name: Box<str>,
     pub badge: Box<str>,
-    pub aliases: Vec<Box<str>>,
     pub comments: Comments,
     /// Rules for colouring the language when no grammar does.
     pub highlight: Highlight,
@@ -53,11 +54,9 @@ pub struct LanguageDefinition {
 
 #[derive(Debug)]
 pub struct Registry {
-    languages: Vec<LanguageDefinition>,
+    languages: Vec<Arc<LanguageDefinition>>,
     by_name: HashMap<Box<str>, LanguageId>,
-    grammars: Vec<Box<str>>,
-    /// `VariantId` to its language and position in `LanguageDefinition::variants`.
-    variants: Vec<(LanguageId, usize)>,
+    grammars: Vec<Arc<str>>,
     by_extension: HashMap<Box<str>, (LanguageId, usize)>,
     by_file_name: HashMap<Box<str>, (LanguageId, usize)>,
     by_suffix: HashMap<Box<str>, (LanguageId, usize)>,
@@ -84,32 +83,10 @@ impl Registry {
             return fail(format!("language `{}` is defined twice", pair[0].name));
         }
 
-        let mut grammar_names: Vec<Box<str>> = grammars.iter().map(|name| (*name).into()).collect();
+        let mut grammar_names: Vec<Arc<str>> = grammars.iter().map(|name| (*name).into()).collect();
         grammar_names.sort();
         grammar_names.dedup();
-        let grammar_id = |name: &str| {
-            grammar_names
-                .binary_search_by(|known| (**known).cmp(name))
-                .map(|index| GrammarId(index as u32))
-        };
-
-        // Variant ids follow (language name, variant name) order, not the order
-        // variants appear in a description, which only decides the default.
-        let mut variant_order: Vec<(&str, &str)> = parsed
-            .iter()
-            .flat_map(|d| {
-                d.variants
-                    .iter()
-                    .map(move |v| (d.name.as_str(), v.id.as_str()))
-            })
-            .collect();
-        variant_order.sort();
-        let variant_id = |language: &str, variant: &str| {
-            VariantId(variant_order.binary_search(&(language, variant)).unwrap() as u32)
-        };
-
         let mut languages = Vec::with_capacity(parsed.len());
-        let mut variants = vec![(LanguageId(0), 0); variant_order.len()];
         let mut by_name: HashMap<Box<str>, LanguageId> = HashMap::new();
         for (index, descriptor) in parsed.iter().enumerate() {
             let id = LanguageId(index as u32);
@@ -123,11 +100,12 @@ impl Registry {
                 }
             }
             let mut language_variants = Vec::new();
-            for (position, variant) in descriptor.variants.iter().enumerate() {
+            for variant in &descriptor.variants {
                 let grammar = match &variant.grammar {
                     None => None,
-                    Some(name) => match grammar_id(name) {
-                        Ok(id) => Some(id),
+                    Some(name) => match grammar_names.binary_search_by(|known| (**known).cmp(name))
+                    {
+                        Ok(index) => Some(grammar_names[index].clone()),
                         Err(_) => {
                             return fail(format!(
                                 "language `{}` variant `{}` names unknown grammar `{name}`",
@@ -136,28 +114,19 @@ impl Registry {
                         }
                     },
                 };
-                let id = variant_id(&descriptor.name, &variant.id);
-                variants[id.index()] = (LanguageId(index as u32), position);
                 language_variants.push(LanguageVariant {
-                    id,
                     name: variant.id.as_str().into(),
                     grammar,
                 });
             }
-            languages.push(LanguageDefinition {
-                id,
+            languages.push(Arc::new(LanguageDefinition {
                 name: descriptor.name.as_str().into(),
                 display_name: descriptor.display_name.as_str().into(),
                 badge: descriptor.badge.as_str().into(),
-                aliases: descriptor
-                    .aliases
-                    .iter()
-                    .map(|a| a.as_str().into())
-                    .collect(),
                 comments: descriptor.comments.clone(),
                 highlight: descriptor.highlight.clone(),
                 variants: language_variants,
-            });
+            }));
         }
 
         let mut by_extension: HashMap<Box<str>, (LanguageId, usize)> = HashMap::new();
@@ -241,7 +210,6 @@ impl Registry {
             languages,
             by_name,
             grammars: grammar_names,
-            variants,
             by_extension,
             by_file_name,
             by_suffix,
@@ -249,38 +217,29 @@ impl Registry {
         })
     }
 
-    /// Process registry: the startup package snapshot, or the plain-text fallback.
-    /// Tests use bundled metadata fixtures. This never loads grammar/query payloads.
-    pub fn builtin() -> &'static Registry {
-        CURRENT.get_or_init(|| {
-            crate::domain::language::embedded::registry()
-                .unwrap_or_else(|error| panic!("invalid built-in language resources: {error}"))
-        })
+    /// Snapshot of the live catalog. Previously resolved languages own their metadata.
+    pub fn builtin() -> Arc<Registry> {
+        CURRENT.read().unwrap().clone()
     }
 
-    /// Install the discovered package snapshot before documents are created.
-    /// IDs remain stable for this process. Catalog payloads can arrive later;
-    /// changes to the set of known identities require restart.
-    pub fn install(registry: Registry) -> Result<(), &'static str> {
-        CURRENT
-            .set(registry)
-            .map_err(|_| "the language registry is already in use")
+    pub(crate) fn install(registry: Registry) {
+        *CURRENT.write().unwrap() = Arc::new(registry);
     }
 
-    pub fn grammar_names(&self) -> impl Iterator<Item = &str> {
-        self.grammars.iter().map(Box::as_ref)
+    pub fn grammar_by_name(&self, name: &str) -> Option<Arc<str>> {
+        let index = self
+            .grammars
+            .binary_search_by(|known| (**known).cmp(name))
+            .ok()?;
+        Some(self.grammars[index].clone())
     }
 
-    pub fn languages(&self) -> &[LanguageDefinition] {
+    pub fn languages(&self) -> &[Arc<LanguageDefinition>] {
         &self.languages
     }
 
     pub fn definition(&self, id: LanguageId) -> &LanguageDefinition {
         &self.languages[id.index()]
-    }
-
-    pub fn grammar_name(&self, id: GrammarId) -> &str {
-        &self.grammars[id.index()]
     }
 
     /// A language by canonical name or alias.
@@ -346,21 +305,10 @@ impl Registry {
         }
     }
 
-    pub fn definition_of(&self, resolved: ResolvedLanguage) -> &LanguageDefinition {
-        self.definition(resolved.language)
-    }
-
-    pub fn variant_name(&self, resolved: ResolvedLanguage) -> &str {
-        let (language, position) = self.variants[resolved.variant.index()];
-        &self.definition(language).variants[position].name
-    }
-
     fn resolved(&self, language: LanguageId, position: usize) -> ResolvedLanguage {
-        let variant = &self.definition(language).variants[position];
         ResolvedLanguage {
-            language,
-            variant: variant.id,
-            grammar: variant.grammar,
+            definition: self.languages[language.index()].clone(),
+            position,
         }
     }
 }
@@ -410,19 +358,19 @@ mod tests {
     }
 
     #[test]
-    fn variant_ids_sort_by_language_then_variant_while_the_first_listed_is_the_default() {
+    fn the_first_listed_variant_is_the_default() {
         let json = r#"{ "name": "web", "display_name": "Web", "badge": "W",
             "variants": [{ "id": "zed" }, { "id": "abc" }] }"#;
         let registry = build(&[("plaintext", plain()), ("web", json.into())], &["g"]).unwrap();
         let web = registry.language_by_name("web").unwrap();
         let default = registry.default_resolved(web);
         assert_eq!(
-            registry.variant_name(default),
+            default.variant_name(),
             "zed",
             "listing order picks the default"
         );
         let abc = registry.resolve_variant(web, "abc").unwrap();
-        assert!(abc.variant < default.variant, "ids follow sorted names");
+        assert_eq!(abc.variant_name(), "abc");
         assert_eq!(registry.resolve_variant(web, "nope"), None);
     }
 
@@ -443,7 +391,7 @@ mod tests {
         .unwrap();
         let name = |path: &str| {
             let resolved = registry.resolve_path(Path::new(path));
-            registry.definition_of(resolved).name.to_string()
+            resolved.definition().name.to_string()
         };
         assert_eq!(name("a/b/file.DM"), "demo", "extension, any case");
         assert_eq!(name("x.demo2"), "demo");
@@ -473,8 +421,8 @@ mod tests {
         )
         .unwrap();
         let resolved = registry.resolve_path(Path::new("a.cd"));
-        assert_eq!(registry.grammar_name(resolved.grammar.unwrap()), "rust");
-        assert_eq!(registry.plain_text().grammar, None);
+        assert_eq!(resolved.grammar().unwrap().as_ref(), "rust");
+        assert_eq!(registry.plain_text().grammar(), None);
     }
 
     #[test]

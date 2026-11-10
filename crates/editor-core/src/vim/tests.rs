@@ -554,7 +554,7 @@ fn foreign_selections_become_visual_and_leaving_ends_insert() {
 fn vim_editor_pairing_repeats_counts_dot_and_restores_provenance() {
     let mut h = Harness::new("|");
     h.buffer.configure(crate::text::EditingOptions {
-        language: "rust",
+        language: "rust".into(),
         ..Default::default()
     });
     h.keys("i(");
@@ -569,7 +569,7 @@ fn vim_editor_pairing_repeats_counts_dot_and_restores_provenance() {
     assert_eq!(h.buffer.text(), "()()");
     let mut h = Harness::new("|");
     h.buffer.configure(crate::text::EditingOptions {
-        language: "rust",
+        language: "rust".into(),
         ..Default::default()
     });
     h.keys("3i(<Esc>");
@@ -578,7 +578,7 @@ fn vim_editor_pairing_repeats_counts_dot_and_restores_provenance() {
     assert_eq!(h.buffer.text(), "");
     let mut h = Harness::new("|");
     h.buffer.configure(crate::text::EditingOptions {
-        language: "rust",
+        language: "rust".into(),
         ..Default::default()
     });
     h.keys("i{<BS><Esc>");
@@ -589,7 +589,7 @@ fn vim_editor_pairing_repeats_counts_dot_and_restores_provenance() {
 fn vim_editor_literal_composition_stays_literal_in_dot_and_macro_replay() {
     let mut h = Harness::new("|");
     h.buffer.configure(crate::text::EditingOptions {
-        language: "rust",
+        language: "rust".into(),
         ..Default::default()
     });
     h.keys("qai");
@@ -617,7 +617,7 @@ fn vim_editor_literal_composition_stays_literal_in_dot_and_macro_replay() {
 fn vim_editor_shift_and_open_lines_follow_indent_and_crlf_preferences() {
     let mut h = Harness::new("|fn f() {\r\n}\r\n");
     h.buffer.configure(crate::text::EditingOptions {
-        language: "rust",
+        language: "rust".into(),
         indent_size: 4,
         ..Default::default()
     });
@@ -628,7 +628,7 @@ fn vim_editor_shift_and_open_lines_follow_indent_and_crlf_preferences() {
     h.keys("<<");
     assert_eq!(h.buffer.line(1), "    x");
     h.buffer.configure(crate::text::EditingOptions {
-        language: "rust",
+        language: "rust".into(),
         indent_size: 4,
         use_tabs: true,
         tab_width: 8,

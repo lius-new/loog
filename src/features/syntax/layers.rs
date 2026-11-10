@@ -49,7 +49,7 @@ const CHUNK_BYTES: usize = 16 * 1024;
 
 #[derive(Clone)]
 pub(crate) struct Layer {
-    pub grammar: &'static str,
+    pub grammar: Arc<str>,
     pub depth: u8,
     pub ranges: Vec<SitterRange>,
     /// First and last byte the layer covers.
@@ -74,23 +74,20 @@ pub(crate) struct Layers {
 /// What building layers needs from the index that owns the caches.
 pub(crate) struct Tools<'a> {
     pub resources: &'a dyn Resources,
-    pub parsers: &'a mut HashMap<&'static str, Parser>,
-    pub injection_queries: &'a mut HashMap<&'static str, Option<Arc<InjectionQuery>>>,
+    pub parsers: &'a mut HashMap<Arc<str>, Parser>,
+    pub injection_queries: &'a mut HashMap<Arc<str>, Option<Arc<InjectionQuery>>>,
     pub stats: &'a mut TreeStats,
     pub cancel: &'a AtomicBool,
 }
 
 /// The grammar for a language as an embedding names it: a language name or
 /// alias (`rs`, `js`), or the name of a grammar that no language uses.
-pub(crate) fn resolve_grammar(name: &str) -> Option<&'static str> {
+pub(crate) fn resolve_grammar(name: &str) -> Option<Arc<str>> {
     let registry = Registry::builtin();
     if let Some(language) = registry.language_by_name(name) {
-        return registry
-            .default_resolved(language)
-            .grammar
-            .map(|grammar| registry.grammar_name(grammar));
+        return registry.default_resolved(language).grammar().cloned();
     }
-    registry.grammar_names().find(|known| *known == name)
+    registry.grammar_by_name(name)
 }
 
 fn content_hash(text: &str, ranges: &[SitterRange]) -> u64 {
@@ -104,9 +101,9 @@ fn content_hash(text: &str, ranges: &[SitterRange]) -> u64 {
 }
 
 impl Tools<'_> {
-    fn injection_query(&mut self, grammar: &'static str) -> Option<Arc<InjectionQuery>> {
+    fn injection_query(&mut self, grammar: &Arc<str>) -> Option<Arc<InjectionQuery>> {
         self.injection_queries
-            .entry(grammar)
+            .entry(grammar.clone())
             .or_insert_with(|| {
                 let result = injections::compile(self.resources, grammar);
                 if let Err(error) = &result {
@@ -121,7 +118,7 @@ impl Tools<'_> {
     /// `None` when cancelled.
     fn discover(
         &mut self,
-        grammar: &'static str,
+        grammar: &Arc<str>,
         tree: &Tree,
         text: &str,
         depth: u8,
@@ -142,7 +139,7 @@ impl Tools<'_> {
                 }
                 let size = chunk.iter().map(|r| r.end_byte - r.start_byte).sum();
                 layers.push(Layer {
-                    grammar: inner,
+                    grammar: inner.clone(),
                     depth,
                     bounds: chunk[0].start_byte..chunk[chunk.len() - 1].end_byte,
                     size,
@@ -159,11 +156,13 @@ impl Tools<'_> {
     /// `Err(true)` when cancelled, `Err(false)` when the region cannot be parsed.
     fn parse(
         &mut self,
-        grammar: &'static str,
+        grammar: &Arc<str>,
         ranges: &[SitterRange],
         text: &str,
     ) -> Result<Tree, bool> {
-        if let std::collections::hash_map::Entry::Vacant(entry) = self.parsers.entry(grammar) {
+        if let std::collections::hash_map::Entry::Vacant(entry) =
+            self.parsers.entry(grammar.clone())
+        {
             let parser = self.resources.parser(grammar).map_err(|error| {
                 if !self.resources.pending(grammar) {
                     self.resources.report(&error);
@@ -216,7 +215,7 @@ impl Layers {
     pub fn rebuild(
         previous: Option<&Layers>,
         tools: &mut Tools<'_>,
-        grammar: &'static str,
+        grammar: &Arc<str>,
         tree: &Tree,
         text: &str,
     ) -> Option<Self> {
@@ -258,7 +257,7 @@ impl Layers {
                 }
                 let layer = &self.list[at];
                 if !layer.expanded && layer.depth < MAX_DEPTH {
-                    let (grammar, depth) = (layer.grammar, layer.depth + 1);
+                    let (grammar, depth) = (&layer.grammar, layer.depth + 1);
                     let tree = layer.tree.clone().expect("parsed above");
                     let room = MAX_REGIONS.saturating_sub(self.list.len());
                     let inner = tools.discover(grammar, &tree, text, depth, room)?;
@@ -307,7 +306,7 @@ impl Layers {
             tools.stats.layer_overflows += 1;
             return Some(false);
         }
-        let (grammar, ranges) = (layer.grammar, layer.ranges.clone());
+        let (grammar, ranges) = (&layer.grammar, layer.ranges.clone());
         match tools.parse(grammar, &ranges, text) {
             Ok(tree) => {
                 self.list[at].tree = Some(tree);
@@ -340,11 +339,11 @@ impl Layers {
 
     /// The parsed layers, for tests: grammar and depth.
     #[cfg(test)]
-    pub fn parsed(&self) -> Vec<(&'static str, u8)> {
+    pub fn parsed(&self) -> Vec<(&str, u8)> {
         self.list
             .iter()
             .filter(|l| l.tree.is_some())
-            .map(|l| (l.grammar, l.depth))
+            .map(|l| (l.grammar.as_ref(), l.depth))
             .collect()
     }
 }

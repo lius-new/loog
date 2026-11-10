@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 use super::font::FontSettings;
 use super::jsonc;
 use super::theme_id::ThemeId;
-use crate::domain::language::{AssociationSpec, Registry, validate_association};
+use crate::domain::language::{AssociationSpec, validate_association};
 use crate::features::terminal::ShellKind;
 
 pub const FILE_NAME: &str = "settings.json";
@@ -270,18 +270,17 @@ pub fn parse_overrides(source: &str, scope: Scope) -> Result<(Overrides, Vec<Str
     Ok((accepted, errors))
 }
 
-/// The rules of a `file_associations` array that are well formed and name a
-/// known language. Anything that is not an array is left for `accept` to report.
+/// Keep well-formed associations even when their language is unavailable.
+/// Anything that is not an array is left for accept to report.
 fn valid_associations(value: Value, errors: &mut Vec<String>) -> Value {
     let Value::Array(items) = value else {
         return value;
     };
-    let registry = Registry::builtin();
     let mut kept = Vec::new();
     for (index, item) in items.into_iter().enumerate() {
         let checked = serde_json::from_value::<FileAssociation>(item.clone())
             .map_err(|error| error.to_string())
-            .and_then(|rule| validate_association(registry, rule.spec()));
+            .and_then(|rule| validate_association(rule.spec()));
         match checked {
             Ok(()) => kept.push(item),
             Err(error) => errors.push(format!("file_associations[{index}]: {error}")),
@@ -500,7 +499,7 @@ mod tests {
             "file_associations": [
                 { "pattern": "**/*.custom", "language": "rust" },
                 { "pattern": "[x].a", "language": "rust" },
-                { "pattern": "*.b", "language": "klingon" },
+                { "pattern": "*.b", "language": "invalid language" },
                 { "pattern": "*.c" },
                 { "pattern": "*.d", "language": "ts" },
                 { "pattern": "*.e", "language": "rust", "extra": true },
@@ -522,7 +521,7 @@ mod tests {
         );
         assert!(
             outcome.errors[1].contains("file_associations[2]")
-                && outcome.errors[1].contains("unknown language")
+                && outcome.errors[1].contains("invalid language name")
         );
         assert!(outcome.errors[2].contains("file_associations[3]"));
         assert!(outcome.errors[3].contains("file_associations[5]"));
@@ -600,8 +599,8 @@ mod tests {
         let current = parse(text).unwrap().settings;
         assert_eq!(
             current.file_associations.len(),
-            1,
-            "the bad rule is not loaded"
+            2,
+            "the rule for the unavailable language is kept"
         );
         let mut new = current.clone();
         new.smooth_caret = false;

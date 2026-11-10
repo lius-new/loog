@@ -285,9 +285,10 @@ pub fn enter(editor: &mut EditorMut<'_>) {
         (opening, closing),
         (Some('{'), Some('}')) | (Some('['), Some(']')) | (Some('('), Some(')'))
     );
-    let extra = if code_context(editor.text(), start, editor.options().language)
+    let extra = if code_context(editor.text(), start, &editor.options().language)
         && (matches!(opening, Some('{' | '[' | '('))
-            || opening == Some(':') && matches!(editor.options().language, "python" | "yaml"))
+            || opening == Some(':')
+                && matches!(editor.options().language.as_ref(), "python" | "yaml"))
     {
         editor.options().indent()
     } else {

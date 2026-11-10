@@ -32,8 +32,8 @@ mod tests {
         let registry = Registry::builtin();
         let expect = |path: &str, name: &str, variant: &str| {
             let resolved = registry.resolve_path(Path::new(path));
-            assert_eq!(&*registry.definition_of(resolved).name, name, "{path}");
-            assert_eq!(registry.variant_name(resolved), variant, "{path}");
+            assert_eq!(&*resolved.definition().name, name, "{path}");
+            assert_eq!(resolved.variant_name(), variant, "{path}");
         };
         // The extension table of the former Language::from_path.
         expect("main.RS", "rust", "rust");

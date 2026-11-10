@@ -347,7 +347,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                 id,
                 d.incarnation,
                 super::editing::effective(&s, id),
-                d.buffer.options(),
+                d.buffer.options().clone(),
                 d.buffer.chosen_line_ending(),
             )
         })

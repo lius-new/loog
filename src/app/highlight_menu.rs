@@ -48,12 +48,11 @@ impl HighlightMenuState {
 /// The languages Loog has syntax for now: those with a grammar, plain text left out.
 fn installed_languages() -> Vec<Installed> {
     let registry = Registry::builtin();
-    let plain = registry.plain_text().language;
     registry
         .languages()
         .iter()
         .filter(|language| {
-            language.id != plain
+            language.name.as_ref() != crate::domain::language::PLAIN_TEXT
                 && language
                     .variants
                     .iter()
@@ -111,7 +110,6 @@ fn frame(state: &AppContext, app: &AppState) -> Frame {
         installing: offer.installing,
     };
     Frame {
-        restart: menu.restart,
         active: menu.active.iter().map(badge).collect(),
         all: menu.all.iter().map(badge).collect(),
         recommended: menu.recommended.into_iter().map(row).collect(),
