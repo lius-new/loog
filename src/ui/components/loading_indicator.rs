@@ -1,15 +1,41 @@
-//! SVG spinner composited independently of the document and application view.
+//! Loading indicators whose rotation is composited independently of the application view.
 use lgui::core::{
-    CompositingLayerAnimation, CompositingLayerSpec, IconStyle, LayerTransform, UiElement, UiId,
-    animated_compositing_layer,
+    CompositingLayerAnimation, CompositingLayerSpec, IconStyle, LayerTransform, Stroke, UiElement,
+    UiId, animated_compositing_layer, precompiled,
 };
-use lgui::prelude::{Color, Element, UiRect};
+use lgui::prelude::{Color, Element, UiRect, VisualStyle, group};
 
 pub const ICON_KEY: &str = "tab-loading";
-pub const SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5" opacity="0.16"/><path d="M8 2.5a5.5 5.5 0 1 1-5.5 5.5" stroke-linecap="round"/></svg>"#;
+pub const SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2.5a5.5 5.5 0 1 1-5.5 5.5" stroke-linecap="round"/></svg>"#;
 
 pub fn render(rect: UiRect, color: Color, key: String) -> Element {
-    render_icon(rect, color, key, ICON_KEY)
+    let track_id = UiId::owned(format!("{key}-track"));
+    let group_key = key.clone();
+    Element::new(move |cx| {
+        let scale = cx.context.scale();
+        // The icon rounds its raster size to the nearest pixel, while the
+        // layer rounds up. Stay just below a whole pixel size so they agree
+        // even after converting back through logical coordinates.
+        let pixels = scale.physical_length(rect.width()) as f32;
+        let side = (pixels - 1.0 / 64.0) / scale.factor();
+        let icon_rect = rect.inflate((side - rect.width()) / 2.0, (side - rect.height()) / 2.0);
+
+        // Keep the faint track still so resampling the arc cannot move it.
+        let unit = side / 16.0;
+        let track = UiElement::ellipse(
+            track_id,
+            icon_rect.inflate(-2.5 * unit, -2.5 * unit),
+            VisualStyle::default().stroked(Stroke::new(color, 1.5 * unit, 41)),
+        );
+        // Compile the wrapper and its children together so the animation
+        // gets a child scope of its own during incremental layout.
+        cx.compile(
+            group(rect)
+                .child(precompiled(track))
+                .child(render_icon(icon_rect, color, key, ICON_KEY)),
+        )
+    })
+    .key(group_key)
 }
 
 /// The same turn, of another icon: a registered name or an `svg-path:` key.
@@ -51,7 +77,7 @@ mod tests {
         use lgui::{
             application::AppView,
             core::UiScale,
-            prelude::{State, component, group},
+            prelude::{State, component},
             session::UiSession,
         };
         use std::sync::{
@@ -63,31 +89,37 @@ mod tests {
         let renders = Arc::new(AtomicUsize::new(0));
         let count = renders.clone();
         let viewport = UiRect::new(0.0, 0.0, 160.0, 32.0);
+        let indicator = UiRect::new(12.25, 8.25, 26.25, 22.25);
+        let scale = UiScale::new(1.1);
         let view: AppView = Arc::new(move |_| {
             let output = output.clone();
             let count = count.clone();
             component(viewport, move |cx, _| {
                 count.fetch_add(1, Ordering::Relaxed);
-                let shown = cx.state(true);
+                let shown = cx.state(false);
                 *output.lock().unwrap() = Some(shown.clone());
                 let mut root = group(viewport);
                 if shown.get() {
-                    root = root.child(render(
-                        UiRect::new(12.0, 8.0, 28.0, 24.0),
-                        Color::WHITE,
-                        "spinner-test".into(),
-                    ));
+                    root = root.child(Element::new(move |cx| {
+                        let spinner =
+                            cx.compile(render(indicator, Color::WHITE, "spinner-test".into()));
+                        assert_eq!(spinner.node().id, cx.id);
+                        spinner
+                    }));
                 }
                 root
             })
         });
         let mut session = UiSession::new();
-        session.render_view(&view, viewport, UiScale::ONE);
+        session.render_view(&view, viewport, scale);
+        let shown = exposed.lock().unwrap().as_ref().unwrap().clone();
+        shown.update(|shown| *shown = true);
+        session.render_view(&view, viewport, scale);
         let initial = renders.load(Ordering::Relaxed);
         assert_eq!(session.runtime().frame_interval_ms(), Some(16));
         session.advance(16.0);
         session.advance(225.0);
-        session.render_view(&view, viewport, UiScale::ONE);
+        session.render_view(&view, viewport, scale);
         assert_eq!(
             renders.load(Ordering::Relaxed),
             initial,
@@ -95,6 +127,26 @@ mod tests {
         );
         let node = session.tree().node(&UiId::new("spinner-test-svg")).unwrap();
         let layer = session.tree().node(node.parent.as_ref().unwrap()).unwrap();
+        let track = session
+            .tree()
+            .node(&UiId::new("spinner-test-track"))
+            .unwrap();
+        assert_eq!(
+            track.parent, layer.parent,
+            "the track must stay outside the rotation"
+        );
+        let raster = scale.physical_ui_rect(layer.layout_rect);
+        let icon = scale.physical_ui_rect(node.layout_rect);
+        assert_eq!(raster.width().ceil(), icon.width().round());
+        assert_eq!(raster.height().ceil(), icon.height().round());
+        let center = |rect: UiRect| {
+            (
+                (rect.left + rect.right) / 2.0,
+                (rect.top + rect.bottom) / 2.0,
+            )
+        };
+        assert_eq!(center(track.layout_rect), center(indicator));
+        assert_eq!(center(layer.layout_rect), center(indicator));
         assert!(
             layer
                 .compositing_layer
@@ -103,13 +155,8 @@ mod tests {
                 .rotation_degrees_f32()
                 > 0.0
         );
-        exposed
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .update(|shown| *shown = false);
-        session.render_view(&view, viewport, UiScale::ONE);
+        shown.update(|shown| *shown = false);
+        session.render_view(&view, viewport, scale);
         assert!(
             session
                 .tree()
@@ -118,7 +165,7 @@ mod tests {
         );
         // Consume the frame already scheduled before removal.
         session.advance(16.0);
-        session.render_view(&view, viewport, UiScale::ONE);
+        session.render_view(&view, viewport, scale);
         assert!(session.runtime().frame_interval_ms().is_none());
     }
 }
