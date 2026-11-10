@@ -21,6 +21,14 @@ pub struct Image {
     pub animation: Option<Arc<[u8]>>,
 }
 
+/// Artwork already filtered to fit a small display surface.
+#[derive(Clone, Debug)]
+pub(crate) struct Thumbnail {
+    pub bytes: Arc<Vec<u8>>,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Background {
     #[default]

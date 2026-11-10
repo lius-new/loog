@@ -1,7 +1,9 @@
 //! Bounded image decoding. GIF opening prepares one frame, never the entire animation.
 use crate::domain::document::DiskState;
-use crate::domain::media::{Frame, Image};
+use crate::domain::media::{Frame, Image, Thumbnail};
 use image::{ImageDecoder, ImageEncoder};
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::io::{Cursor, Read};
 use std::path::Path;
 use std::sync::Arc;
@@ -26,6 +28,104 @@ fn png(rgba: &[u8], width: u32, height: u32) -> Result<Arc<Vec<u8>>, String> {
         .map_err(|e| e.to_string())?;
     Ok(Arc::new(bytes))
 }
+const MAX_THUMBNAIL_EDGE: u32 = 512;
+const THUMBNAIL_CACHE_BYTES: usize = 4 * 1024 * 1024;
+const THUMBNAIL_CACHE_ENTRIES: usize = 256;
+
+struct ThumbnailEntry {
+    key: (u64, u32),
+    thumbnail: Option<Thumbnail>,
+}
+
+#[derive(Default)]
+struct ThumbnailCache {
+    entries: VecDeque<ThumbnailEntry>,
+    bytes: usize,
+}
+
+thread_local! {
+    static THUMBNAILS: RefCell<ThumbnailCache> = RefCell::default();
+}
+
+/// Reuse a filtered PNG across frames for the same source and device size.
+pub(crate) fn thumbnail(identity: u64, bytes: &[u8], edge: u32) -> Option<Thumbnail> {
+    if !(1..=MAX_THUMBNAIL_EDGE).contains(&edge) {
+        return None;
+    }
+    THUMBNAILS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let key = (identity, edge);
+        if let Some(index) = cache.entries.iter().position(|entry| entry.key == key) {
+            let entry = cache.entries.remove(index).expect("entry was found");
+            let thumbnail = entry.thumbnail.clone();
+            cache.entries.push_back(entry);
+            return thumbnail;
+        }
+        let thumbnail = shrink_png(bytes, edge);
+        let size = thumbnail.as_ref().map_or(0, |image| image.bytes.len());
+        if size <= THUMBNAIL_CACHE_BYTES {
+            while cache.entries.len() >= THUMBNAIL_CACHE_ENTRIES
+                || cache.bytes + size > THUMBNAIL_CACHE_BYTES
+            {
+                let oldest = cache.entries.pop_front().expect("cache is over budget");
+                cache.bytes -= oldest
+                    .thumbnail
+                    .as_ref()
+                    .map_or(0, |image| image.bytes.len());
+            }
+            cache.bytes += size;
+            cache.entries.push_back(ThumbnailEntry {
+                key,
+                thumbnail: thumbnail.clone(),
+            });
+        }
+        thumbnail
+    })
+}
+
+fn shrink_png(bytes: &[u8], edge: u32) -> Option<Thumbnail> {
+    let mut reader = image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Png);
+    reader.limits(limits());
+    let decoder = reader.into_decoder().ok()?;
+    let (width, height) = decoder.dimensions();
+    if width.max(height) <= edge {
+        return None;
+    }
+    let mut source = image::DynamicImage::from_decoder(decoder)
+        .ok()?
+        .into_rgba8();
+    let longest = source.width().max(source.height());
+    let fit = |side: u32| ((side * edge + longest / 2) / longest).max(1);
+    let (width, height) = (fit(source.width()), fit(source.height()));
+
+    // Filter coverage and premultiplied color together. This keeps RGB from
+    // fully transparent pixels out of the visible edges.
+    for pixel in source.pixels_mut() {
+        let alpha = u16::from(pixel[3]);
+        for channel in &mut pixel.0[..3] {
+            *channel = ((u16::from(*channel) * alpha + 127) / 255) as u8;
+        }
+    }
+    // This resize widens the triangle filter with the reduction ratio.
+    let mut output = image::imageops::resize(
+        &source,
+        width,
+        height,
+        image::imageops::FilterType::Triangle,
+    );
+    for pixel in output.pixels_mut().filter(|pixel| pixel[3] != 0) {
+        let alpha = u16::from(pixel[3]);
+        for channel in &mut pixel.0[..3] {
+            *channel = ((u16::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8;
+        }
+    }
+    Some(Thumbnail {
+        bytes: png(output.as_raw(), width, height).ok()?,
+        width,
+        height,
+    })
+}
+
 pub fn load(path: &Path) -> Result<(Image, DiskState), String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let before = file.metadata().map_err(|e| e.to_string())?;
@@ -164,6 +264,32 @@ pub fn svg(source: &str, density: f32) -> Result<Image, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn small_thumbnails_keep_thin_lines_and_transparent_edge_colors() {
+        let source = image::RgbaImage::from_fn(128, 64, |x, _| {
+            if x.is_multiple_of(4) {
+                image::Rgba([255, 0, 0, 255])
+            } else {
+                image::Rgba([0, 0, 255, 0])
+            }
+        });
+        let bytes = png(source.as_raw(), 128, 64).unwrap();
+        let thumb = thumbnail(1, &bytes, 29).unwrap();
+        assert_eq!((thumb.width, thumb.height), (29, 15));
+        let pixels = image::load_from_memory(&thumb.bytes).unwrap().into_rgba8();
+        assert_eq!(pixels.dimensions(), (29, 15));
+        assert!(
+            pixels
+                .pixels()
+                .all(|pixel| { pixel.0[..3] == [255, 0, 0] && (25..110).contains(&pixel[3]) })
+        );
+        let again = thumbnail(1, &bytes, 29).unwrap();
+        assert!(Arc::ptr_eq(&thumb.bytes, &again.bytes));
+        let larger = thumbnail(1, &bytes, 45).unwrap();
+        assert_eq!((larger.width, larger.height), (45, 23));
+        assert!(thumbnail(1, &bytes, 144).is_none());
+    }
+
     #[test]
     #[ignore = "set LOOG_GIF_BENCH_FILE to measure a local GIF without opening the application"]
     fn gif_open_and_playback_performance() {

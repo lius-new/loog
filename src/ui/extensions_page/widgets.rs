@@ -1,12 +1,12 @@
 //! Drawing helpers shared by the extensions page: tiles, buttons, chips and
 //! text that wraps.
 use lgui::core::{
-    Color, CursorIcon, EventPolicy, ImageFit, SemanticRole, Semantics, TextStyle, UiElement,
-    UiEventContext, UiId, UiImageSource,
+    Color, CursorIcon, EventPolicy, ImageFit, PhysicalRect, SemanticRole, Semantics, TextStyle,
+    UiElement, UiEventContext, UiId, UiImageSource,
 };
 use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel, text};
 
-use crate::ui::extensions_binding::Entry;
+use crate::ui::extensions_binding::{Binding, Entry};
 use crate::ui::tabs::{icon, measure_sans};
 use crate::ui::theme;
 
@@ -101,20 +101,42 @@ pub(super) fn paragraph(
 }
 
 /// Package artwork retains its colors and fills the tile in the list and detail.
-pub(super) fn extension_tile(ids: &mut Ids, rect: UiRect, entry: &Entry, quiet: bool) -> Element {
-    let Some(image) = &entry.icon_image else {
+pub(super) fn extension_tile(
+    ids: &mut Ids,
+    rect: UiRect,
+    entry: &Entry,
+    quiet: bool,
+    state: &Binding,
+) -> Element {
+    let Some(image) = entry.icon_image.clone() else {
         return tile(ids, rect, entry.icon, entry.tint, quiet);
     };
-    let source = UiImageSource::bytes(
-        format!("extension-icon-{:016x}", image.identity),
-        0,
-        image.bytes.clone(),
-    );
-    let request = crate::ui::image_rendering::image(source)
-        .cache_policy(lgui::memory::ImageCachePolicy::WhileVisible)
-        .namespace("extension-icons");
+    let state = state.clone();
     let id = ids.next();
-    Element::new(move |_| UiElement::requested_image(id, rect, request, ImageFit::Contain))
+    Element::new(move |cx| {
+        let scale = cx.context.scale();
+        let edge = scale.physical_length(rect.width().min(rect.height()));
+        let (bytes, version, rect) = match state.icon_thumbnail(&image, edge as u32) {
+            Some(thumbnail) => {
+                // Place the prefiltered bitmap at its native device size.
+                let (width, height) = (thumbnail.width as i32, thumbnail.height as i32);
+                let left = scale.physical_value(rect.left) + (edge - width) / 2;
+                let top = scale.physical_value(rect.top) + (edge - height) / 2;
+                let bounds = PhysicalRect::new(left, top, left + width, top + height);
+                (thumbnail.bytes, edge as u64, scale.logical_rect(bounds))
+            }
+            None => (image.bytes, 0, rect),
+        };
+        let source = UiImageSource::bytes(
+            format!("extension-icon-{:016x}", image.identity),
+            version,
+            bytes,
+        );
+        let request = crate::ui::image_rendering::image(source)
+            .cache_policy(lgui::memory::ImageCachePolicy::WhileVisible)
+            .namespace("extension-icons");
+        UiElement::requested_image(id, rect, request, ImageFit::Contain)
+    })
 }
 
 /// A rounded fallback tile with `icon_key` in `tint`.

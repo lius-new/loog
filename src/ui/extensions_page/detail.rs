@@ -139,7 +139,9 @@ pub(super) fn render(
     let mut root = panel(area, VisualStyle::filled(c.bg));
     let top = area.top + PAD_TOP;
     let tile_rect = UiRect::new(area.left + PAD_X, top, area.left + PAD_X + TILE, top + TILE);
-    root = root.child(widgets::extension_tile(&mut ids, tile_rect, entry, false));
+    root = root.child(widgets::extension_tile(
+        &mut ids, tile_rect, entry, false, state,
+    ));
     let left = tile_rect.right + 20.0;
     let right = (area.right - PAD_X).max(left + 80.0);
 

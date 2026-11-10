@@ -426,7 +426,7 @@ fn row(
         rect.left + 10.0 + TILE,
         rect.top + (rect.height() + TILE) / 2.0,
     );
-    row = row.child(widgets::extension_tile(ids, tile, entry, quiet));
+    row = row.child(widgets::extension_tile(ids, tile, entry, quiet, state));
 
     // The right edge, from the outside in.
     let mut edge = rect.right - 10.0;

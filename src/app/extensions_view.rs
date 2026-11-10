@@ -4,7 +4,7 @@
 //! installer as the command palette.
 use crate::app::context::AppContext;
 use crate::ui::components::state_access::StateAccess;
-use crate::ui::extensions_binding::{Action, Binding, Command, DetailTab};
+use crate::ui::extensions_binding::{Action, Binding, Command, DetailTab, IconImage};
 use lgui::core::{UiFocusHandle, UiId};
 use lgui::prelude::{Element, UiRect};
 
@@ -32,6 +32,10 @@ pub fn binding(state: &AppContext) -> Binding {
     binding_in(state, None)
 }
 
+fn icon_thumbnail(image: &IconImage, edge: u32) -> Option<crate::domain::media::Thumbnail> {
+    crate::infrastructure::image_filesystem::thumbnail(image.identity, &image.bytes, edge)
+}
+
 fn binding_in(state: &AppContext, pane: Option<crate::domain::identity::PaneId>) -> Binding {
     let writer = state.clone();
     let reader = state.clone();
@@ -51,6 +55,7 @@ fn binding_in(state: &AppContext, pane: Option<crate::domain::identity::PaneId>)
         },
         move |command| run(&writer, command),
     )
+    .with_icon_thumbnail(icon_thumbnail)
     .with_documentation(move |entry, tab| {
         let document = entry.documentation(tab)?;
         let app = documents.get();
@@ -541,7 +546,7 @@ mod tests {
     }
 
     #[test]
-    fn package_artwork_is_drawn_in_both_the_list_and_detail() {
+    fn package_artwork_uses_device_sized_thumbnails_in_the_list_and_detail() {
         let mut service = crate::app::extensions::ExtensionService::new(
             std::env::temp_dir().join("loog-icon-scene"),
         );
@@ -562,11 +567,7 @@ mod tests {
             .icon_image
             .as_ref()
             .unwrap();
-        let expected = lgui::core::UiImageSource::bytes(
-            format!("extension-icon-{:016x}", image.identity),
-            0,
-            image.bytes.clone(),
-        );
+        let key = format!("extension-icon-{:016x}", image.identity);
         let context = ApplicationContext::empty(Default::default());
         let _fonts = lgui::backend::install_text_environment(
             &context,
@@ -583,22 +584,39 @@ mod tests {
             let entries = entries.clone();
             crate::ui::extensions_page::render(
                 rect,
-                Binding::new(StateAccess::from(ui), move || entries.clone(), |_| {}),
+                Binding::new(StateAccess::from(ui), move || entries.clone(), |_| {})
+                    .with_icon_thumbnail(icon_thumbnail),
                 search,
                 focus,
             )
         });
         let mut session = UiSession::new();
-        session.render_view(&view, rect, UiScale::ONE);
-        let requests = session.tree().scene().image_requests();
-        assert_eq!(requests.len(), 3, "two list icons and one detail icon");
-        assert_eq!(
-            requests
-                .iter()
-                .filter(|request| request.source() == &expected)
-                .count(),
-            2
-        );
+        for (scale, expected) in [(0.8, [29, 58]), (1.25, [45, 90])] {
+            session.render_view(&view, rect, UiScale::new(scale));
+            let requests = session.tree().scene().image_requests();
+            assert_eq!(requests.len(), 3, "two list icons and one detail icon");
+            let mut sizes = Vec::new();
+            for request in requests {
+                let lgui::core::UiImageSource::Bytes {
+                    key: source,
+                    version,
+                    bytes,
+                } = request.source()
+                else {
+                    continue;
+                };
+                if source != &key {
+                    continue;
+                }
+                let decoded = image::load_from_memory(bytes).unwrap().into_rgba8();
+                assert_eq!(decoded.width(), decoded.height());
+                assert_eq!(*version, u64::from(decoded.width()));
+                assert!(decoded.pixels().any(|pixel| (1..255).contains(&pixel[3])));
+                sizes.push(decoded.width());
+            }
+            sizes.sort_unstable();
+            assert_eq!(sizes, expected);
+        }
     }
 
     #[test]

@@ -3,6 +3,7 @@
 //!
 //! The page only presents. Everything that would act on an extension arrives
 //! as a command the app layer decides what to do with.
+use crate::domain::media::Thumbnail;
 use crate::ui::components::{input::InputState, state_access::StateAccess};
 use std::sync::Arc;
 
@@ -291,6 +292,8 @@ pub enum Action {
     Rollback,
 }
 
+type IconThumbnail = dyn Fn(&IconImage, u32) -> Option<Thumbnail> + Send + Sync;
+
 type DocumentationReader =
     dyn Fn(&Entry, DetailTab) -> Option<crate::ui::markdown::card::Document> + Send + Sync;
 
@@ -300,6 +303,7 @@ pub struct Binding {
     read: Arc<dyn Fn() -> Frame + Send + Sync>,
     run: Arc<dyn Fn(Command) + Send + Sync>,
     documentation: Arc<DocumentationReader>,
+    icon_thumbnail: Arc<IconThumbnail>,
 }
 
 impl Binding {
@@ -312,6 +316,7 @@ impl Binding {
             ui,
             read: Arc::new(read),
             run: Arc::new(run),
+            icon_thumbnail: Arc::new(|_, _| None),
             documentation: Arc::new(|entry, tab| {
                 entry
                     .documentation(tab)
@@ -319,6 +324,18 @@ impl Binding {
             }),
         }
     }
+    pub(crate) fn with_icon_thumbnail(
+        mut self,
+        bind: impl Fn(&IconImage, u32) -> Option<Thumbnail> + Send + Sync + 'static,
+    ) -> Self {
+        self.icon_thumbnail = Arc::new(bind);
+        self
+    }
+
+    pub(crate) fn icon_thumbnail(&self, image: &IconImage, edge: u32) -> Option<Thumbnail> {
+        (self.icon_thumbnail)(image, edge)
+    }
+
     pub fn with_documentation(
         mut self,
         bind: impl Fn(&Entry, DetailTab) -> Option<crate::ui::markdown::card::Document>
