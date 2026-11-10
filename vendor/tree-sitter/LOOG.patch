@@ -95,7 +95,7 @@ index 334b25f..c05137b 100644
   * Get the number of languages instantiated in the given Wasm store.
   */
 diff --git a/src/wasm_store.c b/src/wasm_store.c
-index 525b8c7..ccf6325 100644
+index dbf6203..a23494b 100644
 --- a/src/wasm_store.c
 +++ b/src/wasm_store.c
 @@ -1316,12 +1316,53 @@ static bool ts_wasm_store__sentinel_lex_fn(TSLexer *_lexer, TSStateId state) {

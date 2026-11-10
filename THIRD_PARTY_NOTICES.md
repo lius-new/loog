@@ -9,7 +9,7 @@ https://github.com/doy/vt100-rust.
 
 ## tree-sitter
 
-`vendor/tree-sitter` contains tree-sitter 0.27.1, licensed under MIT (see
+`vendor/tree-sitter` contains tree-sitter 0.27.2, licensed under MIT (see
 `vendor/tree-sitter/LICENSE`). Loog adds a function that loads a precompiled
 WebAssembly grammar module; see `vendor/tree-sitter/LOOG-PATCH.md`. Upstream:
 https://github.com/tree-sitter/tree-sitter.
@@ -43,7 +43,7 @@ only concatenated).
 
 | Component | Version | Upstream | Copyright |
 | --- | --- | --- | --- |
-| tree-sitter | 0.27.1 | https://github.com/tree-sitter/tree-sitter | Max Brunsfeld |
+| tree-sitter | 0.27.2 | https://github.com/tree-sitter/tree-sitter | Max Brunsfeld |
 | tree-sitter-rust | 0.24.2 | https://github.com/tree-sitter/tree-sitter-rust | Maxim Sokolov |
 | tree-sitter-javascript | 0.25.0 (query for JavaScript), 0.23.1 (query for TypeScript and TSX) | https://github.com/tree-sitter/tree-sitter-javascript | Max Brunsfeld |
 | tree-sitter-typescript | 0.23.2 | https://github.com/tree-sitter/tree-sitter-typescript | its contributors |

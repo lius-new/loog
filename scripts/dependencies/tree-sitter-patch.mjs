@@ -22,7 +22,7 @@ const patchFile = join(vendor, "LOOG.patch");
 
 // crates.io checksum (the Cargo.lock "checksum") of each upstream version this script can
 // download. Add the new version's checksum when upgrading.
-const checksums = { "0.27.1": "a5129de2ccc97808c4583d48f1fb44576d015cf241e432800572bda11ef30c3b" };
+const checksums = { "0.27.2": "37b2bed8f39a73439f3b0b7ed8f452be5d2911b5e9da69d352ef113bb7448fb8" };
 
 // Uses the Cargo registry cache when it has the crate (set TREE_SITTER_PATCH_DOWNLOAD=1 to
 // skip it); otherwise downloads the crate from crates.io and verifies its checksum. The

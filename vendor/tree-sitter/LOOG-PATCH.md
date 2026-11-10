@@ -1,6 +1,6 @@
 # Loog patch to tree-sitter
 
-`vendor/tree-sitter` is the `tree-sitter` 0.27.1 crate from crates.io plus one
+`vendor/tree-sitter` is the `tree-sitter` 0.27.2 crate from crates.io plus one
 small change, selected through `[patch.crates-io]` in the root `Cargo.toml`.
 The change is stored as `LOOG.patch` (four files,
 about 110 lines) and every changed line carries a `LOOG-PATCH(precompiled-wasm)`
@@ -9,7 +9,7 @@ marker.
 ## Upstream baseline
 
 - Repository: https://github.com/tree-sitter/tree-sitter (crate path `lib/`)
-- Commit: `10eb5ac119eec9cb4267a8e035066473983f5f3a`, published as 0.27.1
+- Commit: `3fb7be49145acfb07e33b61ed5689e2b6771b2e9`, published as 0.27.2
 
 Update these when upgrading.
 
@@ -39,7 +39,7 @@ failure falls back to the upstream path.
 Grammars are built outside this repository (loog-extensions) with the
 `tree-sitter` CLI, so the host and the grammars move independently. The host
 accepts grammar ABI `MIN_COMPATIBLE_LANGUAGE_VERSION..=LANGUAGE_VERSION`, which
-is 13 to 15 in 0.27.1; `validate_abi` in `language_packs.rs` rejects others. A
+is 13 to 15 in 0.27.2; `validate_abi` in `language_packs.rs` rejects others. A
 newer host keeps loading older grammars, but a grammar built by a newer CLI can
 need a newer host.
 
@@ -70,13 +70,20 @@ To upgrade `tree-sitter`:
 2. Reapply the change. Try
    `git apply --directory=vendor/tree-sitter vendor/tree-sitter/LOOG.patch`
    from the repository root. If hunks are rejected, redo the edits by hand,
-   following the `LOOG-PATCH(precompiled-wasm)` markers in the old patch.
+   following the `LOOG-PATCH(precompiled-wasm)` markers in the old patch. On
+   Windows `git apply` can write CRLF into `api.h` and `wasm_store.c`; convert
+   them back to LF so the regenerated patch stays small.
 3. In `scripts/dependencies/tree-sitter-patch.mjs`, add the new version and its
    sha256 to `checksums`. In this file, update the upstream baseline.
 4. `node scripts/dependencies/tree-sitter-patch.mjs regenerate`, then `check`.
 5. Run the grammar compatibility gate described above and the focused
    `language_packs` tests, and measure that opening a Markdown file still costs
    about the same as opening a plain text file.
+
+Upgrading also moves `wasmtime-c-api`, whose newer builds need CMake; use
+`node scripts/build/cargo.mjs`, which provides it. tree-sitter 0.27.2 is the first
+release that copies all supertype map entries of a WASM grammar, which queries such
+as Haskell's `(pattern/wildcard)` depend on.
 
 Drop the patch when upstream accepts a way to load precompiled modules, or when
 `tree-sitter` and Loog share a Wasmtime whose engine releases compiler state.
