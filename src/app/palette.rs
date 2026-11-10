@@ -147,6 +147,22 @@ pub fn is_open(env: &KeyEnv) -> bool {
     read(&env.state, |app| app.palette.visible)
 }
 
+/// The highlighted theme is only a rendering override until it is confirmed.
+pub(crate) fn display_theme(app: &AppState) -> ThemeId {
+    let palette = &app.palette;
+    if palette.visible
+        && palette
+            .entries
+            .first()
+            .is_some_and(|entry| matches!(entry.target, Target::Theme(_)))
+        && let Some(hit) = palette.hits().get(palette.view().0)
+        && let Target::Theme(id) = palette.entries[hit.index].target
+    {
+        return id;
+    }
+    app.preferences.values().theme
+}
+
 /// Show the palette, with the catalog as it is right now.
 pub fn open(state: &AppContext) {
     let extension_commands = state
@@ -408,6 +424,42 @@ mod tests {
             .collect();
         assert_eq!(marked.len(), 1);
         assert_eq!(marked[0].target, Target::Theme(current));
+    }
+
+    #[test]
+    fn the_theme_preview_follows_selection_and_clears_on_cancel() {
+        use crate::features::keymap::action::Action;
+
+        let mut app = AppState::new();
+        let saved = app.preferences.values().theme;
+        let preview = ThemeId::from_index(1);
+        app.palette.visible = true;
+        app.palette.entries = Arc::new(vec![
+            Entry {
+                id: "theme:saved".into(),
+                title: "Saved".into(),
+                category: "Theme".into(),
+                description: String::new(),
+                target: Target::Theme(saved),
+            },
+            Entry {
+                id: "theme:preview".into(),
+                title: "Preview".into(),
+                category: "Theme".into(),
+                description: String::new(),
+                target: Target::Theme(preview),
+            },
+        ]);
+        assert_eq!(display_theme(&app), saved);
+        app.apply(Action::MenuSelectNext);
+        assert_eq!(display_theme(&app), preview);
+        app.palette.input.set_text("no matches");
+        assert_eq!(display_theme(&app), saved);
+        app.palette.input.set_text("preview");
+        assert_eq!(display_theme(&app), preview);
+        app.apply(Action::CloseOverlay);
+        assert_eq!(display_theme(&app), saved);
+        assert_eq!(app.preferences.values().theme, saved);
     }
 
     #[test]

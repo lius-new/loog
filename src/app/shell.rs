@@ -372,7 +372,8 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         || {}
     });
     layout_map::refresh(&s, &layout_map_store, content_area, session_ids.clone());
-    theme::set(s.preferences.values().theme);
+    let display_theme = super::palette::display_theme(&s);
+    theme::set(display_theme);
     crate::ui::fonts::set(
         &s.preferences.values().editor_font,
         &s.preferences.values().terminal_font,
@@ -512,7 +513,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     });
     let settings = s.settings();
     let text_windows = application_context.windows();
-    let text_rendering = theme::text_rendering(settings.theme);
+    let text_rendering = theme::text_rendering(display_theme);
     cx.use_effect(text_rendering, move || {
         text_windows.set_text_rendering("loog", text_rendering);
         || {}
