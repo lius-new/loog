@@ -44,6 +44,118 @@ mod tests {
     }
 
     #[test]
+    fn terminal_backgrounds_and_selections_have_no_row_seams_at_fractional_scales() {
+        use crate::features::terminal::TerminalCellStyle;
+        use crate::infrastructure::terminal::session::TerminalController;
+        use lgui::application::{AppView, ApplicationContext};
+        use lgui::core::UiScale;
+        use lgui::prelude::{Color, panel};
+        use lgui::renderer::{FrameInfo, FrameReason};
+        use lgui::session::UiSession;
+
+        let context = ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let _metrics = fonts::override_terminal(fonts::Metrics {
+            char_w: 7.2,
+            line_h: 19.0,
+            ..fonts::terminal()
+        });
+        for factor in [0.75_f32, 0.8, 1.0, 1.25, 1.5, 2.0] {
+            let scale = UiScale::new(factor);
+            for fraction in [0.0, 0.25, 0.5, 0.75] {
+                for selected in [false, true] {
+                    let viewport = UiRect::new(0.0, 0.0, 128.0, 128.0);
+                    let left = (8.0 + fraction) / factor;
+                    let top = (8.0 + fraction) / factor;
+                    let content = UiRect::new(
+                        left,
+                        top,
+                        left + 12.0 * terminal_cell_width(),
+                        top + 4.0 * terminal_line_h(),
+                    );
+                    let background = Color(0x262b36);
+                    let expected = if selected {
+                        theme::c().selection
+                    } else {
+                        background
+                    };
+                    let mut snapshot = TerminalController::new().snapshot();
+                    snapshot.cursor_visible = false;
+                    snapshot.rows = 4;
+                    snapshot.cols = 12;
+                    snapshot.lines = (0..4)
+                        .map(|_| {
+                            (0..3)
+                                .map(|part| TerminalRun {
+                                    start_col: part * 4,
+                                    columns: 4,
+                                    text: String::new(),
+                                    style: TerminalCellStyle {
+                                        background: (!selected).then_some(background.0),
+                                        ..Default::default()
+                                    },
+                                })
+                                .collect()
+                        })
+                        .collect();
+                    snapshot.selection = if selected {
+                        (0..4).map(|row| (row, 0, 12)).collect()
+                    } else {
+                        vec![]
+                    };
+                    let view: AppView = Arc::new(move |_| {
+                        panel(viewport, VisualStyle::filled(theme::c().bg))
+                            .child(render_screen(content, &snapshot, false, true))
+                    });
+                    let mut session = UiSession::new();
+                    session.render_view(&view, viewport, scale);
+                    let physical = scale.physical_rect(viewport);
+                    let dirty = [physical];
+                    let mut surface = lgui::render_skia::SkiaSoftwareSurface::new(1024 * 1024);
+                    for full in [true, false] {
+                        let frame =
+                            FrameInfo::new(physical, &dirty, scale, FrameReason::SceneChange, full);
+                        lgui::assets::backend::with_render_resources(
+                            &context,
+                            lgui::RenderResources::new(),
+                            || {
+                                surface.draw(
+                                    &session.tree().scene().project_to_physical(scale),
+                                    &frame,
+                                )
+                            },
+                        )
+                        .unwrap();
+                        for y in scale.physical_value(content.top) + 2
+                            ..scale.physical_value(content.bottom) - 2
+                        {
+                            for x in scale.physical_value(content.left) + 2
+                                ..scale.physical_value(content.right) - 2
+                            {
+                                let offset =
+                                    (y as usize * physical.width() as usize + x as usize) * 4;
+                                assert_eq!(
+                                    &surface.pixels()[offset..offset + 4],
+                                    &[
+                                        expected.0 as u8,
+                                        (expected.0 >> 8) as u8,
+                                        (expected.0 >> 16) as u8,
+                                        255
+                                    ],
+                                    "scale={factor}, fraction={fraction}, selected={selected}, full={full}, pixel=({x},{y})"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn terminal_header_rule_and_underline_are_crisp_at_fractional_scales() {
         use lgui::application::{AppView, ApplicationContext};
         use lgui::core::{PhysicalRect, UiScale};

@@ -1603,6 +1603,25 @@ pub(crate) fn tab_header_rule(header: UiRect) -> Element {
             .hit_rect(no_hit)
     })
 }
+fn cell_fill(rect: UiRect, color: Color) -> Element {
+    Element::new(move |cx| {
+        // Shared cell edges must land on the same physical pixel. Otherwise
+        // adjacent antialiased fills blend with the canvas and leave row seams.
+        let scale = cx.context.scale();
+        let snap = |value| scale.physical_value(value) as f32 / scale.factor();
+        UiElement::panel(
+            cx.id,
+            UiRect::new(
+                snap(rect.left),
+                snap(rect.top),
+                snap(rect.right),
+                snap(rect.bottom),
+            ),
+            VisualStyle::filled(color),
+        )
+    })
+}
+
 pub(crate) fn render_screen(
     content: UiRect,
     snapshot: &crate::features::terminal::TerminalSnapshot,
@@ -1618,9 +1637,9 @@ pub(crate) fn render_screen(
         for run in runs {
             if let Some(background) = run.style.background {
                 let (left, right) = run_span(content, run);
-                screen = screen.child(panel(
+                screen = screen.child(cell_fill(
                     UiRect::new(left, top, right, top + terminal_line_h()),
-                    VisualStyle::filled(Color(background)),
+                    Color(background),
                 ));
             }
         }
@@ -1633,9 +1652,9 @@ pub(crate) fn render_screen(
             let left = content.left + f32::from(start_col) * terminal_cell_width();
             let right =
                 (content.left + f32::from(end_col) * terminal_cell_width()).min(content.right);
-            screen = screen.child(panel(
+            screen = screen.child(cell_fill(
                 UiRect::new(left, top, right, top + terminal_line_h()),
-                VisualStyle::filled(theme::c().selection),
+                theme::c().selection,
             ));
         }
         for run in runs {
