@@ -49,6 +49,7 @@
     "#000000", "#ff5c5c", "#3ddc84", "#ffd60a", "#5c9dff", "#ff7edb", "#4fd8ff", "#e5e5e5",
     "#7f7f7f", "#ff8080", "#7dff8a", "#ffe866", "#8cb8ff", "#ffa6ea", "#8ce6ff", "#ffffff"
   ],
+  "ansi_backgrounds": { "8": "#242424" },
   "syntax": {
     "keyword": "#ff7edb",
     "function": "#7cc7ff",

@@ -49,6 +49,7 @@
     "#1c1917", "#ef4444", "#84cc16", "#eab308", "#60a5fa", "#c084fc", "#2dd4bf", "#d6d3d1",
     "#57534e", "#f87171", "#a3e635", "#facc15", "#93c5fd", "#d8b4fe", "#5eead4", "#fafaf9"
   ],
+  "ansi_backgrounds": { "8": "#332b25" },
   "syntax": {
     "keyword": "#fb7185",
     "function": "#facc15",

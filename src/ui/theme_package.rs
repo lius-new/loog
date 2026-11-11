@@ -3,7 +3,8 @@
 //! A package theme is data: a built-in theme to start from and the colors and
 //! syntax styles it changes. Everything it does not mention is the base theme's,
 //! so a small file is a complete theme and a damaged one cannot leave a color
-//! undefined. Names are checked strictly: a misspelled color is an error that
+//! undefined. ANSI background overrides are opt-in for each package theme.
+//! Names are checked strictly: a misspelled color is an error that
 //! rejects the theme, not a color that silently stays as it was.
 use super::theme::{Palette, THEMES};
 use crate::features::highlighting::{HighlightId, HighlightStyle, StyleTable};
@@ -117,7 +118,17 @@ pub fn parse(source: &str) -> Result<Parsed, String> {
         serde_json::from_str(source).map_err(|error| format!("invalid JSON: {error}"))?;
     let root = object(&value, "the theme")?;
     for key in root.keys() {
-        if !["name", "base", "colors", "ansi", "shadow_alpha", "syntax"].contains(&key.as_str()) {
+        if ![
+            "name",
+            "base",
+            "colors",
+            "ansi",
+            "ansi_backgrounds",
+            "shadow_alpha",
+            "syntax",
+        ]
+        .contains(&key.as_str())
+        {
             return Err(format!("unknown field \"{key}\""));
         }
     }
@@ -155,6 +166,26 @@ pub fn parse(source: &str) -> Result<Parsed, String> {
             .ok_or("\"ansi\" must list 16 colors")?;
         for (at, value) in list.iter().enumerate() {
             palette.ansi[at] = color(value, &format!("ansi[{at}]"))?;
+        }
+    }
+    // COMPAT(shared-ansi-theme-palette): Existing themes use one ANSI palette
+    // for foregrounds and backgrounds. Keep that rendering when no override is
+    // supplied, rather than inheriting the built-in theme's background choices.
+    // New themes can use ansi_backgrounds for independent background colors.
+    // Remove this reset when support for shared-only theme palettes ends;
+    // no removal version has been scheduled.
+    palette.ansi_backgrounds = [None; 16];
+    if let Some(backgrounds) = root.get("ansi_backgrounds") {
+        for (index, value) in object(backgrounds, "\"ansi_backgrounds\"")? {
+            let at = index
+                .parse::<usize>()
+                .ok()
+                .filter(|&at| at < 16 && at.to_string() == *index)
+                .ok_or_else(|| {
+                    format!("invalid ANSI background index \"{index}\": expected 0 to 15")
+                })?;
+            palette.ansi_backgrounds[at] =
+                Some(color(value, &format!("ansi_backgrounds.{index}"))?);
         }
     }
     if let Some(alpha) = root.get("shadow_alpha") {
@@ -232,6 +263,19 @@ mod tests {
             (r##"{ "colors": { "bg": "#12345" } }"##, "not a #rrggbb"),
             (r##"{ "base": "nope" }"##, "not a built-in theme"),
             (r##"{ "ansi": ["#000000"] }"##, "16 colors"),
+            (r##"{ "ansi_backgrounds": [] }"##, "must be an object"),
+            (
+                r##"{ "ansi_backgrounds": { "16": "#000000" } }"##,
+                "expected 0 to 15",
+            ),
+            (
+                r##"{ "ansi_backgrounds": { "08": "#000000" } }"##,
+                "expected 0 to 15",
+            ),
+            (
+                r##"{ "ansi_backgrounds": { "8": "grey" } }"##,
+                "not a #rrggbb",
+            ),
             (
                 r##"{ "syntax": { "keywrd": "#000000" } }"##,
                 "unknown syntax class",
@@ -257,5 +301,30 @@ mod tests {
         let theme = parse("{}").unwrap();
         assert_eq!(theme.palette.bg.0, THEMES[0].palette.bg.0);
         assert!(theme.name.is_empty());
+    }
+
+    #[test]
+    fn background_overrides_leave_ansi_foregrounds_and_older_themes_intact() {
+        let previous = parse("{}").unwrap();
+        assert!(
+            previous
+                .palette
+                .ansi_backgrounds
+                .iter()
+                .all(Option::is_none)
+        );
+        let theme = parse(r##"{ "ansi_backgrounds": { "8": "#e8ecf4" } }"##).unwrap();
+        assert_eq!(theme.palette.ansi, previous.palette.ansi);
+        assert_eq!(theme.palette.ansi_backgrounds[8], Some(0xe8ecf4));
+        assert!(
+            theme.palette.ansi_backgrounds[..8]
+                .iter()
+                .all(Option::is_none)
+        );
+        assert!(
+            theme.palette.ansi_backgrounds[9..]
+                .iter()
+                .all(Option::is_none)
+        );
     }
 }

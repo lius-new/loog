@@ -76,6 +76,8 @@ pub struct Palette {
     pub badge: BadgeColors,
     /// The 16 ANSI terminal colors, as `0xRRGGBB`.
     pub ansi: [u32; 16],
+    /// Per-index terminal background overrides; `None` uses the ANSI color.
+    pub ansi_backgrounds: [Option<u32>; 16],
 }
 
 impl Palette {
@@ -220,6 +222,24 @@ const AURA_DARK: Palette = Palette {
     ansi: [
         0x000000, 0xcd3131, 0x0dbc79, 0xe5e510, 0x2472c8, 0xbc3fbc, 0x11a8cd, 0xe5e5e5, 0x666666,
         0xf14c4c, 0x23d18b, 0xf5f543, 0x3b8eea, 0xd670d6, 0x29b8db, 0xffffff,
+    ],
+    ansi_backgrounds: [
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(0x262b36),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
     ],
 };
 

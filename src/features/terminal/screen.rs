@@ -4,6 +4,7 @@ use crate::features::terminal::{TerminalCellStyle, TerminalRun};
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Palette {
     pub ansi: [u32; 16],
+    pub ansi_backgrounds: [Option<u32>; 16],
     pub foreground: u32,
     pub background: u32,
 }
@@ -372,10 +373,18 @@ fn push_visible_run(runs: &mut Vec<TerminalRun>, mut run: TerminalRun) {
 }
 
 fn cell_style(cell: &vt100::Cell, palette: &Palette) -> TerminalCellStyle {
-    let mut foreground = terminal_color(cell.fgcolor(), palette);
-    let mut background = terminal_color(cell.bgcolor(), palette);
+    let (mut fg, mut bg) = (cell.fgcolor(), cell.bgcolor());
     if cell.inverse() {
-        std::mem::swap(&mut foreground, &mut background);
+        std::mem::swap(&mut fg, &mut bg);
+    }
+    let mut foreground = terminal_color(fg, palette);
+    let mut background = match bg {
+        vt100::Color::Idx(index @ 0..=15) => {
+            palette.ansi_backgrounds[usize::from(index)].or_else(|| terminal_color(bg, palette))
+        }
+        _ => terminal_color(bg, palette),
+    };
+    if cell.inverse() {
         if foreground.is_none() {
             foreground = Some(palette.background);
         }
@@ -431,6 +440,7 @@ mod tests {
         ansi[1] = 0xcd3131;
         Palette {
             ansi,
+            ansi_backgrounds: [None; 16],
             foreground: 0xffffff,
             background: 0x101010,
         }
@@ -588,5 +598,34 @@ mod tests {
                 .foreground,
             Some(0xcd3131)
         );
+    }
+
+    #[test]
+    fn ansi_background_overrides_follow_visual_roles_including_inverse_video() {
+        let mut parser = vt100::Parser::new(2, 20, 0);
+        parser.process(b"\x1b[90;100mA\x1b[0m\x1b[90;7mB\x1b[0m\x1b[100;7mC");
+        let mut selected = palette();
+        selected.ansi[8] = 0x666666;
+        selected.ansi_backgrounds[8] = Some(0x262b36);
+        let runs = line_runs(parser.screen(), 0, 20, &selected);
+        assert_eq!(runs[0].style.foreground, Some(0x666666));
+        assert_eq!(runs[0].style.background, Some(0x262b36));
+        assert_eq!(runs[1].style.foreground, Some(selected.background));
+        assert_eq!(runs[1].style.background, Some(0x262b36));
+        assert_eq!(runs[2].style.foreground, Some(0x666666));
+        assert_eq!(runs[2].style.background, Some(selected.foreground));
+    }
+
+    #[test]
+    fn explicit_rgb_grayscale_and_unset_ansi_backgrounds_keep_their_colors() {
+        let mut parser = vt100::Parser::new(2, 20, 0);
+        parser.process(b"\x1b[48;2;102;102;102mA\x1b[48;5;242mB\x1b[41mC\x1b[49mD");
+        let mut selected = palette();
+        selected.ansi_backgrounds[8] = Some(0x262b36);
+        let runs = line_runs(parser.screen(), 0, 20, &selected);
+        assert_eq!(runs[0].style.background, Some(0x666666));
+        assert_eq!(runs[1].style.background, Some(0x6c6c6c));
+        assert_eq!(runs[2].style.background, Some(0xcd3131));
+        assert_eq!(runs[3].style.background, None);
     }
 }

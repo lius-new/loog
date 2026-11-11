@@ -94,6 +94,14 @@ tab. A purpose, or the program that is running, still follows the name.
 **More → Clear Output** forgets the screen and its scrollback, then asks the
 shell to redraw its prompt. A full-screen program is left alone.
 
+## Colors
+
+Themes can give ANSI backgrounds their own colors, independently of foreground
+text. Aura Dark, Aura Light, Ember and High Contrast use a subtle themed fill for
+bright-black backgrounds, keeping message blocks distinct without a solid gray
+slab. Gray status text retains its foreground color. True-color and extended
+256-color backgrounds remain as specified by the terminal application.
+
 ## Font size
 
 **Ctrl + +** (or **Ctrl + =**) and **Ctrl + −** adjust the terminal font size

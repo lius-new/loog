@@ -165,10 +165,18 @@ built-in theme and changes what it names:
   "base": "aura-dark",
   "colors": { "bg": "#101418", "accent": "#ff8800", "git.added": "#00cc66" },
   "ansi": ["#000000", "... 16 colors ..."],
+  "ansi_backgrounds": { "8": "#262b36" },
   "shadow_alpha": 120,
   "syntax": { "keyword": "#ff8800", "comment": { "fg": "#888888", "italic": true } }
 }
 ```
+
+`ansi_backgrounds` optionally overrides individual ANSI background colors with
+keys `"0"` through `"15"`. Foreground colors keep using `ansi`; unspecified
+backgrounds use that same ANSI palette. These overrides are opt-in for each
+package theme and do not inherit from its base. Explicit RGB colors and the
+extended 256-color palette are unchanged. Reverse video applies the background
+override to the color that is actually drawn behind the text.
 
 Color names are the palette fields (`bg`, `sidebar`, `text`, `diff.add_bg`,
 `git.added`, `badge.rust` and so on), syntax names the highlight classes
