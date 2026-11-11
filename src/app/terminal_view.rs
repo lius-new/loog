@@ -235,6 +235,9 @@ pub(crate) fn run(
         Command::SearchStep(delta) => commands::search_step(state, tabs, delta),
         Command::CloseSearch => commands::close_search(state, tabs),
         Command::Write { target, bytes } => result.applied = commands::write(tabs, target, &bytes),
+        Command::ProtocolInput { target, bytes } => {
+            result.applied = commands::protocol_input(tabs, target, &bytes)
+        }
         Command::ResizePair {
             left,
             right,

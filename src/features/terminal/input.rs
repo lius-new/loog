@@ -40,6 +40,7 @@ pub(crate) enum NamedKey {
     Enter,
     Tab,
     Escape,
+    Function(u8),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TerminalKey<'a> {
@@ -52,6 +53,10 @@ pub(crate) fn key_bytes(
     modifiers: Modifiers,
     application_cursor: bool,
 ) -> Option<Vec<u8>> {
+    // COMPAT(legacy-vt-keys): Sessions without a negotiated richer input mode
+    // still need traditional VT control bytes and xterm key sequences. Prefer
+    // the requested protocol when available; retain this fallback while legacy
+    // shells are supported. No removal version is scheduled.
     let shift = modifiers.shift();
     let alt = modifiers.alt();
     let ctrl = modifiers.ctrl();
@@ -98,10 +103,23 @@ pub(crate) fn key_bytes(
         }
         if named == NamedKey::Backspace {
             // Ctrl+Backspace deletes a word (^H), Alt+Backspace sends ESC DEL.
-            return Some(match (ctrl, alt) {
-                (true, _) => b"\x08".to_vec(),
-                (false, true) => b"\x1b\x7f".to_vec(),
-                (false, false) => b"\x7f".to_vec(),
+            return Some(with_alt(vec![if ctrl { 8 } else { 127 }], alt));
+        }
+        if let NamedKey::Function(number @ 1..=12) = named {
+            return Some(if number <= 4 {
+                let final_byte = char::from(b'P' + number - 1);
+                if modifier == 1 {
+                    format!("\x1bO{final_byte}").into_bytes()
+                } else {
+                    format!("\x1b[1;{modifier}{final_byte}").into_bytes()
+                }
+            } else {
+                let code = [15, 17, 18, 19, 20, 21, 23, 24][usize::from(number - 5)];
+                if modifier == 1 {
+                    format!("\x1b[{code}~").into_bytes()
+                } else {
+                    format!("\x1b[{code};{modifier}~").into_bytes()
+                }
             });
         }
     }
@@ -111,16 +129,17 @@ pub(crate) fn key_bytes(
         && let Some(character) = value.chars().next()
         && value.chars().count() == 1
     {
-        let lower = character.to_ascii_lowercase();
-        // These remain editor-wide shortcuts while the terminal is focused.
-        if matches!(lower, 'p' | 'b' | 'g' | '`') {
-            return None;
-        }
-        if lower.is_ascii_lowercase() {
-            return Some(vec![(lower as u8) & 0x1f]);
+        if let Some(control) = control_character(character) {
+            return Some(with_alt(vec![control], alt));
         }
     }
 
+    if alt
+        && let TerminalKey::Character(value) = key
+        && !value.is_empty()
+    {
+        return Some(with_alt(value.as_bytes().to_vec(), true));
+    }
     let bytes: &[u8] = match key {
         TerminalKey::Named(NamedKey::Enter) => b"\r",
         TerminalKey::Named(NamedKey::Tab) if shift => b"\x1b[Z",
@@ -128,7 +147,53 @@ pub(crate) fn key_bytes(
         TerminalKey::Named(NamedKey::Escape) => b"\x1b",
         _ => return None,
     };
-    Some(bytes.to_vec())
+    Some(with_alt(bytes.to_vec(), alt))
+}
+
+fn with_alt(mut bytes: Vec<u8>, alt: bool) -> Vec<u8> {
+    if alt {
+        bytes.insert(0, 0x1b);
+    }
+    bytes
+}
+
+pub(crate) fn control_character(character: char) -> Option<u8> {
+    let lower = character.to_ascii_lowercase();
+    Some(match lower {
+        'a'..='z' => lower as u8 & 0x1f,
+        ' ' | '@' | '`' | '2' => 0,
+        '[' | '3' => 27,
+        '\\' | '4' => 28,
+        ']' | '5' => 29,
+        '^' | '6' => 30,
+        '_' | '-' | '7' => 31,
+        '?' | '8' => 127,
+        _ => return None,
+    })
+}
+
+/// Microsoft's negotiated CSI Vk;Sc;Uc;Kd;Cs;Rc_ input record format.
+/// UTF-16 units are encoded separately, as in KEY_EVENT_RECORD::UnicodeChar.
+pub(crate) fn win32_key_bytes(
+    virtual_key: u16,
+    scan_code: u16,
+    text: &str,
+    down: bool,
+    control_state: u32,
+) -> Vec<u8> {
+    let units = text.encode_utf16().collect::<Vec<_>>();
+    let units = if units.is_empty() { &[0][..] } else { &units };
+    let mut bytes = Vec::new();
+    for unit in units {
+        bytes.extend_from_slice(
+            format!(
+                "\x1b[{virtual_key};{scan_code};{unit};{};{control_state};1_",
+                u8::from(down)
+            )
+            .as_bytes(),
+        );
+    }
+    bytes
 }
 
 pub(crate) fn paste_bytes(value: &str, bracketed: bool) -> Vec<u8> {
@@ -156,8 +221,17 @@ mod tests {
     }
 
     #[test]
-    fn shell_control_keys_keep_workspace_shortcuts_and_paste_payload_separate() {
-        for ch in ["p", "b", "g", "`", "中文", ""] {
+    fn every_control_letter_reaches_the_terminal_encoder() {
+        for ch in 'a'..='z' {
+            for value in [ch.to_string(), ch.to_ascii_uppercase().to_string()] {
+                assert_eq!(
+                    key_bytes(TerminalKey::Character(&value), Modifiers::CONTROL, false),
+                    Some(vec![ch as u8 & 0x1f]),
+                    "{value}"
+                );
+            }
+        }
+        for ch in ["中文", ""] {
             assert_eq!(
                 key_bytes(TerminalKey::Character(ch), Modifiers::CONTROL, false),
                 None
@@ -182,6 +256,59 @@ mod tests {
                 false
             ),
             Some(b"\x1b\x7f".to_vec())
+        );
+    }
+
+    #[test]
+    fn alt_control_punctuation_and_function_keys_preserve_their_meaning() {
+        assert_eq!(
+            key_bytes(TerminalKey::Character("x"), Modifiers::ALT, false),
+            Some(b"\x1bx".to_vec())
+        );
+        assert_eq!(
+            key_bytes(
+                TerminalKey::Character("j"),
+                Modifiers::ALT | Modifiers::CONTROL,
+                false
+            ),
+            Some(b"\x1b\n".to_vec())
+        );
+        for (character, expected) in [
+            (" ", 0),
+            ("[", 27),
+            ("\\", 28),
+            ("]", 29),
+            ("^", 30),
+            ("_", 31),
+            ("?", 127),
+        ] {
+            assert_eq!(
+                key_bytes(TerminalKey::Character(character), Modifiers::CONTROL, false),
+                Some(vec![expected])
+            );
+        }
+        for (number, expected) in [
+            (1, "\x1bOP"),
+            (4, "\x1bOS"),
+            (5, "\x1b[15~"),
+            (12, "\x1b[24~"),
+        ] {
+            assert_eq!(
+                key_bytes(
+                    TerminalKey::Named(NamedKey::Function(number)),
+                    Modifiers::empty(),
+                    false
+                ),
+                Some(expected.as_bytes().to_vec())
+            );
+        }
+        assert_eq!(
+            key_bytes(
+                TerminalKey::Named(NamedKey::Function(5)),
+                Modifiers::SHIFT | Modifiers::CONTROL,
+                false
+            ),
+            Some(b"\x1b[15;6~".to_vec())
         );
     }
 }

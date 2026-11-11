@@ -174,6 +174,7 @@ impl TerminalHandle {
                 cursor: (0, 0),
                 cursor_visible: false,
                 application_cursor: false,
+                win32_input_mode: false,
                 selection: vec![],
                 link: None,
             })
@@ -184,6 +185,9 @@ impl TerminalHandle {
     }
     pub fn write(&self, bytes: &[u8]) {
         self.with(|c| c.write(bytes));
+    }
+    pub fn write_protocol(&self, bytes: &[u8]) {
+        self.with(|c| c.write_protocol(bytes));
     }
     pub fn paste(&self, text: &str) {
         self.with(|c| c.paste(text));

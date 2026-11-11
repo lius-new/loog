@@ -592,6 +592,13 @@ pub fn report_clipboard_error(state: &AppContext, result: Result<(), ClipboardEr
     }
 }
 
+pub(crate) fn protocol_input(tabs: &TerminalStore, id: SessionId, bytes: &[u8]) -> bool {
+    let Some(tab) = target(tabs, id) else {
+        return false;
+    };
+    tab.controller.write_protocol(bytes);
+    true
+}
 pub(crate) fn write(tabs: &TerminalStore, id: SessionId, bytes: &[u8]) -> bool {
     let Some(tab) = target(tabs, id) else {
         return false;

@@ -233,6 +233,10 @@ pub enum Command {
     /// Moves to the next (`+1`) or previous (`-1`) match.
     SearchStep(i32),
     CloseSearch,
+    ProtocolInput {
+        target: SessionId,
+        bytes: Vec<u8>,
+    },
     Write {
         target: SessionId,
         bytes: Vec<u8>,
@@ -331,6 +335,12 @@ pub fn close(
     _request: &FrameRequest,
 ) -> bool {
     tabs.run(Command::Close { target, action }).applied
+}
+pub fn protocol_input(tabs: &Sessions, target: SessionId, bytes: &[u8]) {
+    tabs.run(Command::ProtocolInput {
+        target,
+        bytes: bytes.to_vec(),
+    });
 }
 pub fn write(tabs: &Sessions, target: SessionId, bytes: &[u8]) {
     tabs.run(Command::Write {

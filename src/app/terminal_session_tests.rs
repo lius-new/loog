@@ -1131,3 +1131,344 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod keyboard_tests {
+    use crate::app::terminal_runtime::TerminalDisplay;
+    use crate::infrastructure::terminal::session::TerminalController;
+    use lgui::core::{KeyModifiers, KeyState, KeyboardEvent, LogicalKey, NamedKey, PhysicalKey};
+
+    #[test]
+    fn win32_input_negotiation_survives_chunks_clear_and_resize() {
+        for split in 0..=8 {
+            let controller = TerminalController::new();
+            let enable = b"\x1b[?9001h";
+            controller.test_parser().process(&enable[..split]);
+            controller.test_parser().process(&enable[split..]);
+            assert!(controller.snapshot().win32_input_mode);
+            controller.resize(crate::features::terminal::TerminalSize {
+                rows: 24,
+                cols: 60,
+                pixel_width: 420,
+                pixel_height: 456,
+            });
+            assert!(controller.snapshot().win32_input_mode);
+            let formatted = controller.test_parser().screen().input_mode_formatted();
+            let mut restored = vt100::Parser::default();
+            restored.process(&formatted);
+            assert!(restored.screen().win32_input_mode());
+            let previous = restored.screen().clone();
+            restored.process(b"\x1b[?9001l");
+            let diff = restored.screen().input_mode_diff(&previous);
+            let mut replay = vt100::Parser::default();
+            replay.process(&formatted);
+            replay.process(&diff);
+            assert!(!replay.screen().win32_input_mode());
+            controller.clear_output();
+            assert!(controller.snapshot().win32_input_mode);
+            controller.test_parser().process(b"\x1bc");
+            assert!(!controller.snapshot().win32_input_mode);
+        }
+    }
+
+    #[test]
+    fn user_unbinding_releases_reserved_keys_to_the_terminal() {
+        use crate::features::keymap::{
+            bindings::BindingSource, dispatcher::dispatch_key, keymap_file, keystroke::Keystroke,
+        };
+        let parsed = keymap_file::parse(
+            r#"[{"context":"Terminal","bindings":{"ctrl-b":null}}]"#,
+            BindingSource::User,
+        )
+        .unwrap();
+        assert!(parsed.errors.is_empty());
+        let keymap = keymap_file::build(parsed.bindings);
+        let mut app = crate::app::state::AppState::new();
+        app.terminal.ui.terminal_focused = true;
+        let stack = crate::app::keymap_context::context_stack(&app);
+        for (key, expected) in [("b", 2), ("g", 7), ("p", 16)] {
+            let result = dispatch_key(
+                &keymap,
+                vec![],
+                Keystroke::parse(&format!("ctrl-{key}")).unwrap(),
+                &stack,
+            );
+            assert!(result.is_unbound());
+            let event = KeyboardEvent {
+                state: KeyState::Down,
+                key: LogicalKey::Character(key.into()),
+                modifiers: KeyModifiers::CONTROL,
+                ..Default::default()
+            };
+            assert_eq!(
+                crate::ui::terminal::keys::key_bytes_in_mode(&event, false, false),
+                Some(vec![expected])
+            );
+        }
+        let default = keymap_file::default_keymap();
+        if !cfg!(target_os = "macos") {
+            assert!(
+                !dispatch_key(
+                    &default,
+                    vec![],
+                    Keystroke::parse("ctrl-b").unwrap(),
+                    &stack
+                )
+                .is_unbound()
+            );
+        }
+    }
+
+    #[test]
+    fn release_tracking_excludes_shortcuts_and_preserves_session_ownership() {
+        use crate::ui::terminal::keys::PressedKeys;
+        let mut keys = PressedKeys::default();
+        let mut event = KeyboardEvent {
+            state: KeyState::Down,
+            key: LogicalKey::Named(NamedKey::Enter),
+            code: PhysicalKey::Enter,
+            modifiers: KeyModifiers::SHIFT,
+            ..Default::default()
+        };
+        assert!(keys.release(&event).is_empty());
+        keys.press(1, &event);
+        keys.press(1, &event);
+        keys.press(2, &event);
+        event.state = KeyState::Up;
+        let releases = keys.release(&event);
+        assert_eq!(
+            releases
+                .iter()
+                .map(|(session, _)| *session)
+                .collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert!(
+            releases
+                .iter()
+                .all(|(_, event)| event.state == KeyState::Up)
+        );
+        assert!(keys.release(&event).is_empty());
+        keys.press(1, &event);
+        let releases = keys.release_all();
+        assert_eq!(releases.len(), 1);
+        assert_eq!(releases[0].1.state, KeyState::Up);
+        assert!(releases[0].1.modifiers.is_empty());
+        assert!(keys.release_all().is_empty());
+    }
+
+    #[test]
+    fn modifier_and_release_records_preserve_selection_for_copy() {
+        let controller = TerminalController::new();
+        controller.test_parser().process(b"selected");
+        controller.begin_selection(0, 0);
+        controller.extend_selection(0, 8);
+        assert_eq!(controller.selected_text().as_deref(), Some("selected"));
+        for state in [KeyState::Down, KeyState::Up] {
+            let event = KeyboardEvent {
+                state,
+                key: LogicalKey::Named(NamedKey::Control),
+                code: PhysicalKey::ControlLeft,
+                modifiers: KeyModifiers::CONTROL,
+                ..Default::default()
+            };
+            assert!(crate::ui::terminal::keys::is_modifier(&event));
+            controller.write_protocol(
+                &crate::ui::terminal::keys::key_bytes_in_mode(&event, false, true).unwrap(),
+            );
+            assert_eq!(controller.selected_text().as_deref(), Some("selected"));
+        }
+        controller.write(b"x");
+        assert_eq!(controller.selected_text(), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn conpty_receives_modified_keys_as_native_console_records() {
+        use crate::features::terminal::{ShellKind, TerminalSize, profiles::ShellProfile};
+        use std::{
+            sync::Arc,
+            time::{Duration, Instant},
+        };
+        let controller = TerminalController::with_shell(ShellKind::Custom(90001));
+        controller.set_profile(Some(ShellProfile {
+            id: 90001,
+            name: "Keyboard probe".into(),
+            program: std::env::current_exe().unwrap(),
+            args: vec![
+                "--exact".into(),
+                "app::terminal_session_tests::keyboard_tests::native_keyboard_probe".into(),
+                "--ignored".into(),
+                "--nocapture".into(),
+            ],
+        }));
+        let application = Arc::new(lgui::ApplicationHandle::new(|task| task(), || {}));
+        struct Cleanup(TerminalController, Arc<lgui::ApplicationHandle>);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.0.terminate(self.1.clone());
+            }
+        }
+        let _cleanup = Cleanup(controller.clone(), application.clone());
+        controller.restart(
+            ShellKind::Custom(90001),
+            None,
+            TerminalSize {
+                rows: 32,
+                cols: 120,
+                pixel_width: 840,
+                pixel_height: 608,
+            },
+            application,
+        );
+        let wait_for = |needle: &str| {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                let contents = controller.test_parser().screen().contents();
+                if contents.contains(needle) {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "waiting for {needle}: {contents:?}"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+        wait_for("KEY_READY");
+        assert!(controller.snapshot().win32_input_mode);
+        for (key, code, modifiers, expected) in [
+            (
+                LogicalKey::Named(NamedKey::Enter),
+                PhysicalKey::Enter,
+                KeyModifiers::SHIFT,
+                "KEY:13:13:16:1",
+            ),
+            (
+                LogicalKey::Named(NamedKey::Enter),
+                PhysicalKey::Enter,
+                KeyModifiers::CONTROL,
+                "KEY:13:13:8:1",
+            ),
+            (
+                LogicalKey::Character("j".into()),
+                PhysicalKey::KeyJ,
+                KeyModifiers::CONTROL,
+                "KEY:74:10:8:1",
+            ),
+            (
+                LogicalKey::Character("g".into()),
+                PhysicalKey::KeyG,
+                KeyModifiers::CONTROL,
+                "KEY:71:7:8:1",
+            ),
+            (
+                LogicalKey::Character("p".into()),
+                PhysicalKey::KeyP,
+                KeyModifiers::CONTROL,
+                "KEY:80:16:8:1",
+            ),
+            (
+                LogicalKey::Named(NamedKey::Enter),
+                PhysicalKey::Enter,
+                KeyModifiers::ALT,
+                "KEY:13:13:2:1",
+            ),
+            (
+                LogicalKey::Character(" ".into()),
+                PhysicalKey::Space,
+                KeyModifiers::CONTROL,
+                "KEY:32:0:8:1",
+            ),
+        ] {
+            let mut event = KeyboardEvent {
+                state: KeyState::Down,
+                key,
+                code,
+                modifiers,
+                ..Default::default()
+            };
+            let bytes = crate::ui::terminal::keys::key_bytes_in_mode(&event, false, true).unwrap();
+            controller.write(&bytes);
+            wait_for(expected);
+            event.state = KeyState::Up;
+            controller
+                .write(&crate::ui::terminal::keys::key_bytes_in_mode(&event, false, true).unwrap());
+            wait_for(&format!("{}0", &expected[..expected.len() - 1]));
+        }
+        controller.write(b"z");
+        wait_for("KEY:90:122:0:1");
+        let event = KeyboardEvent {
+            state: KeyState::Down,
+            key: LogicalKey::Named(NamedKey::F12),
+            code: PhysicalKey::F12,
+            ..Default::default()
+        };
+        controller
+            .write(&crate::ui::terminal::keys::key_bytes_in_mode(&event, false, true).unwrap());
+        wait_for("KEY_DONE");
+    }
+
+    /// A child of the native round-trip test, isolated from the user's sessions.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "console helper launched by the keyboard round-trip test"]
+    fn native_keyboard_probe() {
+        use std::{ffi::c_void, io::Write};
+        #[repr(C)]
+        struct InputRecord {
+            kind: u16,
+            padding: u16,
+            data: [u32; 4],
+        }
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetStdHandle(kind: u32) -> *mut c_void;
+            fn GetConsoleMode(handle: *mut c_void, mode: *mut u32) -> i32;
+            fn SetConsoleMode(handle: *mut c_void, mode: u32) -> i32;
+            fn ReadConsoleInputW(
+                handle: *mut c_void,
+                records: *mut InputRecord,
+                length: u32,
+                read: *mut u32,
+            ) -> i32;
+        }
+        unsafe {
+            let input = GetStdHandle((-10i32) as u32);
+            let output = GetStdHandle((-11i32) as u32);
+            let (mut input_mode, mut output_mode) = (0, 0);
+            assert_ne!(GetConsoleMode(input, &mut input_mode), 0);
+            assert_ne!(GetConsoleMode(output, &mut output_mode), 0);
+            assert_ne!(SetConsoleMode(output, output_mode | 4), 0);
+            assert_ne!(SetConsoleMode(input, input_mode & !0x207), 0);
+            print!("\x1b[?9001hKEY_READY\r\n");
+            std::io::stdout().flush().unwrap();
+            loop {
+                let mut record = InputRecord {
+                    kind: 0,
+                    padding: 0,
+                    data: [0; 4],
+                };
+                let mut read = 0;
+                assert_ne!(ReadConsoleInputW(input, &mut record, 1, &mut read), 0);
+                if record.kind != 1 {
+                    continue;
+                }
+                let key = record.data[1] >> 16;
+                let character = record.data[2] >> 16;
+                println!(
+                    "KEY:{key}:{character}:{}:{}",
+                    record.data[3], record.data[0]
+                );
+                std::io::stdout().flush().unwrap();
+                if key == 123 && record.data[0] == 1 {
+                    break;
+                }
+            }
+            print!("\x1b[?9001lKEY_DONE\r\n");
+            std::io::stdout().flush().unwrap();
+            assert_ne!(SetConsoleMode(input, input_mode), 0);
+            assert_ne!(SetConsoleMode(output, output_mode), 0);
+        }
+    }
+}

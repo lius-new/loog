@@ -6,6 +6,7 @@ const MODE_APPLICATION_CURSOR: u8 = 0b0000_0010;
 const MODE_HIDE_CURSOR: u8 = 0b0000_0100;
 const MODE_ALTERNATE_SCREEN: u8 = 0b0000_1000;
 const MODE_BRACKETED_PASTE: u8 = 0b0001_0000;
+const MODE_WIN32_INPUT: u8 = 0b0010_0000;
 
 /// The xterm mouse handling mode currently in use.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
@@ -397,6 +398,7 @@ impl Screen {
     /// * application cursor
     /// * bracketed paste
     /// * xterm mouse support
+    /// * Win32 input records
     #[must_use]
     pub fn input_mode_formatted(&self) -> Vec<u8> {
         let mut contents = vec![];
@@ -405,6 +407,11 @@ impl Screen {
     }
 
     fn write_input_mode_formatted(&self, contents: &mut Vec<u8>) {
+        contents.extend_from_slice(if self.win32_input_mode() {
+            b"\x1b[?9001h"
+        } else {
+            b"\x1b[?9001l"
+        });
         crate::term::ApplicationKeypad::new(
             self.mode(MODE_APPLICATION_KEYPAD),
         )
@@ -438,6 +445,13 @@ impl Screen {
     }
 
     fn write_input_mode_diff(&self, contents: &mut Vec<u8>, prev: &Self) {
+        if self.win32_input_mode() != prev.win32_input_mode() {
+            contents.extend_from_slice(if self.win32_input_mode() {
+                b"\x1b[?9001h"
+            } else {
+                b"\x1b[?9001l"
+            });
+        }
         if self.mode(MODE_APPLICATION_KEYPAD)
             != prev.mode(MODE_APPLICATION_KEYPAD)
         {
@@ -577,7 +591,13 @@ impl Screen {
         self.mode(MODE_APPLICATION_KEYPAD)
     }
 
-    /// Returns whether the terminal should be in application cursor mode.
+    /// Returns whether the peer requested Win32 keyboard input records.
+    #[must_use]
+    pub fn win32_input_mode(&self) -> bool {
+        self.mode(MODE_WIN32_INPUT)
+    }
+
+    /// Returns whether application cursor key sequences are enabled.
     #[must_use]
     pub fn application_cursor(&self) -> bool {
         self.mode(MODE_APPLICATION_CURSOR)
@@ -1189,6 +1209,7 @@ impl Screen {
                     self.enter_alternate_grid();
                 }
                 [2004] => self.set_mode(MODE_BRACKETED_PASTE),
+                [9001] => self.set_mode(MODE_WIN32_INPUT),
                 _ => unhandled(self),
             }
         }
@@ -1229,6 +1250,7 @@ impl Screen {
                     self.decrc();
                 }
                 [2004] => self.clear_mode(MODE_BRACKETED_PASTE),
+                [9001] => self.clear_mode(MODE_WIN32_INPUT),
                 _ => unhandled(self),
             }
         }

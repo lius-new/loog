@@ -1,6 +1,6 @@
 //! Bottom terminal panel backed by a real platform PTY.
 
-use super::keys::{self, key_bytes};
+use super::keys;
 
 use super::bindings as commands;
 use super::bindings::{
@@ -229,12 +229,42 @@ pub(crate) fn render_view(
     let key_tabs = terminal_tabs.clone();
     let key_application = application.clone();
     let application_cursor = snapshot.application_cursor;
+    let win32_input = snapshot.win32_input_mode;
+    let key_state = state.clone();
     terminal = terminal.on_key_down(move |cx, event| {
-        if let Some(bytes) = key_bytes(event, application_cursor) {
-            commands::write(&key_tabs, active_tab_id, &bytes);
+        if let Some(bytes) = keys::key_bytes_in_mode(event, application_cursor, win32_input) {
+            if win32_input {
+                key_state
+                    .ui
+                    .update(|ui| ui.pressed_keys.press(active_tab_id, event));
+            }
+            if keys::is_modifier(event) {
+                commands::protocol_input(&key_tabs, active_tab_id, &bytes);
+            } else {
+                commands::write(&key_tabs, active_tab_id, &bytes);
+            }
             key_application.request_frame();
             cx.prevent_default();
             cx.stop_propagation();
+        }
+    });
+
+    let release_state = state.clone();
+    let release_tabs = terminal_tabs.clone();
+    terminal = terminal.on_key_up(move |cx, event| {
+        let mut releases = Vec::new();
+        release_state.ui.try_update(|ui| {
+            releases = ui.pressed_keys.release(event);
+            !releases.is_empty()
+        });
+        for (target, event) in releases {
+            if release_tabs.screen(target).win32_input_mode
+                && let Some(bytes) = keys::key_bytes_in_mode(&event, application_cursor, true)
+            {
+                commands::protocol_input(&release_tabs, target, &bytes);
+                cx.prevent_default();
+                cx.stop_propagation();
+            }
         }
     });
 
@@ -243,8 +273,20 @@ pub(crate) fn render_view(
         focus_state.run(Command::Focus);
     });
     let blur_state = state.clone();
+    let blur_tabs = terminal_tabs.clone();
     terminal = terminal.on_blur(move |_cx| {
-        blur_state.ui.update(|app| app.terminal_focused = false);
+        let mut releases = Vec::new();
+        blur_state.ui.update(|ui| {
+            ui.terminal_focused = false;
+            releases = ui.pressed_keys.release_all();
+        });
+        for (target, event) in releases {
+            if blur_tabs.screen(target).win32_input_mode
+                && let Some(bytes) = keys::key_bytes_in_mode(&event, application_cursor, true)
+            {
+                commands::protocol_input(&blur_tabs, target, &bytes);
+            }
+        }
     });
 
     terminal = terminal.child(panel(header, VisualStyle::filled(theme::c().sidebar)));

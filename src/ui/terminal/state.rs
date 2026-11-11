@@ -105,6 +105,7 @@ pub struct TerminalUiState {
     pub selecting_terminal: bool,
     pub selection_drag: Option<SelectionDrag>,
     pub terminal_focused: bool,
+    pub pressed_keys: super::keys::PressedKeys,
     pub terminal_shell_menu: bool,
     pub terminal_shell_scroll: usize,
     pub terminal_shell_selection: Option<crate::features::terminal::ShellKind>,

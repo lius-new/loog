@@ -329,11 +329,16 @@ impl TerminalController {
     }
 
     pub fn write(&self, bytes: &[u8]) {
-        #[cfg(test)]
-        lock(&self.inner.test_writes).push(bytes.to_vec());
         lock(&self.inner.parser).screen_mut().set_scrollback(0);
         // Typing into the shell ends the selection, as in other terminals.
         *lock(&self.inner.selection) = None;
+        self.write_protocol(bytes);
+    }
+
+    /// Send non-text protocol events without ending a selection or scrolling.
+    pub fn write_protocol(&self, bytes: &[u8]) {
+        #[cfg(test)]
+        lock(&self.inner.test_writes).push(bytes.to_vec());
         let mut process = lock(&self.inner.process);
         let Some(process) = process.as_mut() else {
             return;
@@ -382,7 +387,12 @@ impl TerminalController {
                 return;
             }
             let (rows, cols) = parser.screen().size();
+            let win32_input = parser.screen().win32_input_mode();
             *parser = vt100::Parser::new(rows, cols, SCROLLBACK_ROWS);
+            // Clearing local scrollback does not reset the connected ConPTY.
+            if win32_input {
+                parser.process(b"\x1b[?9001h");
+            }
             *lock(&self.inner.selection) = None;
         }
         // Ctrl+L: shells redraw their prompt on a freshly cleared screen.
@@ -575,6 +585,7 @@ impl TerminalController {
             cursor: screen.cursor_position(),
             cursor_visible: !screen.hide_cursor() && screen.scrollback() == 0,
             application_cursor: screen.application_cursor(),
+            win32_input_mode: screen.win32_input_mode(),
             selection,
             link: (*lock(&self.inner.link_hover)).and_then(|(row, cell)| {
                 let cells = screen_cells(screen, row);

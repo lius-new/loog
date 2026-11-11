@@ -130,6 +130,8 @@ pub struct TerminalSnapshot {
     pub cursor: (u16, u16),
     pub cursor_visible: bool,
     pub application_cursor: bool,
+    /// The peer requested Win32 key records (private mode 9001).
+    pub win32_input_mode: bool,
     /// Selected cells per visible row as `(row, start_col, end_col)`, end exclusive.
     pub selection: Vec<(u16, u16, u16)>,
     /// Link under the pointer while Ctrl is held, as `(row, start_col, end_col)`.

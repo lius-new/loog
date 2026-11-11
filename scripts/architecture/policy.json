@@ -920,6 +920,10 @@
       "owner": "ui/terminal/state",
       "migrated_in": "R7.4"
     },
+    "ui/terminal/state.pressed_keys": {
+      "owner": "ui/terminal/state",
+      "migrated_in": "modifier-aware terminal key releases"
+    },
     "ui/terminal/state.terminal_focused": {
       "owner": "ui/terminal/state",
       "migrated_in": "R7.4"
