@@ -72,11 +72,11 @@ pub(super) fn key_bytes(event: &KeyboardEvent) -> Option<Vec<u8>> {
             key
         }
     };
-    let mut control = u32::from(event.modifiers.shift()) * 16
-        | u32::from(event.modifiers.alt()) * 2
-        | u32::from(event.modifiers.ctrl()) * 8
-        | u32::from(event.modifiers.contains(KeyModifiers::CAPS_LOCK)) * 128
-        | u32::from(event.modifiers.contains(KeyModifiers::NUM_LOCK)) * 32;
+    let mut control = (u32::from(event.modifiers.shift()) * 16)
+        | (u32::from(event.modifiers.alt()) * 2)
+        | (u32::from(event.modifiers.ctrl()) * 8)
+        | (u32::from(event.modifiers.contains(KeyModifiers::CAPS_LOCK)) * 128)
+        | (u32::from(event.modifiers.contains(KeyModifiers::NUM_LOCK)) * 32);
     let (scan, enhanced) = scan_code(event.code, virtual_key);
     if enhanced {
         control |= 256;
