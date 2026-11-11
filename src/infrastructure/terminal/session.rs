@@ -8,9 +8,8 @@ use crate::features::terminal::{
 };
 use crate::infrastructure::terminal::notification::FrameNotifier;
 use crate::infrastructure::terminal::pty::{
-    RunningProcess, resize_process, spawn_shell_option, terminate_process,
+    RunningProcess, resize_process, spawn_shell_option, terminate_process, write_input,
 };
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -339,11 +338,7 @@ impl TerminalController {
         let Some(process) = process.as_mut() else {
             return;
         };
-        if let Err(error) = process
-            .writer
-            .write_all(bytes)
-            .and_then(|_| process.writer.flush())
-        {
+        if let Err(error) = write_input(process.writer.as_mut(), bytes) {
             *lock(&self.inner.status) = TerminalStatus::Failed(error.to_string());
         }
     }

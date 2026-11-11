@@ -28,6 +28,16 @@ pub(super) struct RunningProcess {
     pub(super) size: TerminalSize,
 }
 
+/// Send terminal input without waiting for the application to consume it.
+pub(super) fn write_input(writer: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {
+    writer.write_all(bytes)?;
+    // ConPTY input is unbuffered. Its flush calls FlushFileBuffers, which waits
+    // for the pipe reader to consume input and can hang the UI indefinitely.
+    #[cfg(not(windows))]
+    writer.flush()?;
+    Ok(())
+}
+
 pub(super) struct SpawnedShell {
     pub(super) process: RunningProcess,
     pub(super) reader: Box<dyn Read + Send>,
@@ -303,6 +313,60 @@ mod tests {
     use super::*;
     use std::ffi::{OsStr, OsString};
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    #[test]
+    fn terminal_input_handles_short_writes_without_flushing_the_pipe() {
+        #[derive(Default)]
+        struct UnbufferedInput {
+            bytes: Vec<u8>,
+            interrupted: bool,
+        }
+        impl Write for UnbufferedInput {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if !self.interrupted {
+                    self.interrupted = true;
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                let count = bytes.len().min(3);
+                self.bytes.extend_from_slice(&bytes[..count]);
+                Ok(count)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                panic!("ConPTY flush must not wait for its input reader");
+            }
+        }
+
+        let mut writer = UnbufferedInput::default();
+        // Keyboard input, mouse reports and bracketed paste share this path.
+        for bytes in [
+            b"hello\r".as_slice(),
+            b"\x1b[<64;14;8M".as_slice(),
+            "\u{1b}[200~\u{4e2d}\u{6587}\r\npaste\u{1b}[201~".as_bytes(),
+        ] {
+            write_input(&mut writer, bytes).unwrap();
+        }
+        assert_eq!(
+            writer.bytes,
+            "hello\r\u{1b}[<64;14;8M\u{1b}[200~\u{4e2d}\u{6587}\r\npaste\u{1b}[201~".as_bytes()
+        );
+    }
+
+    #[test]
+    fn terminal_input_preserves_pipe_write_errors() {
+        struct BrokenInput;
+        impl Write for BrokenInput {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::ErrorKind::BrokenPipe.into())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                panic!("a failed write must not flush");
+            }
+        }
+        assert_eq!(
+            write_input(&mut BrokenInput, b"input").unwrap_err().kind(),
+            std::io::ErrorKind::BrokenPipe
+        );
+    }
 
     #[test]
     fn wsl_switches_remain_unquoted_in_the_conpty_command_line() {
