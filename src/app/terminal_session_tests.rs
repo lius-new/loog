@@ -23,6 +23,55 @@ mod tests {
     use std::{io::Write, path::Path, time::Duration};
 
     #[test]
+    fn narrowing_through_a_wide_glyph_keeps_subsequent_redraws_valid() {
+        let controller = TerminalController::new();
+        let size = TerminalSize {
+            rows: 2,
+            cols: 4,
+            pixel_width: 7,
+            pixel_height: 19,
+        };
+        controller.resize(size);
+        controller.test_parser().process("ab中".as_bytes());
+        controller.resize(TerminalSize { cols: 3, ..size });
+        controller.test_parser().process("\x1b[1;2H文".as_bytes());
+        assert_eq!(controller.test_parser().screen().contents(), "a文");
+        assert_eq!(controller.snapshot().cols, 3);
+        controller.test_parser().process(b"\r\nafter redraw");
+        assert!(
+            controller
+                .test_parser()
+                .screen()
+                .contents()
+                .contains("redraw")
+        );
+    }
+
+    #[test]
+    fn width_changes_never_leave_half_a_wide_character_at_the_row_edge() {
+        for cols in 2..=120 {
+            let mut parser = vt100::Parser::new(2, cols + 1, 20);
+            parser.process(format!("{}\x1b[41m中", "x".repeat(usize::from(cols - 1))).as_bytes());
+            parser.screen_mut().resize(2, cols);
+            let edge = parser.screen().cell(0, cols - 1).unwrap();
+            assert!(!edge.is_wide(), "columns={cols}");
+            assert!(!edge.is_wide_continuation(), "columns={cols}");
+            assert_eq!(edge.bgcolor(), vt100::Color::Idx(1));
+            parser.process(format!("\x1b[1;{}H文", cols - 1).as_bytes());
+            assert!(parser.screen().cell(0, cols - 2).unwrap().is_wide());
+            assert!(
+                parser
+                    .screen()
+                    .cell(0, cols - 1)
+                    .unwrap()
+                    .is_wide_continuation()
+            );
+            parser.screen_mut().resize(2, cols + 3);
+            parser.process("\x1b[2;1H继续输入".as_bytes());
+        }
+    }
+
+    #[test]
     fn scrollbar_snapshot_tracks_retained_history_offset_and_active_screen() {
         let controller = TerminalController::new();
         assert_eq!(controller.snapshot().scrollback_rows, 0);

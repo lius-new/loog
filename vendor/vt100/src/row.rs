@@ -77,6 +77,15 @@ impl Row {
     pub fn resize(&mut self, len: u16, cell: crate::Cell) {
         self.cells.resize(usize::from(len), cell);
         self.wrapped = false;
+        // Narrowing can remove a wide glyph's continuation cell. Its leading
+        // cell must not remain wide at the right edge: a later overlapping
+        // glyph would try to clear a continuation beyond the row's bounds.
+        if let Some(last) = self.cells.last_mut() {
+            if last.is_wide() {
+                let attrs = *last.attrs();
+                last.clear(attrs);
+            }
+        }
     }
 
     pub fn wrap(&mut self, wrap: bool) {

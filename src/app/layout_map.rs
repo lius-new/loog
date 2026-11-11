@@ -1394,6 +1394,24 @@ mod tests {
             .unwrap()
             .2;
         assert!((left.width() - 520.0).abs() < 0.01);
+        let body_point = Point::new(left.left + 100.0, left.top + 100.0);
+        let hit = session.tree().hit_test(body_point).unwrap();
+        assert_eq!(hit.id.as_str(), "terminal-session-1");
+        send(&mut session, down(body_point));
+        send(&mut session, up(body_point));
+        send(
+            &mut session,
+            InputEvent::TextInput("after left resize".into()),
+        );
+        assert_eq!(
+            controllers[0]
+                .test_controller()
+                .test_writes()
+                .last()
+                .map(Vec::as_slice),
+            Some(b"after left resize".as_slice()),
+            "a resized left terminal must still receive input after clicking its body"
+        );
         let moved = detached_tab;
         send(&mut session, down(moved));
         send(
