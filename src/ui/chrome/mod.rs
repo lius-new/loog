@@ -47,9 +47,7 @@ pub struct TitleFrame {
     pub update: Option<crate::features::update::Indicator>,
     /// Open folders were declined, so extensions may not run programs there.
     pub restricted: Option<Restricted>,
-    pub drawer_open: bool,
-    pub source_control_open: bool,
-    pub terminal_open: bool,
+    pub layout_open: bool,
 }
 /// The title bar's standing note that open folders are not trusted.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,20 +57,13 @@ pub struct Restricted {
     /// What the control is called to assistive technology, and what clicking it does.
     pub label: String,
 }
-/// A workspace panel the title bar shows or hides.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PanelToggle {
-    Drawer,
-    SourceControl,
-    Terminal,
-}
 #[derive(Clone)]
 pub struct TitleBinding {
     read: Arc<dyn Fn() -> TitleFrame + Send + Sync>,
     open: Arc<dyn Fn() + Send + Sync>,
     open_extensions: Arc<dyn Fn() + Send + Sync>,
     update: Arc<dyn Fn() -> bool + Send + Sync>,
-    toggle: Arc<dyn Fn(PanelToggle) + Send + Sync>,
+    open_layout: Arc<dyn Fn() + Send + Sync>,
     review_trust: Arc<dyn Fn() + Send + Sync>,
 }
 impl TitleBinding {
@@ -81,7 +72,7 @@ impl TitleBinding {
         open: impl Fn() + Send + Sync + 'static,
         open_extensions: impl Fn() + Send + Sync + 'static,
         update: impl Fn() -> bool + Send + Sync + 'static,
-        toggle: impl Fn(PanelToggle) + Send + Sync + 'static,
+        open_layout: impl Fn() + Send + Sync + 'static,
         review_trust: impl Fn() + Send + Sync + 'static,
     ) -> Self {
         Self {
@@ -89,7 +80,7 @@ impl TitleBinding {
             open: Arc::new(open),
             open_extensions: Arc::new(open_extensions),
             update: Arc::new(update),
-            toggle: Arc::new(toggle),
+            open_layout: Arc::new(open_layout),
             review_trust: Arc::new(review_trust),
         }
     }
@@ -100,8 +91,8 @@ impl TitleBinding {
     pub fn frame(&self) -> TitleFrame {
         (self.read)()
     }
-    pub fn toggle(&self, panel: PanelToggle) {
-        (self.toggle)(panel);
+    pub fn open_layout(&self) {
+        (self.open_layout)();
     }
     pub fn open_settings(&self) {
         (self.open)();

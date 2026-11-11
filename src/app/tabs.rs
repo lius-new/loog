@@ -493,7 +493,7 @@ mod tests {
                 ))
                 .child(crate::ui::titlebar::render(
                     title,
-                    crate::app::chrome::title_binding(&state, None),
+                    crate::app::chrome::title_binding(&state),
                     group(title),
                 ))
                 .child(render(

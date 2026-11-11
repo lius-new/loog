@@ -150,3 +150,5 @@ pub(crate) mod folding;
 pub(crate) mod highlight_inspect;
 
 pub(crate) mod multicursor;
+
+pub(crate) mod layout_visibility;

@@ -1,5 +1,5 @@
 //! Custom frameless title bar: repository controls on the left; the update
-//! button, panel toggles, Settings and the native window controls on the right.
+//! button, layout view, Settings and the native window controls on the right.
 //!
 //! The bar is marked as a native window drag region; interactive children
 //! (the buttons) are excluded automatically by hit testing.
@@ -13,7 +13,7 @@ use lgui::prelude::{Element, UiRect, VisualStyle, panel};
 use crate::features::update::{Indicator, Stage};
 use crate::ui::git::badge::{BADGE_H, BADGE_ICON, BADGE_PAD, ICON_GAP, TEXT_MARGIN, measure};
 
-use crate::ui::chrome::{PanelToggle, Restricted, TitleBinding};
+use crate::ui::chrome::{Restricted, TitleBinding};
 use crate::ui::theme;
 
 /// Windows 11 caption close-button red, the same in light and dark themes.
@@ -245,16 +245,16 @@ fn restricted_button(
     .on_click(move |_: &mut UiEventContext| state.review_trust())
 }
 
-/// Width of each panel toggle button.
 const TOGGLE_W: f32 = 32.0;
 
-/// Stable key and icon id of a panel toggle.
-fn key_for(panel: PanelToggle) -> &'static str {
-    match panel {
-        PanelToggle::Drawer => "titlebar.toggle.drawer",
-        PanelToggle::SourceControl => "titlebar.toggle.source-control",
-        PanelToggle::Terminal => "titlebar.toggle.terminal",
-    }
+/// The popover is aligned with the single layout control.
+pub(crate) fn layout_toggle_rect(rect: UiRect) -> UiRect {
+    UiRect::new(
+        rect.right - 212.0,
+        rect.top,
+        rect.right - 180.0,
+        rect.bottom,
+    )
 }
 
 pub fn render(rect: UiRect, state: TitleBinding, git_controls: Element) -> Element {
@@ -274,61 +274,42 @@ pub fn render(rect: UiRect, state: TitleBinding, git_controls: Element) -> Eleme
     let settings_r = UiRect::new(right - 148.0, rect.top, right - 116.0, rect.bottom);
     let settings_open = frame.settings_open;
 
-    // Panel toggles, left of Settings: Source Control (left dock), Explorer (right dock), Terminal.
-    let toggles = [
-        (
-            PanelToggle::SourceControl,
-            "panel-left",
-            "Toggle Source Control",
-            frame.source_control_open,
-        ),
-        (
-            PanelToggle::Drawer,
-            "panel-right",
-            "Toggle Explorer",
-            frame.drawer_open,
-        ),
-        (
-            PanelToggle::Terminal,
-            "panel-bottom",
-            "Toggle Terminal",
-            frame.terminal_open,
-        ),
-    ];
     let extensions_r = UiRect::new(
         settings_r.left - TOGGLE_W,
         rect.top,
         settings_r.left,
         rect.bottom,
     );
-    let toggles_left = extensions_r.left - TOGGLE_W * toggles.len() as f32;
-    for (index, (panel, key, name, open)) in toggles.into_iter().enumerate() {
-        let left = toggles_left + TOGGLE_W * index as f32;
-        let toggle_state = state.clone();
-        bar = bar.child(
-            caption_button(
-                key_for(panel),
-                UiRect::new(left, rect.top, left + TOGGLE_W, rect.bottom),
-                CaptionIcon {
-                    id: key_for(panel),
-                    key,
-                    color: if open {
-                        theme::c().accent
-                    } else {
-                        theme::c().text_muted
-                    },
-                    glyph: Glyph::Ui,
+    let layout_rect = layout_toggle_rect(rect);
+    let toggle_state = state.clone();
+    bar = bar.child(
+        caption_button(
+            "titlebar.layout.button",
+            layout_rect,
+            CaptionIcon {
+                id: "titlebar.layout.icon",
+                key: "layout-view",
+                color: if frame.layout_open {
+                    theme::c().accent
+                } else {
+                    theme::c().text_muted
                 },
-                false,
-                move |_: &mut UiEventContext| toggle_state.toggle(panel),
-            )
-            .semantics(Semantics::new(SemanticRole::Button).name(name))
-            .cursor(CursorIcon::Pointer),
-        );
-    }
+                glyph: Glyph::Ui,
+            },
+            false,
+            move |_: &mut UiEventContext| toggle_state.open_layout(),
+        )
+        .semantics(Semantics::new(SemanticRole::Button).name("Layout view"))
+        .event_policy(EventPolicy {
+            hover: true,
+            press: true,
+            focus: false,
+        })
+        .cursor(CursorIcon::Pointer),
+    );
 
-    // Standing notes sit left of the toggles, the newest need nearest the edge.
-    let mut notes_right = toggles_left - 6.0;
+    // Standing notes sit left of the layout control, the newest need nearest the edge.
+    let mut notes_right = layout_rect.left - 6.0;
     if let Some(indicator) = frame.update {
         let width = badge_width(&indicator.text);
         bar = bar.child(update_button(notes_right, rect, indicator, state.clone()));

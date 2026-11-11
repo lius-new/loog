@@ -546,8 +546,9 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     // drive the editor-wide handlers (selection auto-scroll, menus, keys).
     let editor_region = application_layout
         .content_rect(&application_snapshot, &Content::Editor)
-        .map(UiRect::from)
-        .unwrap_or(content_area);
+        .map(UiRect::from);
+    let editor_visible = editor_region.is_some();
+    let editor_region = editor_region.unwrap_or(content_area);
     let default_terminal_region = application_layout.default_terminal_region();
     let dock_rect = application_snapshot
         .regions
@@ -583,13 +584,16 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         || {}
     });
     let focused_pane = s.workspace.active_pane();
-    let pane_rects: Vec<_> = s
-        .workspace
-        .layout()
-        .layout(editor_area.into())
-        .into_iter()
-        .map(|(pane, rect)| (pane, UiRect::from(rect)))
-        .collect();
+    let pane_rects: Vec<_> = if editor_visible {
+        s.workspace
+            .layout()
+            .layout(editor_area.into())
+            .into_iter()
+            .map(|(pane, rect)| (pane, UiRect::from(rect)))
+            .collect()
+    } else {
+        vec![]
+    };
     let strips = pane_rects
         .iter()
         .map(|(pane, rect)| (*pane, pane_strip_rect(*rect)))
@@ -1035,7 +1039,23 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     );
 
     // ---- Root (global shortcut listener) ------------------------------
-    let mut root = window_root(vp);
+    let layout_view = super::layout_visibility::binding(
+        &state,
+        &terminal_tabs,
+        content_area,
+        (
+            editor_focus.clone(),
+            terminal_focus.clone(),
+            terminal_tabs.clone(),
+        ),
+    );
+    let layout_anchor = crate::ui::titlebar::layout_toggle_rect(titlebar_rect);
+    let mut root = crate::ui::layout_visibility::attach(
+        window_root(vp),
+        vp,
+        layout_anchor,
+        layout_view.clone(),
+    );
     root = layout_map::attach(
         root,
         state.clone(),
@@ -1232,7 +1252,8 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                 .map(|(pane, _)| *pane)
         {
             st_pane_focus.try_update(move |app| {
-                let overlay = app.editor.menu.is_some()
+                let overlay = app.layout.visibility_popup.is_some()
+                    || app.editor.menu.is_some()
                     || app.explorer.ui.menu.is_some()
                     || app.editor.tabs.tab_context_menu.is_some()
                     || app.terminal.ui.terminal_tab_context_menu.is_some()
@@ -1366,11 +1387,6 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             git_store.clone().into(),
             s.git.model.diff_loading().is_some(),
         ),
-        Some((
-            editor_focus.clone(),
-            terminal_focus.clone(),
-            terminal_tabs.clone(),
-        )),
     ));
 
     for (&(pane, strip), &(_, body)) in strips.iter().zip(bodies.iter()) {
@@ -1465,8 +1481,10 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             editor_focus.clone(),
         ));
     }
-    for sash in s.workspace.layout().sashes(editor_area.into()) {
-        root = root.child(super::pane_chrome::render(sash, state.clone()));
+    if editor_visible {
+        for sash in s.workspace.layout().sashes(editor_area.into()) {
+            root = root.child(super::pane_chrome::render(sash, state.clone()));
+        }
     }
     if let Some(rect) = fallback_commits_rect {
         if let Some(tab) = s.log_panel_visible() {
@@ -1640,6 +1658,12 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     {
         root = root.child(card);
     }
+
+    root = root.child(crate::ui::layout_visibility::render(
+        vp,
+        layout_anchor,
+        layout_view,
+    ));
 
     // ---- Overlays ------------------------------------------------------
     if s.log_panel_visible().is_some() {

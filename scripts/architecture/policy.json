@@ -884,6 +884,10 @@
       "owner": "app/state/layout",
       "migrated_in": "R7.4"
     },
+    "app/state/layout.visibility_popup": {
+      "owner": "app/state/layout",
+      "migrated_in": "layout visibility view"
+    },
     "app/state/layout.application_sash_drag": {
       "owner": "app/state/layout",
       "migrated_in": "R7.4"

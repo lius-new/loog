@@ -1130,11 +1130,11 @@ mod tests {
                 UiRect::new(0.0, 776.0, 1200.0, 800.0),
                 state.clone(),
             ));
-            // The title bar's terminal toggle, in the test's old toggle spot.
-            let title = crate::app::chrome::title_binding(
-                &state,
-                Some((editor_focus.clone(), focus.clone(), tabs.clone())),
-            );
+            // The terminal command keeps controlling the default region.
+            let toggle_state = state.clone();
+            let toggle_tabs = tabs.clone();
+            let toggle_editor = editor_focus.clone();
+            let toggle_focus = focus.clone();
             root = root.child(
                 Element::new(move |_cx| {
                     UiElement::panel(
@@ -1148,7 +1148,14 @@ mod tests {
                     press: true,
                     focus: false,
                 })
-                .on_click(move || title.toggle(crate::ui::chrome::PanelToggle::Terminal)),
+                .on_click(move || {
+                    crate::app::terminal::toggle_panel(
+                        &toggle_state,
+                        &toggle_tabs,
+                        &toggle_editor,
+                        &toggle_focus,
+                    )
+                }),
             );
             root.child(render(
                 viewport,

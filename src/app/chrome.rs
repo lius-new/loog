@@ -4,11 +4,9 @@ use crate::app::terminal_binding::TerminalStore;
 use crate::ui::chrome::{HomeBinding, HomeCommand, HomeFrame, TitleBinding, TitleFrame};
 use lgui::core::{UiFocusHandle, UiId};
 use lgui::prelude::{Element, UiRect};
-pub type TerminalToggle = (UiFocusHandle, UiFocusHandle, TerminalStore);
 
-pub fn title_binding(state: &AppContext, terminal: Option<TerminalToggle>) -> TitleBinding {
+pub fn title_binding(state: &AppContext) -> TitleBinding {
     use crate::features::keymap::action::Action;
-    use crate::ui::chrome::PanelToggle;
     let (reader, writer, extensions, updater, toggler, reviewer) = (
         state.clone(),
         state.clone(),
@@ -31,9 +29,7 @@ pub fn title_binding(state: &AppContext, terminal: Option<TerminalToggle>) -> Ti
                     .services()
                     .and_then(|runtime| crate::app::trust_prompt::restricted(&app, runtime.trust()))
                     .map(|(count, label)| crate::ui::chrome::Restricted { count, label }),
-                drawer_open: app.drawer.visible,
-                source_control_open: app.source_control.visible,
-                terminal_open: app.default_terminal_open(),
+                layout_open: app.layout.visibility_popup.is_some(),
             }
         },
         move || writer.update(|app| app.apply(Action::OpenSettings)),
@@ -42,27 +38,12 @@ pub fn title_binding(state: &AppContext, terminal: Option<TerminalToggle>) -> Ti
             crate::app::extensions_view::opened(&extensions);
         },
         move || crate::app::update::activate(&updater),
-        move |panel| match panel {
-            PanelToggle::Drawer => toggler.update(|app| app.apply(Action::ToggleDrawer)),
-            PanelToggle::SourceControl => {
-                toggler.update(|app| app.apply(Action::ToggleSourceControl))
-            }
-            PanelToggle::Terminal => {
-                if let Some((editor, terminal, tabs)) = &terminal {
-                    crate::app::terminal::toggle_panel(&toggler, tabs, editor, terminal);
-                }
-            }
-        },
+        move || crate::app::layout_visibility::open(&toggler),
         move || crate::app::trust_prompt::review(&reviewer),
     )
 }
-pub fn title(
-    rect: UiRect,
-    state: AppContext,
-    git: Element,
-    terminal: Option<TerminalToggle>,
-) -> Element {
-    crate::ui::titlebar::render(rect, title_binding(&state, terminal), git)
+pub fn title(rect: UiRect, state: AppContext, git: Element) -> Element {
+    crate::ui::titlebar::render(rect, title_binding(&state), git)
 }
 pub fn home_binding(
     state: &AppContext,

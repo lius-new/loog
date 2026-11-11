@@ -125,3 +125,5 @@ pub(crate) mod keymap_binding;
 pub(crate) mod chrome;
 
 pub(crate) mod editing_menu;
+
+pub(crate) mod layout_visibility;

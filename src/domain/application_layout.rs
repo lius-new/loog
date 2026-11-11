@@ -72,8 +72,9 @@ pub struct Visibility {
     pub terminal: bool,
 }
 #[derive(Clone, Copy)]
-struct RegionVisibility {
+struct RegionVisibility<'a> {
     flags: Visibility,
+    hidden: &'a HashSet<RegionId>,
     default_terminal: Option<RegionId>,
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -82,6 +83,8 @@ pub struct ApplicationLayout {
     /// Fractions belong to split IDs, never to terminal sessions.
     pub sizes: HashMap<RegionId, Vec<f32>>,
     pub version: u64,
+    /// Hiding a leaf preserves its topology, proportions and live sessions.
+    hidden_regions: HashSet<RegionId>,
     /// New sessions always join this tabbed region, independently of focus/groups.
     default_terminal: Option<RegionId>,
     default_terminal_fraction: f32,
@@ -173,6 +176,7 @@ impl ApplicationLayout {
                 ),
             ]),
             version: 0,
+            hidden_regions: HashSet::new(),
             default_terminal: Some(4),
             default_terminal_fraction: (terminal_height / rect.height().max(1.0)).clamp(0.1, 0.7),
             next_id: 7,
@@ -346,13 +350,47 @@ impl ApplicationLayout {
     }
     pub fn terminal_visible(&self, session: u64, visible: Visibility) -> bool {
         self.terminal_region(session)
-            .is_some_and(|region| Some(region) != self.default_terminal || visible.terminal)
+            .is_some_and(|region| self.region_visible(region, visible))
     }
-    fn scoped_visibility(&self, flags: Visibility) -> RegionVisibility {
+    fn scoped_visibility(&self, flags: Visibility) -> RegionVisibility<'_> {
         RegionVisibility {
             flags,
+            hidden: &self.hidden_regions,
             default_terminal: self.default_terminal,
         }
+    }
+    pub fn region_visible(&self, region: RegionId, flags: Visibility) -> bool {
+        self.root
+            .find(region)
+            .is_some_and(|node| enabled(node, self.scoped_visibility(flags)))
+    }
+    /// Returns false for missing/non-leaf regions or an unchanged value.
+    pub fn set_region_visible(&mut self, region: RegionId, shown: bool) -> bool {
+        if !matches!(self.root.find(region), Some(Node::Leaf { .. })) {
+            return false;
+        }
+        let changed = if shown {
+            self.hidden_regions.remove(&region)
+        } else {
+            self.hidden_regions.insert(region)
+        };
+        if changed {
+            self.version += 1;
+        }
+        changed
+    }
+    /// The overview includes hidden leaves in their original locations.
+    pub fn overview(&self, rect: Rect) -> Snapshot {
+        let mut layout = self.clone();
+        layout.hidden_regions.clear();
+        layout.snapshot(
+            rect,
+            Visibility {
+                git: true,
+                files: true,
+                terminal: true,
+            },
+        )
     }
     /// New sessions join the default tab strip. Only explicit DropPlans move items
     /// elsewhere; neither the selected terminal nor a legacy group chooses position.
@@ -669,6 +707,8 @@ impl ApplicationLayout {
             }
         }
         clean(&mut self.root, &mut self.sizes);
+        self.hidden_regions
+            .retain(|id| self.root.find(*id).is_some());
         self.default_terminal = self
             .default_terminal
             .filter(|id| self.root.find(*id).is_some());
@@ -688,7 +728,11 @@ impl ApplicationLayout {
         snapshot
     }
     fn fit(&mut self, rect: Rect, visible: Visibility) -> bool {
-        let visible = self.scoped_visibility(visible);
+        let visible = RegionVisibility {
+            flags: visible,
+            hidden: &self.hidden_regions,
+            default_terminal: self.default_terminal,
+        };
         let min = minimum(&self.root, visible);
         if min.0 > rect.width() + 0.01 || min.1 > rect.height() + 0.01 {
             return false;
@@ -697,7 +741,7 @@ impl ApplicationLayout {
             node: &Node,
             sizes: &mut HashMap<RegionId, Vec<f32>>,
             rect: Rect,
-            visible: RegionVisibility,
+            visible: RegionVisibility<'_>,
         ) {
             if let Node::Split { id, axis, children } = node {
                 let allocations = allocations(children, &sizes[id], *axis, rect, visible);
@@ -725,7 +769,11 @@ impl ApplicationLayout {
         true
     }
     pub fn resize(&mut self, divider: &Divider, position: f32, visible: Visibility) -> bool {
-        let visible = self.scoped_visibility(visible);
+        let visible = RegionVisibility {
+            flags: visible,
+            hidden: &self.hidden_regions,
+            default_terminal: self.default_terminal,
+        };
         let Some(Node::Split { axis, children, .. }) = self.root.find(divider.split) else {
             return false;
         };
@@ -779,7 +827,10 @@ impl ApplicationLayout {
         true
     }
 }
-fn enabled(node: &Node, v: RegionVisibility) -> bool {
+fn enabled(node: &Node, v: RegionVisibility<'_>) -> bool {
+    if v.hidden.contains(&node.id()) {
+        return false;
+    }
     match node {
         Node::Leaf { id, content } => match content {
             Content::Git => v.flags.git,
@@ -792,7 +843,7 @@ fn enabled(node: &Node, v: RegionVisibility) -> bool {
         Node::Split { children, .. } => children.iter().any(|n| enabled(n, v)),
     }
 }
-fn minimum(node: &Node, v: RegionVisibility) -> (f32, f32) {
+fn minimum(node: &Node, v: RegionVisibility<'_>) -> (f32, f32) {
     if !enabled(node, v) {
         return (0.0, 0.0);
     }
@@ -813,7 +864,7 @@ fn minimum(node: &Node, v: RegionVisibility) -> (f32, f32) {
         }
     }
 }
-fn min_extent(n: &Node, axis: Axis, v: RegionVisibility) -> f32 {
+fn min_extent(n: &Node, axis: Axis, v: RegionVisibility<'_>) -> f32 {
     let m = minimum(n, v);
     match axis {
         Axis::Horizontal => m.0,
@@ -831,7 +882,7 @@ fn allocations(
     weights: &[f32],
     axis: Axis,
     rect: Rect,
-    v: RegionVisibility,
+    v: RegionVisibility<'_>,
 ) -> Vec<f32> {
     let extent = extent(rect, axis).max(0.0);
     let sum: f32 = children
@@ -892,7 +943,7 @@ fn geometry(
     node: &Node,
     sizes: &HashMap<RegionId, Vec<f32>>,
     rect: Rect,
-    v: RegionVisibility,
+    v: RegionVisibility<'_>,
     out: &mut Snapshot,
 ) {
     if !enabled(node, v) {
@@ -942,6 +993,48 @@ mod tests {
         let mut layout = ApplicationLayout::initial(rect, 220.0, 220.0, 240.0);
         layout.sync(&[(10, 10), (11, 11)], Some(10));
         (layout, rect)
+    }
+    #[test]
+    fn visibility_overview_retains_locations_while_workspace_reflows_and_restores() {
+        let (mut layout, rect) = setup();
+        assert!(layout.split_beside(11, 1));
+        let before = layout.snapshot(rect, V);
+        let sizes = layout.sizes.clone();
+        let terminal = layout.terminal_region(11).unwrap();
+        assert!(layout.set_region_visible(terminal, false));
+        assert!(!layout.terminal_visible(11, V));
+        assert_eq!(layout.overview(rect), before);
+        let hidden = layout.snapshot(rect, V);
+        assert!(hidden.regions.iter().all(|(id, _, _)| *id != terminal));
+        assert!(
+            hidden
+                .regions
+                .iter()
+                .find(|(id, _, _)| *id == 1)
+                .unwrap()
+                .2
+                .width()
+                > before
+                    .regions
+                    .iter()
+                    .find(|(id, _, _)| *id == 1)
+                    .unwrap()
+                    .2
+                    .width()
+        );
+        assert!(layout.set_region_visible(terminal, true));
+        assert_eq!(layout.snapshot(rect, V), before);
+        assert_eq!(layout.sizes, sizes);
+        for (id, _) in layout.leaves() {
+            layout.set_region_visible(id, false);
+        }
+        assert!(layout.snapshot(rect, V).regions.is_empty());
+        assert_eq!(layout.overview(rect), before);
+        assert!(!layout.set_region_visible(9999, false));
+        for (id, _) in layout.leaves() {
+            layout.set_region_visible(id, true);
+        }
+        assert_eq!(layout.snapshot(rect, V), before);
     }
     fn region(layout: &ApplicationLayout, rect: Rect, id: u64) -> Rect {
         layout
