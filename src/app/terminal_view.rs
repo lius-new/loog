@@ -32,6 +32,7 @@ fn session_frame(tab: crate::app::terminal_binding::TerminalTab) -> SessionFrame
         cwd: tab.working_directory(),
         title_override: tab.title,
         purpose: tab.purpose,
+        activity: tab.controller.command_activity(),
         running_program: tab.running_program,
     }
 }
@@ -42,9 +43,13 @@ pub(crate) fn project(tabs: TerminalTabs) -> View {
         .tabs()
         .iter()
         .map(|tab| {
-            let (short_label, cwd) = live
-                .remove(&tab.id())
-                .unwrap_or_else(|| (tab.shell().short_label().to_owned(), None));
+            let (short_label, cwd, activity) = live.remove(&tab.id()).unwrap_or_else(|| {
+                (
+                    tab.shell().short_label().to_owned(),
+                    None,
+                    Default::default(),
+                )
+            });
             let custom = tab.title();
             let purpose = tab.purpose();
             let running_program = tab.running_program();
@@ -65,6 +70,7 @@ pub(crate) fn project(tabs: TerminalTabs) -> View {
                 title_override: custom,
                 purpose,
                 running_program,
+                activity,
             }
         })
         .collect();

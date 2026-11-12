@@ -77,14 +77,25 @@ impl TerminalRuntime {
     pub fn metadata(
         &self,
         ids: &[SessionId],
-    ) -> std::collections::HashMap<SessionId, (String, Option<PathBuf>)> {
+    ) -> std::collections::HashMap<
+        SessionId,
+        (
+            String,
+            Option<PathBuf>,
+            crate::features::terminal::activity::CommandActivity,
+        ),
+    > {
         self.sessions
             .get_many(ids)
             .into_iter()
             .map(|(id, controller)| {
                 (
                     id,
-                    (controller.short_label(), controller.working_directory()),
+                    (
+                        controller.short_label(),
+                        controller.working_directory(),
+                        controller.command_activity(),
+                    ),
                 )
             })
             .collect()
@@ -129,6 +140,10 @@ impl TerminalHandle {
     pub fn short_label(&self) -> String {
         self.with(TerminalController::short_label)
             .unwrap_or_else(|| self.shell.short_label().into())
+    }
+    pub fn command_activity(&self) -> crate::features::terminal::activity::CommandActivity {
+        self.with(TerminalController::command_activity)
+            .unwrap_or_default()
     }
     pub fn working_directory(&self) -> Option<PathBuf> {
         self.with(TerminalController::working_directory).flatten()

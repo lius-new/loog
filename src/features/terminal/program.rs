@@ -44,18 +44,33 @@ pub(crate) fn program_name(path: &str) -> Option<String> {
     })
 }
 
-/// Ownership survives exited parents. Collapse a single-child launch chain;
-/// after a program is established, its later helpers cannot steal its label.
+/// Select from the current shell descendants without a helper process.
+/// Missing launcher links and ambiguous independent branches produce no label.
+/// Keep a sustained program selected while it is still in this shell's tree.
 #[cfg(any(windows, test))]
-pub(crate) fn session_program(
-    members: &[u32],
-    baseline: &[u32],
+pub(crate) fn descendant_program(
+    root: u32,
     preferred: Option<u32>,
     processes: &[(u32, u32, String)],
 ) -> Option<ProgramCandidate> {
+    if root == 0 {
+        return None;
+    }
+    let mut parents = vec![root];
+    let mut visited = vec![root];
+    while !parents.is_empty() {
+        let mut next = Vec::new();
+        for (pid, parent, _) in processes {
+            if parents.contains(parent) && !visited.contains(pid) {
+                visited.push(*pid);
+                next.push(*pid);
+            }
+        }
+        parents = next;
+    }
     let programs = processes
         .iter()
-        .filter(|(pid, _, _)| members.contains(pid) && !baseline.contains(pid))
+        .filter(|entry| entry.0 != root && visited.contains(&entry.0))
         .collect::<Vec<_>>();
     let candidate = |entry: &(u32, u32, String)| {
         Some(ProgramCandidate {
@@ -66,9 +81,14 @@ pub(crate) fn session_program(
     if let Some(entry) = preferred.and_then(|pid| programs.iter().find(|entry| entry.0 == pid)) {
         return candidate(entry);
     }
-    let mut entry = *programs
+    let mut roots = programs
         .iter()
-        .find(|entry| !programs.iter().any(|parent| parent.0 == entry.1))?;
+        .copied()
+        .filter(|entry| !programs.iter().any(|parent| parent.0 == entry.1));
+    let mut entry = roots.next()?;
+    if roots.next().is_some() {
+        return None;
+    }
     let mut seen = Vec::new();
     loop {
         if seen.contains(&entry.0) {
@@ -77,6 +97,7 @@ pub(crate) fn session_program(
         seen.push(entry.0);
         let children = programs
             .iter()
+            .copied()
             .filter(|child| child.1 == entry.0)
             .collect::<Vec<_>>();
         if children.len() != 1 {
@@ -84,33 +105,6 @@ pub(crate) fn session_program(
         }
         entry = children[0];
     }
-}
-
-/// Best-effort fallback for unavailable console membership. It knows only
-/// process relationships, never application or shell names.
-#[cfg(any(windows, test))]
-pub(crate) fn descendant_program(
-    root: u32,
-    processes: &[(u32, u32, String)],
-) -> Option<ProgramCandidate> {
-    if root == 0 {
-        return None;
-    }
-    let mut parents = vec![root];
-    let mut visited = vec![root];
-    while !parents.is_empty() {
-        let mut next = Vec::new();
-        for &(pid, parent, ref executable) in processes {
-            if !parents.contains(&parent) || visited.contains(&pid) {
-                continue;
-            }
-            visited.push(pid);
-            let _ = executable;
-            next.push(pid);
-        }
-        parents = next;
-    }
-    session_program(&visited, &[root], None, processes)
 }
 #[cfg(test)]
 mod tests {
@@ -175,50 +169,81 @@ mod tests {
             (5, 99, "unrelated.exe".into()),
         ];
         assert_eq!(
-            descendant_program(1, &processes),
+            descendant_program(1, None, &processes),
             Some(ProgramCandidate {
                 pid: 4,
                 name: "node".into()
             })
         );
-        assert_eq!(descendant_program(99, &[]), None);
+        assert_eq!(descendant_program(99, None, &[]), None);
         assert_eq!(program_name("/usr/bin/python"), Some("python".into()));
     }
 
     #[test]
-    fn session_ownership_survives_exited_launchers_and_isolates_other_terminals() {
+    fn lost_parentage_falls_back_without_borrowing_another_terminals_program() {
         let processes = vec![
-            (1, 0, "bash.exe".into()),
-            // Parent 10 has exited; names have no application-specific meaning.
-            (11, 10, "unknown-launcher.exe".into()),
-            (12, 11, "arbitrary-tool.exe".into()),
+            (1, 0, "shell.exe".into()),
+            (11, 10, "orphan-launcher.exe".into()),
+            (12, 11, "orphan-tool.exe".into()),
             (21, 20, "other-terminal.exe".into()),
         ];
-        assert_eq!(descendant_program(1, &processes), None);
-        assert_eq!(
-            session_program(&[1, 11, 12], &[1], None, &processes),
-            Some(ProgramCandidate {
-                pid: 12,
-                name: "arbitrary-tool".into()
-            })
-        );
-        assert_eq!(session_program(&[1], &[1], None, &processes), None);
+        assert_eq!(descendant_program(1, Some(12), &processes), None);
+        assert_eq!(descendant_program(1, Some(21), &processes), None);
+        assert_eq!(descendant_program(0, None, &processes), None);
     }
 
     #[test]
     fn a_sustained_application_keeps_its_label_when_it_spawns_helpers() {
         let processes = vec![
-            (1, 0, "bash.exe".into()),
+            (1, 0, "shell.exe".into()),
             (12, 1, "arbitrary-tool.exe".into()),
             (13, 12, "unknown-helper.exe".into()),
         ];
         assert_eq!(
-            session_program(&[1, 12, 13], &[1], Some(12), &processes),
+            descendant_program(1, Some(12), &processes),
             Some(ProgramCandidate {
                 pid: 12,
-                name: "arbitrary-tool".into()
+                name: "arbitrary-tool".into(),
             })
         );
-        assert_eq!(session_program(&[1], &[1], Some(12), &processes), None);
+        assert_eq!(
+            descendant_program(1, Some(12), &[(1, 0, "shell.exe".into())]),
+            None
+        );
+    }
+
+    #[test]
+    fn independent_branches_are_ambiguous_unless_the_program_is_already_established() {
+        let processes = vec![(2, 1, "one.exe".into()), (3, 1, "two.exe".into())];
+        assert_eq!(descendant_program(1, None, &processes), None);
+        assert_eq!(
+            descendant_program(1, Some(3), &processes),
+            Some(ProgramCandidate {
+                pid: 3,
+                name: "two".into(),
+            })
+        );
+        let after_exit = vec![(2, 1, "one.exe".into())];
+        assert_eq!(
+            descendant_program(1, Some(3), &after_exit),
+            Some(ProgramCandidate {
+                pid: 2,
+                name: "one".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn malformed_cycles_terminate_without_using_the_shell_itself_as_a_program() {
+        let processes = vec![
+            (2, 1, "cycle.exe".into()),
+            (3, 2, "cycle.exe".into()),
+            (2, 3, "cycle.exe".into()),
+        ];
+        assert_eq!(descendant_program(1, None, &processes), None);
+        assert_eq!(
+            descendant_program(1, Some(1), &[(1, 0, "shell.exe".into())]),
+            None
+        );
     }
 }

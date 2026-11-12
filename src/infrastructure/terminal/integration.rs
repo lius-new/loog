@@ -169,7 +169,7 @@ impl ShellIntegration {
                 integration.args = vec!["-l".into(), "-i".into()];
             }
             "fish" => {
-                integration.args = vec!["-i".into(), "-C".into(), "function __loog_report_cwd --on-event fish_prompt; printf '\\e]9;9;%s\\a' \"$PWD\"; end".into()];
+                integration.args = vec!["-i".into(), "-C".into(), r#"function __loog_report_cwd --on-event fish_prompt; set -l loog_status $status; printf '\e]133;D;%s\a\e]133;A\a\e]9;9;%s\a' $loog_status "$PWD"; return $loog_status; end; function __loog_preexec --on-event fish_preexec; printf '\e]133;C\a'; end"#.into()];
             }
             "sh" | "dash" | "ksh" => {
                 static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -237,8 +237,39 @@ if ($env:LOOG_TERMINAL_CWD) {
     Remove-Item Env:LOOG_TERMINAL_CWD
 }
 $global:__LoogOriginalPrompt = $function:prompt
+$global:__LoogReadLine = $null
 function global:prompt {
     $loogPrompt = & $global:__LoogOriginalPrompt
+    if ($null -eq $global:__LoogReadLine) {
+        $loogReader = Get-Command PSConsoleHostReadLine -CommandType Function -ErrorAction SilentlyContinue
+        if ($loogReader -and $loogReader.ScriptBlock) {
+            $global:__LoogReadLine = $loogReader.ScriptBlock
+            function global:PSConsoleHostReadLine {
+                $loogLine = & $global:__LoogReadLine
+                if (-not [string]::IsNullOrWhiteSpace([string]$loogLine)) {
+                    try {
+                        $loogTokens = $null; $loogErrors = $null
+                        $loogAst = [System.Management.Automation.Language.Parser]::ParseInput([string]$loogLine, [ref]$loogTokens, [ref]$loogErrors)
+                        $loogCommand = $loogAst.Find({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $false)
+                        $loogWord = if ($loogCommand) { $loogCommand.GetCommandName() }
+                        if ($loogWord) {
+                            $loogEntry = Get-Command -Name $loogWord -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
+                            if ($loogEntry -and [IO.Path]::GetExtension($loogEntry.Path) -in '.ps1', '.cmd', '.bat', '.sh') {
+                                $loogName = [IO.Path]::GetFileNameWithoutExtension($loogEntry.Path)
+                                $loogName = [regex]::Replace($loogName, '[\x00-\x20;\\]', { param($match) '\x{0:x2}' -f [int][char]$match.Value })
+                                $Host.UI.Write(([char]27).ToString() + ']633;P;CommandName=' + $loogName + [char]7)
+                            }
+                        }
+                    } catch { }
+                    $Host.UI.Write(([char]27).ToString() + ']133;C' + [char]7)
+                }
+                $loogLine
+            }
+        }
+    }
+    if ($null -ne $global:__LoogReadLine) {
+        $Host.UI.Write(([char]27).ToString() + ']133;D' + [char]7 + [char]27 + ']133;A' + [char]7)
+    }
     if ($PWD.Provider.Name -eq 'FileSystem') {
         $Host.UI.Write(([char]27).ToString() + ']9;9;"' + $PWD.ProviderPath + '"' + [char]7)
     }
@@ -256,7 +287,9 @@ ZDOTDIR=$LOOG_INTEGRATION_DIR
 const ZSH_RC: &str = r#"
 ZDOTDIR=$LOOG_ZDOTDIR
 [[ -r $ZDOTDIR/.zshrc ]] && source $ZDOTDIR/.zshrc
-function __loog_report_cwd() { printf '\033]9;9;%s\007' "$PWD"; }
+function __loog_report_cwd() { local loog_status=$?; printf '\033]133;D;%s\007\033]133;A\007\033]9;9;%s\007' "$loog_status" "$PWD"; return "$loog_status"; }
+function __loog_preexec() { printf '\033]133;C\007'; }
+preexec_functions=(${preexec_functions:#__loog_preexec} __loog_preexec)
 precmd_functions=(${precmd_functions:#__loog_report_cwd} __loog_report_cwd)
 unset LOOG_INTEGRATION_DIR LOOG_ZDOTDIR LOOG_TERMINAL_CWD
 "#;
@@ -292,8 +325,56 @@ if [ -n "$LOOG_TERMINAL_CWD" ]; then
     builtin cd -- "$__loog_cwd"
     unset __loog_cwd LOOG_TERMINAL_CWD
 fi
+# Resolve only a literal first command word; never evaluate user command text.
+# Native executables keep process-based labels. Scripts can lose their Windows
+# parent before a child task exits, so report their entry name before execution.
+__loog_report_script() {
+    local __loog_word __loog_file __loog_header __loog_name __loog_line
+    __loog_line=${1#"${1%%[![:space:]]*}"}
+    __loog_word=${__loog_line%%[[:space:]]*}
+    [[ -n $__loog_word && $__loog_word != *[![:alnum:]_./:+-]* ]] || return 0
+    __loog_file=$(builtin type -P -- "$__loog_word" 2>/dev/null) || return 0
+    case $__loog_file in
+        *.cmd|*.bat|*.ps1|*.sh) ;;
+        *)
+            if ! IFS= builtin read -r -N 2 __loog_header < "$__loog_file" 2>/dev/null; then return 0; fi
+            [[ $__loog_header == '#!' ]] || return 0
+            ;;
+    esac
+    __loog_name=${__loog_word##*/}
+    case $__loog_name in *.cmd|*.bat|*.ps1|*.sh) __loog_name=${__loog_name%.*};; esac
+    builtin printf '\033]633;P;CommandName=%s\007' "$__loog_name"
+    return 0
+}
+__loog_before_command() {
+    if [[ ${__loog_pending-} == 1 && $BASH_SUBSHELL == 0 ]]; then
+        __loog_pending=''
+        __loog_report_script "$1"
+    fi
+    return 0
+}
+__loog_activity=0
+# COMPAT(bash-without-ps0):
+# Supports Bash before 4.4, which lacks the command-start prompt hook.
+# Keep directory integration but leave activity unknown on those shells.
+# Replacement: PS0-capable Bash; remove when that is the minimum supported
+# version. No removal version is scheduled.
+if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
+    # PS0's BASH_COMMAND still names the preceding command. Arm the DEBUG
+    # hook here, then capture the actual command when Bash starts executing it.
+    # Preserve existing preexec frameworks and never replace a user's DEBUG trap.
+    if [[ $(declare -p preexec_functions 2>/dev/null) == 'declare -a '* ]]; then
+        preexec_functions+=(__loog_report_script)
+    elif [[ -z $(trap -p DEBUG) ]]; then
+        trap '__loog_before_command "$BASH_COMMAND"' DEBUG
+    fi
+    PS0=$'\033]633;P;CommandPending=${__loog_pending:=1}\007\033]133;C\007'${PS0-}
+    __loog_activity=1
+fi
 __loog_report_cwd() {
     local __loog_status=$? __loog_path=$PWD
+    __loog_pending=''
+    if (( __loog_activity )); then builtin printf '\033]133;D;%s\007\033]133;A\007' "$__loog_status"; fi
     if command -v cygpath >/dev/null 2>&1; then __loog_path=$(cygpath -w "$PWD"); fi
     builtin printf '\033]9;9;%s\007' "$__loog_path"
     return "$__loog_status"

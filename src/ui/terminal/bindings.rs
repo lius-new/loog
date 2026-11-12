@@ -22,6 +22,7 @@ pub struct SessionFrame {
     pub title_override: Option<String>,
     pub purpose: Option<String>,
     pub running_program: Option<String>,
+    pub activity: crate::features::terminal::activity::CommandActivity,
 }
 impl SessionFrame {
     pub fn label(&self) -> String {

@@ -10,12 +10,20 @@ pub struct DirectoryReports {
 
 impl DirectoryReports {
     pub fn process(&mut self, bytes: &[u8]) -> Option<PathBuf> {
+        self.process_with(bytes, |_| {})
+    }
+    pub(crate) fn process_with(
+        &mut self,
+        bytes: &[u8],
+        mut report: impl FnMut(&[u8]),
+    ) -> Option<PathBuf> {
         let mut latest = None;
         for &byte in bytes {
             if let Some(osc) = &mut self.osc {
                 if byte == 7 || (self.escape && byte == b'\\') {
                     if !self.oversized {
                         latest = report_path(osc).or(latest);
+                        report(osc);
                     }
                     self.osc = None;
                     self.escape = false;

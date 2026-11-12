@@ -104,7 +104,14 @@ impl TerminalTab {
 impl TerminalTabs {
     pub fn frame_metadata(
         &self,
-    ) -> std::collections::HashMap<SessionId, (String, Option<PathBuf>)> {
+    ) -> std::collections::HashMap<
+        SessionId,
+        (
+            String,
+            Option<PathBuf>,
+            crate::features::terminal::activity::CommandActivity,
+        ),
+    > {
         let ids = self
             .model
             .tabs()
@@ -497,10 +504,7 @@ mod tests {
             }
         }
         let pid = inspected.test_pid();
-        let observer_pid = inspected
-            .test_observer_pid()
-            .expect("real console observer started");
-        let processes = [pid, observer_pid].map(|pid| {
+        let processes = [pid].map(|pid| {
             let handle = unsafe {
                 windows_sys::Win32::System::Threading::OpenProcess(
                     windows_sys::Win32::System::Threading::PROCESS_SYNCHRONIZE,
@@ -564,7 +568,7 @@ mod tests {
                     windows_sys::Win32::System::Threading::WaitForSingleObject(process.0, 5000)
                 },
                 windows_sys::Win32::Foundation::WAIT_OBJECT_0,
-                "test-created shell/observer did not exit"
+                "test-created shell did not exit"
             );
         }
         assert!(!inspected.test_process_alive());

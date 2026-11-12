@@ -2235,6 +2235,27 @@ mod tests {
     }
 
     #[test]
+    fn command_activity_controls_the_spinner_independently_of_process_names() {
+        use lgui::core::UiScale;
+        let (mut session, view, _state, tabs, viewport) = strip_harness(1400.0, 1);
+        let controller = tabs.get().active().unwrap().controller.test_controller();
+        tabs.update(|tabs| tabs.update_programs(&[(1, Some("persistent-wrapper".into()))]));
+        session.render_view(&view, viewport, UiScale::ONE);
+        let spinner = UiId::new("terminal-spin-1-track");
+        assert!(session.tree().node(&spinner).is_none());
+        controller.test_receive_output(b"\x1b]133;C\x07");
+        assert_eq!(
+            controller.command_activity(),
+            crate::features::terminal::activity::CommandActivity::Running
+        );
+        session.render_view(&view, viewport, UiScale::ONE);
+        assert!(session.tree().node(&spinner).is_some());
+        controller.test_receive_output(b"\x1b]133;D;0\x07\x1b]133;A\x07");
+        session.render_view(&view, viewport, UiScale::ONE);
+        assert!(session.tree().node(&spinner).is_none());
+    }
+
+    #[test]
     fn tab_widths_follow_the_name_and_never_selection_hover_or_programs() {
         use lgui::core::{InputEvent, PointerData, UiScale};
         let (mut session, view, state, tabs, viewport) = strip_harness(1400.0, 4);

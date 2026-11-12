@@ -1,4 +1,5 @@
 //! PTY controller and worker lifecycle; GUI notifications are injected.
+use crate::features::terminal::activity::{CommandActivity, CommandReports};
 use crate::features::terminal::input::paste_bytes;
 use crate::features::terminal::screen::{
     GridPoint, Palette, Selection, find_matches, line_runs, selection_text, visible_selection,
@@ -42,6 +43,7 @@ struct TerminalInner {
     test_writes: Mutex<Vec<Vec<u8>>>,
     disposed: AtomicBool,
     parser: Mutex<vt100::Parser>,
+    reports: Mutex<CommandReports>,
     process: Mutex<Option<RunningProcess>>,
     shell: Mutex<ShellKind>,
     detected_name: Mutex<Option<String>>,
@@ -73,6 +75,7 @@ impl TerminalController {
                 test_writes: Mutex::new(Vec::new()),
                 disposed: AtomicBool::new(false),
                 parser: Mutex::new(vt100::Parser::new(24, 80, SCROLLBACK_ROWS)),
+                reports: Mutex::new(CommandReports::default()),
                 process: Mutex::new(None),
                 shell: Mutex::new(shell),
                 detected_name: Mutex::new(if matches!(shell, ShellKind::Wsl(_)) {
@@ -143,6 +146,16 @@ impl TerminalController {
         lock(&self.inner.cwd).clone()
     }
 
+    pub fn command_activity(&self) -> CommandActivity {
+        if !matches!(
+            *lock(&self.inner.status),
+            TerminalStatus::Idle | TerminalStatus::Running
+        ) {
+            return CommandActivity::Unknown;
+        }
+        lock(&self.inner.reports).activity()
+    }
+
     /// Inspect the OS process outside reactive UI state locks.
     pub fn program_candidate(
         &self,
@@ -152,20 +165,19 @@ impl TerminalController {
         if !matches!(*lock(&self.inner.status), TerminalStatus::Running) {
             return None;
         }
-        #[cfg(windows)]
-        let (pid, console) = {
-            let process = lock(&self.inner.process);
-            let process = process.as_ref()?;
-            (process.pid, process.console.clone())
-        };
+        let pid = lock(&self.inner.process).as_ref()?.pid;
+        // Script launchers can exit before their native children, disconnecting
+        // the Windows ancestry chain. Their shell-reported name belongs to this
+        // command lifetime; use the owning shell as its stable tracking identity.
+        if let Some(name) = lock(&self.inner.reports).command_name() {
+            return Some(crate::features::terminal::program::ProgramCandidate {
+                pid,
+                name: name.to_owned(),
+            });
+        }
         #[cfg(windows)]
         {
-            if let Some(console) = console
-                && let Some(members) = console.members()
-            {
-                return probe.session_candidate(&members, &console.baseline, preferred);
-            }
-            probe.candidate(pid, None)
+            probe.candidate(pid, preferred)
         }
         #[cfg(not(windows))]
         {
@@ -196,6 +208,7 @@ impl TerminalController {
         self.kill_current();
         *lock(&self.inner.shell) = shell;
         *lock(&self.inner.status) = TerminalStatus::Starting;
+        *lock(&self.inner.reports) = CommandReports::default();
         *lock(&self.inner.parser) = vt100::Parser::new(size.rows, size.cols, SCROLLBACK_ROWS);
         *lock(&self.inner.selection) = None;
 
@@ -256,8 +269,6 @@ impl TerminalController {
                     .name("loog-terminal-output".to_owned())
                     .spawn(move || {
                         let mut bytes = [0_u8; 8 * 1024];
-                        let mut directories =
-                            crate::features::terminal::directory::DirectoryReports::default();
                         loop {
                             let count = match reader.read(&mut bytes) {
                                 Ok(count) => count,
@@ -277,12 +288,8 @@ impl TerminalController {
                             if count == 0 {
                                 break;
                             }
-                            let cwd = directories.process(&bytes[..count]);
                             if update_current(&reader_inner, generation, |inner| {
-                                if let Some(cwd) = cwd {
-                                    *lock(&inner.cwd) = Some(cwd);
-                                }
-                                lock(&inner.parser).process(&bytes[..count]);
+                                process_output(inner, &bytes[..count]);
                             })
                             .is_none()
                             {
@@ -317,6 +324,7 @@ impl TerminalController {
 
     fn shutdown(&self) {
         self.inner.generation.fetch_add(1, Ordering::AcqRel);
+        *lock(&self.inner.reports) = CommandReports::default();
         self.kill_current();
         *lock(&self.inner.status) = TerminalStatus::Stopped;
     }
@@ -706,6 +714,14 @@ fn current_inner(inner: &Weak<TerminalInner>, generation: u64) -> Option<Arc<Ter
     (inner.generation.load(Ordering::Acquire) == generation).then_some(inner)
 }
 
+fn process_output(inner: &TerminalInner, bytes: &[u8]) {
+    let cwd = lock(&inner.reports).process(bytes);
+    if let Some(cwd) = cwd {
+        *lock(&inner.cwd) = Some(cwd);
+    }
+    lock(&inner.parser).process(bytes);
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
@@ -717,6 +733,9 @@ impl TerminalController {
     pub(crate) fn test_advance_generation(&self) -> u64 {
         let _lifecycle = lock(&self.inner.lifecycle);
         self.inner.generation.fetch_add(1, Ordering::AcqRel) + 1
+    }
+    pub(crate) fn test_receive_output(&self, bytes: &[u8]) {
+        process_output(&self.inner, bytes);
     }
     pub(crate) fn test_writes(&self) -> Vec<Vec<u8>> {
         lock(&self.inner.test_writes).clone()
@@ -742,61 +761,15 @@ impl TerminalController {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
     #[cfg(windows)]
-    pub(crate) fn test_has_console(&self) -> bool {
-        lock(&self.inner.process)
-            .as_ref()
-            .unwrap()
-            .console
-            .is_some()
-    }
-    #[cfg(windows)]
     pub(crate) fn test_process_alive(&self) -> bool {
         lock(&self.inner.process)
             .as_ref()
             .is_some_and(|process| process.process.is_alive())
     }
     #[cfg(windows)]
-    pub(crate) fn test_observer_pid(&self) -> Option<u32> {
-        lock(&self.inner.process)
-            .as_ref()
-            .and_then(|p| p.console.as_ref().map(|c| c.test_pid()))
-    }
-    #[cfg(windows)]
     pub(crate) fn test_pid(&self) -> u32 {
         lock(&self.inner.process).as_ref().unwrap().pid
     }
-}
-
-#[cfg(test)]
-#[cfg(target_os = "windows")]
-pub(crate) fn start_launcher_backed_test_shell() -> TerminalController {
-    let command = crate::infrastructure::terminal::profiles::shell_command(ShellKind::Bash);
-    let program = command
-        .ancestors()
-        .skip(1)
-        .map(|parent| parent.join("bin/bash.exe"))
-        .find(|path| path != &command && path.is_file())
-        .unwrap_or(command);
-    let spawned = crate::infrastructure::terminal::pty::spawn_shell_program(
-        ShellKind::Bash,
-        None,
-        TerminalSize {
-            rows: 12,
-            cols: 80,
-            pixel_width: 560,
-            pixel_height: 228,
-        },
-        &program,
-    )
-    .unwrap();
-    let controller = TerminalController::with_shell(ShellKind::Bash);
-    let mut output = spawned.reader;
-    thread::spawn(move || {
-        let _ = std::io::copy(&mut output, &mut std::io::sink());
-    });
-    *lock(&controller.inner.process) = Some(spawned.process);
-    *lock(&controller.inner.status) = TerminalStatus::Running;
-    controller
 }
 
 #[cfg(test)]

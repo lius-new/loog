@@ -10,14 +10,10 @@ use std::io::{Read, Write};
 use std::path::Path;
 #[cfg(windows)]
 use std::path::PathBuf;
-#[cfg(windows)]
-use std::sync::Arc;
 
 pub(super) struct RunningProcess {
     pub(super) _integration: crate::infrastructure::terminal::integration::ShellIntegration,
     pub(super) pid: u32,
-    #[cfg(windows)]
-    pub(super) console: Option<Arc<crate::infrastructure::terminal::program::SessionConsole>>,
     #[cfg(windows)]
     pub(super) process: conpty::Process,
     #[cfg(not(windows))]
@@ -109,13 +105,10 @@ fn spawn_shell_program_args(
         .map_err(|error| format!("{error} ({})", program.display()))?;
     let reader = process.output().map_err(|error| error.to_string())?;
     let writer = process.input().map_err(|error| error.to_string())?;
-    let console =
-        crate::infrastructure::terminal::program::SessionConsole::new(process.pid()).map(Arc::new);
     Ok(SpawnedShell {
         process: RunningProcess {
             _integration: integration,
             pid: process.pid(),
-            console,
             process,
             writer: Box::new(writer),
             size,

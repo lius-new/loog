@@ -301,7 +301,9 @@ pub(crate) fn render_view(
     let running = tab_items
         .iter()
         .find(|tab| tab.id == active_tab_id)
-        .is_some_and(|tab| tab.running_program.is_some());
+        .is_some_and(|tab| {
+            tab.activity == crate::features::terminal::activity::CommandActivity::Running
+        });
     // Only the default bottom region has maximize and collapse. The app always
     // renders regions, so compare with the default one; a plain render (no
     // region) is the default panel too.
@@ -1254,7 +1256,7 @@ pub(crate) fn render_terminal_tabs(
             visual = visual.child(session_glyph(
                 tab.id,
                 UiRect::new(glyph_left, glyph_top, glyph_left + GLYPH, glyph_top + GLYPH),
-                tab.running_program.is_some(),
+                tab.activity == crate::features::terminal::activity::CommandActivity::Running,
             ));
         }
         if !editing {

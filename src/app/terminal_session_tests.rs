@@ -873,141 +873,9 @@ mod tests {
     }
 
     #[cfg(target_os = "windows")]
-    fn start_launcher_backed_test_shell() -> (TerminalController, Arc<ApplicationHandle>) {
-        (
-            crate::infrastructure::terminal::session::start_launcher_backed_test_shell(),
-            Arc::new(ApplicationHandle::new(|task| task(), || {})),
-        )
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    #[ignore = "manual launcher-backed ConPTY detection regression"]
-    fn launcher_backed_shell_is_idle_then_detects_and_clears_programs() {
-        use crate::features::terminal::program::SustainedProgram;
-        use crate::infrastructure::terminal::program::ProgramProbe;
-        use std::time::{Duration, Instant};
-        let (controller, application) = start_launcher_backed_test_shell();
-        let console = controller.test_has_console();
-        let mut startup_tracker = SustainedProgram::default();
-        let mut startup_labels = Vec::new();
-        for _ in 0..20 {
-            let now = Instant::now();
-            let candidate = controller
-                .program_candidate(&ProgramProbe::new(), startup_tracker.sustained_pid(now));
-            // Match app/shell: short-lived startup candidates never get labels.
-            if let Some(label) = startup_tracker.observe(candidate, now) {
-                startup_labels.push(label);
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-        let mut tracker = SustainedProgram::default();
-        controller.write(b"ping.exe -n 4 127.0.0.1 >/dev/null\r");
-        let deadline = Instant::now() + Duration::from_secs(8);
-        let mut detected = false;
-        let mut cleared = false;
-        while Instant::now() < deadline {
-            let now = Instant::now();
-            let candidate =
-                controller.program_candidate(&ProgramProbe::new(), tracker.sustained_pid(now));
-            detected |= tracker
-                .observe(candidate.clone(), now)
-                .is_some_and(|name| name.eq_ignore_ascii_case("ping"));
-            if detected && candidate.is_none() {
-                cleared = true;
-                break;
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-        controller.terminate(&application);
-        assert!(
-            console,
-            "observer must attach to the launcher-backed console"
-        );
-        assert!(
-            startup_labels.is_empty(),
-            "startup processes must never become applications: {startup_labels:?}"
-        );
-        assert!(detected && cleared);
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    #[ignore = "manual Git Bash process replacement smoke test"]
-    fn exited_shell_launchers_do_not_hide_unknown_applications() {
-        use crate::features::terminal::program::SustainedProgram;
-        use crate::infrastructure::terminal::program::ProgramProbe;
-        use std::time::{Duration, Instant};
-
-        let name = format!("loog-session-probe-{}", std::process::id());
-        let executable = env::temp_dir().join(format!("{name}.exe"));
-        let source = executable.with_extension("rs");
-        std::fs::write(&source, r#"fn main() {
-            if std::env::args().nth(1).as_deref() == Some("--child") {
-                std::thread::sleep(std::time::Duration::from_secs(4));
-            } else {
-                std::process::Command::new(std::env::current_exe().unwrap()).arg("--child").spawn().unwrap();
-            }
-        }"#).unwrap();
-        let built = std::process::Command::new("rustc")
-            .arg(&source)
-            .arg("-o")
-            .arg(&executable)
-            .output()
-            .unwrap();
-        assert!(
-            built.status.success(),
-            "{}",
-            String::from_utf8_lossy(&built.stderr)
-        );
-        let (controller, application) = start_launcher_backed_test_shell();
-        assert!(
-            controller.test_has_console(),
-            "console observer should be available"
-        );
-        let command = format!("\"{}\"\r", executable.to_string_lossy().replace('\\', "/"));
-        controller.write(command.as_bytes());
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let mut tracker = SustainedProgram::default();
-        let mut identified = false;
-        let mut cleared = false;
-        let mut reproduced_missing_parent = false;
-        while Instant::now() < deadline {
-            let now = Instant::now();
-            let probe = ProgramProbe::new();
-            let candidate = controller.program_candidate(&probe, tracker.sustained_pid(now));
-            if candidate.as_ref().is_some_and(|app| app.name == name) {
-                let pid = controller.test_pid();
-                reproduced_missing_parent |= probe
-                    .candidate(pid, None)
-                    .is_none_or(|entry| entry.name != name);
-            }
-            let label = tracker.observe(candidate.clone(), now);
-            identified |= label.as_deref() == Some(name.as_str());
-            if identified && candidate.is_none() && label.is_none() {
-                cleared = true;
-                break;
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-        controller.terminate(&application);
-        std::fs::remove_file(executable).unwrap();
-        std::fs::remove_file(source).unwrap();
-        assert!(
-            reproduced_missing_parent,
-            "the application must remain invisible to ancestry-only detection"
-        );
-        assert!(
-            identified,
-            "the arbitrarily named application should be identified"
-        );
-        assert!(cleared, "the application name should clear after exit");
-    }
-
-    #[cfg(target_os = "windows")]
     #[test]
     #[ignore = "manual Windows ConPTY process-name smoke test"]
-    fn running_application_is_detected_and_cleared_in_each_real_shell() {
+    fn builtin_shells_are_idle_then_detect_and_clear_programs() {
         use crate::features::terminal::program::SustainedProgram;
         use crate::infrastructure::terminal::program::ProgramProbe;
         use std::time::{Duration, Instant};
@@ -1026,6 +894,17 @@ mod tests {
                 },
                 application.clone(),
             );
+            let mut idle_tracker = SustainedProgram::default();
+            let mut idle_labels = Vec::new();
+            for _ in 0..15 {
+                let now = Instant::now();
+                let candidate = controller
+                    .program_candidate(&ProgramProbe::new(), idle_tracker.sustained_pid(now));
+                if let Some(label) = idle_tracker.observe(candidate, now) {
+                    idle_labels.push(label);
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
             let command: &[u8] = match shell {
                 ShellKind::PowerShell => b"ping.exe -n 4 127.0.0.1 | Out-Null\r",
                 ShellKind::Cmd => b"ping.exe -n 4 127.0.0.1 >nul\r",
@@ -1058,6 +937,11 @@ mod tests {
             }
             controller.terminate(&application);
             assert!(
+                idle_labels.is_empty(),
+                "{} was busy at its prompt: {idle_labels:?}",
+                shell.label()
+            );
+            assert!(
                 saw_program,
                 "{} did not identify its sustained application",
                 shell.label()
@@ -1067,6 +951,220 @@ mod tests {
                 "{} did not clear its application after exit",
                 shell.label()
             );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "manual Windows WSL transport regression"]
+    fn real_wsl_prompt_is_not_reported_as_a_windows_foreground_program() {
+        use crate::infrastructure::terminal::program::ProgramProbe;
+        use std::time::Instant;
+        let Some(option) = crate::infrastructure::terminal::profiles::options(&[])
+            .into_iter()
+            .find(|option| matches!(option.kind, ShellKind::Wsl(_)))
+        else {
+            return;
+        };
+        let controller = TerminalController::with_shell(option.kind);
+        let application = Arc::new(ApplicationHandle::new(|task| task(), || {}));
+        controller.restart(
+            option.kind,
+            None,
+            TerminalSize {
+                rows: 12,
+                cols: 80,
+                pixel_width: 560,
+                pixel_height: 228,
+            },
+            application.clone(),
+        );
+        controller.write(b"printf '%s%s\\n' 'loog-' 'wsl-ready'\r");
+        let deadline = Instant::now() + Duration::from_secs(12);
+        let mut ready = false;
+        while Instant::now() < deadline {
+            ready = controller
+                .test_parser()
+                .screen()
+                .contents()
+                .contains("loog-wsl-ready");
+            if ready {
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        let mut candidates = Vec::new();
+        for _ in 0..15 {
+            if let Some(candidate) = controller.program_candidate(&ProgramProbe::new(), None) {
+                candidates.push(candidate);
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        controller.terminate(&application);
+        assert!(ready, "WSL did not execute the test command");
+        assert!(
+            candidates.is_empty(),
+            "WSL transport was reported as a task: {candidates:?}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "manual npm script-label ConPTY regression; requires local node/npm"]
+    fn npm_script_labels_agree_across_powershell_and_bash_and_clear_after_exit() {
+        use crate::features::terminal::activity::CommandActivity;
+        use crate::features::terminal::program::SustainedProgram;
+        use crate::infrastructure::terminal::program::ProgramProbe;
+        use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+        let root = env::temp_dir().join(format!(
+            "loog-script-label-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"dev":"node dev.cjs"}}"#,
+        )
+        .unwrap();
+        // The fixture exits by itself even if a shell launcher loses parentage.
+        std::fs::write(
+            root.join("dev.cjs"),
+            "console.log('loog-script-ready');setTimeout(()=>{},2600);",
+        )
+        .unwrap();
+        let mut results = Vec::new();
+        for shell in [ShellKind::PowerShell, ShellKind::Bash] {
+            let controller = TerminalController::with_shell(shell);
+            let application = Arc::new(ApplicationHandle::new(|task| task(), || {}));
+            controller.restart(
+                shell,
+                Some(&root),
+                TerminalSize {
+                    rows: 16,
+                    cols: 100,
+                    pixel_width: 700,
+                    pixel_height: 304,
+                },
+                application.clone(),
+            );
+            let deadline = Instant::now() + Duration::from_secs(12);
+            while controller.command_activity() != CommandActivity::Idle
+                && Instant::now() < deadline
+            {
+                thread::sleep(Duration::from_millis(30));
+            }
+            controller.write(b"npm run dev\r");
+            let deadline = Instant::now() + Duration::from_secs(15);
+            let mut tracker = SustainedProgram::default();
+            let mut saw_label = false;
+            let mut ready = false;
+            let mut cleared = false;
+            while Instant::now() < deadline {
+                let now = Instant::now();
+                let candidate =
+                    controller.program_candidate(&ProgramProbe::new(), tracker.sustained_pid(now));
+                let name = tracker.observe(candidate, now);
+                ready |= controller
+                    .test_parser()
+                    .screen()
+                    .contents()
+                    .contains("loog-script-ready");
+                saw_label |= name.as_deref() == Some("npm");
+                if saw_label
+                    && controller.command_activity() == CommandActivity::Idle
+                    && name.is_none()
+                {
+                    cleared = true;
+                    break;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            let output = controller.test_parser().screen().contents();
+            // Move the live shell out before releasing ConPTY; Windows may
+            // otherwise keep its current directory locked briefly during exit.
+            controller.write(b"cd ..\r");
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while controller.working_directory().as_deref() == Some(root.as_path())
+                && Instant::now() < deadline
+            {
+                thread::sleep(Duration::from_millis(30));
+            }
+            controller.terminate(&application);
+            results.push((shell.label(), ready, saw_label, cleared, output));
+        }
+        for file in ["package.json", "dev.cjs"] {
+            std::fs::remove_file(root.join(file)).unwrap();
+        }
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            match std::fs::remove_dir(&root) {
+                Ok(()) => break,
+                Err(_) if Instant::now() < deadline => thread::sleep(Duration::from_millis(30)),
+                Err(error) => panic!("fixture cleanup: {error}; results: {results:?}"),
+            }
+        }
+        for (shell, ready, label, cleared, output) in results {
+            eprintln!("{shell}: ready={ready}, npm={label}, cleared={cleared}");
+            assert!(
+                ready && label && cleared,
+                "{shell}: ready={ready}, npm={label}, cleared={cleared}\n{output}"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "manual command lifecycle ConPTY regression"]
+    fn real_command_activity_starts_and_finishes_for_powershell_and_bash() {
+        use crate::features::terminal::activity::CommandActivity;
+        use std::time::Instant;
+        for shell in [ShellKind::PowerShell, ShellKind::Bash] {
+            let controller = TerminalController::with_shell(shell);
+            let application = Arc::new(ApplicationHandle::new(|task| task(), || {}));
+            controller.restart(
+                shell,
+                None,
+                TerminalSize {
+                    rows: 12,
+                    cols: 80,
+                    pixel_width: 560,
+                    pixel_height: 228,
+                },
+                application.clone(),
+            );
+            let idle_deadline = Instant::now() + Duration::from_secs(10);
+            while controller.command_activity() != CommandActivity::Idle
+                && Instant::now() < idle_deadline
+            {
+                thread::sleep(Duration::from_millis(30));
+            }
+            let was_idle = controller.command_activity() == CommandActivity::Idle;
+            controller.write(b"ping.exe -n 4 127.0.0.1\r");
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut running = false;
+            let mut finished = false;
+            while Instant::now() < deadline {
+                let activity = controller.command_activity();
+                running |= activity == CommandActivity::Running;
+                if running && activity == CommandActivity::Idle {
+                    finished = true;
+                    break;
+                }
+                thread::sleep(Duration::from_millis(30));
+            }
+            controller.terminate(&application);
+            assert!(was_idle, "{} did not report its idle prompt", shell.label());
+            assert!(
+                running && finished,
+                "{} lifecycle did not start and finish",
+                shell.label()
+            );
+            assert_eq!(controller.command_activity(), CommandActivity::Unknown);
         }
     }
 

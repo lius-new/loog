@@ -12,5 +12,6 @@ pub(crate) use self::types::{
 };
 
 pub mod actions;
+pub(crate) mod activity;
 pub mod availability;
 pub(crate) mod model;
