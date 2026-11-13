@@ -44,6 +44,17 @@ pub struct Item {
     pub positions: Vec<usize>,
     pub selected: bool,
     pub extension: bool,
+    /// A word at the row's end that stands in for the category and the keys.
+    pub trailing: Option<String>,
+}
+
+/// What the field's end shows about the work behind the list.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Activity {
+    #[default]
+    Idle,
+    Busy,
+    Failed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,7 +72,12 @@ pub struct Frame {
     /// The query that matched nothing.
     pub empty: Option<String>,
     /// What the empty field asks for: commands, themes.
-    pub placeholder: &'static str,
+    pub placeholder: String,
+    /// Short labels before the field, the steps already taken.
+    pub tags: Vec<String>,
+    pub activity: Activity,
+    /// Whether the field holds no text, so the placeholder shows.
+    pub input_empty: bool,
 }
 
 pub enum Command {
@@ -201,15 +217,20 @@ fn item_row(rect: UiRect, item: &Item, state: &Binding) -> Element {
     }
 
     // Category mark.
-    let tint = category_color(&item.category);
+    // Everything an extension supplies wears the extension mark, whatever group it is in.
+    let mark = if item.extension {
+        "Extension"
+    } else {
+        item.category.as_str()
+    };
+    let tint = category_color(mark);
     let glyph = UiRect::new(
         rect.left + PAD_X,
         rect.top + (ROW_H - GLYPH) / 2.0,
         rect.left + PAD_X + GLYPH,
         rect.top + (ROW_H + GLYPH) / 2.0,
     );
-    let initial = item
-        .category
+    let initial = mark
         .chars()
         .next()
         .map(|c| c.to_uppercase().to_string())
@@ -226,7 +247,11 @@ fn item_row(rect: UiRect, item: &Item, state: &Binding) -> Element {
     let middle = (rect.top + rect.bottom) / 2.0;
     let mut right = rect.right - PAD_X;
     if item.keys.is_empty() {
-        let label = item.category.as_str();
+        let label = match &item.trailing {
+            Some(word) => word.as_str(),
+            None if item.extension => "Extension",
+            None => item.category.as_str(),
+        };
         let width = measure(label, theme::SMALL, 400) + 4.0;
         let color = if item.extension {
             palette.accent
@@ -357,30 +382,94 @@ pub fn render(
         )),
         palette.accent,
     ));
-    let count_w = measure(&frame.position, theme::SMALL, 400) + 4.0;
-    surface = surface.child(text(
-        UiRect::new(
-            query.right - PAD_X - count_w,
-            query.top,
+    // An empty text measures unreliably, so a session without a count draws none.
+    let count_w = if frame.position.is_empty() {
+        0.0
+    } else {
+        measure(&frame.position, theme::SMALL, 400) + 4.0
+    };
+    if !frame.position.is_empty() {
+        surface = surface.child(text(
+            UiRect::new(
+                query.right - PAD_X - count_w,
+                query.top,
+                query.right - PAD_X,
+                query.bottom,
+            ),
+            frame.position.clone(),
+            theme::mono_right(palette.text_dim, theme::SMALL),
+        ));
+    }
+    // Steps already taken, drawn as small tags before the text.
+    let mut field_left = query.left + PAD_X + theme::ICON_SIZE + 8.0;
+    for tag in &frame.tags {
+        let width = measure(tag, theme::SMALL, 400) + 14.0;
+        let rect = UiRect::new(
+            field_left,
+            query.top + (QUERY_H - CHIP_H) / 2.0,
+            field_left + width,
+            query.top + (QUERY_H + CHIP_H) / 2.0,
+        );
+        surface = surface.child(
+            panel(
+                rect,
+                VisualStyle::filled(mix(palette.surface, palette.accent, 0.18)).radius(4.0),
+            )
+            .child(text(
+                rect,
+                tag.clone(),
+                centered(mix(palette.text_bright, palette.accent, 0.4), theme::SMALL, 400),
+            )),
+        );
+        field_left = rect.right + 6.0;
+    }
+    // The work behind the list: a turning mark while it runs, a cross when it failed.
+    let mut field_right = query.right - PAD_X - count_w - 8.0;
+    if frame.activity != Activity::Idle {
+        let mark = UiRect::new(
+            query.right - PAD_X - GLYPH,
+            query.top + (QUERY_H - GLYPH) / 2.0,
             query.right - PAD_X,
-            query.bottom,
-        ),
-        frame.position.clone(),
-        theme::mono_right(palette.text_dim, theme::SMALL),
-    ));
+            query.top + (QUERY_H + GLYPH) / 2.0,
+        );
+        surface = surface.child(if frame.activity == Activity::Busy {
+            crate::ui::components::loading_indicator::render(
+                mark,
+                palette.accent,
+                "palette-busy".into(),
+            )
+        } else {
+            // The same mark the status bar uses for a service that failed.
+            crate::ui::tabs::icon(
+                UiId::new("palette.failed"),
+                crate::ui::statusbar::ERROR_ICON,
+                mark,
+                palette.error,
+            )
+        });
+        field_right = mark.left - 8.0;
+    }
+    let field = UiRect::new(
+        field_left,
+        query.top + 2.0,
+        field_right.max(field_left),
+        query.bottom - 2.0,
+    );
+    if frame.input_empty {
+        surface = surface.child(text(
+            UiRect::new(field.left + 4.0, field.top, field.right, field.bottom),
+            frame.placeholder.clone(),
+            theme::mono(palette.text_faint, theme::UI_SIZE + 1.0),
+        ));
+    }
     surface = surface.child(input::render_access(
-        UiRect::new(
-            query.left + PAD_X + theme::ICON_SIZE + 4.0,
-            query.top + 2.0,
-            query.right - PAD_X - count_w - 8.0,
-            query.bottom - 2.0,
-        ),
+        field,
         input_id,
         input_focus,
         InputBinding::new_access(state.input.clone(), |input| input, |input| input),
         AccessInputOptions {
             label: "Command",
-            placeholder: frame.placeholder,
+            placeholder: "",
             style: InputStyle {
                 text: theme::mono(palette.text_bright, theme::UI_SIZE + 1.0),
                 placeholder: theme::mono(palette.text_faint, theme::UI_SIZE + 1.0),

@@ -366,6 +366,7 @@ pub const CAPABILITIES: &[&str] = &[
 ];
 
 pub const EVENTS: &[&str] = &[
+    "application.start",
     "workspace.restore",
     "resource.documents",
     "document.open",

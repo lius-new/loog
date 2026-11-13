@@ -135,6 +135,12 @@ pub enum Job {
         generation: u64,
         events: UiEvents,
     },
+    /// What the user did in the command palette for this extension.
+    PaletteEvent {
+        id: String,
+        generation: u64,
+        event: loog_extension_host::PaletteEvent,
+    },
     Load {
         id: String,
         generation: u64,
@@ -259,6 +265,12 @@ pub enum Event {
         id: String,
         generation: u64,
         reports: Vec<loog_extension_host::ServiceReport>,
+    },
+    /// What the extension asked the command palette to show, in order.
+    Palette {
+        id: String,
+        generation: u64,
+        commands: Vec<loog_extension_host::PaletteCommand>,
     },
     /// What the extension found in files that are not open.
     Findings {
@@ -595,6 +607,27 @@ impl Worker {
                         .map(Inbound::UiEvent)
                         .collect();
                     self.deliver(&id, generation, messages);
+                }
+                Job::PaletteEvent {
+                    id,
+                    generation,
+                    event,
+                } => {
+                    let result = self
+                        .slot(&id, generation)
+                        .map(|slot| slot.instance.deliver_palette(event));
+                    match result {
+                        Some(Ok(())) => self.deliver(&id, generation, Vec::new()),
+                        Some(Err(message)) => {
+                            self.instances.remove(&id);
+                            (self.sink)(Event::Failed {
+                                id,
+                                generation,
+                                error: ExtensionError::new(ErrorKind::LimitExceeded, message),
+                            });
+                        }
+                        None => {}
+                    }
                 }
                 Job::WorkspaceWakeAfter { milliseconds } => {
                     let deadline = std::time::Instant::now()
@@ -1092,7 +1125,9 @@ impl Worker {
             let status = slot.instance.dispatch(&batch);
             let accepted = slot.instance.take_accepted();
             let workspace_submissions = slot.instance.take_workspace_submissions();
-            let workspace_pending = slot.instance.has_workspace_events();
+            let workspace_pending =
+                slot.instance.has_workspace_events() || slot.instance.has_palette_events();
+            let palette_commands = slot.instance.take_palette_commands();
             let logs = slot
                 .instance
                 .take_logs()
@@ -1124,6 +1159,13 @@ impl Worker {
             let configurations = slot.instance.take_provider_configurations();
             let published = slot.instance.take_published();
             let operations = slot.instance.take_workspace_operations();
+            if !palette_commands.is_empty() {
+                (self.sink)(Event::Palette {
+                    id: id.to_owned(),
+                    generation,
+                    commands: palette_commands,
+                });
+            }
             if !workspace_submissions.is_empty() {
                 (self.sink)(Event::WorkspaceSubmissions {
                     id: id.to_owned(),

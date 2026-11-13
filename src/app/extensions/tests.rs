@@ -158,6 +158,29 @@ fn window_commands_activate_without_documents_or_edit_permissions() {
 }
 
 #[test]
+fn an_extension_that_asks_to_start_with_the_application_is_woken_once() {
+    let mut manifest: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+    manifest["capabilities"] = serde_json::json!(["events"]);
+    manifest["activation"] = serde_json::json!([{"kind":"event","name":"application.start"}]);
+    manifest["contributes"] = serde_json::json!({});
+    let mut f = fixture_with("start-with-app", "", 0..0, &manifest.to_string());
+    f.app = AppState::new();
+    let effects = f.service.observe(&f.app);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Submit(Job::Load { .. })))
+    );
+    assert!(
+        !f.service
+            .observe(&f.app)
+            .iter()
+            .any(|effect| matches!(effect, Effect::Submit(Job::Load { .. }))),
+        "it is asked once, not on every observation"
+    );
+}
+
+#[test]
 fn resource_recovery_activates_without_documents_and_respects_disabled_or_missing_packages() {
     use loog_workspace_api::{
         EnvironmentKey, ProviderPath, ResourceRef, session::ResourceBookmark,
@@ -1228,6 +1251,13 @@ impl Fixture {
                 }
                 Effect::ClearUi { session, owner } => {
                     self.app.extension_widgets.remove(session, &owner)
+                }
+                Effect::Palette {
+                    id,
+                    generation,
+                    commands,
+                } => {
+                    crate::app::palette::apply_commands(&mut self.app, &id, generation, commands);
                 }
                 Effect::StartWatch { watch, spec } => self.watches.start(watch, spec),
                 Effect::StopWatch { watch } => self.watches.stop(watch),

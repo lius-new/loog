@@ -230,6 +230,29 @@ including foreground color, display scaling and composited animation.
 This additive string syntax requires a path-capable host; it does not add a new
 WIT import or alter the base record ABI. Named icons keep their existing meaning.
 
+## Command palette sessions
+
+`loog:palette/picker@0.1.0` lets an extension use the application's command
+palette without the application knowing what the words mean. The palette owns the
+field, the rows, the tags before the text, the busy and failed marks, the masking
+of a secret and the keys. An extension supplies words and opaque ids.
+
+- `publish-entries` replaces the extension's rows in the command list (at most 64).
+  Choosing one answers `event.entry` with the extension's own id.
+- `open`, `update` and `close` run one session at a time: tags, a placeholder, a
+  mode (`choose`, `text`, `secret`), choices grouped by name, and an activity
+  (`idle`, `busy`, `failed`) with a one-line note. A new step or mode starts the
+  field empty. `secret` text is drawn as bullets, is not exposed to accessibility
+  and is cleared after it is sent.
+- Answers come back through `poll`: `accepted` (the chosen id or the text) and
+  `cancelled`. Closing the palette by any means cancels the session; an extension
+  that closes it is not told. A replaced session gets no answer.
+- `pick-file` shows the system file dialog and answers with a path or none.
+
+The application MUST NOT branch on an extension, a tag, an id or a group name.
+The activation event `application.start` wakes an extension once when the
+application starts, so rows it publishes exist before any command runs.
+
 ## Verification and development
 
 Host tests cover ownership, bounds, validation atomicity and import versions.

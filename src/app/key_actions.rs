@@ -254,6 +254,13 @@ fn run_replay(env: &KeyEnv, stack: &[KeyContext], replay: Replay) {
 /// Perform one action. Returns `false` when it does not apply right now, so
 /// the next binding for the keystroke gets a chance.
 pub fn perform(env: &KeyEnv, action: Action) -> bool {
+    let done = perform_action(env, action);
+    // Closing the palette with a key ends an extension's session; tell it.
+    crate::app::palette::flush_ended(&env.state);
+    done
+}
+
+fn perform_action(env: &KeyEnv, action: Action) -> bool {
     if let Some(done) = crate::app::language_ui::keys::perform(env, action) {
         return done;
     }

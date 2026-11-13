@@ -37,6 +37,13 @@ pub use bindings::loog::extension::types::{
 };
 pub use watches::WatchControl;
 mod findings;
+mod palette;
+pub use bindings::loog::palette::picker::{
+    Accepted as PaletteAccepted, Activity as PaletteActivity, Choice as PaletteChoice,
+    Entry as PaletteEntry, Event as PaletteEvent, Mode as PaletteMode,
+    Picked as PaletteFilePicked, View as PaletteView,
+};
+pub use palette::Command as PaletteCommand;
 mod publication_budget;
 mod service;
 pub use bindings::loog::service::findings::{
@@ -293,6 +300,7 @@ pub struct HostState {
     watches: watches::Watches,
     ui: ui::Tree,
     service: service::Reports,
+    palette: palette::Palette,
     findings: findings::Findings,
     documents: Option<documents::Documents>,
     limits: StoreLimits,
@@ -476,6 +484,7 @@ impl HostState {
             watches: Default::default(),
             ui: Default::default(),
             service: Default::default(),
+            palette: Default::default(),
             findings: Default::default(),
             documents: None,
             started_tasks: Vec::new(),
@@ -586,6 +595,40 @@ impl bindings::loog::service::status::Host for HostState {
         self.unrestricted("reporting service status")
             .map_err(|error| error.message)?;
         self.service.withdraw(&key)
+    }
+}
+
+impl bindings::loog::palette::picker::Host for HostState {
+    fn open(&mut self, view: PaletteView) -> Result<u64, String> {
+        self.unrestricted("showing the command palette")
+            .map_err(|error| error.message)?;
+        self.palette.open(view)
+    }
+
+    fn update(&mut self, session: u64, view: PaletteView) -> Result<(), String> {
+        self.unrestricted("showing the command palette")
+            .map_err(|error| error.message)?;
+        self.palette.update(session, view)
+    }
+
+    fn close(&mut self, session: u64) -> Result<(), String> {
+        self.palette.close(session)
+    }
+
+    fn publish_entries(&mut self, entries: Vec<PaletteEntry>) -> Result<(), String> {
+        self.unrestricted("publishing palette entries")
+            .map_err(|error| error.message)?;
+        self.palette.publish_entries(entries)
+    }
+
+    fn pick_file(&mut self, title: String) -> Result<u64, String> {
+        self.unrestricted("asking for a file")
+            .map_err(|error| error.message)?;
+        self.palette.pick_file(title)
+    }
+
+    fn poll(&mut self) -> Vec<PaletteEvent> {
+        self.palette.poll()
     }
 }
 
@@ -1207,6 +1250,7 @@ pub const KNOWN_IMPORTS: &[&str] = &[
     "loog:service/findings@0.1.0",
     "loog:workspace/session@0.1.0",
     "loog:workspace/tools@0.1.0",
+    "loog:palette/picker@0.1.0",
 ];
 
 /// Length of one epoch tick.
@@ -1427,6 +1471,17 @@ impl Instance {
     }
     pub fn has_workspace_events(&self) -> bool {
         self.store.data().workspace.has_events()
+    }
+    /// What the extension asked the palette to show, in order.
+    pub fn take_palette_commands(&mut self) -> Vec<PaletteCommand> {
+        self.store.data_mut().palette.take()
+    }
+    /// Queue what the user did in the palette for the extension's next round.
+    pub fn deliver_palette(&mut self, event: PaletteEvent) -> Result<(), String> {
+        self.store.data_mut().palette.deliver(event)
+    }
+    pub fn has_palette_events(&self) -> bool {
+        self.store.data().palette.has_events()
     }
     /// Remove due timers before dispatch so callbacks may schedule replacements.
     pub fn poll_timers(&mut self) -> (Vec<Inbound>, Option<Duration>) {

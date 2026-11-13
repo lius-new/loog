@@ -187,6 +187,12 @@ pub enum Effect {
         session: u64,
         owner: String,
     },
+    /// What an extension asked of the command palette, in order.
+    Palette {
+        id: String,
+        generation: u64,
+        commands: Vec<loog_extension_host::PaletteCommand>,
+    },
     StartWatch {
         watch: u64,
         spec: crate::infrastructure::extensions::watches::Spec,
@@ -630,6 +636,8 @@ pub struct ExtensionService {
     ui_session: u64,
     /// What each extension reports about its service, with the generation it came from.
     service_status: HashMap<String, (u64, Vec<loog_extension_host::ServiceReport>)>,
+    /// Extensions already woken because they asked to start with the application.
+    started: std::collections::HashSet<String>,
     file_jobs: HashMap<u64, files::FileJob>,
     next_file_job: u64,
     saves: HashMap<u64, save::Chain>,
@@ -777,6 +785,7 @@ impl ExtensionService {
             ui_events: HashMap::new(),
             ui_session: UI_SESSIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             service_status: HashMap::new(),
+            started: Default::default(),
             file_jobs: HashMap::new(),
             next_file_job: 0,
             saves: HashMap::new(),
@@ -1589,6 +1598,25 @@ impl ExtensionService {
                 }
                 vec![]
             }
+            Event::Palette {
+                id,
+                generation,
+                commands,
+            } => {
+                if self
+                    .packages
+                    .get(&id)
+                    .is_some_and(|package| package.lifecycle.accepts(generation))
+                {
+                    vec![Effect::Palette {
+                        id,
+                        generation,
+                        commands,
+                    }]
+                } else {
+                    vec![]
+                }
+            }
             Event::Findings {
                 id,
                 generation,
@@ -1961,7 +1989,8 @@ impl ExtensionService {
     pub fn observe(&mut self, app: &AppState) -> Vec<Effect> {
         self.language_preferences = app.preferences.values().languages.clone();
         self.position_indices.prune();
-        let mut effects = self.sync_roots(app);
+        let mut effects = self.activate_on_start();
+        effects.extend(self.sync_roots(app));
         effects.extend(self.observe_resource_documents(app));
         let stale = self
             .provider_calls
@@ -1988,6 +2017,44 @@ impl ExtensionService {
         let document_events = self.observe_documents(app);
         effects.extend(self.sync_document_views(app));
         effects.extend(document_events);
+        effects
+    }
+
+    /// Wake, once, the extensions that asked to start with the application (design §8.1).
+    fn activate_on_start(&mut self) -> Vec<Effect> {
+        let due: Vec<String> = self
+            .packages
+            .iter()
+            .filter(|(id, package)| {
+                !self.started.contains(*id)
+                    && !package.disabled
+                    && package.lifecycle.state() == State::Dormant
+                    && wants(&package.manifest, "application.start")
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        let mut effects = Vec::new();
+        for id in due {
+            self.started.insert(id.clone());
+            let Some(package) = self.packages.get_mut(&id) else {
+                continue;
+            };
+            let generation = package.lifecycle.generation();
+            let _ = package.lifecycle.activating();
+            effects.push(Effect::Submit(Job::Load {
+                id,
+                generation,
+                component: package.component.clone(),
+                package_dir: package.dir.clone(),
+                version: package.manifest.version.clone(),
+                cache: self.cache.clone(),
+                limits: self.guest_limits,
+                storage: storage_of(&self.grants, package)
+                    .then(|| self.storage_dir.join(&package.manifest.id)),
+                files: files_of(&self.grants, package),
+                domains: domains_of(&self.grants, package),
+            }));
+        }
         effects
     }
 

@@ -31,6 +31,26 @@ pub struct InputState {
     pub preedit: String,
     pub preedit_cursor: Option<Range<usize>>,
     pub(super) drag_anchor: Option<usize>,
+    /// Draw a bullet for every character instead of the text, and keep the text
+    /// out of the accessibility value. Only [`render_access`] honours it.
+    pub masked: bool,
+}
+
+/// What a masked field draws for each character.
+const MASK: char = '•';
+
+/// The byte offset `offset` of `text` once every character is a [`MASK`].
+fn masked_offset(text: &str, offset: usize) -> usize {
+    text.get(..offset.min(text.len()))
+        .map_or(0, |before| before.chars().count())
+        * MASK.len_utf8()
+}
+
+/// The byte offset of `text` that a masked field's byte offset `offset` stands for.
+fn unmasked_offset(text: &str, offset: usize) -> usize {
+    text.char_indices()
+        .nth(offset / MASK.len_utf8())
+        .map_or(text.len(), |(index, _)| index)
 }
 
 impl Default for InputState {
@@ -53,6 +73,7 @@ impl InputState {
             preedit: String::new(),
             preedit_cursor: None,
             drag_anchor: None,
+            masked: false,
         }
     }
 
@@ -343,9 +364,29 @@ where
         content.bottom,
     );
     let measure_bounds = UiRect::new(0.0, 0.0, 100_000.0, rect.height());
-    let measured = SingleLineText::new(snapshot.text(), measure_bounds, style.text);
+    let masked = snapshot.masked;
+    // What is drawn: the text, or a bullet per character for a secret. Offsets into
+    // the real text are translated at each place that meets the drawn text.
+    let shown = if masked {
+        MASK.to_string().repeat(snapshot.text().chars().count())
+    } else {
+        snapshot.text().to_owned()
+    };
+    let shown_offset = |offset: usize| {
+        if masked {
+            masked_offset(snapshot.text(), offset)
+        } else {
+            offset
+        }
+    };
+    let real_text = if masked {
+        snapshot.text().to_owned()
+    } else {
+        String::new()
+    };
+    let measured = SingleLineText::new(shown.as_str(), measure_bounds, style.text);
     let viewport_w = content.width().max(1.0);
-    let base_caret = measured.caret_offset(snapshot.selection.cursor);
+    let base_caret = measured.caret_offset(shown_offset(snapshot.selection.cursor));
     let preedit_cursor = snapshot
         .preedit_cursor
         .as_ref()
@@ -369,12 +410,19 @@ where
         .max(1.0);
     let caret_top = rect.top + (rect.height() - caret_height) / 2.0;
     let caret_rect = UiRect::new(caret_x, caret_top, caret_x + 1.0, caret_top + caret_height);
+    // A secret never reaches the accessibility tree.
     let mut semantics = Semantics::new(SemanticRole::TextInput)
         .name(label)
-        .value(snapshot.text().to_owned());
+        .value(if masked {
+            String::new()
+        } else {
+            snapshot.text().to_owned()
+        });
     semantics.text.character_count = Some(snapshot.text().chars().count());
 
     let pointer_layout = measured.clone();
+    let drag_text = real_text.clone();
+    let pointer_text = real_text;
     let pointer_binding = binding.clone();
     let pointer_focus = focus.clone();
     let drag_layout = measured.clone();
@@ -402,6 +450,11 @@ where
             pointer.point.x - content.left + scroll,
             pointer.point.y - rect.top,
         );
+        let offset = if masked {
+            unmasked_offset(&pointer_text, offset)
+        } else {
+            offset
+        };
         pointer_binding.update(move |input| {
             input.editor().select_to(offset, false);
             input.drag_anchor = Some(offset);
@@ -414,6 +467,11 @@ where
             pointer.point.x - content.left + scroll,
             pointer.point.y - rect.top,
         );
+        let offset = if masked {
+            unmasked_offset(&drag_text, offset)
+        } else {
+            offset
+        };
         drag_binding.update(move |input| {
             if let Some(anchor) = input.drag_anchor {
                 input.editor().set_cursor(anchor);
@@ -512,6 +570,7 @@ where
 
     let mut content_group = group(text_bounds);
     if let Some(selection) = snapshot.selection.range() {
+        let selection = shown_offset(selection.start)..shown_offset(selection.end);
         for selection in measured.selection_rects(selection) {
             content_group = content_group.child(panel(
                 UiRect::new(
@@ -528,10 +587,11 @@ where
         if snapshot.text().is_empty() && snapshot.preedit.is_empty() {
             SingleLineText::new(placeholder, text_bounds, style.placeholder).element()
         } else {
-            SingleLineText::new(snapshot.text(), text_bounds, style.text).element()
+            SingleLineText::new(shown.as_str(), text_bounds, style.text).element()
         },
     );
-    if !snapshot.preedit.is_empty() {
+    // A secret typed through an input method is not shown while it is composed.
+    if !snapshot.preedit.is_empty() && !masked {
         let preedit_left = content.left + measured.caret_offset(snapshot.selection.cursor);
         let preedit_bounds = UiRect::new(
             preedit_left,
@@ -928,5 +988,15 @@ mod tests {
             .find_map(|node| node.ime_cursor_rect)
             .unwrap();
         assert!(ime_caret.left > ascii_caret.left);
+    }
+
+    #[test]
+    fn masked_offsets_count_characters_not_bytes() {
+        let text = "aé漢b";
+        for (index, _) in text.char_indices() {
+            assert_eq!(unmasked_offset(text, masked_offset(text, index)), index);
+        }
+        assert_eq!(masked_offset(text, text.len()), 4 * MASK.len_utf8());
+        assert_eq!(unmasked_offset(text, 99), text.len());
     }
 }

@@ -1,0 +1,97 @@
+package loog:palette@0.1.0;
+
+/// What an extension asks the command palette to show, and what the user answers.
+///
+/// The host draws every part of it: the field, the tags before the text, the rows,
+/// the busy and failed marks and the keys. An extension supplies words and ids only.
+/// The host never interprets a title, an id or a tag; it returns the id that was
+/// chosen and the text that was typed.
+interface picker {
+    /// How the field takes text.
+    enum mode {
+        /// The field filters the choices; Enter answers with the selected choice.
+        choose,
+        /// The field is free text; Enter answers with the text.
+        text,
+        /// As `text`, but the typed characters are masked and never shown again.
+        secret,
+    }
+
+    /// What the session is doing, shown at the end of the field.
+    enum activity {
+        idle,
+        /// Working; the user may cancel.
+        busy,
+        /// The last attempt failed; `note` says why.
+        failed,
+    }
+
+    record choice {
+        /// Returned unchanged when the user chooses this row.
+        id: string,
+        title: string,
+        /// One short line after the title.
+        detail: option<string>,
+        /// Rows of one group are listed together under its name.
+        group: option<string>,
+        /// A short word at the end of the row.
+        trailing: option<string>,
+    }
+
+    record view {
+        /// Short labels shown before the field, such as the steps already taken.
+        tags: list<string>,
+        placeholder: string,
+        mode: mode,
+        choices: list<choice>,
+        activity: activity,
+        /// One line about `activity`, shown as a hint over its mark.
+        note: option<string>,
+    }
+
+    /// A row of the palette's own command list, found by typing its words there.
+    record entry {
+        id: string,
+        title: string,
+        detail: option<string>,
+        /// The group name above the entry when the list is not filtered.
+        category: string,
+    }
+
+    record accepted {
+        session: u64,
+        /// The chosen row, or none when the mode takes text.
+        choice: option<string>,
+        text: string,
+    }
+
+    record picked {
+        request: u64,
+        /// The absolute path, or none when the dialog was dismissed.
+        path: option<string>,
+    }
+
+    variant event {
+        accepted(accepted),
+        /// The user closed the session, or another one replaced it.
+        cancelled(u64),
+        /// The user chose one of the published entries.
+        entry(string),
+        /// A file dialog was answered.
+        file(picked),
+    }
+
+    /// Show a session and take the field. At most one session is open; opening
+    /// another one replaces it without an answer. Returns the session number.
+    open: func(view: view) -> result<u64, string>;
+    /// Replace what a session shows. The text typed so far stays.
+    update: func(session: u64, view: view) -> result<_, string>;
+    /// End a session and close the palette if it still shows it.
+    close: func(session: u64) -> result<_, string>;
+    /// Replace this extension's entries in the command list. At most 64.
+    publish-entries: func(entries: list<entry>) -> result<_, string>;
+    /// Ask for a file with the system dialog. The answer arrives as `event.file`.
+    pick-file: func(title: string) -> result<u64, string>;
+    /// Called from guest dispatch. The executor schedules a round when events arrive.
+    poll: func() -> list<event>;
+}

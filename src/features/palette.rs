@@ -13,6 +13,19 @@ pub enum Target {
     Extension(String),
     /// A color theme, listed while the palette is choosing one.
     Theme(ThemeId),
+    /// An entry an extension published for the command list. The id is the
+    /// extension's own and is handed back unchanged when the entry is chosen.
+    ExtensionEntry {
+        owner: String,
+        generation: u64,
+        id: String,
+    },
+    /// A choice of the session an extension has open in the palette.
+    Choice {
+        id: String,
+        /// A short word shown at the row's end.
+        trailing: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -106,6 +119,11 @@ fn category(namespace: &str) -> String {
 /// Every command that makes sense to pick by name, then the extensions'
 /// commands (`id`, `title`).
 pub fn catalog(extension_commands: &[(String, String)]) -> Vec<Entry> {
+    catalog_with(extension_commands, Vec::new())
+}
+
+/// [`catalog`] followed by `published`, the entries extensions added to the list.
+pub fn catalog_with(extension_commands: &[(String, String)], published: Vec<Entry>) -> Vec<Entry> {
     let mut entries = Vec::new();
     for meta in ACTIONS
         .iter()
@@ -132,6 +150,7 @@ pub fn catalog(extension_commands: &[(String, String)]) -> Vec<Entry> {
             target: Target::Extension(id.clone()),
         });
     }
+    entries.extend(published);
     entries
 }
 
@@ -228,7 +247,24 @@ pub fn search(entries: &[Entry], query: &str, recent: &[String]) -> Vec<Hit> {
             hit.index,
         )
     });
-    scored.into_iter().map(|(_, _, hit)| hit).collect()
+    // Matches of one category sit together, the best match deciding where the
+    // category stands, so the list can name each group once.
+    let mut order: Vec<&str> = Vec::new();
+    for (_, _, hit) in &scored {
+        let category = entries[hit.index].category.as_str();
+        if !order.contains(&category) {
+            order.push(category);
+        }
+    }
+    let rank = |hit: &Hit| {
+        order
+            .iter()
+            .position(|category| *category == entries[hit.index].category)
+            .unwrap_or(usize::MAX)
+    };
+    let mut hits: Vec<Hit> = scored.into_iter().map(|(_, _, hit)| hit).collect();
+    hits.sort_by_key(rank);
+    hits
 }
 
 #[cfg(test)]
@@ -296,6 +332,26 @@ mod tests {
         let hits = search(&entries, "", &["c".into(), "b".into()]);
         let order: Vec<usize> = hits.iter().map(|hit| hit.index).collect();
         assert_eq!(order, vec![2, 1, 0]);
+    }
+
+    #[test]
+    fn matches_of_one_category_are_listed_together_best_group_first() {
+        let in_category = |id: &str, title: &str, category: &str| Entry {
+            category: category.to_owned(),
+            ..entry(id, title)
+        };
+        let entries = [
+            in_category("a", "Show Log", "Editor"),
+            in_category("b", "Show Hosts", "Hosts"),
+            in_category("c", "Show Signature", "Editor"),
+            in_category("d", "Show", "Hosts"),
+        ];
+        let hits = search(&entries, "show", &[]);
+        let categories: Vec<&str> = hits
+            .iter()
+            .map(|hit| entries[hit.index].category.as_str())
+            .collect();
+        assert_eq!(categories, ["Hosts", "Hosts", "Editor", "Editor"]);
     }
 
     #[test]

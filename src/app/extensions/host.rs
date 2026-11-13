@@ -96,6 +96,40 @@ impl Drop for Inner {
 }
 
 impl Inner {
+    /// Hand what the user did in the palette to the extension it is for.
+    fn palette_event(&self, id: &str, generation: u64, event: loog_extension_host::PaletteEvent) {
+        if let Some(executor) = self.executor.get() {
+            executor.submit(Job::PaletteEvent {
+                id: id.to_owned(),
+                generation,
+                event,
+            });
+        }
+    }
+
+    /// Show the system file dialog an extension asked for and answer it. The
+    /// dialog blocks, so it runs on the application thread outside any state update.
+    fn pick_file(&self, id: &str, generation: u64, request: u64, title: String) {
+        let weak = self.self_ref.get().cloned();
+        let id = id.to_owned();
+        self.application.post(move || {
+            let options = lgui::dialogs::FileDialogOptions::new().title(title);
+            let path = lgui::dialogs::system_file_dialogs()
+                .pick_file(&options)
+                .map(|path| path.to_string_lossy().into_owned());
+            if let Some(inner) = weak.and_then(|weak| weak.upgrade()) {
+                inner.palette_event(
+                    &id,
+                    generation,
+                    loog_extension_host::PaletteEvent::File(loog_extension_host::PaletteFilePicked {
+                        request,
+                        path,
+                    }),
+                );
+            }
+        });
+    }
+
     fn apply(&self, app: &mut AppState, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
@@ -222,6 +256,21 @@ impl Inner {
                 }
                 Effect::ResourceDelivery(_) => {}
                 Effect::ClearUi { session, owner } => app.extension_widgets.remove(session, &owner),
+                Effect::Palette {
+                    id,
+                    generation,
+                    commands,
+                } => {
+                    let dialogs =
+                        crate::app::palette::apply_commands(app, &id, generation, commands);
+                    // A session this replaced is answered as cancelled.
+                    for answer in crate::app::palette::take_answers(app) {
+                        self.palette_event(&answer.owner, answer.generation, answer.event);
+                    }
+                    for (request, title) in dialogs {
+                        self.pick_file(&id, generation, request, title);
+                    }
+                }
                 Effect::StartWatch { watch, spec } => {
                     if let Some(runner) = self.watches.get() {
                         runner.start(watch, spec);
@@ -854,6 +903,16 @@ impl Drop for ExtensionHost {
 }
 
 impl ExtensionHost {
+    /// Tell an extension what the user did in the command palette.
+    pub(crate) fn palette_event(
+        &self,
+        id: &str,
+        generation: u64,
+        event: loog_extension_host::PaletteEvent,
+    ) {
+        self.inner.palette_event(id, generation, event);
+    }
+
     pub(crate) fn refresh_resource_grants(&self) {
         let effects = self.inner.service.lock().unwrap().pump_workspaces();
         self.inner

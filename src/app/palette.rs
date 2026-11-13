@@ -3,7 +3,10 @@
 //! The palette lists every command by name (see `features::palette`), filtered
 //! by what is typed into its field. Choosing one closes the palette and then
 //! performs the command exactly as its key binding would.
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
+
+use loog_extension_host::{PaletteActivity, PaletteCommand, PaletteMode, PaletteView};
 
 use crate::app::context::AppContext;
 use crate::app::key_actions::{self, KeyEnv};
@@ -13,11 +16,51 @@ use crate::features::palette::{self, Entry, Hit, Target};
 use crate::features::settings::theme_id::ThemeId;
 use crate::ui::components::input::InputState;
 use crate::ui::components::state_access::StateAccess;
-use crate::ui::palette::{Binding, Command, Frame, Item, Row};
+use crate::ui::palette::{Activity, Binding, Command, Frame, Item, Row};
 
 /// Rows (headers included) the list shows at once.
 pub const VISIBLE_ROWS: usize = 12;
 const RECENT_LIMIT: usize = 8;
+
+/// How an extension's session takes its answer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SessionMode {
+    /// Rows to filter and choose from.
+    #[default]
+    Choose,
+    /// Free text.
+    Text,
+    /// Free text that is never shown.
+    Secret,
+}
+
+/// A session an extension has open in the palette. The palette shows what the
+/// extension last said and answers with the row or text the user gave; it
+/// never interprets either.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Session {
+    pub owner: String,
+    pub generation: u64,
+    pub id: u64,
+    pub mode: SessionMode,
+    pub tags: Vec<String>,
+    pub activity: Activity,
+}
+
+/// The entries one extension added to the command list.
+#[derive(Clone, Debug)]
+pub struct Published {
+    pub generation: u64,
+    pub entries: Vec<loog_extension_host::PaletteEntry>,
+}
+
+/// What the user did that an extension is waiting to hear about.
+#[derive(Clone, Debug)]
+pub struct Answer {
+    pub owner: String,
+    pub generation: u64,
+    pub event: loog_extension_host::PaletteEvent,
+}
 
 #[derive(Clone, Default)]
 pub struct PaletteState {
@@ -35,7 +78,13 @@ pub struct PaletteState {
     pub recent: Vec<String>,
     pub entries: Arc<Vec<Entry>>,
     /// What the empty field asks for.
-    pub placeholder: &'static str,
+    pub placeholder: String,
+    /// The session an extension has open, if the palette shows one.
+    pub session: Option<Session>,
+    /// What extensions added to the command list. Unlike `entries` it outlives one opening.
+    pub published: Arc<BTreeMap<String, Published>>,
+    /// Sessions that ended without an answer, to be told to their extension.
+    pub ended: Vec<Session>,
 }
 
 /// What the list draws, top to bottom.
@@ -59,23 +108,30 @@ impl PaletteState {
         }
     }
 
+    /// The group a match is listed under. Recently run commands form their own
+    /// group, but only while nothing is typed and no extension session is open.
+    fn group_of(&self, hit: &Hit) -> String {
+        let entry = &self.entries[hit.index];
+        let typed = !self.input.text().trim().is_empty();
+        if !typed && self.session.is_none() && self.recent.contains(&entry.id) {
+            "Recent".to_owned()
+        } else {
+            entry.category.clone()
+        }
+    }
+
     fn lines(&self, hits: &[Hit]) -> Vec<Line> {
-        let grouped = self.input.text().trim().is_empty();
+        let groups: Vec<String> = hits.iter().map(|hit| self.group_of(hit)).collect();
+        // A typed query is named by group too once its matches come from more than one.
+        let typed = !self.input.text().trim().is_empty();
+        let grouped = !typed || groups.iter().any(|group| Some(group) != groups.first());
         let mut lines = Vec::with_capacity(hits.len() * 2);
-        let mut last: Option<String> = None;
-        for (position, hit) in hits.iter().enumerate() {
-            if grouped {
-                let entry = &self.entries[hit.index];
-                let label = if self.recent.contains(&entry.id) {
-                    "Recent".to_owned()
-                } else {
-                    entry.category.clone()
-                };
-                if last.as_ref() != Some(&label) {
-                    lines.push(Line::Header(label.clone()));
-                    last = Some(label);
-                }
+        let mut last: Option<&String> = None;
+        for (position, group) in groups.iter().enumerate() {
+            if grouped && !group.is_empty() && last != Some(group) {
+                lines.push(Line::Header(group.clone()));
             }
+            last = Some(group);
             lines.push(Line::Hit(position));
         }
         lines
@@ -105,10 +161,22 @@ impl PaletteState {
     pub fn close(&mut self) {
         self.visible = false;
         self.input.clear();
+        self.input.masked = false;
         self.selected = 0;
         self.top = 0;
         self.query.clear();
         self.entries = Arc::default();
+        // Closing is an answer in itself: the extension is told it was cancelled.
+        if let Some(session) = self.session.take() {
+            self.ended.push(session);
+        }
+    }
+
+    /// Whether the open session takes text rather than a choice.
+    fn takes_text(&self) -> bool {
+        self.session
+            .as_ref()
+            .is_some_and(|session| session.mode != SessionMode::Choose)
     }
 }
 
@@ -175,11 +243,176 @@ pub fn open(state: &AppContext) {
         let restore_terminal = app.terminal.ui.terminal_focused;
         let palette = &mut app.palette;
         palette.close();
-        palette.entries = Arc::new(palette::catalog(&extension_commands));
-        palette.placeholder = "Search commands";
+        let published = published_entries(&palette.published);
+        palette.entries = Arc::new(palette::catalog_with(&extension_commands, published));
+        palette.placeholder = "Search commands".to_owned();
         palette.restore_terminal = restore_terminal;
         palette.visible = true;
     });
+}
+
+/// The rows extensions added to the command list, in owner order.
+fn published_entries(published: &BTreeMap<String, Published>) -> Vec<Entry> {
+    published
+        .iter()
+        .flat_map(|(owner, published)| {
+            published.entries.iter().map(move |entry| Entry {
+                id: format!("{owner}:{}", entry.id),
+                title: entry.title.clone(),
+                category: entry.category.clone(),
+                description: entry.detail.clone().unwrap_or_default(),
+                target: Target::ExtensionEntry {
+                    owner: owner.clone(),
+                    generation: published.generation,
+                    id: entry.id.clone(),
+                },
+            })
+        })
+        .collect()
+}
+
+/// The rows of a session's choices.
+fn choice_entries(view: &PaletteView) -> Vec<Entry> {
+    view.choices
+        .iter()
+        .map(|choice| Entry {
+            id: choice.id.clone(),
+            title: choice.title.clone(),
+            category: choice.group.clone().unwrap_or_default(),
+            description: choice.detail.clone().unwrap_or_default(),
+            target: Target::Choice {
+                id: choice.id.clone(),
+                trailing: choice.trailing.clone(),
+            },
+        })
+        .collect()
+}
+
+fn session_of(owner: &str, generation: u64, id: u64, view: &PaletteView) -> Session {
+    Session {
+        owner: owner.to_owned(),
+        generation,
+        id,
+        mode: match view.mode {
+            PaletteMode::Choose => SessionMode::Choose,
+            PaletteMode::Text => SessionMode::Text,
+            PaletteMode::Secret => SessionMode::Secret,
+        },
+        tags: view.tags.clone(),
+        activity: match view.activity {
+            PaletteActivity::Idle => Activity::Idle,
+            PaletteActivity::Busy => Activity::Busy,
+            PaletteActivity::Failed => Activity::Failed,
+        },
+    }
+}
+
+/// Apply what an extension asked of the palette, in order. Returns the file
+/// dialogs it asked for, which only the caller can show.
+pub fn apply_commands(
+    app: &mut AppState,
+    owner: &str,
+    generation: u64,
+    commands: Vec<PaletteCommand>,
+) -> Vec<(u64, String)> {
+    let mut dialogs = Vec::new();
+    for command in commands {
+        match command {
+            PaletteCommand::Entries(entries) => {
+                let published = Arc::make_mut(&mut app.palette.published);
+                if entries.is_empty() {
+                    published.remove(owner);
+                } else {
+                    published.insert(owner.to_owned(), Published { generation, entries });
+                }
+            }
+            PaletteCommand::Open { session, view } => {
+                app.close_overlays_for_palette();
+                let restore_terminal = app.terminal.ui.terminal_focused;
+                let palette = &mut app.palette;
+                palette.restore_terminal = restore_terminal;
+                palette.session = Some(session_of(owner, generation, session, &view));
+                palette.input.masked = view.mode == PaletteMode::Secret;
+                palette.entries = Arc::new(choice_entries(&view));
+                palette.placeholder = view.placeholder;
+                palette.visible = true;
+            }
+            PaletteCommand::Update { session, view } => {
+                let palette = &mut app.palette;
+                let current = palette.session.as_ref().is_some_and(|open| {
+                    open.owner == owner && open.generation == generation && open.id == session
+                });
+                if !current {
+                    continue;
+                }
+                let next = session_of(owner, generation, session, &view);
+                // A new step, or a different way of answering, starts a fresh field.
+                if palette
+                    .session
+                    .as_ref()
+                    .is_some_and(|open| open.mode != next.mode || open.tags != next.tags)
+                {
+                    palette.input.clear();
+                    palette.input.masked = next.mode == SessionMode::Secret;
+                }
+                palette.session = Some(next);
+                palette.entries = Arc::new(choice_entries(&view));
+                palette.placeholder = view.placeholder;
+                palette.move_selection(0);
+            }
+            PaletteCommand::Close { session } => {
+                let palette = &mut app.palette;
+                let current = palette.session.as_ref().is_some_and(|open| {
+                    open.owner == owner && open.generation == generation && open.id == session
+                });
+                if current {
+                    // The extension ended it: there is nobody left to tell.
+                    palette.session = None;
+                    palette.close();
+                }
+            }
+            PaletteCommand::PickFile { request, title } => dialogs.push((request, title)),
+        }
+    }
+    dialogs
+}
+
+/// The answers waiting for extensions: sessions that were closed or replaced.
+pub fn take_answers(app: &mut AppState) -> Vec<Answer> {
+    std::mem::take(&mut app.palette.ended)
+        .into_iter()
+        .map(|session| Answer {
+            owner: session.owner,
+            generation: session.generation,
+            event: loog_extension_host::PaletteEvent::Cancelled(session.id),
+        })
+        .collect()
+}
+
+/// Tell extensions about sessions that ended since the last time.
+pub fn flush_ended(state: &AppContext) {
+    let mut answers = Vec::new();
+    state.try_update(|app| {
+        answers = take_answers(app);
+        false
+    });
+    send(state, answers);
+}
+
+/// Hand `answers` to the extensions they are for.
+fn send(state: &AppContext, answers: Vec<Answer>) {
+    if answers.is_empty() {
+        return;
+    }
+    let Some(host) = state
+        .services()
+        .and_then(|runtime| runtime.extensions())
+    else {
+        return;
+    };
+    for answer in answers {
+        host.palette_event(&answer.owner, answer.generation, answer.event);
+    }
 }
 
 /// The built-in and extension themes that can be chosen now.
@@ -213,7 +446,7 @@ pub fn open_themes(state: &AppContext) {
         let palette = &mut app.palette;
         palette.close();
         palette.entries = Arc::new(theme_entries(current));
-        palette.placeholder = "Search themes";
+        palette.placeholder = "Search themes".to_owned();
         palette.restore_terminal = restore_terminal;
         palette.visible = true;
         palette.selected = selected;
@@ -242,6 +475,47 @@ pub fn confirm(env: &KeyEnv) -> bool {
 
 /// Close the palette, then run the command at `position` in the hits.
 pub fn run(env: &KeyEnv, position: usize) -> bool {
+    // An open session takes the answer; the palette stays up until the extension
+    // says what comes next.
+    let mut session_answer: Option<Answer> = None;
+    let mut in_session = false;
+    env.state.update(|app| {
+        let Some(session) = app.palette.session.clone() else {
+            return;
+        };
+        in_session = true;
+        let text = app.palette.input.text().to_owned();
+        let choice = if session.mode == SessionMode::Choose {
+            let hits = app.palette.hits();
+            let Some(hit) = hits.get(position) else {
+                return;
+            };
+            match &app.palette.entries[hit.index].target {
+                Target::Choice { id, .. } => Some(id.clone()),
+                _ => return,
+            }
+        } else {
+            None
+        };
+        if session.mode == SessionMode::Secret {
+            app.palette.input.clear();
+        }
+        session_answer = Some(Answer {
+            owner: session.owner,
+            generation: session.generation,
+            event: loog_extension_host::PaletteEvent::Accepted(
+                loog_extension_host::PaletteAccepted {
+                    session: session.id,
+                    choice,
+                    text,
+                },
+            ),
+        });
+    });
+    if in_session {
+        send(&env.state, session_answer.into_iter().collect());
+        return true;
+    }
     let mut chosen: Option<(String, Target)> = None;
     env.state.update(|app| {
         let hits = app.palette.hits();
@@ -268,6 +542,20 @@ pub fn run(env: &KeyEnv, position: usize) -> bool {
         Target::Theme(id) => env
             .state
             .update(move |app| app.preferences.values_mut().theme = id),
+        Target::ExtensionEntry {
+            owner,
+            generation,
+            id,
+        } => send(
+            &env.state,
+            vec![Answer {
+                owner,
+                generation,
+                event: loog_extension_host::PaletteEvent::Entry(id),
+            }],
+        ),
+        // A choice only means something to the session it belongs to.
+        Target::Choice { .. } => {}
         Target::Extension(id) => match env
             .state
             .services()
@@ -304,12 +592,38 @@ fn frame(app: &AppState) -> Frame {
     let palette = &app.palette;
     let hits = palette.hits();
     let (selected, top) = palette.view();
+    let (tags, activity) = palette
+        .session
+        .as_ref()
+        .map(|session| (session.tags.clone(), session.activity.clone()))
+        .unwrap_or_default();
+    let placeholder = palette.placeholder.clone();
+    let input_empty = palette.input.text().is_empty();
+    let nothing_to_list = palette.session.is_some()
+        && hits.is_empty()
+        && palette.input.text().trim().is_empty();
+    if palette.takes_text() || nothing_to_list {
+        // The field is the whole answer, or the session has no rows yet: there is
+        // nothing to count or list.
+        return Frame {
+            rows: Vec::new(),
+            position: String::new(),
+            empty: None,
+            placeholder,
+            tags,
+            activity,
+            input_empty,
+        };
+    }
     if hits.is_empty() {
         return Frame {
             rows: Vec::new(),
             position: "0".to_owned(),
             empty: Some(palette.input.text().trim().to_owned()),
-            placeholder: palette.placeholder,
+            placeholder,
+            tags,
+            activity,
+            input_empty,
         };
     }
     let lines = palette.lines(&hits);
@@ -330,7 +644,10 @@ fn frame(app: &AppState) -> Frame {
                         .next_back()
                         .map(|binding| key_chips(&binding.label()))
                         .unwrap_or_default(),
-                    Target::Extension(_) | Target::Theme(_) => Vec::new(),
+                    Target::Extension(_)
+                    | Target::Theme(_)
+                    | Target::ExtensionEntry { .. }
+                    | Target::Choice { .. } => Vec::new(),
                 };
                 Row::Item(Item {
                     index: *position,
@@ -340,7 +657,16 @@ fn frame(app: &AppState) -> Frame {
                     keys,
                     positions: hit.positions.clone(),
                     selected: *position == selected,
-                    extension: matches!(entry.target, Target::Extension(_)),
+                    extension: matches!(
+                        entry.target,
+                        Target::Extension(_)
+                            | Target::ExtensionEntry { .. }
+                            | Target::Choice { .. }
+                    ),
+                    trailing: match &entry.target {
+                        Target::Choice { trailing, .. } => trailing.clone(),
+                        _ => None,
+                    },
                 })
             }
         })
@@ -349,7 +675,10 @@ fn frame(app: &AppState) -> Frame {
         rows,
         position: format!("{} / {}", selected + 1, hits.len()),
         empty: None,
-        placeholder: palette.placeholder,
+        placeholder,
+        tags,
+        activity,
+        input_empty,
     }
 }
 
@@ -367,7 +696,10 @@ pub fn binding(state: &AppContext, env: KeyEnv) -> Binding {
         ),
         move || read(&reader, frame),
         move |command| match command {
-            Command::Close => writer.update(|app| app.palette.close()),
+            Command::Close => {
+                writer.update(|app| app.palette.close());
+                flush_ended(&writer);
+            }
             Command::Scroll(down) => {
                 writer.update(|app| app.palette.move_selection(if down { 1 } else { -1 }))
             }
@@ -508,11 +840,201 @@ mod tests {
     }
 
     #[test]
-    fn typed_query_lists_matches_without_headers() {
+    fn typed_query_names_each_group_once_when_matches_come_from_several() {
         let mut palette = opened();
         palette.input.set_text("save");
-        let lines = palette.lines(&palette.hits());
-        assert!(lines.iter().all(|line| matches!(line, Line::Hit(_))));
-        assert!(!lines.is_empty());
+        let hits = palette.hits();
+        let lines = palette.lines(&hits);
+        let categories: std::collections::BTreeSet<_> = hits
+            .iter()
+            .map(|hit| palette.entries[hit.index].category.clone())
+            .collect();
+        let headers = lines
+            .iter()
+            .filter(|line| matches!(line, Line::Header(_)))
+            .count();
+        assert!(!hits.is_empty());
+        assert_eq!(headers, if categories.len() > 1 { categories.len() } else { 0 });
+    }
+
+    fn extension_view(mode: PaletteMode, tags: &[&str]) -> PaletteView {
+        PaletteView {
+            tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
+            placeholder: "Pick".into(),
+            mode,
+            choices: vec![
+                loog_extension_host::PaletteChoice {
+                    id: "one".into(),
+                    title: "One".into(),
+                    detail: None,
+                    group: Some("Group".into()),
+                    trailing: Some("Tip".into()),
+                },
+                loog_extension_host::PaletteChoice {
+                    id: "two".into(),
+                    title: "Two".into(),
+                    detail: None,
+                    group: Some("Group".into()),
+                    trailing: None,
+                },
+            ],
+            activity: PaletteActivity::Idle,
+            note: None,
+        }
+    }
+
+    #[test]
+    fn an_extension_session_shows_its_choices_under_the_palette() {
+        let mut app = AppState::new();
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Open {
+                session: 7,
+                view: extension_view(PaletteMode::Choose, &["Step"]),
+            }],
+        );
+        assert!(app.palette.visible);
+        let frame = frame(&app);
+        assert_eq!(frame.tags, ["Step"]);
+        assert_eq!(frame.placeholder, "Pick");
+        let items: Vec<_> = frame
+            .rows
+            .iter()
+            .filter_map(|row| match row {
+                Row::Item(item) => Some(item),
+                Row::Header(_) => None,
+            })
+            .collect();
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|item| item.extension));
+        assert_eq!(items[0].trailing.as_deref(), Some("Tip"));
+    }
+
+    #[test]
+    fn a_session_without_rows_shows_no_count_or_empty_message() {
+        let mut app = AppState::new();
+        let mut view = extension_view(PaletteMode::Choose, &["Step"]);
+        view.choices.clear();
+        view.activity = PaletteActivity::Busy;
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Open { session: 1, view }],
+        );
+        let frame = frame(&app);
+        assert!(frame.position.is_empty());
+        assert!(frame.empty.is_none());
+        assert_eq!(frame.activity, Activity::Busy);
+    }
+
+    #[test]
+    fn closing_the_palette_cancels_the_session_but_an_extension_close_does_not() {
+        let mut app = AppState::new();
+        let open = |app: &mut AppState, session| {
+            apply_commands(
+                app,
+                "acme.tool",
+                1,
+                vec![PaletteCommand::Open {
+                    session,
+                    view: extension_view(PaletteMode::Choose, &[]),
+                }],
+            )
+        };
+        open(&mut app, 1);
+        app.palette.close();
+        let answers = take_answers(&mut app);
+        assert!(matches!(
+            answers[0].event,
+            loog_extension_host::PaletteEvent::Cancelled(1)
+        ));
+        open(&mut app, 2);
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Close { session: 2 }],
+        );
+        assert!(!app.palette.visible);
+        assert!(take_answers(&mut app).is_empty());
+    }
+
+    #[test]
+    fn replacing_a_session_cancels_the_earlier_one() {
+        let mut app = AppState::new();
+        for session in [1, 2] {
+            apply_commands(
+                &mut app,
+                "acme.tool",
+                1,
+                vec![PaletteCommand::Open {
+                    session,
+                    view: extension_view(PaletteMode::Choose, &[]),
+                }],
+            );
+        }
+        let answers = take_answers(&mut app);
+        assert_eq!(answers.len(), 1);
+        assert!(matches!(
+            answers[0].event,
+            loog_extension_host::PaletteEvent::Cancelled(1)
+        ));
+    }
+
+    #[test]
+    fn a_secret_session_masks_the_field_and_a_new_step_starts_it_empty() {
+        let mut app = AppState::new();
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Open {
+                session: 1,
+                view: extension_view(PaletteMode::Secret, &["Password"]),
+            }],
+        );
+        assert!(app.palette.input.masked);
+        assert!(frame(&app).rows.is_empty(), "a text session lists no rows");
+        app.palette.input.set_text("hunter2");
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Update {
+                session: 1,
+                view: extension_view(PaletteMode::Choose, &["Next"]),
+            }],
+        );
+        assert!(!app.palette.input.masked);
+        assert!(app.palette.input.text().is_empty());
+    }
+
+    #[test]
+    fn published_entries_join_the_command_list_and_go_when_withdrawn() {
+        let mut app = AppState::new();
+        let entry = loog_extension_host::PaletteEntry {
+            id: "a".into(),
+            title: "Open A".into(),
+            detail: Some("detail".into()),
+            category: "Places".into(),
+        };
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            3,
+            vec![PaletteCommand::Entries(vec![entry])],
+        );
+        let listed = published_entries(&app.palette.published);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].category, "Places");
+        assert!(matches!(
+            &listed[0].target,
+            Target::ExtensionEntry { owner, generation: 3, id } if owner == "acme.tool" && id == "a"
+        ));
+        apply_commands(&mut app, "acme.tool", 3, vec![PaletteCommand::Entries(vec![])]);
+        assert!(published_entries(&app.palette.published).is_empty());
     }
 }
