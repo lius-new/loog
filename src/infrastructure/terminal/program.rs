@@ -1,7 +1,7 @@
 //! Native process names, debounced so brief commands do not churn tab labels.
 
 use crate::features::terminal::program::ProgramCandidate;
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 use crate::features::terminal::program::descendant_program;
 #[cfg(not(windows))]
 use crate::features::terminal::program::program_name;

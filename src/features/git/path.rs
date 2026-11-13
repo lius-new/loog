@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn local_non_unicode_git_names_remain_lossless() {
         let path = GitPath::from_git(b"src/\xff").unwrap();
-        assert_eq!(path.bytes(), b"src/\xff");
+        assert_eq!(path.bytes().as_ref(), b"src/\xff");
         assert_eq!(
             GitPath::from_local(&path.to_local_path().unwrap()).unwrap(),
             path

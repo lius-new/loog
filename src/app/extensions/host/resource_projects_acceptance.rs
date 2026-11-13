@@ -116,7 +116,11 @@ pub(super) fn run(
         app.workspace
             .document_editor_mut(edited)
             .unwrap()
-            .replace(0..length, "{}", loog_editor_core::text::EditKind::Other)
+            .replace(
+                0..length,
+                "{\"enabled\":\"wrong type\"}",
+                loog_editor_core::text::EditKind::Other,
+            )
             .unwrap();
     });
     host.observe(&ui.state.get());
@@ -155,7 +159,7 @@ pub(super) fn run(
                 .as_ref()
                 .is_some_and(|items| {
                     if index == 0 {
-                        items.iter().any(|item| item.message.contains("enabled"))
+                        items.iter().any(|item| item.message.contains("boolean"))
                             && items
                                 .iter()
                                 .all(|item| !item.message.contains("remoteSetting"))
@@ -167,7 +171,10 @@ pub(super) fn run(
     }
     ui.state.update(|app| {
         assert!(app.workspace.is_dirty(edited));
-        assert_eq!(app.workspace.documents[&edited].buffer.text(), "{}");
+        assert_eq!(
+            app.workspace.documents[&edited].buffer.text(),
+            "{\"enabled\":\"wrong type\"}"
+        );
         app.workspace.document_editor_mut(edited).unwrap().undo();
         assert_eq!(
             app.workspace.documents[&edited].buffer.text(),
