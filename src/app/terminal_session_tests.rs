@@ -299,7 +299,9 @@ mod tests {
             }
             assert!(
                 Instant::now() < deadline,
-                "custom args: {output:?}; expected: {expected:?}"
+                "custom args: {output:?}; expected: {expected:?}; status: {:?}; notice: {:?}",
+                controller.snapshot().status,
+                controller.snapshot().notice
             );
             thread::sleep(Duration::from_millis(20));
         }

@@ -4760,8 +4760,12 @@ fn vim_editor_inlay_hints_recover_when_a_provider_appears_without_an_edit() {
             .unwrap()
             .capability_sources(None)
             .iter()
-            .any(|i| i.run > run && i.providers.inlay_hint)
+            .any(|i| i.run > run && i.providers.hover && !i.providers.inlay_hint)
     });
+    // The manifest initially advertises every fixture capability. Wait for
+    // negotiated capabilities and didOpen before sending the save that releases
+    // the registration script; a save during server initialization is too early.
+    h.until_ready();
     h.until("old hints cleared after provider restart", |h| {
         h.state.try_update(crate::app::language_ui::inlay::tick);
         h.state
