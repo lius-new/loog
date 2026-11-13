@@ -29,6 +29,13 @@ const FOOT_H: f32 = 28.0;
 const PAD_X: f32 = 14.0;
 const GLYPH: f32 = 16.0;
 const CHIP_H: f32 = 18.0;
+/// How far each level of a tree is indented.
+const INDENT: f32 = 14.0;
+/// The size of a tree row's arrow.
+const ARROW: f32 = 12.0;
+/// The size of the mark that opens a row.
+const ACTION: f32 = 16.0;
+const ACTION_ICON: &str = "folder-opened";
 
 /// One command in the list.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,6 +53,17 @@ pub struct Item {
     pub extension: bool,
     /// A word at the row's end that stands in for the category and the keys.
     pub trailing: Option<String>,
+    /// How far a tree row is indented.
+    pub depth: u8,
+    /// A tree row's arrow: some, and turned down when true.
+    pub expanded: Option<bool>,
+    /// A tree row's folder or file mark, in place of the category mark.
+    pub icon: Option<crate::features::palette::RowIcon>,
+    /// The hint of the mark shown at the row's end while the pointer is over it.
+    pub action: Option<String>,
+    pub dim: bool,
+    /// Whether the pointer is over the row.
+    pub hovered: bool,
 }
 
 /// What the field's end shows about the work behind the list.
@@ -84,8 +102,12 @@ pub enum Command {
     Close,
     /// Pointer over the match at this position.
     Hover(usize),
+    /// The pointer is over none of the rows.
+    Unhover,
     /// Choose the match at this position.
     Run(usize),
+    /// The mark at the end of the match at this position was clicked.
+    Action(usize),
     /// Wheel step: `true` moves down.
     Scroll(bool),
 }
@@ -200,8 +222,10 @@ fn item_row(rect: UiRect, item: &Item, state: &Binding) -> Element {
     .event_policy(EventPolicy::INTERACTIVE)
     .cursor(CursorIcon::Pointer)
     .semantics(Semantics::new(SemanticRole::MenuItem).name(item.title.clone()))
-    .on_event(UiEventKind::PointerMove, move |_cx, _payload| {
+    .on_event(UiEventKind::PointerMove, move |cx, _payload| {
         hover.run(Command::Hover(index));
+        // The backdrop clears the hover when the pointer is over no row.
+        cx.stop_propagation();
     })
     .on_click(move || run.run(Command::Run(index)));
     if item.selected {
@@ -216,37 +240,100 @@ fn item_row(rect: UiRect, item: &Item, state: &Binding) -> Element {
         ));
     }
 
-    // Category mark.
-    // Everything an extension supplies wears the extension mark, whatever group it is in.
-    let mark = if item.extension {
-        "Extension"
-    } else {
-        item.category.as_str()
-    };
-    let tint = category_color(mark);
+    // A tree row is indented, has an arrow when it can open, and wears the mark of a
+    // folder or a file; every other row wears its category mark.
+    let tree_row = item.icon.is_some();
+    let indent = f32::from(item.depth) * INDENT;
+    let mut glyph_left = rect.left + PAD_X + indent;
+    if tree_row {
+        if let Some(open) = item.expanded {
+            let arrow = UiRect::new(
+                glyph_left,
+                rect.top + (ROW_H - ARROW) / 2.0,
+                glyph_left + ARROW,
+                rect.top + (ROW_H + ARROW) / 2.0,
+            );
+            row = row.child(crate::ui::tabs::icon(
+                UiId::owned(format!("palette.arrow.{index}")),
+                if open { "chevron-down" } else { "chevron-right" },
+                arrow,
+                palette.text_dim,
+            ));
+        }
+        glyph_left += ARROW + 6.0;
+    }
     let glyph = UiRect::new(
-        rect.left + PAD_X,
+        glyph_left,
         rect.top + (ROW_H - GLYPH) / 2.0,
-        rect.left + PAD_X + GLYPH,
+        glyph_left + GLYPH,
         rect.top + (ROW_H + GLYPH) / 2.0,
     );
-    let initial = mark
-        .chars()
-        .next()
-        .map(|c| c.to_uppercase().to_string())
-        .unwrap_or_default();
-    row = row.child(
-        panel(
+    if let Some(kind) = item.icon {
+        use crate::features::palette::RowIcon;
+        let key = match kind {
+            RowIcon::Folder if item.expanded == Some(true) => crate::ui::file_icons::FOLDER_OPEN_ICON,
+            RowIcon::Folder => crate::ui::file_icons::FOLDER_ICON,
+            RowIcon::File => crate::ui::file_icons::icon_for_file(&item.title),
+        };
+        let color = if item.dim { palette.text_faint } else { palette.text_muted };
+        row = row.child(crate::ui::tabs::icon(
+            UiId::owned(format!("palette.icon.{index}")),
+            key,
             glyph,
-            VisualStyle::filled(mix(palette.surface, tint, 0.16)).radius(4.0),
-        )
-        .child(text(glyph, initial, centered(tint, theme::SMALL, 700))),
-    );
+            color,
+        ));
+    } else {
+        // Everything an extension supplies wears the extension mark, whatever group it is in.
+        let mark = if item.extension {
+            "Extension"
+        } else {
+            item.category.as_str()
+        };
+        let tint = category_color(mark);
+        let initial = mark
+            .chars()
+            .next()
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_default();
+        row = row.child(
+            panel(
+                glyph,
+                VisualStyle::filled(mix(palette.surface, tint, 0.16)).radius(4.0),
+            )
+            .child(text(glyph, initial, centered(tint, theme::SMALL, 700))),
+        );
+    }
 
-    // Keys, or the category when the command has none.
+    // The mark that opens the row, only under the pointer; it takes the row's end.
     let middle = (rect.top + rect.bottom) / 2.0;
     let mut right = rect.right - PAD_X;
-    if item.keys.is_empty() {
+    if item.hovered && item.action.is_some() {
+        let mark = UiRect::new(right - ACTION, middle - ACTION / 2.0, right, middle + ACTION / 2.0);
+        let act = state.clone();
+        row = row.child(
+            panel(mark, VisualStyle::default())
+                .event_policy(EventPolicy::INTERACTIVE)
+                .cursor(CursorIcon::Pointer)
+                .semantics(
+                    Semantics::new(SemanticRole::Button)
+                        .name(item.action.clone().unwrap_or_default()),
+                )
+                .on_event(UiEventKind::Click, move |cx, _payload| {
+                    act.run(Command::Action(index));
+                    cx.stop_propagation();
+                })
+                .child(crate::ui::tabs::icon(
+                    UiId::owned(format!("palette.action.{index}")),
+                    ACTION_ICON,
+                    mark,
+                    palette.accent,
+                )),
+        );
+        right -= ACTION + 8.0;
+    }
+
+    // Keys, or the category when the command has none.
+    if item.keys.is_empty() && !(tree_row && item.trailing.is_none()) {
         let label = match &item.trailing {
             Some(word) => word.as_str(),
             None if item.extension => "Extension",
@@ -264,7 +351,7 @@ fn item_row(rect: UiRect, item: &Item, state: &Binding) -> Element {
             theme::mono_right(color, theme::SMALL),
         ));
         right -= width + 10.0;
-    } else {
+    } else if !item.keys.is_empty() {
         for key in item.keys.iter().rev() {
             let (next, left) = key_cap(row, key, right, middle);
             row = next;
@@ -275,7 +362,9 @@ fn item_row(rect: UiRect, item: &Item, state: &Binding) -> Element {
 
     // The title, with the characters the query matched drawn apart.
     let left = glyph.right + 10.0;
-    let base = if item.selected {
+    let base = if item.dim {
+        palette.text_faint
+    } else if item.selected {
         palette.text_bright
     } else {
         palette.text_soft
@@ -340,12 +429,17 @@ pub fn render(
 
     // Invisible backdrop: a press outside the card closes the palette.
     let close = state.clone();
+    let leave = state.clone();
     let overlay = panel(viewport, VisualStyle::default())
         .event_policy(EventPolicy::INTERACTIVE)
         .on_pointer_down_with_button(move |_cx, pointer, _button| {
             if !card.contains(pointer.point) {
                 close.run(Command::Close);
             }
+        })
+        // A row stops its own pointer moves; any that reach here are over no row.
+        .on_event(UiEventKind::PointerMove, move |_cx, _payload| {
+            leave.run(Command::Unhover);
         });
 
     let wheel = state.clone();

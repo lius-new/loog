@@ -5,7 +5,8 @@ use std::collections::VecDeque;
 
 use crate::bindings::loog::palette::picker::{Choice, Entry, Event, View};
 
-const MAX_CHOICES: usize = 200;
+const MAX_CHOICES: usize = 1000;
+const MAX_DEPTH: u8 = 32;
 const MAX_ENTRIES: usize = 64;
 const MAX_TAGS: usize = 4;
 const MAX_TEXT: usize = 200;
@@ -47,6 +48,8 @@ fn choice_valid(choice: &Choice) -> bool {
         && optional(&choice.detail, MAX_TEXT)
         && optional(&choice.group, MAX_TEXT)
         && optional(&choice.trailing, MAX_TEXT)
+        && optional(&choice.action, MAX_TEXT)
+        && choice.depth <= MAX_DEPTH
 }
 
 fn view_valid(view: &View) -> Result<(), String> {
@@ -61,6 +64,12 @@ fn view_valid(view: &View) -> Result<(), String> {
     }
     if !optional(&view.note, MAX_NOTE) {
         return Err("a palette note is one short line".into());
+    }
+    if view.text.as_ref().is_some_and(|text| text.len() > MAX_FIELD_TEXT || text.contains(['\0', '\n', '\r'])) {
+        return Err("palette text is one line within its budget".into());
+    }
+    if !optional(&view.selected, MAX_TEXT) {
+        return Err("a palette selection is one row id".into());
     }
     Ok(())
 }
@@ -130,7 +139,8 @@ impl Palette {
     /// Queue an answer for the guest. A session that is no longer the open one gets none.
     pub fn deliver(&mut self, event: Event) -> Result<(), String> {
         let current = match &event {
-            Event::Accepted(accepted) => Some(accepted.session),
+            Event::Input(input) => Some(input.session),
+            Event::Accepted(accepted) | Event::Complete(accepted) => Some(accepted.session),
             Event::Cancelled(session) => Some(*session),
             Event::Entry(_) | Event::File(_) => None,
         };
@@ -143,8 +153,21 @@ impl Palette {
                 self.open = None;
             }
         }
-        if matches!(&event, Event::Accepted(accepted) if accepted.text.len() > MAX_FIELD_TEXT) {
+        let too_long = match &event {
+            Event::Input(input) => input.text.len() > MAX_FIELD_TEXT,
+            Event::Accepted(accepted) | Event::Complete(accepted) => accepted.text.len() > MAX_FIELD_TEXT,
+            _ => false,
+        };
+        if too_long {
             return Err("palette text exceeds its budget".into());
+        }
+        // Typing outruns the guest: of a run of unread text only the newest matters.
+        if let Event::Input(next) = &event
+            && let Some(Event::Input(last)) = self.events.back_mut()
+            && last.session == next.session
+        {
+            *last = next.clone();
+            return Ok(());
         }
         if self.events.len() >= MAX_QUEUE {
             return Err("palette event budget exceeded".into());
@@ -166,7 +189,7 @@ impl Palette {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bindings::loog::palette::picker::{Accepted, Activity, Mode};
+    use crate::bindings::loog::palette::picker::{Accepted, Activity, Input, Mode, Trigger};
 
     fn view() -> View {
         View {
@@ -176,6 +199,23 @@ mod tests {
             choices: vec![],
             activity: Activity::Idle,
             note: None,
+            text: None,
+            selected: None,
+        }
+    }
+
+    fn row(id: &str) -> Choice {
+        Choice {
+            id: id.into(),
+            title: id.into(),
+            detail: None,
+            group: None,
+            trailing: None,
+            depth: 0,
+            expanded: None,
+            icon: None,
+            action: None,
+            dim: false,
         }
     }
 
@@ -199,11 +239,57 @@ mod tests {
                 session,
                 choice: None,
                 text: "a".into(),
+                trigger: Trigger::Enter,
             }))
             .unwrap();
         palette.close(session).unwrap();
         palette.deliver(Event::Cancelled(session)).unwrap();
         assert_eq!(palette.poll().len(), 1);
+    }
+
+    #[test]
+    fn a_burst_of_typing_keeps_only_the_newest_text_and_an_answer_ends_the_run() {
+        let mut palette = Palette::default();
+        let session = palette.open(view()).unwrap();
+        let typed = |text: &str| Event::Input(Input { session, text: text.into() });
+        for text in ["/", "/h", "/ho"] {
+            palette.deliver(typed(text)).unwrap();
+        }
+        palette
+            .deliver(Event::Accepted(Accepted { session, choice: None, text: "/ho".into(), trigger: Trigger::Enter }))
+            .unwrap();
+        palette.deliver(typed("/hom")).unwrap();
+        let events = palette.poll();
+        assert_eq!(events.len(), 3);
+        assert!(matches!(&events[0], Event::Input(input) if input.text == "/ho"));
+        assert!(matches!(&events[2], Event::Input(input) if input.text == "/hom"));
+        assert!(palette.deliver(typed(&"x".repeat(MAX_FIELD_TEXT + 1))).is_err());
+    }
+
+    #[test]
+    fn tree_rows_and_field_text_are_bounded() {
+        let mut palette = Palette::default();
+        let mut deep = row("a");
+        deep.depth = MAX_DEPTH + 1;
+        let mut bad = view();
+        bad.choices = vec![deep];
+        assert!(palette.open(bad).is_err());
+        let mut hint = row("b");
+        hint.action = Some("two\nlines".into());
+        let mut bad = view();
+        bad.choices = vec![hint];
+        assert!(palette.open(bad).is_err());
+        let mut bad = view();
+        bad.text = Some("a\nb".into());
+        assert!(palette.open(bad).is_err());
+        let mut good = view();
+        good.mode = Mode::Browse;
+        good.text = Some("/home/liu/".into());
+        good.choices = (0..MAX_CHOICES).map(|index| row(&index.to_string())).collect();
+        palette.open(good).unwrap();
+        let mut many = view();
+        many.choices = (0..=MAX_CHOICES).map(|index| row(&index.to_string())).collect();
+        assert!(palette.open(many).is_err());
     }
 
     #[test]

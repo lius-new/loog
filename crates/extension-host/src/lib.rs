@@ -40,7 +40,8 @@ mod findings;
 mod palette;
 pub use bindings::loog::palette::picker::{
     Accepted as PaletteAccepted, Activity as PaletteActivity, Choice as PaletteChoice,
-    Entry as PaletteEntry, Event as PaletteEvent, Mode as PaletteMode,
+    Entry as PaletteEntry, Event as PaletteEvent, Icon as PaletteIcon, Input as PaletteInput,
+    Mode as PaletteMode, Trigger as PaletteTrigger,
     Picked as PaletteFilePicked, View as PaletteView,
 };
 pub use palette::Command as PaletteCommand;

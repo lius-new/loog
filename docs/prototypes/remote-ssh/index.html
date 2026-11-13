@@ -180,6 +180,36 @@ hr.sp{border:0;border-top:1px solid var(--border);margin:2px 0}
 .dlg .ft2 .res.ok{color:var(--ok)} .dlg .ft2 .res.bad{color:var(--error-text)}
 .dlg .ft2 .sp{flex:1}
 .btn.dis{opacity:.4;pointer-events:none}
+/* 选择文件夹对话框（带文件树） */
+.fd{position:absolute;left:50%;top:44px;transform:translateX(-50%);width:560px;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 16px 50px rgba(0,0,0,.6);display:none;z-index:6}
+.fd .hd{display:flex;align-items:center;height:34px;padding:0 14px;border-bottom:1px solid var(--border);color:var(--bright);font-weight:700;gap:10px}
+.fd .hd .sub{color:var(--dim);font-weight:400}
+.fd .hd .x{margin-left:auto;color:var(--dim);font-weight:400}
+.fd .fgrp{padding:8px 14px 3px;font-size:10px;letter-spacing:.1em;color:var(--faint)}
+.fd .rc{display:flex;gap:8px;padding:3px 14px;color:var(--soft);align-items:center}
+.fd .rc:hover{background:#262b36}
+.fd .rc small{color:var(--faint);margin-left:auto}
+.fd .tree2{height:240px;overflow:hidden;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-top:8px;padding:4px 0;position:relative}
+.fd .tr{display:flex;align-items:center;gap:6px;height:22px;color:var(--soft)}
+.fd .tr.sel{background:var(--selection);box-shadow:inset 2px 0 0 var(--accent);color:var(--bright)}
+.fd .tr .car{width:12px;color:var(--dim);text-align:center;font-size:10px}
+.fd .tr .fic{color:#c8ccd2;font-size:11px}
+.fd .tr.dim{color:var(--ignored)}
+.fd .ld{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim);gap:6px;align-content:center;justify-items:center}
+.fd .pf{display:flex;gap:8px;align-items:center;padding:10px 14px 4px}
+.fd .pf label{color:var(--muted)}
+.fd .pf .inp{flex:1}
+.fd .pe{padding:0 14px;color:var(--error-text);font-size:11px;min-height:18px}
+.fd .fb{display:flex;gap:8px;justify-content:flex-end;padding:6px 14px 12px}
+.fd .go{display:none;margin-left:auto;margin-right:12px;color:var(--accent);flex:none;cursor:pointer}
+.fd .rc .go{margin-left:10px;margin-right:0}
+.fd .tr:hover,.fd .tr.hov{background:#262b36}
+.fd .tr:hover .go,.fd .tr.hov .go,.fd .rc:hover .go{display:block}
+.fd .tree2{margin-bottom:0}
+.palette .it .go{display:none;margin-left:10px;color:var(--accent);flex:none;cursor:pointer}
+.palette .it:hover .go,.palette .it.hov .go{display:block}
+.palette .it.hov:not(.sel){background:#232833}
+.fd .pe{padding:6px 14px 10px}
 .diag{border:1px solid #4a2430;background:#2f1b23;border-radius:4px;padding:7px 9px;color:var(--error-text);font-size:11px}
 .diag code{color:var(--bright)}
 .diag .a{margin-top:6px;display:flex;gap:6px}
@@ -240,6 +270,7 @@ hr.sp{border:0;border-top:1px solid var(--border);margin:2px 0}
   <div class="banner" id="banner"><span class="spin"></span><span id="bannerT"></span><span class="sp"></span><span class="lnk">Retry now</span><span class="lnk">Work offline</span></div>
   <div class="palette" id="palette"></div>
   <div class="dlg" id="dlg"></div>
+  <div class="fd" id="fdlg"></div>
   <div class="toast" id="toast"></div>
   <div class="menu" id="menu"></div>
 </div>
@@ -247,20 +278,25 @@ hr.sp{border:0;border-top:1px solid var(--border);margin:2px 0}
 <script>
 const $=id=>document.getElementById(id);
 const scenes=[
- ['now','0 现状（截图）'],['p-ssh','1 输入 ssh'],['p-ssh2','2 已连接时输入 ssh'],['p-wsl','3 输入 wsl'],['p-docker','4 输入 docker'],['f-ssh','5 新主机·输入'],['f-auth','6 选择私钥'],['f-conn','7 连接中'],['f-err','8 连接失败'],['ok','9 已连接'],['menu','10 状态栏菜单'],['re','11 断线重连']
+ ['now','0 现状（截图）'],['p-ssh','1 输入 ssh'],['p-ssh2','2 已连接时输入 ssh'],['p-wsl','3 输入 wsl'],['p-docker','4 输入 docker'],['f-ssh','5 新主机·输入'],['f-auth','6 选择私钥'],['f-conn','7 连接中'],['f-err','8 连接失败'],['d-load','9 读取目录'],['d-pick','10 输入路径'],['d-type','11 补全路径'],['d-bad','12 路径不存在'],['d-change','13 修改打开的目录'],['ok','14 已连接'],['menu','15 状态栏菜单'],['re','16 断线重连']
 ];
 const notes={
  now:'<strong>现状</strong>：命令面板里已有 “Remote SSH: Connect”，来自插件的命令（右侧 Extension 标记）。此时状态栏左侧没有任何远程入口。',
  'p-ssh':'<strong>已保存的主机直接出现在命令面板里</strong>：输入 ssh 即可看到“Remote SSH: <主机名>”，回车直接连接并打开上次的文件夹；第一项 “Connect to New Host…” 才打开对话框。沿用现有面板的样式和 Extension 标记。',
- 'p-ssh2':'<strong>已连接时</strong>：当前连接的主机标为“已连接”，并出现 Disconnect；其余主机仍可直接连接。',
+ 'p-ssh2':'<strong>已连接时</strong>：当前连接的主机标为“已连接”，并出现 Disconnect；<em>新增命令 Open Folder…</em>，用于修改当前连接打开的目录；其余主机仍可直接连接。',
  'f-ssh':'<strong>连接新主机也在面板里</strong>：选 “Connect to New Host…” 后输入框前出现 Remote SSH 标签，直接键入 user@host[:端口]，回车连接。成功后自动出现在 SAVED HOSTS，不再有单独对话框。',
  'p-wsl':'<strong>WSL 也出现在命令面板里</strong>：输入 wsl 列出本机发行版，状态写在说明里，回车即连；未运行的会自动启动。',
  'p-docker':'<strong>容器同理</strong>：输入 docker 列出容器，回车即连。',
  'f-auth':'<strong>回车后选择认证方式</strong>：仍在同一个面板里，输入框前多出主机标签。默认“系统默认”（使用 SSH 配置与默认密钥），回车即开始连接；选 Private Key File… 则直接弹出系统文件选择窗口，选好文件后开始连接。',
  'f-conn':'<strong>连接中</strong>：面板保持打开，只在输入行最右侧显示一个加载图标，不再弹出进度卡片。',
  'f-err':'<strong>连接失败</strong>：同一位置显示失败图标（悬停可看原因），回车重试。',
+ 'd-load':'<strong>连接成功后，同一个面板里“Connecting…”变成可以输入的路径</strong>（新主机第一次连接；已保存的主机直接打开上次的目录）：标签不变，输入框预填当前用户的家目录，右侧加载图标表示正在读取该目录。没有对话框，也没有 ×。',
+ 'd-pick':'<strong>在命令面板里输入路径，面板分两组：RECENT、FILE TREE</strong>（没有 COMMANDS：打开、上一级、显示隐藏目录，文件树本身都已经包含）。输入框就是路径，默认是家目录，<em>直接回车就打开输入框里的路径</em>。RECENT 是这台主机最近用过的目录，<em>没有图标，点击整行就是尝试打开该目录</em>；FILE TREE 是真正的文件树：<em>从 / 开始，包含上级目录，</em>当前路径一路展开并选中；按层级缩进，目录前有展开箭头，点箭头或行本身展开或收起，展开时才向远程读取；以点开头的目录也在树里，只是灰显，和资源管理器一致。<em>只有鼠标悬停到树里的某一项（目录或文件）时，该项右端才出现“打开”图标</em>（请把鼠标移到任意一行上查看；静止时没有任何图标），点这个图标就表示这次远程连接要打开的就是这一项。Esc 取消并断开这次连接。',
+ 'd-type':'<strong>输入过滤文件树</strong>：输入框里的路径同时过滤文件树，匹配的部分高亮，RECENT 在过滤时隐藏；树仍保持从 / 开始的层级缩进。',
+ 'd-bad':'<strong>路径不存在</strong>：右侧失败图标，列表位置显示一行红色提示写明原因，输入框保留所输内容，直接改写即可；回车重试。',
+ 'd-change':'<strong>新命令 Remote SSH: Open Folder…</strong>：用于修改当前连接打开的目录。同样的面板，多一个 Open Folder 标签，输入框预填当前打开的目录；回车或点图标后，在这条连接上换成新目录。',
  ok:'<strong>已连接</strong>：沿用截图里已有的多根结构——资源管理器新增一个 dev-box 根并带主机徽标；状态栏左端出现主机名；终端标明运行位置；标题栏显示主机。',
- menu:'<strong>状态栏菜单</strong>：点击左下角的主机名弹出，列出本连接的操作与其它环境（最多 4 个）。',
+ menu:'<strong>状态栏条目的菜单</strong>：点击状态栏里的主机名，在命令面板里列出本连接的操作。<em>Open Folder…</em> 是新增的：进入选目录（同上），选定后断开重连并挂载新目录。',
  re:'<strong>断线重连</strong>：状态栏变琥珀色，远程根变暗并显示“重连中”，编辑器顶部出现横幅；未保存文本保留、保存暂停。'
 };
 
@@ -285,7 +321,7 @@ function remoteRoot(state){
 }
 function tree(state){
  let h=`<div class="row root"><span class="ic">▾</span>loog</div>`+local.map(n=>rf(n,'child')).join('')+localFiles.map(n=>ff(n,'child'+(n==='README.md'?' sel':''))).join('');
- if(['ok','re','menu','p-ssh2'].includes(state)) h+=remoteRoot(state==='re'?'re':'ok');
+ if(['ok','re','menu','p-ssh2','d-change'].includes(state)) h+=remoteRoot(state==='re'?'re':'ok');
  $('tree').innerHTML=h;
 }
 
@@ -298,14 +334,18 @@ const hl=t=>t.replace(/(SSH)/,'<span style="color:var(--accent)">$1</span>');
 const hit=(t,d,r,sel)=>`<div class="it ${sel?'sel':''}"><span class="b">E</span><span class="t">${t}</span><span class="d">${d}</span><span class="r">${r||'Extension'}</span></div>`;
 const G=t=>`<div class="grp">${t}</div>`;
 const hosts=(conn)=>(conn?G('CONNECTED')+hit(hl('Remote SSH')+': Disconnect dev-box','loog.remote.ssh.disconnect','Extension',true):'')+
-  G('COMMANDS')+hit(hl('Remote SSH')+': Connect to New Host…','loog.remote.ssh.connect','',!conn)+
+  G('COMMANDS')+(conn?hit(hl('Remote SSH')+': Open Folder…','loog.remote.ssh.open-folder','',true):'')+hit(hl('Remote SSH')+': Connect to New Host…','loog.remote.ssh.connect','',!conn)+
   G('SAVED HOSTS')+hit(hl('Remote SSH')+': dev-box','liu@10.0.0.21 · ~/loog',conn?'Connected':'Extension')+hit(hl('Remote SSH')+': build-01','ci@build-01.internal · /srv/app')+hit(hl('Remote SSH')+': gpu-lab','liu@gpu.lab.example:2222')+hit(hl('Remote SSH')+': staging','deploy@staging.example');
 const wslItems=[['Ubuntu-22.04','WSL 2 · Running · ~'],['Debian','WSL 2 · Stopped · ~']];
 const dockItems=[['loog-dev','rust:1.82 · Running · /workspace'],['postgres-16','postgres:16 · Running'],['old-build','ubuntu:22.04 · Stopped']];
 const chipHead=(q,c)=>`<div class="in"><span class="gl">⌘</span><span class="chip">Remote SSH</span><span class="q ${q?'':'ph'}">${q||'user@host[:port]'}</span><span class="cnt">${c||''}</span></div>`;
 const authHead=(ph)=>`<div class="in"><span class="gl">⌘</span><span class="chip">Remote SSH</span><span class="chip">liu@10.0.0.21</span><span class="q ph">${ph}</span><span class="cnt"></span></div>`;
 const ai=(t,d,r,sel)=>`<div class="it ${sel?'sel':''}"><span class="b">E</span><span class="t">${t}</span><span class="d">${d||''}</span><span class="r">${r||''}</span></div>`;
+const dirChips=`<span class="chip">Remote SSH</span><span class="chip">root@141.11.91.114</span>`;
+const dh=(q,ph,cnt)=>`<div class="in"><span class="gl">⌘</span>${dirChips}<span class="q ${q?'':'ph'}">${q||ph}</span><span class="cnt">${cnt||''}</span></div>`;
+const dfoot=`<div class="ft"><span>↑↓ Select</span><span>Enter Open</span><span>Esc Disconnect</span></div>`;
 const panels={
+ menu:`<div class="in"><span class="gl">⌘</span>${dirChips}<span class="q ph">Select an action</span><span class="cnt"></span></div>`+G('ACTIONS')+ai('Open Folder…','/home/liu/loog','',true)+ai('Disconnect','','')+ai('Connect to New Host…','','')+`<div class="ft"><span>↑↓ Select</span><span>Enter Run</span><span>Esc Close</span></div>`,
  'f-auth':authHead('Select private key')+G('PRIVATE KEY')+ai('Default Location','Keys in ~/.ssh and your SSH config','Recommended',true)+ai('Choose Key File…','Use one specific private key','')+`<div class="ft"><span>↑↓ Select</span><span>Enter Connect</span><span>Esc Back</span></div>`,
  'f-ssh':chipHead('liu@10.0.0.21','')+G('CONNECT')+hit('Connect to <span style="color:var(--bright)">liu@10.0.0.21</span>','Saved to hosts after connecting','New',true)+`<div class="ft"><span>Enter Next</span><span>Esc Back</span></div>`,
  'f-conn':`<div class="in"><span class="gl">⌘</span><span class="chip">Remote SSH</span><span class="chip">liu@10.0.0.21</span><span class="q ph">Connecting…</span><span class="cnt"><span class="spin" style="color:var(--accent)"></span></span></div><div class="ft"><span>Esc Cancel</span></div>`,
@@ -313,7 +353,7 @@ const panels={
  'p-wsl':head('wsl','','1 / 2')+G('WSL DISTRIBUTIONS')+wslItems.map((x,i)=>hit('Remote <span style="color:var(--accent)">WSL</span>: '+x[0],x[1],'Extension',i===0)).join('')+foot,
  'p-docker':head('docker','','1 / 3')+G('CONTAINERS')+dockItems.map((x,i)=>hit('Remote <span style="color:var(--accent)">Docker</span>: '+x[0],x[1],'Extension',i===0)).join('')+foot,
  'p-ssh':head('ssh','','1 / 5')+hosts(false)+foot,
- 'p-ssh2':head('ssh','','1 / 6')+hosts(true)+foot,
+ 'p-ssh2':head('ssh','','1 / 7')+hosts(true)+foot,
  now:head('','Search commands','1 / 109')+`<div class="grp">RECENT</div>`+it('E','Remote SSH: Connect','loog.remote.ssh.connect','Extension',true)+`<div class="grp">WORKSPACE</div>`+
   it('W','Toggle Drawer','Show or hide the Explorer drawer','<span class="kc">Ctrl</span><span class="kc">B</span>',0,1)+it('W','Open Explorer','Show the Explorer drawer','Workspace',0,1)+it('W','Open Search','Search across workspace files','<span class="kc">Ctrl</span><span class="kc">Shift</span><span class="kc">F</span>',0,1)+foot,
 };
@@ -332,29 +372,56 @@ const menuHtml=`<div class="mh">REMOTE SSH · dev-box</div><div class="it"><span
  <div class="it sel">↻ Reconnect</div><div class="it">⏏ Disconnect</div><div class="it">☰ Show Log</div><hr>
  <div class="mh">Other environments (1 / 4)</div><div class="it"><span style="color:var(--warn)" class="dot"></span>build-01<span class="r">Reconnecting</span></div><div class="it">⇄ Connect to New Host…</div>`;
 
+/* 连接成功后：同一个命令面板里输入路径，项（目录或文件）悬停时右端出现“打开”图标 */
+const GO=t=>`<svg class="go" viewBox="0 0 16 16" width="16" height="16"><title>${t}</title><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.5h5A1.5 1.5 0 0 1 14 6v6a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M6.2 9h3.6M8.6 7.6 10 9l-1.4 1.4" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const CAR=open=>`<svg viewBox="0 0 16 16" width="12" height="12" style="flex:none;color:var(--dim)"><path d="${open?'M4 6l4 4 4-4':'M6 4l4 4-4 4'}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+/* 文件树的一行：缩进、展开箭头、目录或文件图标、名称，悬停时右端才有打开图标 */
+const tn=(depth,kind,name,o={})=>`<div class="it ${o.sel?'sel':''} ${o.hov?'hov':''}"><span style="width:${depth*14}px;flex:none"></span>${kind==='dir'?CAR(o.open):'<span style="width:12px;flex:none"></span>'}<span class="b w">${kind==='dir'?'▣':'▤'}</span><span class="t">${name}</span><span class="d">${o.d||''}</span><span class="r"></span>${GO(kind==='dir'?'Open this folder':'Open this file')}</div>`;
+const rc=(path,when)=>`<div class="it"><span class="b w">▣</span><span class="t">${path}</span><span class="d">${when}</span></div>`;
+const pathHead=(text,cnt,chip)=>`<div class="in"><span class="gl">⌘</span><span class="chip">Remote SSH</span><span class="chip">liu@10.0.0.21</span>${chip||''}<span class="q">${text}</span><span class="cnt">${cnt||''}</span></div>`;
+const pfoot=`<div class="ft"><span>↑↓ Select</span><span>Tab Complete</span><span>Enter Open</span><span>Esc Cancel</span></div>`;
+const hlm=t=>`<span style="color:var(--accent)">${t}</span>`;
+const pathPanels={
+ 'd-load':pathHead('/home/liu/','<span class="spin" style="color:var(--accent)"></span>')+`<div class="ft"><span>Esc Cancel</span></div>`,
+ 'd-pick':pathHead('/home/liu/','1 / 14')+
+   G('RECENT')+rc('/srv/app','last used')+rc('/home/liu/loog','2 days ago')+
+   G('FILE TREE')+tn(0,'dir','/',{open:true})+tn(1,'dir','bin')+tn(1,'dir','home',{open:true})+tn(2,'dir','liu',{open:true,sel:true})+
+   tn(3,'dir','.config',{dim:true})+tn(3,'dir','loog')+tn(3,'dir','loog-extensions',{open:true})+
+   tn(4,'dir','extensions')+tn(4,'dir','remote')+tn(4,'file','README.md')+tn(3,'dir','notes')+tn(3,'file','todo.txt')+tn(1,'dir','srv')+pfoot,
+ 'd-type':pathHead('/home/liu/lo','1 / 4')+
+   G('FILE TREE')+tn(0,'dir','/',{open:true})+tn(1,'dir','home',{open:true})+tn(2,'dir','liu',{open:true})+tn(3,'dir',hlm('lo')+'og',{sel:true})+tn(3,'dir',hlm('lo')+'og-extensions',{open:true})+tn(4,'dir','extensions')+tn(4,'dir','remote')+pfoot,
+ 'd-bad':pathHead('/srv/nowhere/','<span style="color:var(--error);font-size:13px" title="No such folder: /srv/nowhere/">✕</span>')+
+   `<div style="padding:9px 14px;color:var(--error-text)">No such folder: /srv/nowhere/</div><div class="ft"><span>Enter Retry</span><span>Esc Cancel</span></div>`,
+ 'd-change':pathHead('/home/liu/loog/','1 / 12','<span class="chip">Open Folder</span>')+
+   G('RECENT')+rc('/srv/app','last used')+rc('/home/liu/notes','2 days ago')+
+   G('FILE TREE')+tn(0,'dir','/',{open:true})+tn(1,'dir','home',{open:true})+tn(2,'dir','liu',{open:true})+tn(3,'dir','loog',{open:true,sel:true})+
+   tn(4,'dir','crates')+tn(4,'dir','docs',{open:true})+tn(5,'file','architecture.md')+tn(4,'dir','src')+tn(4,'file','Cargo.toml')+pfoot
+};
+Object.assign(panels,pathPanels);
+
 function setRemote(k){
- const r=$('remote');r.className='it remote '+(['ok','menu','p-ssh2'].includes(k)?'ok':k==='re'?'warn':k==='fail'?'err':'');
- r.innerHTML={ now:'⇄ Remote', 'f-ssh':'⇄ Remote','p-ssh':'⇄ Remote','f-auth':'⇄ Remote','f-conn':'<span class="spin"></span> Connecting to dev-box','p-wsl':'⇄ Remote','p-docker':'⇄ Remote','p-ssh2':'⇄ dev-box','f-wsl':'⇄ Remote','f-docker':'⇄ Remote','f-err':'⇄ Remote', prog:'<span class="spin"></span> Connecting to dev-box', fail:'⚠ build-01 connection failed', ok:'⇄ dev-box', menu:'⇄ dev-box', re:'<span class="spin"></span> dev-box · Reconnecting' }[k];
+ const r=$('remote');r.className='it remote '+(['ok','menu','p-ssh2','d-pick','d-type','d-bad','d-change'].includes(k)?'ok':k==='re'?'warn':k==='fail'?'err':'');
+ r.innerHTML={ 'd-load':'<span class="spin"></span> Connecting to root@141.11.91.114','d-pick':'⇄ root@141.11.91.114','d-type':'⇄ root@141.11.91.114','d-bad':'⇄ root@141.11.91.114','d-change':'⇄ dev-box', now:'⇄ Remote', 'f-ssh':'⇄ Remote','p-ssh':'⇄ Remote','f-auth':'⇄ Remote','f-conn':'<span class="spin"></span> Connecting to dev-box','p-wsl':'⇄ Remote','p-docker':'⇄ Remote','p-ssh2':'⇄ dev-box','f-wsl':'⇄ Remote','f-docker':'⇄ Remote','f-err':'⇄ Remote', prog:'<span class="spin"></span> Connecting to dev-box', fail:'⚠ build-01 connection failed', ok:'⇄ dev-box', menu:'⇄ dev-box', re:'<span class="spin"></span> dev-box · Reconnecting' }[k];
 }
 function show(k){
  document.querySelectorAll('.proto button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
  $('note').innerHTML=notes[k];$('app').dataset.k=k;
  tree(k);setRemote(k);
- ['palette','toast','menu','banner','dlg'].forEach(i=>$(i).style.display='none');
- 
- const conn=['ok','menu','re','p-ssh2'].includes(k);
+ ['palette','toast','menu','banner','dlg','fdlg'].forEach(i=>$(i).style.display='none');
+
+ const conn=['ok','menu','re','p-ssh2','d-change'].includes(k);
  $('tHost').style.display=conn?'inline':'none';
  $('pane').style.display=conn?'block':'none';
  if(conn){$('rtag').textContent=k==='re'?'dev-box · Disconnected':'dev-box';
   $('tb').innerHTML=k==='re'?'<span style="color:var(--dim)">Connection lost. Terminal paused; a new session starts after reconnecting.</span>':'liu@dev-box:~/loog$ cargo check<br>&nbsp;&nbsp;&nbsp;Finished dev profile in 0.4s<br>liu@dev-box:~/loog$ <span class="blink">▮</span>';}
  if(panels[k]){$('palette').innerHTML=panels[k];$('palette').style.display='block';}
  if(toasts[k]){$('toast').innerHTML=toasts[k];$('toast').style.display='block';}
- if(k==='menu'){$('menu').innerHTML=menuHtml;$('menu').style.display='block';}
  if(k==='re'){$('banner').style.display='flex';$('bannerT').textContent='Connection to dev-box lost. Retrying (attempt 2). Unsaved changes are kept; saving is paused.';}
 }
 $('proto').insertAdjacentHTML('beforeend',scenes.map(s=>`<button data-k="${s[0]}">${s[1]}</button>`).join(''));
 document.querySelectorAll('.proto button').forEach(b=>b.onclick=()=>show(b.dataset.k));
 $('remote').onclick=()=>{const k=$('app').dataset.k;show(k==='ok'?'menu':k==='menu'?'ok':k==='re'||k==='fail'?'menu':'f-ssh')};
+
 show('now');
 </script>
 </body>

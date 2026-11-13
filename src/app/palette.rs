@@ -32,6 +32,8 @@ pub enum SessionMode {
     Text,
     /// Free text that is never shown.
     Secret,
+    /// Free text beside rows the extension keeps: nothing is filtered or regrouped here.
+    Browse,
 }
 
 /// A session an extension has open in the palette. The palette shows what the
@@ -85,6 +87,10 @@ pub struct PaletteState {
     pub published: Arc<BTreeMap<String, Published>>,
     /// Sessions that ended without an answer, to be told to their extension.
     pub ended: Vec<Session>,
+    /// The row the pointer last moved over, which shows its action mark; keys clear it.
+    pub hovered: Option<usize>,
+    /// The text the extension of a browsing session was last told, or set itself.
+    pub reported: String,
 }
 
 /// What the list draws, top to bottom.
@@ -95,7 +101,22 @@ enum Line {
 }
 
 impl PaletteState {
+    /// Whether the open session is a browsing one, whose rows are the extension's to order.
+    fn browsing(&self) -> bool {
+        self.session
+            .as_ref()
+            .is_some_and(|session| session.mode == SessionMode::Browse)
+    }
+
     fn hits(&self) -> Vec<Hit> {
+        if self.browsing() {
+            return (0..self.entries.len())
+                .map(|index| Hit {
+                    index,
+                    positions: Vec::new(),
+                })
+                .collect();
+        }
         palette::search(&self.entries, self.input.text(), &self.recent)
     }
 
@@ -124,7 +145,8 @@ impl PaletteState {
         let groups: Vec<String> = hits.iter().map(|hit| self.group_of(hit)).collect();
         // A typed query is named by group too once its matches come from more than one.
         let typed = !self.input.text().trim().is_empty();
-        let grouped = !typed || groups.iter().any(|group| Some(group) != groups.first());
+        let grouped =
+            self.browsing() || !typed || groups.iter().any(|group| Some(group) != groups.first());
         let mut lines = Vec::with_capacity(hits.len() * 2);
         let mut last: Option<&String> = None;
         for (position, group) in groups.iter().enumerate() {
@@ -139,6 +161,10 @@ impl PaletteState {
 
     /// Move the selection `delta` rows, wrapping, and keep it in view.
     pub fn move_selection(&mut self, delta: isize) {
+        // The keys have taken over from the pointer.
+        if delta != 0 {
+            self.hovered = None;
+        }
         let hits = self.hits();
         let (selected, top) = self.view();
         self.query = self.input.text().to_owned();
@@ -166,17 +192,53 @@ impl PaletteState {
         self.top = 0;
         self.query.clear();
         self.entries = Arc::default();
+        self.hovered = None;
+        self.reported.clear();
         // Closing is an answer in itself: the extension is told it was cancelled.
         if let Some(session) = self.session.take() {
             self.ended.push(session);
         }
     }
 
-    /// Whether the open session takes text rather than a choice.
+    /// Whether the open session takes text with no rows beside it.
     fn takes_text(&self) -> bool {
-        self.session
-            .as_ref()
-            .is_some_and(|session| session.mode != SessionMode::Choose)
+        self.session.as_ref().is_some_and(|session| {
+            matches!(session.mode, SessionMode::Text | SessionMode::Secret)
+        })
+    }
+
+    /// Select the row of an extension's session with this id and scroll to it, when it is there.
+    fn select_row(&mut self, id: Option<&str>) {
+        let Some(id) = id else { return };
+        let hits = self.hits();
+        let Some(position) = hits.iter().position(|hit| {
+            matches!(&self.entries[hit.index].target, Target::Choice(meta) if meta.id == id)
+        }) else {
+            return;
+        };
+        self.hovered = None;
+        self.query = self.input.text().to_owned();
+        self.selected = position;
+        let lines = self.lines(&hits);
+        // Start from the top so the row lands in view rather than keeping an old scroll.
+        self.top = window(&lines, position, 0);
+    }
+
+    /// What the user typed into a browsing session since the extension last heard of it.
+    fn take_typed(&mut self) -> Option<Answer> {
+        let session = self.session.as_ref().filter(|session| session.mode == SessionMode::Browse)?;
+        if self.input.text() == self.reported {
+            return None;
+        }
+        self.reported = self.input.text().to_owned();
+        Some(Answer {
+            owner: session.owner.clone(),
+            generation: session.generation,
+            event: loog_extension_host::PaletteEvent::Input(loog_extension_host::PaletteInput {
+                session: session.id,
+                text: self.reported.clone(),
+            }),
+        })
     }
 }
 
@@ -280,10 +342,18 @@ fn choice_entries(view: &PaletteView) -> Vec<Entry> {
             title: choice.title.clone(),
             category: choice.group.clone().unwrap_or_default(),
             description: choice.detail.clone().unwrap_or_default(),
-            target: Target::Choice {
+            target: Target::Choice(Box::new(palette::ChoiceMeta {
                 id: choice.id.clone(),
                 trailing: choice.trailing.clone(),
-            },
+                depth: choice.depth,
+                expanded: choice.expanded,
+                icon: choice.icon.map(|icon| match icon {
+                    loog_extension_host::PaletteIcon::Folder => palette::RowIcon::Folder,
+                    loog_extension_host::PaletteIcon::File => palette::RowIcon::File,
+                }),
+                action: choice.action.clone(),
+                dim: choice.dim,
+            })),
         })
         .collect()
 }
@@ -297,6 +367,7 @@ fn session_of(owner: &str, generation: u64, id: u64, view: &PaletteView) -> Sess
             PaletteMode::Choose => SessionMode::Choose,
             PaletteMode::Text => SessionMode::Text,
             PaletteMode::Secret => SessionMode::Secret,
+            PaletteMode::Browse => SessionMode::Browse,
         },
         tags: view.tags.clone(),
         activity: match view.activity {
@@ -335,7 +406,13 @@ pub fn apply_commands(
                 palette.input.masked = view.mode == PaletteMode::Secret;
                 palette.entries = Arc::new(choice_entries(&view));
                 palette.placeholder = view.placeholder;
+                // The extension put this text there itself: it is not typing to report.
+                if let Some(text) = view.text {
+                    palette.input.set_text(text.clone());
+                    palette.reported = text;
+                }
                 palette.visible = true;
+                palette.select_row(view.selected.as_deref());
             }
             PaletteCommand::Update { session, view } => {
                 let palette = &mut app.palette;
@@ -358,7 +435,12 @@ pub fn apply_commands(
                 palette.session = Some(next);
                 palette.entries = Arc::new(choice_entries(&view));
                 palette.placeholder = view.placeholder;
+                if let Some(text) = view.text {
+                    palette.input.set_text(text.clone());
+                    palette.reported = text;
+                }
                 palette.move_selection(0);
+                palette.select_row(view.selected.as_deref());
             }
             PaletteCommand::Close { session } => {
                 let palette = &mut app.palette;
@@ -387,6 +469,18 @@ pub fn take_answers(app: &mut AppState) -> Vec<Answer> {
             event: loog_extension_host::PaletteEvent::Cancelled(session.id),
         })
         .collect()
+}
+
+/// Tell a browsing session what has been typed into the field since it last heard.
+/// Typing changes the field through the input, which cannot call out, so this runs
+/// each time the palette is drawn, which the typing causes.
+fn tell_typing(state: &AppContext) {
+    let mut answer = None;
+    state.try_update(|app| {
+        answer = app.palette.take_typed();
+        false
+    });
+    send(state, answer.into_iter().collect());
 }
 
 /// Tell extensions about sessions that ended since the last time.
@@ -454,17 +548,55 @@ pub fn open_themes(state: &AppContext) {
     });
 }
 
-/// Replace the field's text with the selected command's name.
+/// Replace the field's text with the selected command's name. In a browsing session
+/// the extension decides what the row completes to, so it is asked.
 pub fn complete(state: &AppContext) -> bool {
+    let mut answer = None;
     state.update(|app| {
         let hits = app.palette.hits();
         let (selected, _) = app.palette.view();
-        if let Some(hit) = hits.get(selected) {
+        if app.palette.browsing() {
+            answer = browse_answer(app, hits.get(selected), loog_extension_host::PaletteTrigger::Enter, true);
+        } else if let Some(hit) = hits.get(selected) {
             let title = app.palette.entries[hit.index].title.clone();
             app.palette.input.set_text(title);
         }
     });
+    send(state, answer.into_iter().collect());
     true
+}
+
+/// What a browsing session is told when the user answers with `hit` selected, or with
+/// no row at all. `complete` is the Tab key rather than an answer.
+fn browse_answer(
+    app: &AppState,
+    hit: Option<&Hit>,
+    trigger: loog_extension_host::PaletteTrigger,
+    complete: bool,
+) -> Option<Answer> {
+    let session = app.palette.session.as_ref()?;
+    let choice = hit.and_then(|hit| match &app.palette.entries[hit.index].target {
+        Target::Choice(meta) => Some(meta.id.clone()),
+        _ => None,
+    });
+    if complete && choice.is_none() {
+        return None;
+    }
+    let accepted = loog_extension_host::PaletteAccepted {
+        session: session.id,
+        choice,
+        text: app.palette.input.text().to_owned(),
+        trigger,
+    };
+    Some(Answer {
+        owner: session.owner.clone(),
+        generation: session.generation,
+        event: if complete {
+            loog_extension_host::PaletteEvent::Complete(accepted)
+        } else {
+            loog_extension_host::PaletteEvent::Accepted(accepted)
+        },
+    })
 }
 
 /// Run the selected command.
@@ -475,6 +607,15 @@ pub fn confirm(env: &KeyEnv) -> bool {
 
 /// Close the palette, then run the command at `position` in the hits.
 pub fn run(env: &KeyEnv, position: usize) -> bool {
+    run_with(env, position, loog_extension_host::PaletteTrigger::Enter)
+}
+
+/// [`run`], told how the user chose: by Enter, by a click on the row or on its action mark.
+pub fn run_with(
+    env: &KeyEnv,
+    position: usize,
+    trigger: loog_extension_host::PaletteTrigger,
+) -> bool {
     // An open session takes the answer; the palette stays up until the extension
     // says what comes next.
     let mut session_answer: Option<Answer> = None;
@@ -485,13 +626,18 @@ pub fn run(env: &KeyEnv, position: usize) -> bool {
         };
         in_session = true;
         let text = app.palette.input.text().to_owned();
+        if session.mode == SessionMode::Browse {
+            let hits = app.palette.hits();
+            session_answer = browse_answer(app, hits.get(position), trigger, false);
+            return;
+        }
         let choice = if session.mode == SessionMode::Choose {
             let hits = app.palette.hits();
             let Some(hit) = hits.get(position) else {
                 return;
             };
             match &app.palette.entries[hit.index].target {
-                Target::Choice { id, .. } => Some(id.clone()),
+                Target::Choice(meta) => Some(meta.id.clone()),
                 _ => return,
             }
         } else {
@@ -508,6 +654,7 @@ pub fn run(env: &KeyEnv, position: usize) -> bool {
                     session: session.id,
                     choice,
                     text,
+                    trigger,
                 },
             ),
         });
@@ -555,7 +702,7 @@ pub fn run(env: &KeyEnv, position: usize) -> bool {
             }],
         ),
         // A choice only means something to the session it belongs to.
-        Target::Choice { .. } => {}
+        Target::Choice(_) => {}
         Target::Extension(id) => match env
             .state
             .services()
@@ -647,7 +794,11 @@ fn frame(app: &AppState) -> Frame {
                     Target::Extension(_)
                     | Target::Theme(_)
                     | Target::ExtensionEntry { .. }
-                    | Target::Choice { .. } => Vec::new(),
+                    | Target::Choice(_) => Vec::new(),
+                };
+                let meta = match &entry.target {
+                    Target::Choice(meta) => Some(meta),
+                    _ => None,
                 };
                 Row::Item(Item {
                     index: *position,
@@ -659,14 +810,15 @@ fn frame(app: &AppState) -> Frame {
                     selected: *position == selected,
                     extension: matches!(
                         entry.target,
-                        Target::Extension(_)
-                            | Target::ExtensionEntry { .. }
-                            | Target::Choice { .. }
+                        Target::Extension(_) | Target::ExtensionEntry { .. } | Target::Choice(_)
                     ),
-                    trailing: match &entry.target {
-                        Target::Choice { trailing, .. } => trailing.clone(),
-                        _ => None,
-                    },
+                    trailing: meta.and_then(|meta| meta.trailing.clone()),
+                    depth: meta.map_or(0, |meta| meta.depth),
+                    expanded: meta.and_then(|meta| meta.expanded),
+                    icon: meta.and_then(|meta| meta.icon),
+                    action: meta.and_then(|meta| meta.action.clone()),
+                    dim: meta.is_some_and(|meta| meta.dim),
+                    hovered: palette.hovered == Some(*position),
                 })
             }
         })
@@ -694,7 +846,11 @@ pub fn binding(state: &AppContext, env: KeyEnv) -> Binding {
             |app| &app.palette.input,
             |app| &mut app.palette.input,
         ),
-        move || read(&reader, frame),
+        move || {
+            let frame = read(&reader, frame);
+            tell_typing(&reader);
+            frame
+        },
         move |command| match command {
             Command::Close => {
                 writer.update(|app| app.palette.close());
@@ -706,8 +862,13 @@ pub fn binding(state: &AppContext, env: KeyEnv) -> Binding {
             Command::Hover(position) => {
                 writer.try_update(|app| {
                     let palette = &mut app.palette;
-                    if !palette.visible || palette.view().0 == position {
+                    if !palette.visible {
                         return false;
+                    }
+                    let moved = palette.hovered != Some(position);
+                    palette.hovered = Some(position);
+                    if palette.view().0 == position {
+                        return moved;
                     }
                     let (_, top) = palette.view();
                     palette.query = palette.input.text().to_owned();
@@ -716,12 +877,20 @@ pub fn binding(state: &AppContext, env: KeyEnv) -> Binding {
                     true
                 });
             }
-            Command::Run(position) => {
+            Command::Unhover => {
+                writer.try_update(|app| std::mem::take(&mut app.palette.hovered).is_some());
+            }
+            Command::Run(position) | Command::Action(position) => {
                 let env = env
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .clone();
-                run(&env, position);
+                let trigger = if matches!(command, Command::Action(_)) {
+                    loog_extension_host::PaletteTrigger::Action
+                } else {
+                    loog_extension_host::PaletteTrigger::Click
+                };
+                run_with(&env, position, trigger);
             }
         },
     )
@@ -857,30 +1026,193 @@ mod tests {
         assert_eq!(headers, if categories.len() > 1 { categories.len() } else { 0 });
     }
 
+    fn choice(id: &str, title: &str, group: &str) -> loog_extension_host::PaletteChoice {
+        loog_extension_host::PaletteChoice {
+            id: id.into(),
+            title: title.into(),
+            detail: None,
+            group: Some(group.into()),
+            trailing: None,
+            depth: 0,
+            expanded: None,
+            icon: None,
+            action: None,
+            dim: false,
+        }
+    }
+
     fn extension_view(mode: PaletteMode, tags: &[&str]) -> PaletteView {
+        let mut first = choice("one", "One", "Group");
+        first.trailing = Some("Tip".into());
         PaletteView {
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
             placeholder: "Pick".into(),
             mode,
-            choices: vec![
-                loog_extension_host::PaletteChoice {
-                    id: "one".into(),
-                    title: "One".into(),
-                    detail: None,
-                    group: Some("Group".into()),
-                    trailing: Some("Tip".into()),
-                },
-                loog_extension_host::PaletteChoice {
-                    id: "two".into(),
-                    title: "Two".into(),
-                    detail: None,
-                    group: Some("Group".into()),
-                    trailing: None,
-                },
-            ],
+            choices: vec![first, choice("two", "Two", "Group")],
             activity: PaletteActivity::Idle,
             note: None,
+            text: None,
+            selected: None,
         }
+    }
+
+    /// A browsing view of a small tree under `path`, with the rows in the order given.
+    fn browse_view(path: &str) -> PaletteView {
+        let mut folder = choice("/home", "home", "FILE TREE");
+        folder.icon = Some(loog_extension_host::PaletteIcon::Folder);
+        folder.expanded = Some(true);
+        folder.action = Some("Open this folder".into());
+        let mut file = choice("/home/a.txt", "a.txt", "FILE TREE");
+        file.icon = Some(loog_extension_host::PaletteIcon::File);
+        file.depth = 1;
+        file.dim = true;
+        let mut view = extension_view(PaletteMode::Browse, &["Host"]);
+        view.choices = vec![choice("recent:/srv", "/srv", "RECENT"), folder, file];
+        view.text = Some(path.into());
+        view
+    }
+
+    #[test]
+    fn an_extension_can_select_a_row_by_its_id_and_the_list_scrolls_to_it() {
+        let mut app = AppState::new();
+        let mut view = browse_view("/");
+        view.choices = (0..40)
+            .map(|index| choice(&format!("row{index}"), &format!("Row {index}"), "TREE"))
+            .collect();
+        view.selected = Some("row30".into());
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Open { session: 3, view }],
+        );
+        assert_eq!(app.palette.view().0, 30);
+        let shown: Vec<String> = frame(&app)
+            .rows
+            .into_iter()
+            .filter_map(|row| match row {
+                Row::Item(item) if item.selected => Some(item.title),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(shown, ["Row 30"], "the selected row is within the visible rows");
+    }
+
+    #[test]
+    fn a_browsing_session_lists_the_rows_as_given_and_keeps_their_tree_marks() {
+        let mut app = AppState::new();
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Open { session: 3, view: browse_view("/home/") }],
+        );
+        assert_eq!(app.palette.input.text(), "/home/");
+        // What is typed is a path, not a filter: every row stays, in the extension's order.
+        app.palette.input.set_text("/nothing/matches");
+        let frame = frame(&app);
+        let rows: Vec<_> = frame.rows.iter().collect();
+        assert!(matches!(rows[0], Row::Header(label) if label == "RECENT"));
+        let items: Vec<_> = frame
+            .rows
+            .iter()
+            .filter_map(|row| match row {
+                Row::Item(item) => Some(item),
+                Row::Header(_) => None,
+            })
+            .collect();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[1].expanded, Some(true));
+        assert_eq!(items[1].action.as_deref(), Some("Open this folder"));
+        assert_eq!(items[2].depth, 1);
+        assert!(items[2].dim);
+        assert!(items.iter().all(|item| !item.hovered));
+    }
+
+    #[test]
+    fn typing_in_a_browsing_session_is_reported_once_and_a_text_the_extension_set_is_not() {
+        let mut app = AppState::new();
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Open { session: 3, view: browse_view("/home/") }],
+        );
+        assert!(app.palette.take_typed().is_none(), "the preset text is not typing");
+        app.palette.input.set_text("/home/li");
+        let answer = app.palette.take_typed().expect("typing is reported");
+        assert!(matches!(
+            answer.event,
+            loog_extension_host::PaletteEvent::Input(ref input) if input.text == "/home/li" && input.session == 3
+        ));
+        assert!(app.palette.take_typed().is_none(), "and only once");
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Update {
+                session: 3,
+                view: PaletteView { text: Some("/home/liu/".into()), ..browse_view("") },
+            }],
+        );
+        assert_eq!(app.palette.input.text(), "/home/liu/");
+        assert!(app.palette.take_typed().is_none(), "an update by the extension is not echoed");
+    }
+
+    #[test]
+    fn a_browsing_answer_carries_the_row_the_text_and_how_it_was_chosen() {
+        let mut app = AppState::new();
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Open { session: 3, view: browse_view("/home/") }],
+        );
+        let hits = app.palette.hits();
+        let enter = loog_extension_host::PaletteTrigger::Enter;
+        let answer = browse_answer(&app, hits.get(1), loog_extension_host::PaletteTrigger::Action, false).unwrap();
+        assert!(matches!(
+            answer.event,
+            loog_extension_host::PaletteEvent::Accepted(ref accepted)
+                if accepted.choice.as_deref() == Some("/home")
+                    && accepted.text == "/home/"
+                    && accepted.trigger == loog_extension_host::PaletteTrigger::Action
+        ));
+        // Enter with no row selected still answers, with the text.
+        let answer = browse_answer(&app, None, enter, false).unwrap();
+        assert!(matches!(
+            answer.event,
+            loog_extension_host::PaletteEvent::Accepted(ref accepted) if accepted.choice.is_none()
+        ));
+        // Tab needs a row to complete.
+        assert!(browse_answer(&app, None, enter, true).is_none());
+        let answer = browse_answer(&app, hits.get(2), enter, true).unwrap();
+        assert!(matches!(answer.event, loog_extension_host::PaletteEvent::Complete(_)));
+    }
+
+    #[test]
+    fn the_pointer_shows_a_rows_action_and_the_keys_take_it_away() {
+        let mut app = AppState::new();
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Open { session: 3, view: browse_view("/") }],
+        );
+        app.palette.hovered = Some(1);
+        let shown = |app: &AppState| {
+            frame(app)
+                .rows
+                .into_iter()
+                .filter_map(|row| match row {
+                    Row::Item(item) => Some(item.hovered),
+                    Row::Header(_) => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(shown(&app), [false, true, false]);
+        app.palette.move_selection(1);
+        assert_eq!(shown(&app), [false, false, false]);
     }
 
     #[test]

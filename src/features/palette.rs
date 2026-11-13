@@ -21,11 +21,30 @@ pub enum Target {
         id: String,
     },
     /// A choice of the session an extension has open in the palette.
-    Choice {
-        id: String,
-        /// A short word shown at the row's end.
-        trailing: Option<String>,
-    },
+    Choice(Box<ChoiceMeta>),
+}
+
+/// The mark in front of a row of an extension's session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowIcon {
+    Folder,
+    File,
+}
+
+/// What a row of an extension's session carries besides its words.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChoiceMeta {
+    pub id: String,
+    /// A short word shown at the row's end.
+    pub trailing: Option<String>,
+    /// How far the row is indented.
+    pub depth: u8,
+    /// Whether the row has an arrow and which way it points.
+    pub expanded: Option<bool>,
+    pub icon: Option<RowIcon>,
+    /// The hint of the mark that shows at the row's end under the pointer.
+    pub action: Option<String>,
+    pub dim: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

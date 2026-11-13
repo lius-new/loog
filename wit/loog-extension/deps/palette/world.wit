@@ -15,6 +15,10 @@ interface picker {
         text,
         /// As `text`, but the typed characters are masked and never shown again.
         secret,
+        /// The field is free text and the rows are the extension's to keep: the host does
+        /// not filter or regroup them, tells the extension what is typed and what is
+        /// completed, and Enter answers with the text and the selected row.
+        browse,
     }
 
     /// What the session is doing, shown at the end of the field.
@@ -24,6 +28,22 @@ interface picker {
         busy,
         /// The last attempt failed; `note` says why.
         failed,
+    }
+
+    /// The mark in front of a row.
+    enum icon {
+        folder,
+        file,
+    }
+
+    /// How the user answered.
+    enum trigger {
+        /// The Enter key.
+        enter,
+        /// A click on the row.
+        click,
+        /// A click on the row's `action` mark.
+        action,
     }
 
     record choice {
@@ -36,6 +56,17 @@ interface picker {
         group: option<string>,
         /// A short word at the end of the row.
         trailing: option<string>,
+        /// How far the row is indented, for a tree. At most 32.
+        depth: u8,
+        /// A tree row carries an arrow that is turned down when expanded; none has no arrow.
+        expanded: option<bool>,
+        /// The mark in front of the row; none is the extension's own mark.
+        icon: option<icon>,
+        /// A row with an action shows a mark at its end while the pointer is over it. The
+        /// text is its hint. Clicking the mark answers with `trigger.action`.
+        action: option<string>,
+        /// Drawn faintly, for what is there but seldom wanted.
+        dim: bool,
     }
 
     record view {
@@ -47,6 +78,10 @@ interface picker {
         activity: activity,
         /// One line about `activity`, shown as a hint over its mark.
         note: option<string>,
+        /// Put this text in the field, replacing what is there, with the caret at its end.
+        text: option<string>,
+        /// Select the row with this id and scroll the list to it.
+        selected: option<string>,
     }
 
     /// A row of the palette's own command list, found by typing its words there.
@@ -58,11 +93,18 @@ interface picker {
         category: string,
     }
 
+    record input {
+        session: u64,
+        /// What the field holds now.
+        text: string,
+    }
+
     record accepted {
         session: u64,
-        /// The chosen row, or none when the mode takes text.
+        /// The chosen row, or none when no row was chosen.
         choice: option<string>,
         text: string,
+        trigger: trigger,
     }
 
     record picked {
@@ -72,7 +114,11 @@ interface picker {
     }
 
     variant event {
+        /// The text of the field changed, in a `browse` session.
+        input(input),
         accepted(accepted),
+        /// The Tab key on a row of a `browse` session: the row is to be completed into the field.
+        complete(accepted),
         /// The user closed the session, or another one replaced it.
         cancelled(u64),
         /// The user chose one of the published entries.
@@ -84,7 +130,7 @@ interface picker {
     /// Show a session and take the field. At most one session is open; opening
     /// another one replaces it without an answer. Returns the session number.
     open: func(view: view) -> result<u64, string>;
-    /// Replace what a session shows. The text typed so far stays.
+    /// Replace what a session shows. The text typed so far stays unless `view.text` is set.
     update: func(session: u64, view: view) -> result<_, string>;
     /// End a session and close the palette if it still shows it.
     close: func(session: u64) -> result<_, string>;

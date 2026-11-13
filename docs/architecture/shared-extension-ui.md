@@ -248,6 +248,16 @@ of a secret and the keys. An extension supplies words and opaque ids.
   `cancelled`. Closing the palette by any means cancels the session; an extension
   that closes it is not told. A replaced session gets no answer.
 - `pick-file` shows the system file dialog and answers with a path or none.
+- Mode `browse` is a field with a tree under it, for an extension that lets the
+  user pick something from a hierarchy. The rows are given in order and drawn as
+  given; the palette does not search or filter them. A choice may carry `depth`
+  (at most 32), `expanded` (an arrow, open or closed), `icon` (`folder`, `file`),
+  `dim` and an `action`: a hint shown as a mark at the row's end only while the
+  pointer is on the row. The view may also set the field `text` and the `selected`
+  row, which the list scrolls to. The extension hears the typed text as `input`
+  (coalesced), a Tab on a row as `complete`, and Enter, a row click or the action
+  mark as `accepted` with a `trigger` (`enter`, `click`, `action`). A row click
+  does not end the session; the extension decides what a click means.
 
 The application MUST NOT branch on an extension, a tag, an id or a group name.
 The activation event `application.start` wakes an extension once when the
