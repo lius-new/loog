@@ -47,7 +47,7 @@ impl Case {
                 h.runtime
                     .language_services()
                     .unwrap()
-                    .results(&doc.meta.path, &doc.stamp(id))
+                    .results(doc.meta.local_path().unwrap(), &doc.stamp(id))
                     .diagnostics
                     .is_some_and(|found| !found.is_empty())
             });
@@ -67,7 +67,7 @@ impl Case {
             h.runtime
                 .language_services()
                 .unwrap()
-                .results(&doc.meta.path, &doc.stamp(id))
+                .results(doc.meta.local_path().unwrap(), &doc.stamp(id))
                 .diagnostics
                 .is_some_and(|found| found.iter().any(|d| d.range == range))
         });
@@ -149,7 +149,7 @@ fn code_action_lightbulb_refreshes_on_diagnostics_without_a_caret_or_text_change
         h.runtime
             .language_services()
             .unwrap()
-            .results(&doc.meta.path, &doc.stamp(id))
+            .results(doc.meta.local_path().unwrap(), &doc.stamp(id))
             .diagnostics
             .is_some_and(|found| !found.is_empty())
     });

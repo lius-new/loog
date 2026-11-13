@@ -3,6 +3,7 @@
 use super::{AppContext, AppState};
 use crate::features::language_service::reply::Span;
 use lgui::prelude::UiRect;
+use loog_workspace_api::ResourceRef;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
@@ -14,7 +15,7 @@ const MAX_FILE: u64 = 16 * 1024 * 1024;
 /// Where to go: a file, and what to select there.
 #[derive(Clone, Debug)]
 pub struct Place {
-    pub path: PathBuf,
+    pub resource: ResourceRef,
     pub target: Target,
 }
 
@@ -28,15 +29,21 @@ pub enum Target {
 
 impl Place {
     pub fn bytes(path: PathBuf, range: Range<usize>) -> Self {
+        Self::resource_bytes(path.into(), range)
+    }
+    pub fn resource_bytes(resource: ResourceRef, range: Range<usize>) -> Self {
         Self {
-            path,
+            resource,
             target: Target::Bytes(range),
         }
     }
 
     pub fn span(path: PathBuf, span: Span) -> Self {
+        Self::resource_span(path.into(), span)
+    }
+    pub fn resource_span(resource: ResourceRef, span: Span) -> Self {
         Self {
-            path,
+            resource,
             target: Target::Span(span),
         }
     }
@@ -56,7 +63,7 @@ impl Place {
 /// file does not leave it pointing into the middle of something.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mark {
-    pub path: PathBuf,
+    pub resource: ResourceRef,
     pub offset: usize,
     pub position: Option<(u32, u32)>,
 }
@@ -117,10 +124,16 @@ impl History {
 }
 
 fn here(app: &AppState) -> Option<Mark> {
-    let path = app.workspace.active_path()?.to_path_buf();
+    let resource = app
+        .workspace
+        .active_document()
+        .and_then(|id| app.workspace.documents.get(&id))?
+        .meta
+        .resource
+        .clone();
     let editor = app.workspace.active_editor()?;
     Some(Mark {
-        path,
+        resource,
         offset: editor.cursor(),
         position: {
             let p = crate::features::language_service::position::LineIndex::new(editor.text())
@@ -151,6 +164,7 @@ pub fn go(state: &AppContext, place: Place, rect: UiRect, remember: bool) {
     let app = state.get();
     let origin = here(&app);
     let source = super::target(&app, app.workspace.active_pane());
+    let open_generation = app.explorer.resources.open_generation;
     let mut revision = 0;
     state.update(|app| {
         app.editor.language.navigation_revision =
@@ -159,28 +173,48 @@ pub fn go(state: &AppContext, place: Place, rect: UiRect, remember: bool) {
     });
     if app
         .workspace
-        .file_id_for_path(&place.path)
+        .file_id_for_resource(&place.resource)
         .is_some_and(|id| app.workspace.open_error(id).is_none())
     {
-        state.update(|app| {
-            arrive(
-                app,
-                &place,
-                None,
-                rect,
-                remember.then_some(origin).flatten(),
-            )
-        });
+        state.update(|app| arrive(app, &place, rect, remember.then_some(origin).flatten()));
         return;
     }
-    let size_ok = std::fs::metadata(&place.path)
+    if place.resource.environment().is_some() {
+        let guard_source = source.clone();
+        crate::app::resources::read_text(
+            state,
+            place.resource.clone(),
+            MAX_FILE as usize,
+            crate::app::resources::TextConsumer {
+                valid: Box::new(move |app| {
+                    current(app, revision, open_generation, guard_source.as_ref())
+                }),
+                ready: Box::new(move |app, result| match result {
+                    Ok(prepared) => {
+                        app.workspace.open_prepared_text(
+                            prepared,
+                            crate::app::workspace::OpenMode::Permanent,
+                        );
+                        arrive(app, &place, rect, remember.then_some(origin).flatten());
+                    }
+                    Err(error) => app.show_error(format!(
+                        "Could not open {}: {error}",
+                        place.resource.display()
+                    )),
+                }),
+            },
+        );
+        return;
+    }
+    let path = place.resource.local_path().unwrap().to_path_buf();
+    let size_ok = std::fs::metadata(&path)
         .map(|meta| meta.len() <= MAX_FILE)
         .unwrap_or(false);
     if !size_ok {
-        let name = place.path.display().to_string();
+        let name = path.display().to_string();
         state.update(move |app| {
             app.workspace.open_failed(
-                place.path,
+                path,
                 format!("Could not open {name}: file is unavailable or larger than 16 MiB."),
                 crate::app::workspace::OpenMode::Permanent,
             );
@@ -192,7 +226,6 @@ pub fn go(state: &AppContext, place: Place, rect: UiRect, remember: bool) {
         return;
     };
     let worker_state = state.clone();
-    let path = place.path.clone();
     let failed_path = path.clone();
     let spawned = std::thread::Builder::new()
         .name("loog-goto-open".to_owned())
@@ -205,17 +238,7 @@ pub fn go(state: &AppContext, place: Place, rect: UiRect, remember: bool) {
                     });
             application.post(move || {
                 worker_state.update(|app| {
-                    if app.editor.language.navigation_revision != revision
-                        || source.as_ref().is_some_and(|source| {
-                            app.workspace.active_pane() != source.pane
-                                || super::target(app, source.pane).is_none_or(|now| {
-                                    !now.same_view(source)
-                                        || now.stamp != source.stamp
-                                        || now.cursor != source.cursor
-                                        || now.selection != source.selection
-                                })
-                        })
-                    {
+                    if !current(app, revision, open_generation, source.as_ref()) {
                         return;
                     }
                     match read {
@@ -224,19 +247,13 @@ pub fn go(state: &AppContext, place: Place, rect: UiRect, remember: bool) {
                                 prepared,
                                 crate::app::workspace::OpenMode::Permanent,
                             );
-                            arrive(
-                                app,
-                                &place,
-                                None,
-                                rect,
-                                remember.then_some(origin).flatten(),
-                            );
+                            arrive(app, &place, rect, remember.then_some(origin).flatten());
                             app.chrome.toast = None;
                         }
                         Err(error) => {
                             app.workspace.open_failed(
-                                place.path.clone(),
-                                format!("Could not open {}: {error}", place.path.display()),
+                                place.resource.local_path().unwrap().to_path_buf(),
+                                format!("Could not open {}: {error}", place.resource.display()),
                                 crate::app::workspace::OpenMode::Permanent,
                             );
                             app.chrome.toast = None;
@@ -257,26 +274,35 @@ pub fn go(state: &AppContext, place: Place, rect: UiRect, remember: bool) {
     }
 }
 
-fn arrive(
-    app: &mut AppState,
-    place: &Place,
-    text: Option<String>,
-    rect: UiRect,
-    origin: Option<Mark>,
-) {
+fn current(
+    app: &AppState,
+    revision: u64,
+    open_generation: u64,
+    source: Option<&super::Target>,
+) -> bool {
+    app.editor.language.navigation_revision == revision
+        && app.explorer.resources.open_generation == open_generation
+        && app.editor.pending_file.is_none()
+        && (source.is_some() || app.workspace.active_document().is_none())
+        && source.is_none_or(|source| {
+            app.workspace.active_pane() == source.pane
+                && super::target(app, source.pane).is_some_and(|now| {
+                    now.same_view(source)
+                        && now.stamp == source.stamp
+                        && now.cursor == source.cursor
+                        && now.selection == source.selection
+                })
+        })
+}
+fn arrive(app: &mut AppState, place: &Place, rect: UiRect, origin: Option<Mark>) {
     if let Some(origin) = origin {
         app.editor.vim.record_jump(origin.offset);
         app.editor.language.history.visit(origin);
     }
-    match (app.workspace.file_id_for_path(&place.path), text) {
-        (Some(id), _) => {
-            app.workspace.activate_document(id);
-        }
-        (None, Some(text)) => {
-            app.workspace.open_path(place.path.clone(), text);
-        }
-        (None, None) => return,
-    }
+    let Some(id) = app.workspace.file_id_for_resource(&place.resource) else {
+        return;
+    };
+    app.workspace.activate_document(id);
     let Some(range) = app
         .workspace
         .active_editor()
@@ -332,13 +358,19 @@ pub fn display_path(app: &AppState, path: &Path) -> String {
         .to_string()
         .replace('\\', "/")
 }
+pub fn display_resource(app: &AppState, resource: &ResourceRef) -> String {
+    match resource.local_path() {
+        Some(path) => display_path(app, path),
+        None => resource.display().to_string(),
+    }
+}
 
 fn mark_place(mark: Mark) -> Place {
     match mark.position {
         Some((line, character)) => {
             let p = crate::features::language_service::position::Position { line, character };
-            Place::span(
-                mark.path,
+            Place::resource_span(
+                mark.resource,
                 Span {
                     start: p,
                     end: p,
@@ -347,7 +379,7 @@ fn mark_place(mark: Mark) -> Place {
                 },
             )
         }
-        None => Place::bytes(mark.path, mark.offset..mark.offset),
+        None => Place::resource_bytes(mark.resource, mark.offset..mark.offset),
     }
 }
 
@@ -357,7 +389,7 @@ mod tests {
 
     fn mark(path: &str, offset: usize) -> Mark {
         Mark {
-            path: path.into(),
+            resource: ResourceRef::local(path),
             offset,
             position: None,
         }
@@ -418,5 +450,31 @@ mod tests {
         assert_eq!(place.range("abcdefgh"), 5..8);
         let place = Place::bytes("f".into(), 40..99);
         assert_eq!(place.range("abc"), 3..3);
+    }
+    #[test]
+    fn navigation_history_keeps_identical_paths_in_different_environments() {
+        let mut history = History::default();
+        let first = Mark {
+            resource: ResourceRef::provided(
+                loog_workspace_api::EnvironmentKey::new("provider", "one").unwrap(),
+                "/work/a",
+            )
+            .unwrap(),
+            offset: 3,
+            position: Some((0, 3)),
+        };
+        let second = Mark {
+            resource: ResourceRef::provided(
+                loog_workspace_api::EnvironmentKey::new("provider", "two").unwrap(),
+                "/work/a",
+            )
+            .unwrap(),
+            ..first.clone()
+        };
+        history.visit(first.clone());
+        history.visit(second.clone());
+        assert_eq!(history.go_back(mark("/work/a", 3)), Some(second.clone()));
+        assert_eq!(history.go_back(second), Some(first.clone()));
+        assert_eq!(mark_place(first.clone()).resource, first.resource);
     }
 }

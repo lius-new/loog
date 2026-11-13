@@ -37,6 +37,9 @@ pub(crate) fn history_key(
     app: &AppState,
     store: &GitStoreSnapshot,
 ) -> Option<(PathBuf, Option<String>)> {
+    if app.git.resources.model.selected.is_some() || app.git.resources.model.offline.is_some() {
+        return None;
+    }
     store
         .active()
         .filter(|_| {

@@ -191,7 +191,7 @@ fn trigger_characters(ctx: &AppContext, app: &AppState) -> Vec<String> {
                 app.workspace
                     .active_document()
                     .and_then(|id| app.workspace.documents.get(&id))
-                    .map(|d| d.meta.path.as_path()),
+                    .map(|d| &d.meta.resource),
             )
             .iter()
             .filter_map(|info| info.providers.completion.as_ref())
@@ -207,7 +207,7 @@ fn offers_completion(ctx: &AppContext, app: &AppState) -> bool {
             app.workspace
                 .active_document()
                 .and_then(|id| app.workspace.documents.get(&id))
-                .map(|d| d.meta.path.as_path()),
+                .map(|d| &d.meta.resource),
         )
         .iter()
         .any(|info| info.providers.completion.is_some())
@@ -541,8 +541,13 @@ pub fn request(ctx: &AppContext, app: &mut AppState, manual: bool, trigger: Opti
     };
     let handle = Arc::new(
         services.request(
-            RequestSpec::new(Feature::Completion, t.path.clone(), t.lsp_stamp(), t.cursor)
-                .extra(json!({ "context": context })),
+            RequestSpec::new(
+                Feature::Completion,
+                t.resource.clone(),
+                t.lsp_stamp(),
+                t.cursor,
+            )
+            .extra(json!({ "context": context })),
         ),
     );
     let same = app.editor.language.completion.as_ref().is_some_and(|s| {
@@ -851,9 +856,14 @@ pub fn resolve_selected(ctx: &AppContext, app: &mut AppState) {
     };
     let handle = Arc::new(
         services.request(
-            RequestSpec::new(Feature::CompletionResolve, t.path.clone(), t.lsp_stamp(), 0)
-                .extra(entry.item.raw.clone())
-                .target(entry.instance),
+            RequestSpec::new(
+                Feature::CompletionResolve,
+                t.resource.clone(),
+                t.lsp_stamp(),
+                0,
+            )
+            .extra(entry.item.raw.clone())
+            .target(entry.instance),
         ),
     );
     session.resolving = Some((index, handle));
@@ -1121,8 +1131,9 @@ pub fn accept(app: &mut AppState, then: Option<char>) -> bool {
         .unwrap_or("\n");
     let indent = line_indent(&t.text, plan.range.start);
     let mut snippet = plan.snippet.then(|| {
-        let resolve = snippet::insertion_variables(
-            &t.path,
+        let resolve = snippet::resource_insertion_variables(
+            &t.resource,
+            &app.workspace.documents[&t.document].meta.name,
             t.selection
                 .as_ref()
                 .map_or("", |range| &t.text[range.clone()]),
@@ -1356,7 +1367,10 @@ mod tests {
         use std::sync::Mutex;
         struct Source(Arc<Mutex<Vec<usize>>>);
         impl ExternalAnswers for Source {
-            fn capabilities(&self, _: Option<&std::path::Path>) -> Vec<CapabilitySource> {
+            fn capabilities(
+                &self,
+                _: Option<&loog_workspace_api::ResourceRef>,
+            ) -> Vec<CapabilitySource> {
                 vec![CapabilitySource {
                     id: crate::features::providers::EXTERNAL_SOURCE | 1,
                     run: 1,

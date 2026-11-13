@@ -82,7 +82,7 @@ pub fn observe(ctx: &AppContext, app: &mut AppState) {
     let mut providers = services(ctx)
         .map(|services| {
             services
-                .capability_sources(Some(&t.path))
+                .capability_sources(Some(&t.resource))
                 .into_iter()
                 .filter(|i| i.providers.inlay_hint)
                 .map(|i| (i.id, i.run, i.revision))
@@ -163,7 +163,7 @@ fn request(ctx: &AppContext, app: &mut AppState) {
         )
         .min(t.text.len());
     let handle = Arc::new(services.request(
-        RequestSpec::new(Feature::InlayHint, t.path.clone(), t.lsp_stamp(), start).range(end),
+        RequestSpec::new(Feature::InlayHint, t.resource.clone(), t.lsp_stamp(), start).range(end),
     ));
     app.editor.language.inlay.pending = Some(Pending {
         handle,

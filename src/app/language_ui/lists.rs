@@ -1,6 +1,6 @@
 //! Lists a server fills for the person to choose from: call and type hierarchies,
 //! code lenses, and the problems of the open files.
-use super::navigate::{Place, display_path};
+use super::navigate::{Place, display_path, display_resource};
 use super::popup::{Item, Kind, Payload, Popup};
 use super::{AppContext, AppState, Target, services, target};
 use crate::features::language_service::diagnostics::Severity;
@@ -82,7 +82,7 @@ fn ask(
     };
     let handle = Arc::new(services.request(spec(RequestSpec::new(
         feature,
-        target.path.clone(),
+        target.resource.clone(),
         target.lsp_stamp(),
         target.cursor,
     ))));
@@ -362,16 +362,14 @@ pub fn problems(state: &AppContext) {
         if !doc.is_text() {
             continue;
         }
-        let Some(list) = services
-            .results(&doc.meta.path, &doc.stamp(*id))
-            .diagnostics
-        else {
+        let resource = &doc.meta.resource;
+        let Some(list) = services.results(resource, &doc.stamp(*id)).diagnostics else {
             continue;
         };
         let text = doc.buffer.text_snapshot();
         for d in list.iter() {
             let line = text[..d.range.start.min(text.len())].matches('\n').count();
-            let name = display_path(&app, &doc.meta.path);
+            let name = display_resource(&app, resource);
             found.push((
                 d.severity,
                 name.clone(),
@@ -386,20 +384,23 @@ pub fn problems(state: &AppContext) {
                         Severity::Hint => "H",
                     },
                     faint: d.severity == Severity::Hint,
-                    payload: Payload::Place(Place::bytes(doc.meta.path.clone(), d.range.clone())),
+                    payload: Payload::Place(Place::resource_bytes(
+                        resource.clone(),
+                        d.range.clone(),
+                    )),
                 },
             ));
         }
     }
     found.sort_by(|a, b| (a.0, &a.1, a.2).cmp(&(b.0, &b.1, b.2)));
     let count = found.len();
-    let mut groups: Vec<(std::path::PathBuf, Vec<Item>)> = Vec::new();
+    let mut groups: Vec<(loog_workspace_api::ResourceRef, Vec<Item>)> = Vec::new();
     let mut indices = std::collections::HashMap::new();
     for (.., item) in found {
         let Payload::Place(place) = &item.payload else {
             continue;
         };
-        let path = place.path.clone();
+        let path = place.resource.clone();
         let at = *indices.entry(path.clone()).or_insert_with(|| {
             groups.push((path, Vec::new()));
             groups.len() - 1
@@ -409,7 +410,7 @@ pub fn problems(state: &AppContext) {
     let mut rows = Vec::new();
     for (path, items) in groups {
         rows.push(Item {
-            label: display_path(&app, &path),
+            label: display_resource(&app, &path),
             detail: format!("{} problems", items.len()),
             badge: "▾",
             faint: false,

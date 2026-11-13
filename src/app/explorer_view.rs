@@ -135,10 +135,73 @@ pub(crate) fn render_menu(
 fn run(state: &AppContext, services: &Services, command: Command) {
     use super::explorer;
     match command {
+        Command::ResourceRecovery { resource, forget } => {
+            let Some(host) = state.services().and_then(|r| r.extensions()) else {
+                return;
+            };
+            if forget {
+                host.forget_resource(&resource);
+            } else {
+                let bookmark = state
+                    .get()
+                    .explorer
+                    .resources
+                    .bookmarks
+                    .iter()
+                    .find(|bookmark| bookmark.resource == resource)
+                    .cloned();
+                if let Some(bookmark) = bookmark {
+                    host.restore_resource(bookmark);
+                }
+            }
+        }
+        Command::ResourceMenu { point, target } => state.update(|app| {
+            app.editor.tabs.tab_context_menu = None;
+            app.explorer.ui.dismiss_menu();
+            app.explorer.ui.menu = Some(point);
+            app.explorer.ui.resource_menu = Some(target);
+        }),
+        Command::ResourceAction { action, target } => {
+            if action == MenuAction::OpenTerminal {
+                let root = state
+                    .get()
+                    .explorer
+                    .resources
+                    .root(target.scope)
+                    .map(|root| root.descriptor.clone());
+                if let Some(root) = root {
+                    super::terminal::new_provided(
+                        state,
+                        &services.terminal_tabs,
+                        crate::features::terminal::model::ProvidedTerminal {
+                            root: root.resource,
+                            cwd: target.path,
+                            name: root.name,
+                        },
+                        None,
+                    );
+                }
+                return;
+            }
+            super::resource_edit::action(
+                state,
+                action,
+                target,
+                services.application.clipboard().as_ref(),
+            );
+        }
+        Command::ResourceDirectory { scope, path, more } => {
+            super::resources::directory(state, scope, path, more)
+        }
+        Command::ResourceFile { scope, file } => {
+            super::resources::open(state, scope, file);
+            services.editor_focus.focus();
+        }
         Command::ToggleDirectory(key) => {
             state.update(move |app| explorer::toggle_directory(app, &key));
         }
         Command::OpenMenu { point, target } => state.update(move |app| {
+            app.explorer.ui.resource_menu = None;
             app.editor.tabs.tab_context_menu = None;
             // Right-clicking outside the selection starts over; inside it the
             // menu applies to the whole selection.
@@ -219,13 +282,18 @@ fn run(state: &AppContext, services: &Services, command: Command) {
             app.git.ui.clone_error = None;
         }),
         Command::SubmitEdit => {
-            if state.get().explorer.model.create_request().is_some() {
+            if state.get().explorer.resources.edit.is_some() {
+                super::resource_edit::submit(state);
+            } else if state.get().explorer.model.create_request().is_some() {
                 explorer::finish_create(state);
             } else {
                 explorer::finish_rename(state);
             }
         }
-        Command::CancelEdit => explorer::cancel_edit(state),
+        Command::CancelEdit => {
+            state.update(|app| app.explorer.resources.edit = None);
+            explorer::cancel_edit(state);
+        }
         Command::ResizeStart => state.update(|app| app.drawer.resizing = true),
         Command::Resize(width) => state.update(move |app| {
             if app.drawer.resizing {
@@ -360,6 +428,7 @@ fn run_menu(
             }
         }
         MenuAction::AddFolder => unreachable!("handled before the target check"),
+        MenuAction::WorkspaceTrust => {}
     }
 }
 

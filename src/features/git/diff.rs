@@ -3,14 +3,14 @@ use std::path::PathBuf;
 use super::error::{GitError, GitErrorKind, GitResult};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct UnifiedDiff {
-    pub files: Vec<FileDiff>,
+pub struct UnifiedDiff<P = PathBuf> {
+    pub files: Vec<FileDiff<P>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct FileDiff {
-    pub old_path: Option<PathBuf>,
-    pub new_path: Option<PathBuf>,
+pub struct FileDiff<P = PathBuf> {
+    pub old_path: Option<P>,
+    pub new_path: Option<P>,
     pub hunks: Vec<DiffHunk>,
     pub binary: bool,
     /// Decoded comparison: raw-byte hunk application is unavailable.
@@ -37,8 +37,19 @@ pub enum DiffLine {
 }
 
 pub fn parse_unified(input: &str) -> GitResult<UnifiedDiff> {
+    parse_unified_with(input, |value| Ok(super::parser::bytes_to_path(value)))
+}
+
+pub fn parse_resource_diff(input: &str) -> GitResult<UnifiedDiff<super::path::GitPath>> {
+    parse_unified_with(input, super::path::GitPath::from_git)
+}
+
+fn parse_unified_with<P: Default>(
+    input: &str,
+    mut path: impl FnMut(&[u8]) -> GitResult<P>,
+) -> GitResult<UnifiedDiff<P>> {
     let mut result = UnifiedDiff::default();
-    let mut file = None::<FileDiff>;
+    let mut file = None::<FileDiff<P>>;
     let mut hunk = None::<DiffHunk>;
     for line in input.lines() {
         if line.starts_with("diff --git ") {
@@ -47,10 +58,10 @@ pub fn parse_unified(input: &str) -> GitResult<UnifiedDiff> {
                 result.files.push(previous);
             }
             file = Some(FileDiff::default());
-        } else if let Some(path) = line.strip_prefix("--- ") {
-            file.get_or_insert_with(FileDiff::default).old_path = parse_diff_path(path);
-        } else if let Some(path) = line.strip_prefix("+++ ") {
-            file.get_or_insert_with(FileDiff::default).new_path = parse_diff_path(path);
+        } else if let Some(name) = line.strip_prefix("--- ") {
+            file.get_or_insert_with(FileDiff::default).old_path = parse_diff_path(name, &mut path)?;
+        } else if let Some(name) = line.strip_prefix("+++ ") {
+            file.get_or_insert_with(FileDiff::default).new_path = parse_diff_path(name, &mut path)?;
         } else if line.starts_with("Binary files ") || line.starts_with("GIT binary patch") {
             file.get_or_insert_with(FileDiff::default).binary = true;
         } else if line.starts_with("@@ ") {
@@ -133,24 +144,79 @@ pub fn split_raw_diff(input: &str) -> GitResult<RawFileDiff> {
     Ok(result)
 }
 
-fn finish_hunk(file: &mut Option<FileDiff>, hunk: &mut Option<DiffHunk>) {
+fn finish_hunk<P: Default>(file: &mut Option<FileDiff<P>>, hunk: &mut Option<DiffHunk>) {
     if let Some(hunk) = hunk.take() {
         file.get_or_insert_with(FileDiff::default).hunks.push(hunk);
     }
 }
 
-fn parse_diff_path(value: &str) -> Option<PathBuf> {
-    let value = value.split('\t').next().unwrap_or(value);
-    if value == "/dev/null" {
-        None
+fn parse_diff_path<P>(
+    value: &str,
+    path: &mut impl FnMut(&[u8]) -> GitResult<P>,
+) -> GitResult<Option<P>> {
+    let value = unquote_name(value)?;
+    if value == b"/dev/null" {
+        Ok(None)
     } else {
-        Some(PathBuf::from(
+        Ok(Some(path(
             value
-                .strip_prefix("a/")
-                .or_else(|| value.strip_prefix("b/"))
-                .unwrap_or(value),
-        ))
+                .strip_prefix(b"a/")
+                .or_else(|| value.strip_prefix(b"b/"))
+                .unwrap_or(&value),
+        )?))
     }
+}
+
+fn unquote_name(value: &str) -> GitResult<Vec<u8>> {
+    if !value.starts_with('"') {
+        return Ok(value
+            .split('\t')
+            .next()
+            .unwrap_or(value)
+            .as_bytes()
+            .to_vec());
+    }
+    let invalid = || GitError::new(GitErrorKind::InvalidOutput, "Invalid quoted Git filename");
+    let input = value.as_bytes();
+    let mut output = Vec::new();
+    let mut index = 1;
+    while let Some(&byte) = input.get(index) {
+        index += 1;
+        match byte {
+            b'"' => {
+                return if index == input.len() || input[index] == b'\t' {
+                    Ok(output)
+                } else {
+                    Err(invalid())
+                };
+            }
+            b'\\' => {
+                let escaped = *input.get(index).ok_or_else(invalid)?;
+                index += 1;
+                output.push(match escaped {
+                    b'\\' | b'"' => escaped,
+                    b'a' => 7,
+                    b'b' => 8,
+                    b'f' => 12,
+                    b'n' => 10,
+                    b'r' => 13,
+                    b't' => 9,
+                    b'v' => 11,
+                    b'0'..=b'3' => {
+                        let digits = input.get(index..index + 2).ok_or_else(invalid)?;
+                        if !digits.iter().all(|byte| (b'0'..=b'7').contains(byte)) {
+                            return Err(invalid());
+                        }
+                        index += 2;
+                        (escaped - b'0') * 64 + (digits[0] - b'0') * 8 + (digits[1] - b'0')
+                    }
+                    _ => return Err(invalid()),
+                });
+            }
+            _ => output.push(byte),
+        }
+    }
+    Err(invalid())
 }
 
 fn parse_hunk_header(value: &str) -> GitResult<DiffHunk> {
@@ -190,6 +256,19 @@ fn parse_range(value: Option<&str>, prefix: char) -> GitResult<(usize, usize)> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn resource_diff_decodes_quoted_names_without_client_path_rules() {
+        let input = "diff --git ignored\n--- \"a/src/中文\\\\name\\t.txt\"\n+++ \"b/src/中文\\134name\\011.txt\"\n@@ -1 +1 @@\n-old\n+new\n";
+        let diff = super::parse_resource_diff(input).unwrap();
+        let file = &diff.files[0];
+        assert_eq!(file.old_path, file.new_path);
+        let path = file.new_path.as_ref().unwrap();
+        assert_eq!(path.components().count(), 2);
+        assert_eq!(path.to_str(), Some("src/中文\\name\t.txt"));
+        assert!(super::parse_resource_diff("--- \"a/bad\\xname\"\n").is_err());
+        assert!(super::parse_resource_diff("--- a/../outside\n").is_err());
+        assert_eq!(super::unquote_name("\"a/\\377\"").unwrap(), b"a/\xff");
+    }
     use super::*;
 
     #[test]

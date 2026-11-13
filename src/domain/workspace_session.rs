@@ -47,6 +47,16 @@ pub struct EditorLayout {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SavedView {
+    Resource {
+        resource: loog_workspace_api::ResourceRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        root: Option<loog_workspace_api::ResourceRef>,
+        name: String,
+        #[serde(default)]
+        source: SavedSource,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        encoding: Option<SavedEncoding>,
+    },
     Text {
         path: PathBuf,
         #[serde(default)]
@@ -141,21 +151,53 @@ impl SavedView {
     pub fn association(&self) -> Option<SavedViewRef> {
         match self {
             Self::Text { reader, .. } => reader.source_view,
+            Self::Resource { .. } => None,
         }
     }
-    pub fn path(&self) -> &std::path::Path {
+    pub fn local_path(&self) -> Option<&std::path::Path> {
         match self {
-            Self::Text { path, .. } => path,
+            Self::Text { path, .. } => Some(path),
+            Self::Resource { .. } => None,
+        }
+    }
+    #[cfg(test)]
+    pub fn path(&self) -> &std::path::Path {
+        self.local_path().expect("local session fixture")
+    }
+    pub fn resource(&self) -> loog_workspace_api::ResourceRef {
+        match self {
+            Self::Text { path, .. } => loog_workspace_api::ResourceRef::local(path.clone()),
+            Self::Resource { resource, .. } => resource.clone(),
+        }
+    }
+    pub fn encoding(&self) -> Option<&SavedEncoding> {
+        match self {
+            Self::Text { encoding, .. } | Self::Resource { encoding, .. } => encoding.as_ref(),
         }
     }
     pub fn apply(&self, view: &mut DocumentView) {
+        if let Self::Resource { source, .. } = self {
+            view.presentation = Presentation::Source;
+            view.source.selection = Selection {
+                cursor: source.cursor,
+                anchor: source.anchor,
+                preferred_column: None,
+                wrap_affinity: Default::default(),
+            };
+            view.source.scroll_x = source.scroll_x;
+            view.source.scroll_y = source.scroll_y;
+            return;
+        }
         let Self::Text {
             presentation,
             source,
             reader,
             image,
             ..
-        } = self;
+        } = self
+        else {
+            unreachable!()
+        };
         view.presentation = match presentation {
             SavedPresentation::Source => Presentation::Source,
             SavedPresentation::Markdown => Presentation::Markdown,
@@ -184,9 +226,27 @@ impl SavedView {
             },
         };
     }
-    fn capture(path: PathBuf, view: &DocumentView, association: Option<SavedViewRef>) -> Self {
+    fn capture(
+        meta: &crate::domain::document::FileMeta,
+        view: &DocumentView,
+        association: Option<SavedViewRef>,
+    ) -> Self {
+        let Some(path) = meta.local_path() else {
+            return Self::Resource {
+                resource: meta.resource.clone(),
+                name: meta.name.clone(),
+                encoding: None,
+                root: meta.provider_root.clone(),
+                source: SavedSource {
+                    cursor: view.source.selection.cursor,
+                    anchor: view.source.selection.anchor,
+                    scroll_x: view.source.scroll_x,
+                    scroll_y: view.source.scroll_y,
+                },
+            };
+        };
         Self::Text {
-            path,
+            path: path.to_path_buf(),
             encoding: None,
             presentation: match view.presentation {
                 Presentation::Source => SavedPresentation::Source,
@@ -245,6 +305,16 @@ struct LayoutV2 {
     #[serde(default)]
     active_pane: usize,
 }
+fn contains_resources(node: &SavedPaneNode) -> bool {
+    match node {
+        SavedPaneNode::Pane { items, .. } => items
+            .iter()
+            .any(|item| matches!(item, SavedView::Resource { .. })),
+        SavedPaneNode::Split { children, .. } => {
+            children.iter().any(|child| contains_resources(&child.node))
+        }
+    }
+}
 // Frozen legacy DTO: the unversioned format identified tabs by path.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -298,7 +368,7 @@ impl Serialize for EditorLayout {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.validate().map_err(serde::ser::Error::custom)?;
         LayoutV2 {
-            schema: 2,
+            schema: if contains_resources(&self.root) { 3 } else { 2 },
             root: self.root.clone(),
             active_pane: self.active_pane,
         }
@@ -310,7 +380,11 @@ impl<'de> Deserialize<'de> for EditorLayout {
         let value = serde_json::Value::deserialize(deserializer)?;
         let result = if value.get("schema").is_some() {
             let wire: LayoutV2 = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-            if wire.schema != 2 {
+            // COMPAT(local-layout-v2): Read existing local-only v2 sessions.
+            // Resource sessions use v3 so old applications reject them rather
+            // than lose tabs. Remove v2 only with an explicit session migration;
+            // no removal version is scheduled.
+            if !matches!(wire.schema, 2 | 3) || wire.schema == 2 && contains_resources(&wire.root) {
                 return Err(serde::de::Error::custom("unsupported editor layout schema"));
             }
             Self {
@@ -350,14 +424,44 @@ impl EditorLayout {
                     if active.is_some_and(|i| i >= items.len()) {
                         return Err("invalid active view index");
                     }
-                    for SavedView::Text {
-                        path,
-                        source,
-                        reader,
-                        image,
-                        ..
-                    } in items
-                    {
+                    for item in items {
+                        if let SavedView::Resource {
+                            resource,
+                            root,
+                            name,
+                            source,
+                            ..
+                        } = item
+                        {
+                            if resource.local_path().is_some()
+                                || name.is_empty()
+                                || name.len() > 32 * 1024
+                                || name.contains('\0')
+                                || !source.scroll_x.is_finite()
+                                || source.scroll_x < 0.0
+                                || !source.scroll_y.is_finite()
+                                || source.scroll_y < 0.0
+                            {
+                                return Err("invalid resource view");
+                            }
+                            if root
+                                .as_ref()
+                                .is_some_and(|root| root.environment() != resource.environment())
+                            {
+                                return Err("resource root belongs to a different environment");
+                            }
+                            continue;
+                        }
+                        let SavedView::Text {
+                            path,
+                            source,
+                            reader,
+                            image,
+                            ..
+                        } = item
+                        else {
+                            unreachable!()
+                        };
                         if path.as_os_str().is_empty() || path.to_string_lossy().contains('\0') {
                             return Err("invalid document path");
                         }
@@ -437,7 +541,7 @@ impl EditorLayout {
                             presentation: SavedPresentation::Source,
                             ..
                         }
-                    ) || view.path() != target.path()
+                    ) || view.resource() != target.resource()
                     {
                         return Err("incompatible associated source view");
                     }
@@ -486,7 +590,7 @@ fn save_pane_node<D: Clone, K: Clone + Ord>(
             let restorable = |view: ViewId| workspace.is_file(view);
             let saved = |id: ViewId| {
                 let mut saved = SavedView::capture(
-                    workspace.view_meta(id)?.path.clone(),
+                    workspace.view_meta(id)?,
                     workspace.view(id)?,
                     source_reference(workspace, id, pending),
                 );
@@ -494,11 +598,13 @@ fn save_pane_node<D: Clone, K: Clone + Ord>(
                     .view_document(id)
                     .and_then(|id| workspace.documents.get(&id))
                 {
-                    let SavedView::Text { encoding, .. } = &mut saved;
+                    let (SavedView::Text { encoding, .. } | SavedView::Resource { encoding, .. }) =
+                        &mut saved;
                     let dirty = document.is_dirty();
                     *encoding = if !document.is_text() {
                         document.recovery.clone()
                     } else if dirty
+                        || document.meta.local_path().is_none()
                         || document.format() != Default::default()
                         || document.meta.read_override.is_some()
                         || document.buffer.chosen_line_ending().is_some()
@@ -512,7 +618,8 @@ fn save_pane_node<D: Clone, K: Clone + Ord>(
                             saved: document.saved_format,
                             read_override: document.meta.read_override.map(|_| document.format()),
                             unsaved_text: dirty.then(|| document.buffer.text_snapshot()),
-                            saved_text: dirty.then(|| document.saved_text.clone()),
+                            saved_text: (dirty || document.meta.local_path().is_none())
+                                .then(|| document.saved_text.clone()),
                             source_bytes: dirty.then(|| document.encoding_bytes.clone()).flatten(),
                         })
                     } else {
@@ -530,7 +637,9 @@ fn save_pane_node<D: Clone, K: Clone + Ord>(
                 .collect::<Vec<_>>();
             let pending = pending.filter(|p| p.pane == *id);
             if let Some(pending) = pending
-                && !items.iter().any(|item| item.path() == pending.path)
+                && !items
+                    .iter()
+                    .any(|item| item.local_path() == Some(pending.path.as_path()))
             {
                 let index = if let Some(index) = pending.insert_before {
                     pane.items()
@@ -551,7 +660,11 @@ fn save_pane_node<D: Clone, K: Clone + Ord>(
             }
             *leaf_index += 1;
             let active = pending
-                .and_then(|p| items.iter().position(|v| v.path() == p.path))
+                .and_then(|p| {
+                    items
+                        .iter()
+                        .position(|v| v.local_path() == Some(p.path.as_path()))
+                })
                 .or_else(|| {
                     let active = pane.active()?;
                     pane.items()
@@ -665,8 +778,8 @@ mod tests {
         assert_eq!(active, Some(1));
         assert_eq!(layout.active_pane, 0);
         assert_eq!(
-            workspace.active_meta().unwrap().path,
-            std::path::Path::new("second.txt")
+            workspace.active_meta().unwrap().local_path(),
+            Some(std::path::Path::new("second.txt"))
         );
     }
 
@@ -744,7 +857,7 @@ mod migration_tests {
     fn p1_invalid_or_future_layout_never_falls_back_to_legacy_defaults() {
         let base = json!({"schema":2,"root":{"pane":{"items":[{"kind":"text","path":"a.md"}],"active":0}},"active_pane":0});
         let mut bad = Vec::new();
-        for version in [json!(1), json!(3), json!("2"), serde_json::Value::Null] {
+        for version in [json!(1), json!(4), json!("2"), serde_json::Value::Null] {
             let mut v = base.clone();
             v["schema"] = version;
             bad.push(v);
@@ -827,7 +940,7 @@ fn source_reference<D: Clone, K: Clone + Ord>(
                 .items()
                 .iter()
                 .filter_map(|id| workspace.view_meta(*id))
-                .any(|meta| meta.path == pending.path)
+                .any(|meta| meta.local_path() == Some(pending.path.as_path()))
     }) {
         let insertion = pending.insert_before.map_or(usize::MAX, |before| {
             actual

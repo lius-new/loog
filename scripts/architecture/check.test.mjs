@@ -29,7 +29,7 @@ test('domain verification cannot silently include the application or an I/O adap
   assert.deepEqual(violations({[file]:'#[path = "../../../src/domain/mod.rs"]\npub(crate) mod domain;'},policy()),[]);
 });
 test('domain verification cannot acquire GUI dependencies or renamed package aliases',()=>{
-  const source='[dependencies]\nloog-editor-core = { path = "../editor-core" }\nserde = "1"\nserde_json = "1"\n';
+  const source='[dependencies]\nloog-editor-core = { path = "../editor-core" }\nloog-text-core = { path = "../text-core" }\nloog-workspace-api = { path = "../workspace-api" }\nserde = "1"\nserde_json = "1"\n';
   assert.deepEqual(verificationManifestErrors(source),[]);
   for(const modified of [source+'lgui = "1"\n',source+'[build-dependencies]\nlgui = "1"\n',source.replace('serde = "1"','serde = { package = "lgui", version = "1" }')])assert.ok(verificationManifestErrors(modified).length>0);
 });

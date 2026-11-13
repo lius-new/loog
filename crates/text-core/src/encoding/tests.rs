@@ -1,4 +1,4 @@
-use crate::features::encoding::*;
+use crate::encoding::*;
 #[test]
 fn encoding_every_supported_format_round_trips_and_preserves_crlf() {
     for format in TextFormat::choices() {

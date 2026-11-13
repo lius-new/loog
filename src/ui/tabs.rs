@@ -529,8 +529,11 @@ pub fn render_tooltip(
 ) -> Option<Element> {
     let (pane, hovered) = app.editor.tabs.tab_hovered?;
     let rect = strips.iter().find(|(id, _)| *id == pane)?.1;
-    let path = app.workspace.view_meta(hovered)?.path.clone();
-    let path = super::display_path(&path);
+    let meta = app.workspace.view_meta(hovered)?;
+    let path = meta
+        .local_path()
+        .map(super::display_path)
+        .unwrap_or_else(|| meta.resource.display().to_string());
     let index = pane_items(app, pane).iter().position(|id| *id == hovered)?;
     let layout = tab_layout(rect, app, pane, false);
     let item = layout.items.get(index)?;

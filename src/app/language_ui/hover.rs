@@ -227,7 +227,7 @@ pub fn fire(state: &AppContext, rest: &Rest) {
     };
     let handle = Arc::new(services.request(RequestSpec::new(
         Feature::Hover,
-        target.path.clone(),
+        target.resource.clone(),
         target.lsp_stamp(),
         // The middle of the word: a server may not answer at its very edge.
         rest.word.start + (rest.word.end - rest.word.start) / 2,

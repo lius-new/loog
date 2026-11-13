@@ -20,14 +20,7 @@ pub fn load(path: &Path) -> FileOptions {
         let Ok(text) = std::fs::read_to_string(file) else {
             continue;
         };
-        let root = text
-            .lines()
-            .take_while(|l| !l.trim().starts_with('['))
-            .any(|l| {
-                l.split_once('=').is_some_and(|(k, v)| {
-                    k.trim().eq_ignore_ascii_case("root") && v.trim().eq_ignore_ascii_case("true")
-                })
-            });
+        let root = is_root(&text);
         sources.push((dir.to_path_buf(), text));
         if root {
             break;
@@ -40,6 +33,27 @@ pub fn load(path: &Path) -> FileOptions {
             .unwrap_or(path)
             .to_string_lossy()
             .replace('\\', "/");
+        apply(&text, &relative, &mut values);
+    }
+    options(&values)
+}
+
+pub(crate) fn is_root(text: &str) -> bool {
+    text.trim_start_matches('\u{feff}')
+        .lines()
+        .take_while(|line| !line.trim().starts_with('['))
+        .any(|line| {
+            line.split_once('=').is_some_and(|(key, value)| {
+                key.trim().eq_ignore_ascii_case("root") && value.trim().eq_ignore_ascii_case("true")
+            })
+        })
+}
+
+/// Already-read sources in ancestor-to-descendant order. Relative names are
+/// supplied by the resource provider; this function performs no filesystem IO.
+pub(crate) fn from_sources(sources: impl IntoIterator<Item = (String, String)>) -> FileOptions {
+    let mut values = BTreeMap::new();
+    for (text, relative) in sources {
         apply(&text, &relative, &mut values);
     }
     options(&values)
@@ -63,7 +77,12 @@ fn apply(text: &str, relative: &str, values: &mut BTreeMap<String, String>) {
                 .literal_separator(true)
                 .backslash_escape(true)
                 .build()
-                .is_ok_and(|glob| glob.compile_matcher().is_match(relative));
+                // Match the supplied text directly: Path-based matching on a
+                // Windows client must not reinterpret a target backslash name.
+                .is_ok_and(|glob| {
+                    regex::bytes::Regex::new(glob.regex())
+                        .is_ok_and(|pattern| pattern.is_match(relative.as_bytes()))
+                });
         } else if matched && let Some((key, value)) = line.split_once('=') {
             let key = key.trim().to_ascii_lowercase();
             let value = value.trim().to_ascii_lowercase();

@@ -65,6 +65,21 @@ pub fn resolve(base_document: Option<&Path>, destination: &str) -> Option<Addres
         }
     }
 }
+/// Decode link components without applying this computer's filesystem rules.
+pub fn provider_relative(destination: &str) -> Option<(String, Option<String>)> {
+    let value = destination.trim();
+    if !matches!(classify_link(value), LinkIntent::LocalDocument) {
+        return None;
+    }
+    let (path, fragment) = value
+        .split_once('#')
+        .map_or((value, None), |(path, fragment)| (path, Some(fragment)));
+    let path = decode(path.split_once('?').map_or(path, |(path, _)| path))?;
+    if path.is_empty() || path.len() > 32 * 1024 {
+        return None;
+    }
+    Some((path, fragment.map(decode).transpose_option()?))
+}
 trait TransposeOption<T> {
     fn transpose_option(self) -> Option<Option<T>>;
 }
@@ -110,6 +125,19 @@ pub fn headings(document: &MarkdownDocument) -> Vec<(String, NodeId)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn provider_relative_links_do_not_use_the_client_path_rules() {
+        assert_eq!(
+            provider_relative("../中文%5Cimage.png#title"),
+            Some(("../中文\\image.png".into(), Some("title".into())))
+        );
+        assert_eq!(
+            provider_relative("/target/image.png"),
+            Some(("/target/image.png".into(), None))
+        );
+        assert_eq!(provider_relative("https://example.test/image.png"), None);
+        assert_eq!(provider_relative("bad%00.png"), None);
+    }
     #[test]
     fn paths_and_fragment_are_decoded_separately() {
         let base = Path::new("C:/docs/README.md");

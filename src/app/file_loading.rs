@@ -478,7 +478,14 @@ mod tests {
             .workspace
             .active_items()
             .iter()
-            .map(|id| app.workspace.view_meta(*id).unwrap().path.clone())
+            .map(|id| {
+                app.workspace
+                    .view_meta(*id)
+                    .unwrap()
+                    .local_path()
+                    .unwrap()
+                    .to_path_buf()
+            })
             .collect();
         assert_eq!(
             paths,
@@ -519,8 +526,8 @@ mod tests {
         assert_eq!(app.workspace.active_pane(), target);
         let original_file = app.workspace.pane(original).unwrap().active().unwrap();
         assert_eq!(
-            app.workspace.view_meta(original_file).unwrap().path,
-            PathBuf::from("current.txt")
+            app.workspace.view_meta(original_file).unwrap().local_path(),
+            Some(std::path::Path::new("current.txt"))
         );
         assert!(app.workspace.is_view_dirty(original_file));
         assert_eq!(

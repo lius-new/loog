@@ -73,6 +73,121 @@ fn selection(start: u64, end: u64) -> Selection {
 }
 
 #[test]
+fn user_tool_launch_crosses_the_independent_wit_interface() {
+    let (runtime, component) = runtime();
+    let mut instance = runtime.instantiate(&component, Limits::default()).unwrap();
+    instance
+        .dispatch(&[command(
+            r#"example.tools.launch:{"program":"example-tool","args":["--probe"]}"#,
+            None,
+            vec![],
+        )])
+        .unwrap();
+    let controls = instance.take_process_controls();
+    assert!(matches!(&controls[..],
+        [loog_extension_host::ProcessControl::LaunchTool { program, args, .. }]
+        if program == "example-tool" && args == &["--probe"]));
+}
+
+#[test]
+fn workspace_requests_cross_two_real_component_instances_without_reentry() {
+    use loog_extension_host::workspace::{
+        Command as WorkspaceCommand, Event as WorkspaceEvent, api,
+    };
+    let (runtime, component) = runtime();
+    let mut provider = runtime.instantiate(&component, Limits::default()).unwrap();
+    let mut consumer = runtime.instantiate(&component, Limits::default()).unwrap();
+    let p = api::Owner {
+        id: "example.provider".into(),
+        generation: 1,
+    };
+    let c = api::Owner {
+        id: "example.consumer".into(),
+        generation: 1,
+    };
+    let send = |instance: &mut loog_extension_host::Instance, value: serde_json::Value| {
+        instance
+            .dispatch(&[command(&format!("example.workspace:{value}"), None, vec![])])
+            .unwrap();
+        instance.take_workspace_submissions().pop().unwrap().command
+    };
+    let registration = send(
+        &mut provider,
+        serde_json::json!({
+            "kind":"register","descriptor":{"key":{"provider":p.id,"instance":"test"},
+            "name":"Memory files","platform":"independent","capabilities":["files_read"]}
+        }),
+    );
+    let WorkspaceCommand::Register { descriptor } = registration else {
+        panic!("registration")
+    };
+    let mut router = api::Router::default();
+    let env = router.register(p.clone(), descriptor).unwrap();
+    let scope = router
+        .mount(&p, env, api::ProviderPath::new("/").unwrap())
+        .unwrap();
+    router
+        .grant(c.clone(), scope, [api::Capability::FilesRead])
+        .unwrap();
+    let request = send(
+        &mut consumer,
+        serde_json::json!({
+            "kind":"request","scope":scope,"timeout_ms":1000,
+            "operation":{"kind":"read","path":"/file","offset":0,"limit":32}
+        }),
+    );
+    let WorkspaceCommand::Request {
+        operation,
+        timeout_ms,
+        ..
+    } = request
+    else {
+        panic!("request")
+    };
+    let request = router
+        .submit(&c, scope, operation, 0, u64::from(timeout_ms))
+        .unwrap();
+    assert!(router.poll(&c, 1).is_empty());
+    provider
+        .deliver_workspace(&WorkspaceEvent::Delivery {
+            event: router.poll(&p, 1).pop().unwrap(),
+        })
+        .unwrap();
+    provider.dispatch(&[]).unwrap();
+    assert!(
+        provider
+            .take_logs()
+            .iter()
+            .any(|(_, text)| text.contains("\"kind\":\"read\""))
+    );
+    let response = send(
+        &mut provider,
+        serde_json::json!({
+            "kind":"complete","request":request,
+            "result":{"Ok":{"kind":"bytes","bytes":[104,105],"revision":"v1","eof":true}}
+        }),
+    );
+    let WorkspaceCommand::Complete { result, .. } = response else {
+        panic!("response")
+    };
+    router.complete(&p, request, result).unwrap();
+    consumer
+        .deliver_workspace(&WorkspaceEvent::Delivery {
+            event: router.poll(&c, 1).pop().unwrap(),
+        })
+        .unwrap();
+    consumer.dispatch(&[]).unwrap();
+    assert!(
+        consumer
+            .take_logs()
+            .iter()
+            .any(|(_, text)| text.contains("\"bytes\":[104,105]"))
+    );
+    assert!(!consumer.has_workspace_events());
+    assert_eq!(router.pending_count(), 0);
+}
+
+#[test]
 fn a_command_starts_work_returns_and_resumes_when_the_host_completes_it() {
     let (runtime, component) = runtime();
     let mut instance = runtime.instantiate(&component, Limits::default()).unwrap();

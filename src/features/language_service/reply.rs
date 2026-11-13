@@ -130,7 +130,7 @@ pub fn hover(value: &Value, encoding: PositionEncoding) -> Option<Hover> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Location {
-    pub uri: String,
+    pub resource: loog_workspace_api::ResourceRef,
     /// What to select at the target (the name for a link, the range otherwise).
     pub span: Span,
     /// The whole target (a function with its body), when the server says.
@@ -142,10 +142,21 @@ pub struct Location {
 /// `Location | Location[] | LocationLink[] | null`.
 pub fn locations(value: &Value, encoding: PositionEncoding) -> Vec<Location> {
     let one = |item: &Value| -> Option<Location> {
+        if let Some(resource) = item.get("resource") {
+            return Some(Location {
+                resource: serde_json::from_value(resource.clone()).ok()?,
+                span: span(item.get("range")?, encoding)?,
+                full: None,
+                origin: None,
+            });
+        }
+        // COMPAT(native-location-uris): Existing local language replies use file
+        // URIs. Keep decoding those as native resources; provided replies carry
+        // explicit ResourceRef instead. No removal version is scheduled.
         if let Some(target) = item.get("targetUri") {
             let full = span(item.get("targetRange")?, encoding)?;
             return Some(Location {
-                uri: target.as_str()?.to_owned(),
+                resource: super::uri::file_path(target.as_str()?)?.into(),
                 span: item
                     .get("targetSelectionRange")
                     .and_then(|r| span(r, encoding))
@@ -157,7 +168,7 @@ pub fn locations(value: &Value, encoding: PositionEncoding) -> Vec<Location> {
             });
         }
         Some(Location {
-            uri: text(item, "uri")?,
+            resource: super::uri::file_path(item.get("uri")?.as_str()?)?.into(),
             span: span(item.get("range")?, encoding)?,
             full: None,
             origin: None,
@@ -304,6 +315,7 @@ pub struct DocumentEdit {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Change {
     Edit(DocumentEdit),
+    ResourceText(loog_workspace_api::session::ResourceDocumentEdit),
     Create {
         uri: String,
         overwrite: bool,
@@ -331,6 +343,16 @@ pub struct WorkspaceEdit {
 /// leave the edit half done, so the whole edit is refused.
 pub fn workspace_edit(value: &Value, encoding: PositionEncoding) -> Result<WorkspaceEdit, String> {
     let mut changes = Vec::new();
+    if let Some(resources) = value.get("resourceChanges") {
+        if value.get("documentChanges").is_some() || value.get("changes").is_some() {
+            return Err("Mixed native and resource edit representations".into());
+        }
+        let documents: Vec<loog_workspace_api::session::ResourceDocumentEdit> =
+            serde_json::from_value(resources.clone()).map_err(|_| "Invalid resource text edits")?;
+        return Ok(WorkspaceEdit {
+            changes: documents.into_iter().map(Change::ResourceText).collect(),
+        });
+    }
     if let Some(list) = value.get("documentChanges").and_then(Value::as_array) {
         for item in list {
             let flag = |key: &str| {

@@ -2,14 +2,12 @@
 //! when the language's settings ask for it, then write the file. A server that
 //! is slow or silent never keeps the file from being saved.
 use super::edit::{self, Request};
-use super::refactor::single_document_edit;
 use super::{AppContext, AppState, services, target};
 use crate::app::ui_timer;
 use crate::domain::document::DocumentStamp;
 use crate::domain::identity::{FileId, PaneId};
 use crate::features::language_service::reply;
 use crate::features::language_service::request::Feature;
-use crate::features::language_service::uri;
 use crate::features::providers::{RequestHandle, RequestSpec};
 use lgui::prelude::UiRect;
 use serde_json::json;
@@ -62,6 +60,7 @@ enum Stage {
     Actions,
     Resolve,
     Loading,
+    ApplyingResource,
     Command,
     Format,
 }
@@ -85,7 +84,7 @@ pub struct Run {
     kind: usize,
     action: Option<(u64, reply::CodeAction)>,
     deadline: Instant,
-    stamps: Vec<(std::path::PathBuf, DocumentStamp)>,
+    stamps: Vec<(loog_workspace_api::ResourceRef, DocumentStamp)>,
     loading: Option<Loading>,
 }
 
@@ -191,17 +190,24 @@ fn begin_stage(state: &AppContext, app: &mut AppState, mut run: Run) -> bool {
     };
     services.sync(app);
     let spec = match run.stage {
-        Stage::Loading => return false,
-        Stage::Actions => RequestSpec::new(Feature::CodeAction, t.path.clone(), t.lsp_stamp(), 0)
-            .range(t.text.len())
-            .extra(json!({ "context": { "triggerKind":1, "only": [run.kinds[run.kind]] } })),
+        Stage::Loading | Stage::ApplyingResource => return false,
+        Stage::Actions => {
+            RequestSpec::new(Feature::CodeAction, t.resource.clone(), t.lsp_stamp(), 0)
+                .range(t.text.len())
+                .extra(json!({ "context": { "triggerKind":1, "only": [run.kinds[run.kind]] } }))
+        }
         Stage::Resolve => {
             let Some((instance, action)) = &run.action else {
                 return false;
             };
-            RequestSpec::new(Feature::CodeActionResolve, t.path.clone(), t.lsp_stamp(), 0)
-                .target(*instance)
-                .extra(action.raw.clone())
+            RequestSpec::new(
+                Feature::CodeActionResolve,
+                t.resource.clone(),
+                t.lsp_stamp(),
+                0,
+            )
+            .target(*instance)
+            .extra(action.raw.clone())
         }
         Stage::Command => {
             let Some((instance, action)) = &run.action else {
@@ -210,13 +216,19 @@ fn begin_stage(state: &AppContext, app: &mut AppState, mut run: Run) -> bool {
             let Some(command) = &action.command else {
                 return false;
             };
-            RequestSpec::new(Feature::ExecuteCommand, t.path.clone(), t.lsp_stamp(), 0)
-                .target(*instance)
-                .extra(json!({"command":command.command,"arguments":command.arguments}))
+            RequestSpec::new(
+                Feature::ExecuteCommand,
+                t.resource.clone(),
+                t.lsp_stamp(),
+                0,
+            )
+            .target(*instance)
+            .extra(json!({"command":command.command,"arguments":command.arguments}))
         }
         Stage::Format => {
-            let mut spec = RequestSpec::new(Feature::Formatting, t.path.clone(), t.lsp_stamp(), 0)
-                .extra(json!({ "options": super::indentation(app, t.document) }));
+            let mut spec =
+                RequestSpec::new(Feature::Formatting, t.resource.clone(), t.lsp_stamp(), 0)
+                    .extra(json!({ "options": super::indentation(app, t.document) }));
             if let Some(name) = &run.format {
                 spec = spec.server(name.clone());
             }
@@ -296,7 +308,7 @@ pub fn tick(state: &AppContext, app: &mut AppState) -> Option<Then> {
         return Some(run.then);
     };
     match run.stage {
-        Stage::Loading => unreachable!(),
+        Stage::Loading | Stage::ApplyingResource => unreachable!(),
         Stage::Actions => {
             let kind = &run.kinds[run.kind];
             let mut actions: Vec<_> = progress
@@ -349,22 +361,10 @@ pub fn tick(state: &AppContext, app: &mut AppState) -> Option<Then> {
             }));
         }
         Stage::Format => {
-            if let (Some(part), Some(link)) = (
-                progress.usable(Feature::Formatting).first(),
-                uri::file_uri(&t.path),
-            ) {
+            if let Some(part) = progress.usable(Feature::Formatting).first() {
                 let edits = reply::text_edits(&part.value, part.encoding);
-                if !edits.is_empty() {
-                    let request = Request {
-                        edit: single_document_edit(link, edits),
-                        stamps: run.stamps.clone(),
-                        rect: run.rect,
-                        title: "Save".into(),
-                        reply: None,
-                    };
-                    if let Err(error) = edit::apply_now(app, &request, HashMap::new()) {
-                        app.show_toast(format!("Save: {error}"));
-                    }
+                if let Err(error) = edit::apply_text(app, &t, edits, "Save") {
+                    app.show_toast(format!("Save: {error}"));
                 }
             }
             return Some(run.then);
@@ -375,6 +375,13 @@ pub fn tick(state: &AppContext, app: &mut AppState) -> Option<Then> {
 
 fn apply_action(state: &AppContext, app: &mut AppState, run: Run) -> Option<Then> {
     if let Some(edit) = run.action.as_ref().and_then(|(_, a)| a.edit.as_ref()) {
+        if edit
+            .changes
+            .iter()
+            .any(|change| matches!(change, reply::Change::ResourceText(_)))
+        {
+            return apply_resource(state, app, run);
+        }
         match edit::unopened(app, edit) {
             Ok(paths) if !paths.is_empty() => return load_action(state, app, run, paths),
             Ok(_) => {}
@@ -385,6 +392,78 @@ fn apply_action(state: &AppContext, app: &mut AppState, run: Run) -> Option<Then
         }
     }
     apply_loaded(state, app, run, HashMap::new())
+}
+
+fn apply_resource(state: &AppContext, app: &mut AppState, mut run: Run) -> Option<Then> {
+    let remaining = run
+        .deadline
+        .saturating_duration_since(Instant::now())
+        .min(step_budget());
+    let Some(application) = state
+        .services()
+        .and_then(|r| r.application())
+        .filter(|_| !remaining.is_zero())
+    else {
+        return Some(run.then);
+    };
+    app.editor.language.save_counter = app.editor.language.save_counter.wrapping_add(1);
+    run.id = app.editor.language.save_counter;
+    run.stage = Stage::ApplyingResource;
+    run.handle = None;
+    let id = run.id;
+    let deadline = Instant::now() + remaining;
+    let timed = state.clone();
+    run.timer = Some(Arc::new(ui_timer::after(
+        application,
+        remaining,
+        move || expire(&timed, id),
+    )));
+    let valid = Arc::new(move |app: &AppState| {
+        Instant::now() < deadline
+            && app
+                .editor
+                .language
+                .save
+                .as_ref()
+                .filter(|r| r.id == id)
+                .is_some_and(|r| {
+                    target(app, r.pane).is_some_and(|t| {
+                        t.view == r.view
+                            && t.input_generation == r.input_generation
+                            && t.stamp == r.stamp
+                    })
+                })
+    });
+    let completed = state.clone();
+    let request = Request {
+        edit: run.action.as_ref()?.1.edit.as_ref()?.clone(),
+        stamps: run.stamps.clone(),
+        rect: run.rect,
+        title: "Save".into(),
+        reply: Some(edit::Reply::Native(Arc::new(move |result| {
+            let mut then = None;
+            completed.update(|app| {
+                if app.editor.language.save.as_ref().is_none_or(|r| r.id != id) {
+                    return;
+                }
+                let run = app.editor.language.save.take().unwrap();
+                then = if result.is_ok() {
+                    after_edit(&completed, app, run)
+                } else {
+                    next_kind(&completed, app, run)
+                };
+            });
+            if let Some(then) = then {
+                then(&completed);
+            }
+        }))),
+    };
+    app.editor.language.save = Some(run);
+    // The caller invokes this after leaving its state update. Resource reads
+    // and the completion callback must never re-enter that update.
+    Some(Arc::new(move |state| {
+        super::resource_edits::apply_guarded(state, request.clone(), valid.clone())
+    }))
 }
 
 fn load_action(
@@ -446,12 +525,7 @@ fn load_action(
     None
 }
 
-fn apply_loaded(
-    state: &AppContext,
-    app: &mut AppState,
-    mut run: Run,
-    loaded: Loaded,
-) -> Option<Then> {
+fn apply_loaded(state: &AppContext, app: &mut AppState, run: Run, loaded: Loaded) -> Option<Then> {
     let (_, action) = run.action.as_ref()?;
     if let Some(edit) = &action.edit {
         let request = Request {
@@ -466,7 +540,14 @@ fn apply_loaded(
             return next_kind(state, app, run);
         }
     }
-    if action.command.is_some() {
+    after_edit(state, app, run)
+}
+fn after_edit(state: &AppContext, app: &mut AppState, mut run: Run) -> Option<Then> {
+    if run
+        .action
+        .as_ref()
+        .is_some_and(|(_, action)| action.command.is_some())
+    {
         run.stage = Stage::Command;
         run.stamp = target(app, run.pane).map_or(run.stamp, |t| t.stamp);
         if begin_stage(state, app, run.clone()) {

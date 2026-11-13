@@ -256,6 +256,12 @@ fn render_body(
     editor_focus: UiFocusHandle,
 ) -> Element {
     let app = state.get();
+    if app.resources.model.selected.is_some() || app.resources.model.offline.is_some() {
+        return panel(rect, VisualStyle::filled(theme::c().sidebar)).child(text(
+            UiRect::new(rect.left + 14.0, rect.top + 10.0, rect.right - 14.0, rect.top + 50.0),
+            "Use Source Control to compare, stage and commit changes. History browsing is not available for this environment yet.",
+            theme::sans(theme::c().text_dim, theme::SMALL)));
+    }
     let git = store.get();
     let body = rect;
     let mut root = Element::new(move |cx| {

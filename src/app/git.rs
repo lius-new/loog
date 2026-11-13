@@ -433,6 +433,19 @@ pub fn discard_paths(
 /// Commit the staged changes. With nothing staged, offer to stage every
 /// tracked change first; amending needs no staged changes.
 pub fn commit(state: &AppContext, store: &State<GitStoreSnapshot>) -> bool {
+    if state.get().git.resources.model.offline.is_some() {
+        state.update(|app| {
+            app.show_error("Reconnect the repository environment before committing.")
+        });
+        return false;
+    }
+    if let Some(scope) = state.get().git.resources.model.selected {
+        super::resource_git_tasks::run(
+            state,
+            crate::features::git::resources::Intent::Commit(scope),
+        );
+        return true;
+    }
     // Mid-operation the commit button is Continue, and so is its shortcut.
     if let Some(repository) = active_repository(store)
         && let Some(wording) =

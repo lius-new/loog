@@ -90,9 +90,11 @@ impl MarkdownService {
         let budget = MemoryBudget::default();
         let notify = render_notification.clone();
         let card_notification = render_notification.clone();
-        let render = super::markdown_render::RenderWorker::new(budget.clone(), move || {
-            render_notification.send(())
-        });
+        let render = super::markdown_render::RenderWorker::new(
+            budget.clone(),
+            drag_context.clone(),
+            move || render_notification.send(()),
+        );
         let worker = Worker::new(budget, move |key| {
             if let Some(stamp) = key.document_stamp() {
                 completed.lock().unwrap().insert(stamp.document, key);

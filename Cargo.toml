@@ -9,7 +9,7 @@ repository = "https://github.com/lius-new/loog"
 readme = "README.md"
 
 [workspace]
-members = ["crates/editor-core", "crates/extension-api", "crates/extension-host", "crates/workspace-tests", "crates/markdown-tests"]
+members = ["crates/editor-core", "crates/extension-api", "crates/extension-host", "crates/workspace-api", "crates/workspace-tests", "crates/markdown-tests", "crates/text-core"]
 default-members = [".", "crates/editor-core"]
 exclude = ["vendor/vt100", "vendor/tree-sitter", ".tmp/lgui"]
 resolver = "3"
@@ -25,7 +25,9 @@ path = "src/main.rs"
 [dependencies]
 encoding_rs = "0.8"
 chardetng = "0.1.17"
+loog-text-core = { path = "crates/text-core" }
 loog-editor-core = { path = "crates/editor-core" }
+loog-workspace-api = { path = "crates/workspace-api" }
 loog-extension-api = { path = "crates/extension-api" }
 loog-extension-host = { path = "crates/extension-host" }
 skia-safe = { version = "=0.99.0", default-features = false, features = ["binary-cache", "textlayout", "embed-icudtl"] }
@@ -42,6 +44,7 @@ vt100 = "0.16"
 unicode-segmentation = "1.13"
 unicode-width = "0.2"
 regex = "1"
+similar = { version = "=3.2.1", default-features = false, features = ["std", "text"] }
 tree-sitter = { version = "0.27", features = ["wasm"] }
 streaming-iterator = "0.1"
 ignore = "0.4"

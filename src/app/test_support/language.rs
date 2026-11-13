@@ -131,7 +131,7 @@ pub(crate) fn saved(state: &AppContext, path: PathBuf, text: Arc<String>) {
         .workspace
         .documents
         .iter()
-        .find(|(_, document)| document.meta.path == path)
+        .find(|(_, document)| document.meta.local_path() == Some(path.as_path()))
         .unwrap();
     let saved = crate::domain::document::SaveSnapshot {
         stamp: document.stamp(*file),

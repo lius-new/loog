@@ -3,11 +3,9 @@ use super::CloseRequest;
 use crate::domain::identity::ViewId;
 use crate::model::pane_layout::PaneId;
 use lgui::core::KeyModifiers;
-use std::{
-    ops::Range,
-    path::{Path, PathBuf},
-    time::Instant,
-};
+#[cfg(test)]
+use std::path::Path;
+use std::{ops::Range, time::Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SelectionUnit {
@@ -79,7 +77,7 @@ pub struct EditorState {
     /// A press can place the caret smoothly; only a real drag must follow immediately.
     pub caret_dragging: bool,
     pub last_click: Option<(Instant, ViewId, f32, f32, u8)>,
-    pub last_tree_click: Option<(Instant, PathBuf, f32, f32, u8)>,
+    pub last_tree_click: Option<(Instant, loog_workspace_api::ResourceRef, f32, f32, u8)>,
 
     pub menu: Option<(f32, f32)>,
     pub menu_hover: Option<usize>,
@@ -119,8 +117,13 @@ impl EditorState {
         next_click_count(&mut self.last_click, document, x, y)
     }
 
-    pub fn tree_click_count(&mut self, path: &Path, x: f32, y: f32) -> u8 {
-        next_click_count(&mut self.last_tree_click, path.to_path_buf(), x, y)
+    pub fn tree_click_count(
+        &mut self,
+        path: impl Into<loog_workspace_api::ResourceRef>,
+        x: f32,
+        y: f32,
+    ) -> u8 {
+        next_click_count(&mut self.last_tree_click, path.into(), x, y)
     }
 
     pub fn tab_click_count(&mut self, document: ViewId, x: f32, y: f32) -> u8 {

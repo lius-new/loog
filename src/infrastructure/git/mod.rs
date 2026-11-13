@@ -6,6 +6,7 @@ pub mod backend;
 pub mod command;
 pub mod discovery;
 mod encoded_diff;
+pub mod resource;
 pub mod runtime;
 pub mod service;
 

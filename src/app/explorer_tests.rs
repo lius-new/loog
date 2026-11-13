@@ -55,7 +55,10 @@ fn launch_paths_open_the_first_folder_add_others_and_open_files() {
         vec![normalized_folder(first), normalized_folder(second)]
     );
     let active = app.workspace.active().unwrap();
-    assert_eq!(app.workspace.view_meta(active).unwrap().path, file);
+    assert_eq!(
+        app.workspace.view_meta(active).unwrap().local_path(),
+        Some(file.as_path())
+    );
     assert!(app.chrome.toast.is_none());
     let _ = fs::remove_dir_all(root);
 }

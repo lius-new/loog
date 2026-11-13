@@ -5,6 +5,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
+loog-text-core = { path = "../text-core" }
 loog-editor-core = { path = "../editor-core" }
+loog-workspace-api = { path = "../workspace-api" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order"] }

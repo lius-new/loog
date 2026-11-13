@@ -76,6 +76,7 @@ struct DirMeta {
 struct TreeIndex {
     rows: Vec<TreeRowMeta>,
     dirs: Vec<DirMeta>,
+    local_bottom: Option<f32>,
 }
 
 impl TreeIndex {
@@ -178,7 +179,10 @@ pub fn render(
     bar = bar.child(capture);
 
     // Content: empty-state prompt, or all root folders in the current project.
-    if s.model.roots().is_empty() {
+    if s.model.roots().is_empty()
+        && s.resources.roots.is_empty()
+        && s.resources.bookmarks.is_empty()
+    {
         for el in empty_state(content_rect, &commands) {
             bar = bar.child(el);
         }
@@ -954,7 +958,257 @@ fn build_roots(
             }
         }
     }
+    index.local_bottom = Some(y);
+    build_resource_roots(tree, &mut tree_els, &mut y);
     (tree_els, index, y)
+}
+
+fn build_resource_roots(tree: &TreeContext<'_>, elements: &mut Vec<Element>, y: &mut f32) {
+    use loog_workspace_api::{FileKind, ResourceRef};
+    for bookmark in &tree.panel.resources.bookmarks {
+        if tree
+            .panel
+            .resources
+            .roots
+            .iter()
+            .any(|root| root.descriptor.resource == bookmark.resource)
+        {
+            continue;
+        }
+        resource_row(
+            tree,
+            elements,
+            *y,
+            0,
+            &format!("{} · Offline — click to reconnect", bookmark.name),
+            crate::ui::file_icons::FOLDER_ICON,
+            Command::ResourceRecovery {
+                resource: bookmark.resource.clone(),
+                forget: false,
+            },
+            None,
+        );
+        *y += ROW_H;
+        resource_row(
+            tree,
+            elements,
+            *y,
+            1,
+            "Remove from workspace",
+            crate::ui::file_icons::FOLDER_ICON,
+            Command::ResourceRecovery {
+                resource: bookmark.resource.clone(),
+                forget: true,
+            },
+            None,
+        );
+        *y += ROW_H;
+    }
+    for root in &tree.panel.resources.roots {
+        let ResourceRef::Provided { path, .. } = &root.descriptor.resource else {
+            continue;
+        };
+        let scope = root.descriptor.scope;
+        let name = format!(
+            "{} · {}{}",
+            root.descriptor.name,
+            path.as_str(),
+            if root.watch.error.is_some() {
+                " · Monitoring paused"
+            } else {
+                ""
+            }
+        );
+        let mut pending = vec![(path.clone(), name, FileKind::Directory, 0usize, None, None)];
+        let mut visited = std::collections::HashSet::new();
+        while let Some((path, name, kind, depth, file, parent)) = pending.pop() {
+            if !visited.insert(path.clone())
+                || visited.len() > crate::features::resource_tree::MAX_ENTRIES
+                || depth > 64
+            {
+                continue;
+            }
+            let directory = root.directories.get(&path);
+            let target = crate::features::resource_tree::Target {
+                scope,
+                path: path.clone(),
+                parent,
+                name: name.clone(),
+                kind: kind.clone(),
+            };
+            let expanded = directory.is_some_and(|d| d.expanded);
+            let action = if kind == FileKind::Directory {
+                Command::ResourceDirectory {
+                    scope,
+                    path: path.clone(),
+                    more: false,
+                }
+            } else if let Some(file) = file {
+                Command::ResourceFile { scope, file }
+            } else {
+                continue;
+            };
+            let icon = if kind == FileKind::Directory {
+                if expanded {
+                    crate::ui::file_icons::FOLDER_OPEN_ICON
+                } else {
+                    crate::ui::file_icons::FOLDER_ICON
+                }
+            } else {
+                crate::ui::file_icons::icon_for_file(&name)
+            };
+            resource_row(tree, elements, *y, depth, &name, icon, action, Some(target));
+            *y += ROW_H;
+            if let Some(edit) = tree
+                .panel
+                .resources
+                .edit
+                .as_ref()
+                .filter(|edit| edit.target.scope == scope && edit.target.path == path)
+            {
+                use crate::features::resource_tree::EditKind;
+                let label = match edit.kind {
+                    EditKind::NewFile => "New file name",
+                    EditKind::NewFolder => "New folder name",
+                    EditKind::Rename => "New name",
+                    EditKind::Delete => "Type the name to delete permanently",
+                };
+                if tree.row_visible(*y, 50.0) {
+                    let left = tree.rect.left + INDENT * (depth + 1) as f32;
+                    let input_rect = UiRect::new(left, *y + 20.0, tree.rect.right - 8.0, *y + 48.0);
+                    elements.push(
+                        text(
+                            UiRect::new(left, *y, tree.rect.right - 8.0, *y + 18.0),
+                            label,
+                            theme::mono(theme::c().text_soft, theme::SMALL),
+                        )
+                        .into(),
+                    );
+                    elements.push(theme::bordered(
+                        input_rect,
+                        theme::c().bg,
+                        edit_border(tree.panel),
+                        3.0,
+                        1.0,
+                    ));
+                    elements.push(edit_field(
+                        tree,
+                        UiRect::new(
+                            input_rect.left + 1.0,
+                            input_rect.top + 1.0,
+                            input_rect.right - 1.0,
+                            input_rect.bottom - 1.0,
+                        ),
+                        label,
+                    ));
+                }
+                *y += 50.0;
+            }
+            if let Some(directory) = directory.filter(|d| d.expanded) {
+                if directory.pending.is_some()
+                    || directory.error.is_some()
+                    || directory.cursor.is_some()
+                {
+                    let label = directory
+                        .error
+                        .as_ref()
+                        .map(|e| format!("{e} — click to retry"))
+                        .unwrap_or_else(|| {
+                            if directory.pending.is_some() {
+                                "Loading…".into()
+                            } else {
+                                "Load more…".into()
+                            }
+                        });
+                    resource_row(
+                        tree,
+                        elements,
+                        *y,
+                        depth + 1,
+                        &label,
+                        crate::ui::file_icons::FOLDER_ICON,
+                        Command::ResourceDirectory {
+                            scope,
+                            path: path.clone(),
+                            more: directory.error.is_none(),
+                        },
+                        None,
+                    );
+                    *y += ROW_H;
+                }
+                for file in directory.entries.iter().rev() {
+                    pending.push((
+                        file.path.clone(),
+                        file.name.clone(),
+                        file.kind.clone(),
+                        depth + 1,
+                        Some(file.clone()),
+                        Some(path.clone()),
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn resource_row(
+    tree: &TreeContext<'_>,
+    elements: &mut Vec<Element>,
+    y: f32,
+    depth: usize,
+    name: &str,
+    icon: &'static str,
+    action: Command,
+    menu: Option<crate::features::resource_tree::Target>,
+) {
+    if !tree.row_visible(y, ROW_H) {
+        return;
+    }
+    let indent = tree.rect.left + INDENT * (depth + 1) as f32;
+    let commands = tree.commands.clone();
+    elements.push(
+        panel(
+            UiRect::new(tree.rect.left, y, tree.content_right, y + ROW_H),
+            VisualStyle::default(),
+        )
+        .event_policy(EventPolicy::INTERACTIVE)
+        .on_pointer_down_with_button(move |cx, point, button| {
+            if matches!(button, PointerButton::Left | PointerButton::Middle) {
+                commands.dispatch(action.clone());
+            } else if button == PointerButton::Right
+                && let Some(target) = &menu
+            {
+                commands.dispatch(Command::ResourceMenu {
+                    point: (point.point.x, point.point.y),
+                    target: target.clone(),
+                });
+            }
+            cx.stop_propagation();
+        })
+        .child(precompiled(
+            UiElement::icon(
+                UiId::owned(format!("resource-icon-{y}")),
+                UiRect::new(
+                    indent,
+                    y + 2.0,
+                    indent + TREE_ICON_SIZE,
+                    y + 2.0 + TREE_ICON_SIZE,
+                ),
+                icon,
+            )
+            .icon_style(IconStyle::new(theme::c().text_muted)),
+        ))
+        .child(tree_label(
+            UiRect::new(
+                indent + TREE_LABEL_OFFSET,
+                y + 2.0,
+                tree.content_right - DIRECTORY_RIGHT_PAD,
+                y + 18.0,
+            ),
+            name,
+            theme::c().text_soft,
+        )),
+    );
 }
 
 /// Renders the cached entries of the directory at `dir_path`, advancing `y` by
@@ -1138,6 +1392,12 @@ fn row_content_right(left: f32, depth: usize, name: &str, is_dir: bool) -> f32 {
 /// Keep scrolled project roots in stacked slots, followed by the current
 /// project's directory ancestry. Sibling directories still replace one another.
 fn sticky_rows(index: &TreeIndex, viewport_top: f32, scroll: f32) -> Vec<StickyRow> {
+    if index
+        .local_bottom
+        .is_some_and(|bottom| viewport_top + scroll >= bottom)
+    {
+        return Vec::new();
+    }
     if scroll <= 0.0 {
         return Vec::new();
     }

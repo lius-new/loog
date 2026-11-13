@@ -99,7 +99,7 @@ fn request(ctx: &AppContext, app: &mut AppState) {
     };
     let handle = Arc::new(services.request(RequestSpec::new(
         Feature::DocumentHighlight,
-        t.path.clone(),
+        t.resource.clone(),
         t.lsp_stamp(),
         t.cursor,
     )));

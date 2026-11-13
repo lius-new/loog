@@ -86,10 +86,13 @@ export function layer(file) {
 
 export function allowed(file, dependency) {
   const own=layer(file), root=dependency.replace('crate::','');
-  if(own==='domain-verification')return ['domain','loog_editor_core','serde','serde_json'].includes(root);
+  if(own==='domain-verification')return ['domain','loog_editor_core','loog_text_core','loog_workspace_api','serde','serde_json'].includes(root);
   if(file.startsWith('crates/editor-core/tests/')&&root==='loog_editor_core')return true;
   if(own==='core')return ['identity','text','normal','commands','vim','buffer','change','editor','history','lines','selection','command','ex','exec','insert','key','motion','object','register','search','regex','unicode_segmentation','unicode_width'].includes(root);
   if(root==='loog_editor_core')return true;
+  // Pure resource identities, operations and broker contracts have no IO or GUI.
+  if(root==='loog_workspace_api'&&['app','domain','features','ui','infrastructure'].includes(own))return true;
+  if(root==='loog_text_core'&&['app','domain','features','infrastructure'].includes(own))return true;
   if(own==='app'||file==='src/main.rs')return true;
   if(own==='domain')return root==='domain'||(['src/domain/encoding.rs','src/domain/workspace_session.rs','src/domain/window_geometry.rs','src/domain/language/descriptor.rs'].includes(file)&&['serde','serde_json'].includes(root));
   if(file==='src/features/markdown.rs'||file.startsWith('src/features/markdown/'))return ['features','domain','unicode_segmentation'].includes(root)||(file==='src/features/markdown/parser.rs'&&root==='pulldown_cmark');
@@ -117,7 +120,7 @@ export function allowed(file, dependency) {
   if(file==='src/infrastructure/config_watcher.rs')return ['infrastructure','notify','std::fs','std::thread'].includes(root);
   if(file.startsWith('src/features/terminal/'))return ['features','domain','serde','vt100'].includes(root);
   if(file.startsWith('src/features/explorer/'))return ['features','domain'].includes(root);
-  if(file.startsWith('src/features/git/'))return ['features','domain'].includes(root);
+  if(file.startsWith('src/features/git/'))return ['features','domain'].includes(root)||(file==='src/features/git/diff_text.rs'&&root==='similar');
   if(file==='src/infrastructure/extensions/registry.rs'&&['base64','ring','serde'].includes(root))return true;
   if(file==='src/infrastructure/extensions/state.rs'&&root==='serde')return true;
   if(file.startsWith('src/infrastructure/extensions/'))return ['infrastructure','features','domain','loog_extension_api','loog_extension_host','std::fs','std::thread','std::process','std::os','ignore','globset','ureq','serde_json'].filter(x=>x!=='serde_json'||file.endsWith('ports.rs')).includes(root)||(file==='src/infrastructure/extensions/trust_store.rs'&&root==='std::process')||(file==='src/infrastructure/extensions/http.rs'&&root==='std::net');
@@ -173,8 +176,8 @@ export function stateFields(source) { return structFields(source, 'AppState'); }
 export function verificationManifestErrors(source) {
   const block=source.split(/^\[dependencies\]\s*$/m)[1]?.split(/^\[/m)[0]??'';
   const names=[...block.matchAll(/^([a-zA-Z0-9_-]+)\s*=/gm)].map(m=>m[1]).sort();
-  const expected=['loog-editor-core','serde','serde_json'].sort();
-  if(JSON.stringify(names)!==JSON.stringify(expected)||/^\[[^\]]*dependencies[^\]]*\]$/m.test(source.replace(/^\[dependencies\]\s*$/m,''))||/\bpackage\s*=/.test(block))return ['Workspace domain verification may depend only on editor-core, serde and serde_json'];
+  const expected=['loog-editor-core','loog-text-core','loog-workspace-api','serde','serde_json'].sort();
+  if(JSON.stringify(names)!==JSON.stringify(expected)||/^\[[^\]]*dependencies[^\]]*\]$/m.test(source.replace(/^\[dependencies\]\s*$/m,''))||/\bpackage\s*=/.test(block))return ['Workspace domain verification may depend only on editor-core, text-core, workspace-api, serde and serde_json'];
   return [];
 }
 
@@ -264,7 +267,7 @@ export function violations(sources, policy) {
       if(/#\s*\[\s*path\s*=/.test(source)||ts.some((t,i)=>['include','include_str','include_bytes'].includes(t)&&ts[i+1]==='!'))problems.push(`${file}: editing core cannot include sources outside its crate boundary`);
     }
     if(file==='src/app/terminal_binding.rs'||file==='src/infrastructure/terminal/runtime.rs') {
-      const contracts=file==='src/app/terminal_binding.rs'?[['TerminalStore',['model','runtime']],['TerminalTabs',['model','runtime']],['TerminalTab',['id','group_id','width_weight','controller','cwd','title','purpose','running_program']]]:[['TerminalHandle',['runtime','id','shell']]];
+      const contracts=file==='src/app/terminal_binding.rs'?[['TerminalStore',['model','runtime']],['TerminalTabs',['model','runtime']],['TerminalTab',['id','group_id','width_weight','controller','cwd','provided','title','purpose','running_program']]]:[['TerminalHandle',['runtime','id','shell']]];
       for(const [name,expected]of contracts){
         if(!ts.some((t,i)=>t==='struct'&&ts[i+1]===name))continue;
         const actual=structFields(source,name);if(actual.length!==expected.length||actual.some(f=>!expected.includes(f)))problems.push(name+': unexpected snapshot/handle ownership field');

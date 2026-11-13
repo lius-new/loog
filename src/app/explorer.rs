@@ -252,7 +252,11 @@ pub(crate) fn refresh(app: &mut AppState) -> bool {
 /// Reveal a document from its tab menu: show the drawer and the file's row.
 pub fn reveal_file(state: &AppContext, id: FileId) {
     state.update(move |app| {
-        let Some(path) = app.workspace.meta(id).map(|meta| meta.path.clone()) else {
+        let Some(path) = app
+            .workspace
+            .meta(id)
+            .and_then(|meta| meta.local_path().map(Path::to_path_buf))
+        else {
             return;
         };
         if !reveal_path(app, &path) {

@@ -18,6 +18,8 @@ pub struct State {
     pub selected: usize,
     pub menu: Option<(ViewId, Menu)>,
     pub manual: HashMap<FileId, EditorOverrides>,
+    pub resource_options: super::resource_options::State,
+    pub resource_project: super::resource_project::State,
 }
 pub fn effective(app: &AppState, id: FileId) -> EditorSettings {
     let mut settings = app.preferences.values().editor;
@@ -49,14 +51,25 @@ pub fn effective(app: &AppState, id: FileId) -> EditorSettings {
     if indent_size_from_tab {
         settings.indent_size = settings.tab_width;
     }
-    if let Some(root) = app.workspace_folder_of(&doc.meta.path)
-        && let Some((_, project)) = app
-            .preferences
-            .values()
-            .project_settings
-            .iter()
-            .find(|(r, _)| r == root)
-    {
+    let project = doc
+        .meta
+        .local_path()
+        .and_then(|path| app.workspace_folder_of(path))
+        .and_then(|root| {
+            app.preferences
+                .values()
+                .project_settings
+                .iter()
+                .find(|(r, _)| r == root)
+                .map(|(_, project)| project)
+        })
+        .or_else(|| {
+            doc.meta
+                .provider_root
+                .as_ref()
+                .and_then(|root| super::resource_project::project(app, root))
+        });
+    if let Some(project) = project {
         if let Some(value) = project.overrides.get("editor")
             && let Ok(overrides) = serde_json::from_value::<EditorOverrides>(value.clone())
         {

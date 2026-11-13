@@ -1,5 +1,7 @@
 //! Search task scheduling. Cleanup wakes debounce without joining disk I/O.
-use crate::features::search::{Request, Results, ports::SearchSourcePort};
+#[cfg(test)]
+use crate::features::search::ports::SearchSourcePort;
+use crate::features::search::{Request, Results};
 use crate::infrastructure::ui_dispatch::LatestNotification;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -51,18 +53,50 @@ impl SearchTasks {
     pub(crate) fn launch(
         generation: u64,
         request: Option<Request>,
+        resource: super::resource_search::Request,
         cancel: Arc<AtomicBool>,
         queue: LatestNotification<Result<Results, String>>,
     ) -> SearchTicket {
-        Self::launch_with(
-            &ThreadExecutor,
-            Arc::new(crate::infrastructure::search_filesystem::SearchFilesystem),
+        let mut wake = None;
+        if let Some(request) = request {
+            let token = cancel.clone();
+            let failure = queue.clone();
+            match ThreadExecutor.schedule(
+                DEBOUNCE,
+                cancel.clone(),
+                Box::new(move || {
+                    let spec = request.spec.clone();
+                    let mut local = Results::default();
+                    let result = crate::infrastructure::search_filesystem::run(
+                        request,
+                        &token,
+                        |mut value| {
+                            value.complete = false;
+                            local = value.clone();
+                            queue.send(Ok(value));
+                        },
+                    )
+                    .and_then(|_| {
+                        super::resource_search::run(resource, &spec, &token, local, |value| {
+                            queue.send(Ok(value))
+                        })
+                    });
+                    if let Err(error) = result {
+                        queue.send(Err(error));
+                    }
+                }),
+            ) {
+                Ok(signal) => wake = Some(signal),
+                Err(error) => failure.send(Err(error)),
+            }
+        }
+        SearchTicket {
             generation,
-            request,
             cancel,
-            queue,
-        )
+            wake,
+        }
     }
+    #[cfg(test)]
     pub(crate) fn launch_with(
         executor: &dyn SearchExecutor,
         source: Arc<dyn SearchSourcePort>,

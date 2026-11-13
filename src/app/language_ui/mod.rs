@@ -19,6 +19,7 @@ pub(crate) mod peek;
 pub(crate) mod popup;
 pub(crate) mod quickfix;
 pub(crate) mod refactor;
+pub(crate) mod resource_edits;
 pub(crate) mod save;
 pub(crate) mod signature;
 pub(crate) mod snippet_session;
@@ -28,8 +29,8 @@ use super::state::AppState;
 use crate::domain::document::DocumentStamp;
 use crate::domain::identity::{FileId, PaneId, ViewId};
 use crate::features::language_service::sync::Stamp;
+use loog_workspace_api::ResourceRef;
 use std::ops::Range;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 /// All transient language-server interaction state of the editor.
@@ -153,7 +154,7 @@ pub(crate) struct Target {
     pub view: ViewId,
     pub input_generation: u64,
     pub document: FileId,
-    pub path: PathBuf,
+    pub resource: ResourceRef,
     pub stamp: DocumentStamp,
     pub text: Arc<String>,
     pub cursor: usize,
@@ -191,7 +192,7 @@ pub(crate) fn target(app: &AppState, pane: PaneId) -> Option<Target> {
         view,
         input_generation: state.input_generation,
         document: id,
-        path: document.meta.path.clone(),
+        resource: document.meta.resource.clone(),
         stamp: document.stamp(id),
         text: document.buffer.text_snapshot(),
         cursor: editor.cursor(),
@@ -548,6 +549,7 @@ pub(super) fn flush_files(state: &AppContext) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn indentation_of(configure: impl FnOnce(&mut AppState)) -> serde_json::Value {
         let mut app = AppState::new();

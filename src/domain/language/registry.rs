@@ -269,35 +269,40 @@ impl Registry {
     /// Exact names, longest standard dotted suffix, extension, then plain text. Matching ignores
     /// ASCII case, as the previous extension lookup did.
     pub fn resolve_path(&self, path: &Path) -> ResolvedLanguage {
-        let by_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .and_then(|name| self.by_file_name.get(name.to_ascii_lowercase().as_str()));
-        let by_extension = || {
-            path.extension()
-                .and_then(|extension| extension.to_str())
-                .and_then(|extension| {
-                    self.by_extension
-                        .get(extension.to_ascii_lowercase().as_str())
-                })
-        };
+        if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+            return self.resolve_filename(name);
+        }
+        // A native non-UTF-8 name may still have a UTF-8 extension.
+        match path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .and_then(|extension| {
+                self.by_extension
+                    .get(extension.to_ascii_lowercase().as_str())
+            }) {
+            Some(&(language, position)) => self.resolved(language, position),
+            None => self.plain_text(),
+        }
+    }
+
+    /// `name` is one complete provider-returned filename. A backslash is an
+    /// ordinary character here, independent of the client's native platform.
+    pub fn resolve_filename(&self, name: &str) -> ResolvedLanguage {
+        let filename = name.to_ascii_lowercase();
+        let by_name = self.by_file_name.get(filename.as_str());
         let by_suffix = || {
-            let filename = path.file_name()?.to_str()?.to_ascii_lowercase();
-            if let Some(claim) = self.by_suffix.get(filename.as_str()) {
-                return Some(claim);
-            }
-            // Match Tree-sitter's whole filename / longest dotted extension
-            // suffix rules. Arbitrary trailing letters ("notes" vs "ts") do
-            // not make a file TypeScript. Dotfiles match by their full name.
-            let mut stem = Path::new(&filename);
-            let mut extensions = Vec::new();
-            while let Some(extension) = stem.extension() {
-                extensions.push(extension.to_str()?);
-                stem = Path::new(stem.file_stem()?);
-            }
-            extensions.reverse();
-            (0..extensions.len())
-                .find_map(|start| self.by_suffix.get(extensions[start..].join(".").as_str()))
+            self.by_suffix.get(filename.as_str()).or_else(|| {
+                filename
+                    .char_indices()
+                    .filter(|(index, character)| *index > 0 && *character == '.')
+                    .find_map(|(index, _)| self.by_suffix.get(&filename[index + 1..]))
+            })
+        };
+        let by_extension = || {
+            filename
+                .rfind('.')
+                .filter(|index| *index > 0)
+                .and_then(|index| self.by_extension.get(&filename[index + 1..]))
         };
         match by_name.or_else(by_suffix).or_else(by_extension) {
             Some(&(language, position)) => self.resolved(language, position),
@@ -403,6 +408,12 @@ mod tests {
         );
         assert_eq!(name("notes.txt"), "other");
         assert_eq!(name("noextension"), "plaintext");
+        assert_eq!(
+            registry.resolve_filename("中文\\Demofile").name(),
+            "plaintext"
+        );
+        assert_eq!(registry.resolve_filename("中文\\.txt").name(), "other");
+        assert_eq!(registry.resolve_filename(".txt").name(), "plaintext");
         assert_eq!(name(""), "plaintext");
         assert_eq!(
             registry.resolve_path(Path::new("x.unknown")),

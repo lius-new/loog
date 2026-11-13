@@ -25,6 +25,18 @@ struct Inner {
 }
 
 impl TrustStore {
+    pub fn resource_decision(&self, root: &loog_workspace_api::ResourceRef) -> Decision {
+        self.inner.lock().unwrap().roots.resource_decision(root)
+    }
+
+    pub fn decide_resource(
+        &self,
+        root: &loog_workspace_api::ResourceRef,
+        trusted: bool,
+    ) -> std::io::Result<()> {
+        self.change(|roots| roots.decide_resource(root, trusted))
+    }
+
     /// Use `file` for persistence and read what it holds. A missing or
     /// damaged file leaves everything untrusted.
     pub fn attach(&self, file: PathBuf) {

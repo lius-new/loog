@@ -18,6 +18,57 @@ use std::path::PathBuf;
 /// Files larger than this are not opened to be edited by a server.
 const MAX_FILE: u64 = 16 * 1024 * 1024;
 
+/// Apply snapshot-relative edits to one open resource. Formatting does not
+/// need a file URI or filesystem transaction: the normal save path writes it.
+pub(super) fn apply_text(
+    app: &mut AppState,
+    target: &super::Target,
+    edits: Vec<crate::features::language_service::reply::TextEdit>,
+    title: &str,
+) -> Result<(), String> {
+    let document = app
+        .workspace
+        .documents
+        .get(&target.document)
+        .filter(|doc| {
+            doc.is_text()
+                && doc.meta.resource == target.resource
+                && doc.stamp(target.document) == target.stamp
+        })
+        .ok_or("The document changed while the language server was working")?;
+    let text = document.buffer.text();
+    let index = crate::features::language_service::position::LineIndex::new(text);
+    let edits = edits
+        .into_iter()
+        .map(|edit| {
+            let range = edit.span.bytes(text);
+            if index.position(range.start, edit.span.encoding) != edit.span.start
+                || index.position(range.end, edit.span.encoding) != edit.span.end
+            {
+                return Err("An edit position is outside the document".to_owned());
+            }
+            Ok((range, edit.new_text))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    if edits.is_empty() {
+        return Ok(());
+    }
+    workspace_edits::commit(
+        app,
+        &workspace_edits::TextTransaction {
+            title: title.into(),
+            documents: vec![workspace_edits::DocumentChange {
+                file: target.document,
+                stamp: target.stamp,
+                edits,
+            }],
+        },
+        &loog_extension_api::admission::EditLimits::default(),
+    )
+    .map(|_| ())
+    .map_err(|error| error.message)
+}
+
 fn remapped(base: &std::path::Path, suffix: &std::path::Path) -> PathBuf {
     if suffix.as_os_str().is_empty() {
         base.to_path_buf()
@@ -31,7 +82,7 @@ fn remapped(base: &std::path::Path, suffix: &std::path::Path) -> PathBuf {
 pub struct Request {
     pub edit: WorkspaceEdit,
     /// The documents that were open when the question was asked, with their state.
-    pub stamps: Vec<(PathBuf, DocumentStamp)>,
+    pub stamps: Vec<(loog_workspace_api::ResourceRef, DocumentStamp)>,
     pub rect: UiRect,
     /// What the edit was for, for messages ("Rename", "Quick fix").
     pub title: String,
@@ -45,12 +96,12 @@ pub enum Reply {
 }
 
 /// The stamps of every open text document now.
-pub fn stamps(app: &AppState) -> Vec<(PathBuf, DocumentStamp)> {
+pub fn stamps(app: &AppState) -> Vec<(loog_workspace_api::ResourceRef, DocumentStamp)> {
     app.workspace
         .documents
         .iter()
         .filter(|(_, d)| d.is_text())
-        .map(|(id, d)| (d.meta.path.clone(), d.stamp(*id)))
+        .map(|(id, d)| (d.meta.resource.clone(), d.stamp(*id)))
         .collect()
 }
 
@@ -92,6 +143,13 @@ fn path_of(link: &str) -> Result<PathBuf, String> {
 
 /// Which files must be read from disk before the edit can be planned.
 pub(crate) fn unopened(app: &AppState, edit: &WorkspaceEdit) -> Result<Vec<PathBuf>, String> {
+    if edit
+        .changes
+        .iter()
+        .any(|change| matches!(change, Change::ResourceText(_)))
+    {
+        return Err("Resource text edits require the asynchronous resource reader".into());
+    }
     let mut paths = Vec::new();
     for (at, change) in edit.changes.iter().enumerate() {
         if let Change::Edit(DocumentEdit { uri, .. }) = change {
@@ -177,6 +235,15 @@ fn apply_with(
     request: Request,
     next: Option<(u64, crate::features::language_service::reply::Command)>,
 ) {
+    if request
+        .edit
+        .changes
+        .iter()
+        .any(|change| matches!(change, Change::ResourceText(_)))
+    {
+        super::resource_edits::apply(state, request, next);
+        return;
+    }
     let app = state.get();
     let missing = match unopened(&app, &request.edit) {
         Ok(missing) => missing,
@@ -249,7 +316,7 @@ fn apply_with(
     }
 }
 
-fn complete(
+pub(super) fn complete(
     state: &AppContext,
     request: &Request,
     result: Result<usize, String>,
@@ -420,7 +487,8 @@ fn open_spelling(app: &AppState, path: PathBuf) -> PathBuf {
     app.workspace
         .file_id_for_path(&path)
         .and_then(|id| app.workspace.documents.get(&id))
-        .map_or(path, |document| document.meta.path.clone())
+        .and_then(|document| document.meta.local_path().map(std::path::Path::to_path_buf))
+        .unwrap_or(path)
 }
 
 fn plan(
@@ -434,13 +502,19 @@ fn plan(
         .map(|(p, t)| (p.clone(), (std::sync::Arc::new(t.clone()), Some(p.clone()))))
         .collect();
     for d in app.workspace.documents.values().filter(|d| d.is_text()) {
+        let Some(path) = d.meta.local_path() else {
+            continue;
+        };
         virtual_docs.insert(
-            d.meta.path.clone(),
-            (d.buffer.text_snapshot(), Some(d.meta.path.clone())),
+            path.to_path_buf(),
+            (d.buffer.text_snapshot(), Some(path.to_path_buf())),
         );
     }
     for change in &request.edit.changes {
         match change {
+            Change::ResourceText(_) => {
+                return Err("Resource text edits require the asynchronous resource reader".into());
+            }
             Change::Edit(document) => {
                 // A URI spells the path the way servers do, but an open document may
                 // carry another spelling of it (the file tree opens `\\?\D:\dir\a.rs`).
@@ -455,7 +529,12 @@ fn plan(
                 }
                 let ending = origin
                     .as_ref()
-                    .and_then(|p| app.workspace.documents.values().find(|d| d.meta.path == *p))
+                    .and_then(|p| {
+                        app.workspace
+                            .documents
+                            .values()
+                            .find(|d| d.meta.local_path() == Some(p.as_path()))
+                    })
                     .map(|d| d.buffer.line_ending())
                     .unwrap_or_else(|| if text.contains("\r\n") { "\r\n" } else { "\n" });
                 let edits: Vec<Edit> = document
@@ -554,7 +633,13 @@ fn plan(
 }
 
 fn check_stamps(app: &AppState, request: &Request, path: &std::path::Path) -> Result<(), String> {
-    for (p, before) in &request.stamps {
+    for (resource, before) in &request.stamps {
+        // COMPAT(native-workspace-edit-journal): The base resource-operation
+        // journal handles native paths only. Keep local admission here until
+        // resource operations use provider receipts; no removal is scheduled.
+        let Some(p) = resource.local_path() else {
+            continue;
+        };
         if p.starts_with(path)
             && let Some(id) = app.workspace.file_id_for_path(p)
             && app
@@ -701,6 +786,69 @@ mod tests {
         assert_eq!(undo_redo(&mut app, false), Some(Ok(())));
         assert_eq!(text_of(&app, &paths[0]), "ONE two");
         assert_eq!(text_of(&app, &paths[1]), "three FOUR");
+    }
+
+    #[test]
+    fn resource_formatting_keeps_identity_revision_unicode_endings_and_undo() {
+        use crate::domain::workspace::{OpenMode, PreparedTextFile};
+        use loog_workspace_api::{EnvironmentKey, ResourceRef};
+        let original = "中😀x\r\n";
+        let mut app = AppState::new();
+        let mut ids = vec![];
+        for name in ["first", "second"] {
+            let resource = ResourceRef::provided(
+                EnvironmentKey::new("provider", name).unwrap(),
+                "/work/main.rs",
+            )
+            .unwrap();
+            ids.push(app.workspace.open_prepared_text(
+                PreparedTextFile::with_resource(
+                    resource,
+                    "main.rs".into(),
+                    original.into(),
+                    crate::domain::document::DiskState::from_contents(original),
+                ),
+                OpenMode::Permanent,
+            ));
+        }
+        let target = super::super::target(&app, app.workspace.active_pane()).unwrap();
+        assert_eq!(stamps(&app).len(), 2);
+        assert_ne!(stamps(&app)[0].0, stamps(&app)[1].0);
+        let edits = reply_edits();
+        apply_text(&mut app, &target, edits.clone(), "Format").unwrap();
+        assert_eq!(app.workspace.documents[&ids[0]].buffer.text(), original);
+        assert_eq!(
+            app.workspace.documents[&ids[1]].buffer.text(),
+            "中😀值\r\n新\r\n"
+        );
+        assert!(apply_text(&mut app, &target, edits, "Format").is_err());
+        app.workspace.active_editor_mut().unwrap().undo();
+        assert_eq!(app.workspace.documents[&ids[1]].buffer.text(), original);
+        let current = super::super::target(&app, app.workspace.active_pane()).unwrap();
+        let mut invalid = reply_edits();
+        invalid[0].span.start.character = 2;
+        assert!(apply_text(&mut app, &current, invalid, "Format").is_err());
+        assert_eq!(app.workspace.documents[&ids[1]].buffer.text(), original);
+        assert!(
+            apply_text(
+                &mut app,
+                &current,
+                vec![reply_edits()[0].clone(); 2],
+                "Format"
+            )
+            .is_err()
+        );
+        assert_eq!(app.workspace.documents[&ids[1]].buffer.text(), original);
+    }
+
+    fn reply_edits() -> Vec<TextEdit> {
+        crate::features::language_service::reply::text_edits(
+            &json!([{
+                "range":{"start":{"line":0,"character":3},"end":{"line":0,"character":4}},
+                "newText":"值\n新"
+            }]),
+            PositionEncoding::Utf16,
+        )
     }
 
     /// The file tree opens files by their verbatim path; servers and the format

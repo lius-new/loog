@@ -160,7 +160,7 @@ pub fn status_binding(state: &AppContext) -> crate::ui::chrome::StatusBinding {
                     app.workspace
                         .active()
                         .and_then(|view| app.workspace.view_meta(view))
-                        .map(|meta| meta.path.display().to_string())
+                        .map(|meta| meta.context_key())
                         .as_deref(),
                 ),
                 pending: app.keymap.pending().to_vec(),

@@ -1,9 +1,9 @@
 //! Shared request ownership, aggregation and cancellation for every provider.
 //! Transports adapt into this module; the editor does not own a transport handle.
 use super::{Feature, Merge, PositionEncoding, Stamp};
+use loog_workspace_api::ResourceRef;
 use serde_json::Value;
 use std::{
-    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -18,7 +18,7 @@ pub(crate) type Cancellation = Arc<dyn Fn() + Send + Sync>;
 #[derive(Clone, Debug)]
 pub(crate) struct RequestSpec {
     pub feature: Feature,
-    pub path: PathBuf,
+    pub resource: ResourceRef,
     pub stamp: Stamp,
     pub start: usize,
     pub end: usize,
@@ -28,10 +28,15 @@ pub(crate) struct RequestSpec {
     pub timeout: Option<Duration>,
 }
 impl RequestSpec {
-    pub fn new(feature: Feature, path: PathBuf, stamp: Stamp, offset: usize) -> Self {
+    pub fn new(
+        feature: Feature,
+        resource: impl Into<ResourceRef>,
+        stamp: Stamp,
+        offset: usize,
+    ) -> Self {
         Self {
             feature,
-            path,
+            resource: resource.into(),
             stamp,
             start: offset,
             end: offset,
@@ -111,6 +116,7 @@ struct Answers {
     parts: Vec<Arc<Part>>,
     pending: usize,
     deadline: Option<Instant>,
+    failure: Option<String>,
 }
 #[derive(Clone)]
 pub(crate) struct PartSink {
@@ -118,6 +124,17 @@ pub(crate) struct PartSink {
     closed: Arc<AtomicBool>,
 }
 impl PartSink {
+    pub fn fail(&self, message: String) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
+        let mut answers = self.answers.lock().unwrap();
+        if answers.pending == 0 || answers.deadline.is_some_and(|d| Instant::now() >= d) {
+            return;
+        }
+        answers.pending -= 1;
+        answers.failure.get_or_insert(message);
+    }
     pub fn is_live(&self) -> bool {
         !self.closed.load(Ordering::Acquire)
             && self
@@ -197,6 +214,8 @@ impl RequestHandle {
         }
         if !progress.parts.is_empty() {
             progress.failure = None;
+        } else if let Some(message) = &answers.failure {
+            progress.failure = Some(Failure::Failed(message.clone()));
         }
         progress
     }
@@ -231,6 +250,25 @@ impl Drop for RequestHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_external_failures_complete_without_fabricating_success_parts() {
+        let handle = RequestHandle::standalone();
+        let sink = handle.expect_external(1, Duration::from_secs(1));
+        sink.fail("command rejected".into());
+        let progress = handle.poll();
+        assert!(progress.finished && progress.parts.is_empty());
+        assert!(
+            matches!(progress.failure, Some(Failure::Failed(ref message)) if message == "command rejected")
+        );
+        sink.deliver(Some(Part {
+            instance: 1,
+            server: "late".into(),
+            rank: 0,
+            encoding: PositionEncoding::Utf8,
+            value: Value::Null,
+        }));
+        assert!(handle.poll().parts.is_empty());
+    }
     #[test]
     fn extensions_answer_without_a_transport_and_dropped_requests_cancel_once() {
         let handle = RequestHandle::standalone();

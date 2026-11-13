@@ -18,6 +18,7 @@ pub struct SessionFrame {
     pub short_label: String,
     pub title: String,
     pub cwd: Option<PathBuf>,
+    pub resource_directory: Option<String>,
     /// The user's own name for the session, when there is one.
     pub title_override: Option<String>,
     pub purpose: Option<String>,

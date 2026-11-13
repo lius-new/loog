@@ -23,13 +23,15 @@ pub fn prepare(
         Some(buffer) => buffer.text.clone(),
         None => Arc::new(
             source
-                .read_text(&intent.file.path)
+                .read_text(intent.file.path.local_path().ok_or_else(|| {
+                    OpenError::Read("This source only reads local resources".into())
+                })?)
                 .map_err(OpenError::Read)?,
         ),
     };
     let range = Matcher::new(&intent.spec)
         .map_err(OpenError::Changed)?
-        .locate(&text, &intent.file, found)
+        .locate(&text, intent.file.content_hash, found)
         .ok_or_else(|| {
             OpenError::Changed("File changed; searching again to update this result.".to_owned())
         })?;

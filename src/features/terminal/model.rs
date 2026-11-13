@@ -2,6 +2,13 @@
 use crate::features::terminal::{SessionId, ShellKind, TERMINAL_PURPOSES};
 use std::path::PathBuf;
 
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ProvidedTerminal {
+    pub root: loog_workspace_api::ResourceRef,
+    pub cwd: loog_workspace_api::ProviderPath,
+    pub name: String,
+}
+
 #[derive(Clone)]
 pub struct TerminalMetadata {
     id: SessionId,
@@ -14,12 +21,20 @@ pub struct TerminalMetadata {
     title: Option<String>,
     purpose: Option<String>,
     running_program: Option<String>,
+    provided: Option<ProvidedTerminal>,
+    start_provided: bool,
 }
 
 /// Longest custom session name kept, in characters.
 const TITLE_MAX_CHARS: usize = 48;
 
 impl TerminalMetadata {
+    pub fn provided(&self) -> Option<&ProvidedTerminal> {
+        self.provided.as_ref()
+    }
+    pub fn start_provided(&self) -> bool {
+        self.start_provided
+    }
     pub fn title(&self) -> Option<String> {
         self.title.clone()
     }
@@ -217,7 +232,9 @@ impl TerminalModel {
     pub fn update_directories(&mut self, directories: &[(u64, Option<PathBuf>)]) {
         for (id, cwd) in directories {
             if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == *id) {
-                tab.cwd = cwd.clone();
+                if tab.provided.is_none() {
+                    tab.cwd = cwd.clone();
+                }
             }
         }
     }
@@ -255,6 +272,7 @@ impl TerminalModel {
         let group_id = self.tabs[index].group_id;
         let shell = self.tabs[index].shell;
         let cwd = self.tabs[index].cwd.clone();
+        let provided = self.tabs[index].provided.clone();
         let width_weight = self.tabs[index].width_weight * 0.5;
         self.tabs[index].width_weight = width_weight;
         let id = self.next_id;
@@ -270,6 +288,8 @@ impl TerminalModel {
                 title: None,
                 purpose: None,
                 running_program: None,
+                provided,
+                start_provided: true,
             },
         );
         self.active_id = Some(id);
@@ -305,9 +325,38 @@ impl TerminalModel {
             title: None,
             purpose: None,
             running_program: None,
+            provided: None,
+            start_provided: false,
         });
         self.active_id = Some(id);
         id
+    }
+
+    pub fn add_provided(&mut self, target: ProvidedTerminal) -> u64 {
+        let id = self.add(ShellKind::System);
+        let tab = self.tabs.last_mut().unwrap();
+        tab.provided = Some(target);
+        tab.start_provided = true;
+        id
+    }
+    pub fn resources(&self) -> Vec<Option<ProvidedTerminal>> {
+        self.tabs.iter().map(|tab| tab.provided.clone()).collect()
+    }
+    pub fn restore_resources(&mut self, targets: &[Option<ProvidedTerminal>]) {
+        for (tab, target) in self.tabs.iter_mut().zip(targets) {
+            tab.provided = target.clone();
+            tab.start_provided = false;
+            if target.is_some() {
+                tab.cwd = None;
+            }
+        }
+    }
+    pub fn update_resources(&mut self, targets: &[Option<ProvidedTerminal>]) {
+        for (tab, target) in self.tabs.iter_mut().zip(targets) {
+            if tab.provided.is_some() {
+                tab.provided = target.clone();
+            }
+        }
     }
 
     pub fn select(&mut self, id: u64) {
@@ -381,6 +430,32 @@ impl Default for TerminalModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn restored_provider_terminals_keep_identity_but_do_not_start_or_use_local_directories() {
+        use loog_workspace_api::{EnvironmentKey, ProviderPath, ResourceRef};
+        let target = ProvidedTerminal {
+            root: ResourceRef::provided(
+                EnvironmentKey::new("example.provider", "one").unwrap(),
+                "/work",
+            )
+            .unwrap(),
+            cwd: ProviderPath::new("/work/中文").unwrap(),
+            name: "Example".into(),
+        };
+        let mut tabs = TerminalModel::restored(vec![], None);
+        tabs.add_provided(target.clone());
+        assert!(tabs.active().unwrap().start_provided());
+        let wire = serde_json::to_string(&tabs.resources()).unwrap();
+        let mut restored = TerminalModel::restored(tabs.shells(), Some(0));
+        restored.restore_directories(&[Some("C:/unrelated".into())]);
+        restored.restore_resources(
+            &serde_json::from_str::<Vec<Option<ProvidedTerminal>>>(&wire).unwrap(),
+        );
+        let tab = restored.active().unwrap();
+        assert!(!tab.start_provided());
+        assert_eq!(tab.provided(), Some(&target));
+        assert!(tab.cwd().is_none());
+    }
     #[test]
     fn terminal_tabs_add_select_and_close_neighboring_sessions() {
         let mut tabs = TerminalModel::new();

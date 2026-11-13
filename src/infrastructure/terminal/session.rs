@@ -38,6 +38,8 @@ pub struct TerminalController {
 }
 
 struct TerminalInner {
+    transport: Option<Arc<dyn super::transport::Transport>>,
+    reported_directory: Mutex<Option<Option<loog_workspace_api::ProviderPath>>>,
     lifecycle: Mutex<()>,
     #[cfg(test)]
     test_writes: Mutex<Vec<Vec<u8>>>,
@@ -70,6 +72,8 @@ impl TerminalController {
     pub fn with_shell(shell: ShellKind) -> Self {
         Self {
             inner: Arc::new(TerminalInner {
+                transport: None,
+                reported_directory: Mutex::new(None),
                 lifecycle: Mutex::new(()),
                 #[cfg(test)]
                 test_writes: Mutex::new(Vec::new()),
@@ -112,6 +116,23 @@ impl TerminalController {
         }
     }
 
+    pub(crate) fn with_transport(
+        name: String,
+        transport: Arc<dyn super::transport::Transport>,
+        start: bool,
+    ) -> Self {
+        let mut controller = Self::with_shell(ShellKind::System);
+        let inner = Arc::get_mut(&mut controller.inner).unwrap();
+        inner.transport = Some(transport);
+        *lock(&inner.detected_name) = Some(name);
+        *lock(&inner.status) = if start {
+            TerminalStatus::Idle
+        } else {
+            TerminalStatus::Stopped
+        };
+        controller
+    }
+
     pub fn generation(&self) -> u64 {
         self.inner.generation.load(Ordering::Acquire)
     }
@@ -144,6 +165,10 @@ impl TerminalController {
 
     pub fn working_directory(&self) -> Option<PathBuf> {
         lock(&self.inner.cwd).clone()
+    }
+    /// Outer None means no provider report; inner None means no scoped cwd.
+    pub fn reported_directory(&self) -> Option<Option<loog_workspace_api::ProviderPath>> {
+        lock(&self.inner.reported_directory).clone()
     }
 
     pub fn command_activity(&self) -> CommandActivity {
@@ -211,6 +236,42 @@ impl TerminalController {
         *lock(&self.inner.reports) = CommandReports::default();
         *lock(&self.inner.parser) = vt100::Parser::new(size.rows, size.cols, SCROLLBACK_ROWS);
         *lock(&self.inner.selection) = None;
+
+        if let Some(transport) = &self.inner.transport {
+            *lock(&self.inner.cwd) = None;
+            *lock(&self.inner.notice) = None;
+            *lock(&self.inner.reported_directory) = None;
+            *lock(&self.inner.mouse) = crate::features::terminal::mouse::TerminalMouse::default();
+            let weak = Arc::downgrade(&self.inner);
+            let sink = super::transport::Sink(Arc::new(move |event| {
+                use super::transport::Event;
+                if update_current(&weak, generation, |inner| match event {
+                    Event::Started => *lock(&inner.status) = TerminalStatus::Running,
+                    Event::Directory(path) => *lock(&inner.reported_directory) = Some(path),
+                    Event::Output(bytes) => {
+                        // Shell reports may contain paths from another machine.
+                        // They never become local working directories.
+                        let _ = lock(&inner.reports).process(&bytes);
+                        lock(&inner.parser).process(&bytes);
+                    }
+                    Event::Exited(code) => {
+                        *lock(&inner.status) = code
+                            .and_then(|code| u32::try_from(code).ok())
+                            .map(TerminalStatus::Exited)
+                            .unwrap_or(TerminalStatus::Stopped)
+                    }
+                    Event::Failed(error) => *lock(&inner.status) = TerminalStatus::Failed(error),
+                })
+                .is_some()
+                {
+                    application.request_frame_for(generation);
+                }
+            }));
+            drop(lifecycle);
+            transport.stop();
+            transport.start(size, sink);
+            return;
+        }
 
         let cwd = crate::infrastructure::terminal::integration::starting_directory(cwd, None);
         *lock(&self.inner.mouse) = crate::features::terminal::mouse::TerminalMouse::default();
@@ -317,9 +378,14 @@ impl TerminalController {
     }
 
     pub(super) fn dispose(&self) {
-        let _lifecycle = lock(&self.inner.lifecycle);
-        self.inner.disposed.store(true, Ordering::Release);
-        self.shutdown();
+        {
+            let _lifecycle = lock(&self.inner.lifecycle);
+            self.inner.disposed.store(true, Ordering::Release);
+            self.shutdown();
+        }
+        if let Some(transport) = &self.inner.transport {
+            transport.stop();
+        }
     }
 
     fn shutdown(&self) {
@@ -332,6 +398,9 @@ impl TerminalController {
         {
             let _lifecycle = lock(&self.inner.lifecycle);
             self.shutdown();
+        }
+        if let Some(transport) = &self.inner.transport {
+            transport.stop();
         }
         application.into().request_frame();
     }
@@ -347,6 +416,12 @@ impl TerminalController {
     pub fn write_protocol(&self, bytes: &[u8]) {
         #[cfg(test)]
         lock(&self.inner.test_writes).push(bytes.to_vec());
+        if let Some(transport) = &self.inner.transport {
+            if let Err(error) = transport.write(bytes) {
+                *lock(&self.inner.notice) = Some(error);
+            }
+            return;
+        }
         let mut process = lock(&self.inner.process);
         let Some(process) = process.as_mut() else {
             return;
@@ -357,6 +432,7 @@ impl TerminalController {
     }
 
     pub fn resize(&self, size: TerminalSize) {
+        let changed = lock(&self.inner.parser).screen().size() != (size.rows, size.cols);
         {
             let mut parser = lock(&self.inner.parser);
             if parser.screen().size() != (size.rows, size.cols) {
@@ -368,6 +444,12 @@ impl TerminalController {
             }
         }
 
+        if let Some(transport) = &self.inner.transport {
+            if changed {
+                transport.resize(size);
+            }
+            return;
+        }
         let mut process = lock(&self.inner.process);
         let Some(process) = process.as_mut() else {
             return;
@@ -626,6 +708,9 @@ impl Default for TerminalController {
 
 impl Drop for TerminalInner {
     fn drop(&mut self) {
+        if let Some(transport) = &self.transport {
+            transport.stop();
+        }
         if let Ok(process) = self.process.get_mut()
             && let Some(mut process) = process.take()
         {
@@ -734,6 +819,9 @@ impl TerminalController {
         let _lifecycle = lock(&self.inner.lifecycle);
         self.inner.generation.fetch_add(1, Ordering::AcqRel) + 1
     }
+    pub(crate) fn test_report_directory(&self, path: Option<loog_workspace_api::ProviderPath>) {
+        *lock(&self.inner.reported_directory) = Some(path);
+    }
     pub(crate) fn test_receive_output(&self, bytes: &[u8]) {
         process_output(&self.inner, bytes);
     }
@@ -775,6 +863,63 @@ impl TerminalController {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn external_terminal_uses_streams_and_rejects_late_output_without_local_cwd() {
+        use super::super::transport::{Event, Sink, Transport};
+        #[derive(Default)]
+        struct Fake {
+            sinks: Mutex<Vec<Sink>>,
+            writes: Mutex<Vec<Vec<u8>>>,
+        }
+        impl Transport for Fake {
+            fn start(&self, _: TerminalSize, sink: Sink) {
+                sink.send(Event::Started);
+                self.sinks.lock().unwrap().push(sink);
+            }
+            fn write(&self, bytes: &[u8]) -> Result<(), String> {
+                self.writes.lock().unwrap().push(bytes.to_vec());
+                Ok(())
+            }
+            fn resize(&self, _: TerminalSize) {}
+            fn stop(&self) {
+                // A synchronous final event must not run under lifecycle locks.
+                if let Some(sink) = self.sinks.lock().unwrap().last() {
+                    sink.send(Event::Exited(None));
+                }
+            }
+        }
+        let transport = Arc::new(Fake::default());
+        let controller =
+            TerminalController::with_transport("Example".into(), transport.clone(), true);
+        let size = TerminalSize {
+            cols: 80,
+            rows: 24,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
+        let notifier = FrameNotifier::new(|| {});
+        controller.ensure_started(Some(Path::new("C:/unrelated")), size, notifier.clone());
+        let old = transport.sinks.lock().unwrap()[0].clone();
+        old.send(Event::Output(
+            "\x1b]7;file://remote/root\x07中文".as_bytes().to_vec(),
+        ));
+        assert!(controller.working_directory().is_none());
+        assert_eq!(controller.test_parser().screen().contents(), "中文");
+        controller.write(b"input");
+        assert_eq!(*transport.writes.lock().unwrap(), vec![b"input".to_vec()]);
+        controller.restart(ShellKind::PowerShell, None, size, notifier.clone());
+        old.send(Event::Output(b"stale".to_vec()));
+        old.send(Event::Exited(Some(42)));
+        assert!(controller.test_parser().screen().contents().is_empty());
+        assert_eq!(*lock(&controller.inner.status), TerminalStatus::Running);
+        controller.dispose();
+        transport.sinks.lock().unwrap()[1].send(Event::Output(b"closed".to_vec()));
+        assert!(controller.test_parser().screen().contents().is_empty());
+        let restored =
+            TerminalController::with_transport("Example".into(), transport.clone(), false);
+        restored.ensure_started(None, size, notifier);
+        assert_eq!(transport.sinks.lock().unwrap().len(), 2);
+    }
     #[test]
     fn shutdown_uses_injected_notification_and_rejects_the_previous_generation() {
         use std::sync::atomic::AtomicUsize;

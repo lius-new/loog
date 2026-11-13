@@ -353,6 +353,10 @@
       "migrated_in": "R5.2",
       "from": "context_menu_target"
     },
+    "resource_menu": {
+      "owner": "ui/explorer/state",
+      "migrated_in": "resource-providers"
+    },
     "menu_hover": {
       "owner": "ui/explorer/state",
       "migrated_in": "R5.2",
@@ -846,6 +850,14 @@
     }
   },
   "terminal_metadata_ownership": {
+    "provided": {
+      "owner": "features/terminal/model:TerminalMetadata",
+      "migrated_in": "provider terminal identity"
+    },
+    "start_provided": {
+      "owner": "features/terminal/model:TerminalMetadata",
+      "migrated_in": "explicit provider terminal startup"
+    },
     "id": {
       "owner": "features/terminal/model:TerminalMetadata",
       "migrated_in": "R7.3"

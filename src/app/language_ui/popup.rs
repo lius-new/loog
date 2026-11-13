@@ -13,7 +13,7 @@ pub enum Payload {
     /// Go there.
     Place(Place),
     PeekPlace(Place),
-    Group(std::path::PathBuf),
+    Group(loog_workspace_api::ResourceRef),
     /// Run a code action of the server instance that offered it.
     Action {
         instance: u64,
@@ -90,7 +90,7 @@ pub struct Popup {
     pub local_filter: bool,
     pub panel_focused: bool,
     pub visible: usize,
-    collapsed: std::collections::HashSet<std::path::PathBuf>,
+    collapsed: std::collections::HashSet<loog_workspace_api::ResourceRef>,
 }
 
 /// Rows visible at once.
@@ -341,7 +341,7 @@ impl Popup {
             self.keep_selection_visible();
         }
     }
-    pub fn toggle_group(&mut self, path: std::path::PathBuf) {
+    pub fn toggle_group(&mut self, path: loog_workspace_api::ResourceRef) {
         if !self.collapsed.remove(&path) {
             self.collapsed.insert(path);
         }
@@ -452,10 +452,10 @@ mod tests {
         let mut b = item("beta");
         b.payload = Payload::Place(Place::bytes(path.clone(), 2..3));
         let mut header = item("a.rs");
-        header.payload = Payload::Group(path.clone());
+        header.payload = Payload::Group(path.clone().into());
         p.set_items(vec![header, a, b]);
         assert_eq!(p.shown.len(), 3);
-        p.toggle_group(path);
+        p.toggle_group(path.into());
         assert_eq!(p.shown.len(), 1);
         assert_eq!(p.view().rows[0].badge, "▸");
         assert!(p.type_text("alpha"));
@@ -464,5 +464,29 @@ mod tests {
         p.panel_focused = false;
         assert!(!p.type_text("editor text"));
         assert!(!p.backspace());
+    }
+
+    #[test]
+    fn folding_one_environment_group_does_not_fold_the_same_path_elsewhere() {
+        use loog_workspace_api::{EnvironmentKey, ResourceRef};
+        let resources = ["one", "two"].map(|name| {
+            ResourceRef::provided(EnvironmentKey::new("provider", name).unwrap(), "/work/a")
+                .unwrap()
+        });
+        let mut rows = Vec::new();
+        for resource in &resources {
+            let mut header = item("a");
+            header.payload = Payload::Group(resource.clone());
+            let mut entry = item("definition");
+            entry.payload = Payload::Place(Place::resource_bytes(resource.clone(), 0..1));
+            rows.extend([header, entry]);
+        }
+        let mut p = popup(&[]);
+        p.kind = Kind::References;
+        p.set_items(rows);
+        p.toggle_group(resources[0].clone());
+        assert_eq!(p.shown.len(), 3);
+        assert!(p.shown.iter().any(|(index, _)| *index == 3));
+        assert!(!p.shown.iter().any(|(index, _)| *index == 1));
     }
 }

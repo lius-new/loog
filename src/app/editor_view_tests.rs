@@ -1581,7 +1581,7 @@ fn diagnostics_from_a_server_are_underlined_in_the_editor() {
                 .values()
                 .map(|d| (
                     d.is_text(),
-                    d.meta.path.clone(),
+                    d.meta.local_path().unwrap().to_path_buf(),
                     d.meta.lang.name().to_owned()
                 ))
                 .collect::<Vec<_>>()
@@ -2306,7 +2306,10 @@ fn problems_are_visited_in_order_and_wrap() {
         let id = *app.workspace.documents.keys().next().unwrap();
         h.runtime
             .language_services()
-            .and_then(|s| s.results(&doc.meta.path, &doc.stamp(id)).diagnostics)
+            .and_then(|s| {
+                s.results(doc.meta.local_path().unwrap(), &doc.stamp(id))
+                    .diagnostics
+            })
             .is_some_and(|found| !found.is_empty())
     });
     h.set_cursor(10);
@@ -3007,7 +3010,10 @@ fn the_problems_of_the_open_files_are_listed_with_the_worst_first() {
         let doc = &app.workspace.documents[&id];
         h.runtime
             .language_services()
-            .and_then(|s| s.results(&doc.meta.path, &doc.stamp(id)).diagnostics)
+            .and_then(|s| {
+                s.results(doc.meta.local_path().unwrap(), &doc.stamp(id))
+                    .diagnostics
+            })
             .is_some_and(|items| !items.is_empty())
     });
     h.act(Action::ToggleProblems);
@@ -3256,7 +3262,7 @@ fn the_language_extension_updates_progress_and_reclaims_its_status_on_stop() {
     let app = h.state.get();
     let file = app.workspace.active_document().unwrap();
     let document = &app.workspace.documents[&file];
-    let path = document.meta.path.clone();
+    let path = document.meta.local_path().unwrap().to_path_buf();
     let text = document.buffer.text_snapshot();
     drop(app);
     crate::app::test_support::language::saved(&h.state, path, text);

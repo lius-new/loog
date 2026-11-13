@@ -60,22 +60,26 @@ pub(crate) fn short(error: &str) -> String {
     }
 }
 
-/// The path (spelled as extensions are told it) and the language of the file being edited.
-fn active_file(app: &AppState) -> (Option<String>, Option<String>) {
-    let path = app
+/// The complete resource identity and language of the file being edited.
+fn active_file(app: &AppState) -> (Option<loog_workspace_api::ResourceRef>, Option<String>) {
+    let resource = app
         .workspace
-        .active_path()
-        .map(|path| path.to_string_lossy().into_owned());
+        .active_document()
+        .and_then(|id| app.workspace.documents.get(&id))
+        .map(|doc| doc.meta.resource.clone());
     let language = app
         .workspace
         .active()
         .and_then(|id| app.workspace.view_meta(id))
         .map(|meta| meta.lang.name().to_owned());
-    (path, language)
+    (resource, language)
 }
 
 /// The installed extensions that answer for languages, as they do for `document`.
-fn services(state: &AppContext, document: Option<&str>) -> Vec<Service> {
+fn services(
+    state: &AppContext,
+    document: Option<&loog_workspace_api::ResourceRef>,
+) -> Vec<Service> {
     state
         .services()
         .and_then(|runtime| runtime.extensions())
@@ -87,7 +91,7 @@ fn services(state: &AppContext, document: Option<&str>) -> Vec<Service> {
 /// the state that asks for the most attention, or `None` when no service answers for it.
 pub fn status(state: &AppContext, app: &AppState) -> Option<State> {
     let (path, language) = active_file(app);
-    language_services_menu::summary(&services(state, path.as_deref()), language.as_deref())
+    language_services_menu::summary(&services(state, path.as_ref()), language.as_deref())
 }
 
 /// The short mark of a language: the one Loog knows it by, else made from its name.
@@ -115,7 +119,7 @@ fn frame(state: &AppContext, app: &AppState) -> Frame {
         .and_then(|runtime| runtime.extensions())
         .and_then(|host| host.service_candidates());
     let registry_ready = candidates.is_some();
-    let installed = services(state, path.as_deref());
+    let installed = services(state, path.as_ref());
     let menu = language_services_menu::build(Input {
         services: &installed,
         active_language: active_language.as_deref(),

@@ -64,8 +64,8 @@ fn directory_search_and_hidden_session_restore_do_not_load_languages() {
                 .workspace
                 .view_meta(model.workspace.active().unwrap())
                 .unwrap()
-                .path,
-            md
+                .local_path(),
+            Some(md.as_path())
         );
         drop(model);
         assert_eq!(explorer_filesystem::read_directory(&root).len(), 3);

@@ -32,6 +32,7 @@ impl TerminalStore {
         }
     }
     pub fn update(&self, update: impl FnOnce(&mut TerminalTabs)) {
+        let resources = self.get().resources();
         let directories = self
             .get()
             .tabs()
@@ -44,6 +45,7 @@ impl TerminalStore {
                 runtime: self.runtime.clone(),
             };
             projection.model.update_directories(&directories);
+            projection.model.update_resources(&resources);
             update(&mut projection);
             *model = projection.model;
         });
@@ -59,6 +61,7 @@ pub(crate) struct TerminalTabs {
 }
 #[derive(Clone)]
 pub(crate) struct TerminalTab {
+    pub provided: Option<crate::features::terminal::model::ProvidedTerminal>,
     pub id: SessionId,
     pub group_id: u64,
     pub width_weight: f32,
@@ -87,6 +90,27 @@ pub(crate) fn display_title(
     }
 }
 impl TerminalTab {
+    pub fn resource_directory_label(&self) -> Option<String> {
+        let target = self.provided.as_ref()?;
+        Some(match self.controller.reported_directory() {
+            Some(Some(path)) => path.as_str().to_owned(),
+            Some(None) => "Outside workspace or unavailable".into(),
+            None => target.cwd.as_str().to_owned(),
+        })
+    }
+    pub fn resource_target(&self) -> Option<crate::features::terminal::model::ProvidedTerminal> {
+        let mut target = self.provided.clone()?;
+        match self.controller.reported_directory() {
+            Some(Some(path)) => target.cwd = path,
+            Some(None) => {
+                if let loog_workspace_api::ResourceRef::Provided { path, .. } = &target.root {
+                    target.cwd = path.clone();
+                }
+            }
+            None => {}
+        }
+        Some(target)
+    }
     pub fn working_directory(&self) -> Option<PathBuf> {
         self.controller
             .working_directory()
@@ -159,6 +183,7 @@ impl TerminalTabs {
     }
     fn project(&self, tab: &TerminalMetadata) -> TerminalTab {
         TerminalTab {
+            provided: tab.provided().cloned(),
             id: tab.id(),
             group_id: tab.group_id(),
             width_weight: tab.width_weight(),
@@ -254,6 +279,24 @@ impl TerminalTabs {
     }
     pub fn add_at(&mut self, shell: ShellKind, cwd: Option<PathBuf>) -> u64 {
         self.model.add_at(shell, cwd)
+    }
+    pub fn add_provided(
+        &mut self,
+        target: crate::features::terminal::model::ProvidedTerminal,
+    ) -> u64 {
+        self.model.add_provided(target)
+    }
+    pub fn resources(&self) -> Vec<Option<crate::features::terminal::model::ProvidedTerminal>> {
+        self.tabs()
+            .iter()
+            .map(TerminalTab::resource_target)
+            .collect()
+    }
+    pub fn restore_resources(
+        &mut self,
+        targets: &[Option<crate::features::terminal::model::ProvidedTerminal>],
+    ) {
+        self.model.restore_resources(targets);
     }
     pub fn split(&mut self, id: u64) -> Option<u64> {
         self.model.split(id)

@@ -98,13 +98,14 @@ pub(crate) fn prepare_batch(app: &AppState, batch: &FileChangeBatch) -> Prepared
             .documents
             .iter()
             .filter(|(_, d)| d.is_text())
-            .map(|(&id, d)| {
-                (
+            .filter_map(|(&id, d)| {
+                let path = d.meta.local_path()?;
+                Some((
                     id,
                     d.incarnation,
-                    d.meta.path.clone(),
-                    crate::infrastructure::editorconfig::load(&d.meta.path),
-                )
+                    path.to_path_buf(),
+                    crate::infrastructure::editorconfig::load(path),
+                ))
             })
             .collect()
     } else {
@@ -164,11 +165,10 @@ pub(crate) fn apply_prepared_batch(app: &mut AppState, batch: PreparedFileBatch)
     }
     crate::infrastructure::ui_dispatch::retire(batch.directories);
     for (id, incarnation, path, options) in batch.editing {
-        if let Some(doc) = app
-            .workspace
-            .documents
-            .get_mut(&id)
-            .filter(|d| d.incarnation == incarnation && d.meta.path == path)
+        if let Some(doc) =
+            app.workspace.documents.get_mut(&id).filter(|d| {
+                d.incarnation == incarnation && d.meta.local_path() == Some(path.as_path())
+            })
         {
             doc.buffer.initialize_file_options(options);
             changed = true;

@@ -160,18 +160,19 @@ fn chinese_crlf_literal_regex_and_relocation() {
     assert_eq!(matches[0].range, 5..11);
     assert_eq!(matches[0].line, 1);
     let file = FileMatches {
-        path: PathBuf::new(),
-        root: PathBuf::new(),
+        path: PathBuf::new().into(),
+        root: PathBuf::new().into(),
+        provider: None,
         matches: matches.clone(),
         content_hash: hash(text),
     };
     assert_eq!(
-        matcher.locate(&format!("new\n{text}"), &file, &matches[1]),
+        matcher.locate(&format!("new\n{text}"), file.content_hash, &matches[1]),
         Some(19..25)
     );
     assert!(
         matcher
-            .locate("different 中文", &file, &matches[0])
+            .locate("different 中文", file.content_hash, &matches[0])
             .is_none()
     );
     query.query = "[".into();

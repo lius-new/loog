@@ -1,11 +1,11 @@
 //! Conservative, bounded hints. Suggestions never change the chosen format.
-use crate::domain::encoding::{Charset, EncodingSettings, TextFormat};
-use crate::features::encoding::codec;
+use super::codec;
+use crate::format::{Charset, EncodingSettings, TextFormat};
 
 const SAMPLE_BYTES: usize = 64 * 1024;
 
 pub fn suggest(bytes: &[u8], options: &EncodingSettings) -> Option<TextFormat> {
-    use crate::domain::encoding::Charset::*;
+    use crate::format::Charset::*;
     if bytes.is_empty()
         || bytes.starts_with(&[0xff, 0xfe, 0, 0])
         || bytes.starts_with(&[0, 0, 0xfe, 0xff])

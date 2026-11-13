@@ -163,6 +163,7 @@ impl AppState {
         app.explorer
             .model
             .restore(session.open_folders, session.recent_folders);
+        app.explorer.resources.bookmarks = session.resource_roots;
         app.source_control.visible = session.source_control_open;
         app.apply_settings(crate::infrastructure::settings_filesystem::load());
         app.refresh_shells();
@@ -438,8 +439,10 @@ impl AppState {
             &user,
             &project_specs,
         );
-        self.workspace
-            .set_language_rules(registry, std::sync::Arc::new(rules))
+        let local = self
+            .workspace
+            .set_language_rules(registry, std::sync::Arc::new(rules));
+        crate::app::resource_project::languages(self) || local
     }
 
     pub fn shell_name(&self, kind: ShellKind) -> String {

@@ -393,7 +393,7 @@ fn encoding_full_workspace_search_returns_all_formats_with_editor_positions() {
     assert_eq!(results.files.len(), 3);
     assert_eq!(results.skipped_encoding, 0);
     for file in results.files {
-        let text = files::read_text_file(&file.path).unwrap();
+        let text = files::read_text_file(file.path.local_path().unwrap()).unwrap();
         for found in &file.matches {
             assert_eq!(&text[found.range.clone()], "搜索");
             assert_eq!(found.line, 1);

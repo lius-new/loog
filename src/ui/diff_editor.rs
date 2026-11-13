@@ -1,6 +1,6 @@
 //! Read-only inline and side-by-side diff editor.
 
-use std::path::PathBuf;
+use loog_workspace_api::ResourceRef;
 
 use lgui::core::{
     Color, CursorIcon, EventPolicy, IconStyle, SemanticRole, Semantics, UiElement, UiFocusHandle,
@@ -61,12 +61,9 @@ pub fn render(
         |layout| layout.starts.clone(),
     );
     let source_label = document.source_label();
-    let absolute_path = document
-        .sections
-        .is_none()
-        .then(|| document.absolute_path());
+    let absolute_path = document.sections.is_none().then(|| document.resource());
     let path_label = document.sections.as_ref().map_or_else(
-        || document.path.display().to_string(),
+        || document.path_label(),
         |_| {
             let files = document.changed_file_count();
             match &document.revision {
@@ -219,7 +216,7 @@ pub fn render(
                 theme::mono(theme::c().text_dim, theme::UI_SIZE),
             ));
         }
-        let label = format!("{} — {source_label}", document.path.display());
+        let label = format!("{} — {source_label}", document.path_label());
         let message = if document.binary {
             format!("Binary file changed: {label}")
         } else if document.target == DiffTarget::HeadToWorktree {
@@ -489,7 +486,7 @@ fn toolbar(
     change_highlight: bool,
     starts: std::sync::Arc<Vec<usize>>,
     current_change: Option<usize>,
-    absolute_path: Option<PathBuf>,
+    absolute_path: Option<ResourceRef>,
     all_collapsed: Option<bool>,
 ) -> Element {
     let mut bar = panel(rect, VisualStyle::filled(theme::c().sidebar));
@@ -549,7 +546,7 @@ fn toolbar(
         bar = bar.child(
             toolbar_button(open_rect, if compact { "Open" } else { "Open File" }, false).on_click(
                 move || {
-                    if open_state.run(Command::Open(absolute_path.clone())) {
+                    if open_state.run(Command::OpenResource(absolute_path.clone())) {
                         editor_focus.focus();
                     }
                 },

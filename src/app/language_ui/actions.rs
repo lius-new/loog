@@ -1,6 +1,6 @@
 //! The commands that ask a server something and then do something with the
 //! answer: go to definition and its relatives, references, symbols.
-use super::navigate::{Place, display_path};
+use super::navigate::{Place, display_resource};
 use super::popup::{Item, Kind, Payload, Popup};
 use super::{AppContext, AppState, Target, services, target};
 use crate::features::language_service::reply::{self, Location, Symbol};
@@ -62,7 +62,7 @@ pub fn begin(state: &AppContext, wanted: Wanted, rect: UiRect, query: Option<Str
         services.request(
             RequestSpec::new(
                 feature,
-                target.path.clone(),
+                target.resource.clone(),
                 target.lsp_stamp(),
                 target.cursor,
             )
@@ -96,7 +96,10 @@ pub(super) fn locations(
 }
 
 fn place_of(location: &Location) -> Option<Place> {
-    Some(Place::span(uri::file_path(&location.uri)?, location.span))
+    Some(Place::resource_span(
+        location.resource.clone(),
+        location.span,
+    ))
 }
 
 /// Locations without repeats, in the order the servers gave them.
@@ -107,7 +110,7 @@ fn distinct(parts: &[Arc<crate::features::providers::Part>], feature: Feature) -
         let _ = feature;
         for location in reply::locations(&part.value, part.encoding) {
             let key = (
-                uri::key(&location.uri),
+                location.resource.clone(),
                 location.span.start,
                 location.span.end,
             );
@@ -206,23 +209,23 @@ pub fn tick(app: &mut AppState) -> Vec<Effect> {
             } else if same_document {
                 let mut items = location_items(app, &found, true);
                 items.sort_by_key(|item| match &item.payload {
-                    Payload::Place(place) => place.path.clone(),
-                    _ => Default::default(),
+                    Payload::Place(place) => Some(place.resource.clone()),
+                    _ => None,
                 });
                 let mut grouped = Vec::new();
                 let mut previous = None;
                 for item in items {
                     if let Payload::Place(place) = &item.payload
-                        && previous.as_ref() != Some(&place.path)
+                        && previous.as_ref() != Some(&place.resource)
                     {
                         grouped.push(Item {
-                            label: display_path(app, &place.path),
+                            label: display_resource(app, &place.resource),
                             detail: String::new(),
                             badge: "▾",
                             faint: false,
-                            payload: Payload::Group(place.path.clone()),
+                            payload: Payload::Group(place.resource.clone()),
                         });
-                        previous = Some(place.path.clone());
+                        previous = Some(place.resource.clone());
                     }
                     grouped.push(item);
                 }
@@ -239,7 +242,12 @@ pub fn tick(app: &mut AppState) -> Vec<Effect> {
             let mut items = Vec::new();
             for part in progress.usable(Feature::DocumentSymbol) {
                 let symbols = reply::symbols(&part.value, part.encoding);
-                flatten(&symbols, 0, &target.path, &mut items);
+                // COMPAT(native-symbol-navigation): The existing symbol list
+                // navigates native paths. Use resource locations after that
+                // consumer migrates; no removal version is scheduled.
+                if let Some(path) = target.resource.local_path() {
+                    flatten(&symbols, 0, path, &mut items);
+                }
             }
             if items.is_empty() {
                 app.show_toast(why_nothing(pending.wanted, progress.failure.as_ref()));
@@ -261,7 +269,9 @@ pub fn tick(app: &mut AppState) -> Vec<Effect> {
             let mut items = Vec::new();
             for part in &progress.parts {
                 for symbol in reply::symbols(&part.value, part.encoding) {
-                    if let Some(item) = symbol_item(&symbol, 0, &target.path) {
+                    if let Some(path) = target.resource.local_path()
+                        && let Some(item) = symbol_item(&symbol, 0, path)
+                    {
                         items.push(item);
                     }
                 }
@@ -336,10 +346,10 @@ fn location_items(app: &AppState, found: &[Location], with_preview: bool) -> Vec
         .iter()
         .filter_map(|location| {
             let place = place_of(location)?;
-            let name = display_path(app, &place.path);
+            let name = display_resource(app, &place.resource);
             let text = app
                 .workspace
-                .file_id_for_path(&place.path)
+                .file_id_for_resource(&place.resource)
                 .and_then(|id| app.workspace.documents.get(&id))
                 .map(|doc| doc.buffer.text_snapshot());
             let line = location.span.start.line as usize;
@@ -399,7 +409,7 @@ pub fn go_to_diagnostic(state: &AppContext, forward: bool, rect: UiRect) {
         return;
     };
     let found = services
-        .results(&target.path, &target.stamp)
+        .results(&target.resource, &target.stamp)
         .diagnostics
         .unwrap_or_else(|| Arc::from(Vec::new()));
     let Some(start) = next_diagnostic(&found, target.cursor, forward) else {

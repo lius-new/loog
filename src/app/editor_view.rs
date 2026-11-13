@@ -93,7 +93,7 @@ pub(crate) fn snapshot(
                 id,
                 stamp: app.workspace.documents.get(&document)?.stamp(document),
                 meta: DocumentMeta {
-                    path: meta.path.clone(),
+                    resource: meta.resource.clone(),
                     lang: meta.lang.clone(),
                 },
                 projection: super::editing::projection(&app, id, rect),
@@ -104,8 +104,10 @@ pub(crate) fn snapshot(
             })
         });
     let has_repository = document.as_ref().is_some_and(|doc| {
-        git.repository_for_path(&doc.meta.path)
-            .is_some_and(|value| value.relative_path(&doc.meta.path).is_some())
+        doc.meta.resource.local_path().is_some_and(|path| {
+            git.repository_for_path(path)
+                .is_some_and(|value| value.relative_path(path).is_some())
+        })
     });
     let visible_lines = document
         .as_ref()
@@ -178,7 +180,7 @@ pub(crate) fn snapshot(
         .into();
     let changes = document
         .as_ref()
-        .and_then(|doc| git.line_changes.get(&doc.meta.path));
+        .and_then(|doc| git.line_changes.get(doc.meta.resource.local_path()?));
     let line_changes = changes
         .map(|changes| {
             changes
@@ -201,7 +203,7 @@ pub(crate) fn snapshot(
     let conflicts = document
         .as_ref()
         .and_then(|doc| {
-            let regions = git.conflicts.get(&doc.meta.path)?;
+            let regions = git.conflicts.get(doc.meta.resource.local_path()?)?;
             let saved = app.workspace.documents.get(&doc.stamp.document)?;
             let found = if saved.is_dirty() {
                 crate::features::git::conflict::shifted(
@@ -227,9 +229,9 @@ pub(crate) fn snapshot(
         })
         .unwrap_or_default();
     let peek_visible = state.editor_hunk_peek.as_ref().is_some_and(|peek| {
-        document
-            .as_ref()
-            .is_some_and(|doc| peek.pane == pane && peek.path == doc.meta.path)
+        document.as_ref().is_some_and(|doc| {
+            peek.pane == pane && doc.meta.resource.local_path() == Some(peek.path.as_path())
+        })
     });
     ViewState {
         pane,
@@ -355,7 +357,7 @@ pub(crate) fn binding(
             if let Some(document) = &view.document
                 && let Some(services) = reader.services().and_then(|r| r.language_services())
                 && let Some(found) = services
-                    .results(&document.meta.path, &document.stamp)
+                    .results(&document.meta.resource, &document.stamp)
                     .diagnostics
             {
                 view.diagnostics = found;
@@ -417,13 +419,14 @@ pub(crate) fn binding(
                     .and_then(|id| app.workspace.view_meta(id))
                 {
                     let store = git.get();
-                    if let Some(repo) = store.repository_for_path(&meta.path)
-                        && let Some(relative) = repo.relative_path(&meta.path)
+                    if let Some(path) = meta.local_path()
+                        && let Some(repo) = store.repository_for_path(path)
+                        && let Some(relative) = repo.relative_path(path)
                     {
                         super::git_peek::toggle(
                             &dispatcher,
                             pane,
-                            meta.path.clone(),
+                            path.to_path_buf(),
                             repo.worktree_root.clone(),
                             relative,
                             line,
@@ -505,7 +508,7 @@ pub(crate) fn binding(
                 let valid = super::language_ui::target(&app, pane)
                     .and_then(|t| {
                         super::language_ui::services(&dispatcher)
-                            .and_then(|s| s.results(&t.path, &t.stamp).diagnostics)
+                            .and_then(|s| s.results(&t.resource, &t.stamp).diagnostics)
                     })
                     .is_some_and(|ds| {
                         ds.iter()
@@ -591,14 +594,15 @@ pub(crate) fn binding(
                     .pane(pane)
                     .and_then(|value| value.active())
                     .and_then(|id| app.workspace.view_meta(id))?;
+                let path = meta.local_path()?;
                 let peek = app
                     .editor
                     .editor_hunk_peek
                     .as_ref()
-                    .filter(|peek| peek.pane == pane && peek.path == meta.path)?;
+                    .filter(|peek| peek.pane == pane && peek.path == path)?;
                 let store = git.get();
-                let repo = store.repository_for_path(&meta.path)?;
-                let relative = repo.relative_path(&meta.path)?;
+                let repo = store.repository_for_path(path)?;
+                let relative = repo.relative_path(path)?;
                 Some(crate::ui::git::hunk_peek::render(
                     peek,
                     crate::ui::git::hunk_peek::PeekContext {
@@ -609,10 +613,10 @@ pub(crate) fn binding(
                         scroll_y: placement.scroll_y,
                         max_y: placement.metrics.max_y,
                         viewport_h: placement.metrics.viewport_h,
-                        path: &meta.path,
+                        path,
                         root: &repo.worktree_root,
                         relative: &relative,
-                        changes: store.line_changes.get(&meta.path),
+                        changes: store.line_changes.get(path),
                     },
                     &super::git_view::binding(&state, &git),
                 ))
@@ -645,7 +649,7 @@ pub(crate) fn binding(
                         .and_then(|runtime| runtime.language_services())
                         .and_then(|services| {
                             services
-                                .results(&document.meta.path, &document.stamp)
+                                .results(&document.meta.resource, &document.stamp)
                                 .semantic
                         })
                         .filter(|spans| !spans.is_empty())

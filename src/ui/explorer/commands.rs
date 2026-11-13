@@ -13,6 +13,7 @@ pub enum MenuAction {
     NewFolder,
     RefreshExplorer,
     OpenTerminal,
+    WorkspaceTrust,
     Cut,
     Copy,
     Rename,
@@ -28,6 +29,27 @@ pub enum MenuAction {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
+    ResourceRecovery {
+        resource: loog_workspace_api::ResourceRef,
+        forget: bool,
+    },
+    ResourceMenu {
+        point: (f32, f32),
+        target: crate::features::resource_tree::Target,
+    },
+    ResourceAction {
+        action: MenuAction,
+        target: crate::features::resource_tree::Target,
+    },
+    ResourceDirectory {
+        scope: loog_workspace_api::ScopeId,
+        path: loog_workspace_api::ProviderPath,
+        more: bool,
+    },
+    ResourceFile {
+        scope: loog_workspace_api::ScopeId,
+        file: loog_workspace_api::FileInfo,
+    },
     /// Expand or collapse a directory row (reads it on first expansion).
     ToggleDirectory(String),
     /// Open the context menu; `None` targets the drawer background.

@@ -1,38 +1,40 @@
 //! Request/result values; no UI, runtime, or filesystem ownership.
-use std::ops::Range;
+use loog_workspace_api::ResourceRef;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SearchSpec {
-    pub query: String,
-    pub include: String,
-    pub exclude: String,
-    pub case_sensitive: bool,
-    pub whole_word: bool,
-    pub regex: bool,
-    pub include_hidden: bool,
-    pub include_ignored: bool,
-}
+pub use loog_text_core::search::{Match, SearchSpec};
 
 pub use crate::domain::document_snapshot::DocumentSnapshot as BufferSnapshot;
 
 #[derive(Clone, Debug)]
-pub struct Match {
-    pub range: Range<usize>,
-    pub line: usize,
-    pub column: usize,
-    pub preview: String,
-    pub highlight: Range<usize>,
-    pub line_hash: u64,
-}
-
-#[derive(Clone, Debug)]
 pub struct FileMatches {
-    pub path: PathBuf,
-    pub root: PathBuf,
+    pub path: ResourceRef,
+    pub root: ResourceRef,
+    pub provider: Option<ProviderLabels>,
     pub matches: Vec<Match>,
     pub content_hash: u64,
+}
+
+/// Display components supplied by a provider, never parsed as a client path.
+#[derive(Clone, Debug)]
+pub struct ProviderLabels {
+    pub name: String,
+    pub relative: Vec<String>,
+    pub root_name: String,
+}
+impl FileMatches {
+    pub fn name(&self) -> std::borrow::Cow<'_, str> {
+        match &self.provider {
+            Some(labels) => std::borrow::Cow::Borrowed(&labels.name),
+            None => self
+                .path
+                .local_path()
+                .and_then(|path| path.file_name())
+                .map(|name| name.to_string_lossy())
+                .unwrap_or_else(|| "Resource".into()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]

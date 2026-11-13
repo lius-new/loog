@@ -667,6 +667,43 @@ pub fn insertion_variables<'a>(
     cursor: usize,
 ) -> impl Fn(&str) -> Option<String> + 'a {
     let document = document_variables(path, selected);
+    insertion_context(document, text, cursor)
+}
+
+/// Opaque resources supply a display name, never a native path. Undefined path
+/// variables use the snippet's own fallback until provider path metadata exists.
+pub fn resource_insertion_variables<'a>(
+    resource: &loog_workspace_api::ResourceRef,
+    name: &str,
+    selected: &str,
+    text: &'a str,
+    cursor: usize,
+) -> impl Fn(&str) -> Option<String> + 'a {
+    let local = resource
+        .local_path()
+        .map(|path| document_variables(path, selected));
+    let name = name.to_owned();
+    let selected = selected.to_owned();
+    insertion_context(
+        move |variable| {
+            if let Some(local) = &local {
+                return local(variable);
+            }
+            match variable {
+                "TM_FILENAME" => Some(name.clone()),
+                "TM_SELECTED_TEXT" => Some(selected.clone()),
+                _ => None,
+            }
+        },
+        text,
+        cursor,
+    )
+}
+fn insertion_context<'a>(
+    document: impl Fn(&str) -> Option<String> + 'a,
+    text: &'a str,
+    cursor: usize,
+) -> impl Fn(&str) -> Option<String> + 'a {
     let mut cursor = cursor.min(text.len());
     while !text.is_char_boundary(cursor) {
         cursor -= 1;
@@ -698,6 +735,21 @@ pub fn insertion_variables<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn provided_snippets_keep_text_variables_without_guessing_native_path_parts() {
+        let resource = loog_workspace_api::ResourceRef::provided(
+            loog_workspace_api::EnvironmentKey::new("provider", "target").unwrap(),
+            "opaque:back\\slash",
+        )
+        .unwrap();
+        let variables =
+            resource_insertion_variables(&resource, "a\\中.rs", "选中", "let 中 = 1;", 6);
+        assert_eq!(variables("TM_FILENAME"), Some("a\\中.rs".into()));
+        assert_eq!(variables("TM_CURRENT_WORD"), Some("中".into()));
+        assert_eq!(variables("TM_SELECTED_TEXT"), Some("选中".into()));
+        assert_eq!(variables("TM_DIRECTORY"), None);
+        assert_eq!(variables("TM_FILEPATH"), None);
+    }
 
     fn none(_: &str) -> Option<String> {
         None

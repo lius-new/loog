@@ -104,7 +104,7 @@ pub fn eligible(app: &AppState, view: ViewId) -> bool {
     app.workspace
         .view_document(view)
         .and_then(|id| app.workspace.documents.get(&id))
-        .is_some_and(|doc| doc.is_text() && crate::domain::media::is_svg(&doc.meta.path))
+        .is_some_and(|doc| doc.is_text() && crate::domain::media::is_svg(doc.meta.language_hint()))
 }
 pub fn image(app: &AppState, view: ViewId) -> Option<Arc<Image>> {
     let id = app.workspace.view_document(view)?;
@@ -147,7 +147,7 @@ pub fn frame(app: &AppState, view: ViewId) -> Option<Frame> {
         image: image(app, view),
         animation_frame: gif.map(|p| p.frame.clone()),
         format: doc.image.as_ref().map_or(
-            if crate::domain::media::is_svg(&doc.meta.path) {
+            if crate::domain::media::is_svg(doc.meta.language_hint()) {
                 "SVG"
             } else {
                 "Image"

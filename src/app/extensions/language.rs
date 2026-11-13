@@ -45,7 +45,7 @@ pub enum WorkspaceAction {
     Edit {
         title: String,
         edit: crate::features::language_service::reply::WorkspaceEdit,
-        stamps: Vec<(PathBuf, DocumentStamp)>,
+        stamps: Vec<(loog_workspace_api::ResourceRef, DocumentStamp)>,
     },
     Show {
         path: PathBuf,
@@ -150,7 +150,7 @@ impl ExtensionService {
                     .workspace
                     .documents
                     .values()
-                    .any(|d| d.meta.path == path)
+                    .any(|d| d.meta.local_path() == Some(path))
             {
                 return Ok(());
             }
@@ -258,17 +258,28 @@ impl ExtensionService {
     }
     pub(super) fn capability_sources(
         &mut self,
-        path: Option<&Path>,
+        resource: Option<&loog_workspace_api::ResourceRef>,
     ) -> Vec<crate::app::language_services::CapabilitySource> {
         use crate::features::language_service::providers::{
             CodeActionOptions, CompletionOptions, OnTypeFormatting, Providers, SignatureOptions,
         };
         let registry = crate::domain::language::Registry::builtin();
-        let language = path.map(|path| {
-            self.document_languages
-                .get(path)
-                .cloned()
-                .unwrap_or_else(|| registry.resolve_path(path).definition().name.to_string())
+        let provided = resource.is_some_and(|r| r.environment().is_some());
+        let language = resource.and_then(|resource| {
+            if let Some(path) = resource.local_path() {
+                Some(
+                    self.document_languages
+                        .get(path)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            registry.resolve_path(path).definition().name.to_string()
+                        }),
+                )
+            } else {
+                self.resource_documents
+                    .language(resource)
+                    .map(str::to_owned)
+            }
         });
         let mut declarations = Vec::new();
         for (owner, package) in &self.packages {
@@ -284,13 +295,16 @@ impl ExtensionService {
                 continue;
             }
             for provider in &package.manifest.contributes.language_service.providers {
+                if provided && !self.resource_provider_bound(owner, &provider.id) {
+                    continue;
+                }
                 if language
                     .as_ref()
                     .is_some_and(|lang| !provider.selector.languages.contains(lang))
                 {
                     continue;
                 }
-                let config = package.provider_configurations.get(&provider.id);
+                let config = self.provider_configuration(package, &provider.id, resource);
                 if config.is_some_and(|c| !c.enabled) {
                     continue;
                 }
@@ -767,7 +781,7 @@ mod tests {
         let text = "fn 中变量a";
         let mut ask = LanguageAsk {
             feature: Feature::Completion,
-            path: "test.rs".into(),
+            resource: loog_workspace_api::ResourceRef::local("test.rs"),
             stamp: crate::features::providers::Stamp {
                 incarnation: 1,
                 version: 0,

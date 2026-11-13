@@ -20,7 +20,7 @@ const REPLANS: u32 = 1;
 struct Current {
     file: FileId,
     stamp: DocumentStamp,
-    path: PathBuf,
+    resource: loog_workspace_api::ResourceRef,
     doc_id: u64,
     version: u64,
     original: Arc<String>,
@@ -55,11 +55,21 @@ impl ExtensionService {
                 continue;
             }
             for provider in &package.manifest.contributes.language_service.providers {
+                // COMPAT(native-save-participants): Old components participate
+                // in local saves without resource bindings. Retain that ABI;
+                // resource providers opt in explicitly and receive identity
+                // metadata plus the same temporary snapshot. No removal
+                // version is scheduled for local snapshot participation.
                 if provider.kind == DeclKind::SaveParticipant
                     && provider.selector.languages.contains(&language)
-                    && package
-                        .provider_configurations
-                        .get(&provider.id)
+                    && (document.meta.resource.environment().is_none()
+                        || self.resource_provider_bound(owner, &provider.id))
+                    && self
+                        .provider_configuration(
+                            package,
+                            &provider.id,
+                            Some(&document.meta.resource),
+                        )
                         .is_none_or(|c| c.enabled)
                 {
                     found.push((provider.id.clone(), owner.clone()));
@@ -135,7 +145,7 @@ impl ExtensionService {
             let current = Current {
                 file,
                 stamp: document.stamp(file),
-                path: document.meta.path.clone(),
+                resource: document.meta.resource.clone(),
                 doc_id,
                 version: document.buffer.version(),
                 original: text.clone(),
@@ -168,6 +178,14 @@ impl ExtensionService {
                 }
                 return;
             }
+            if let Some(file) = self
+                .saves
+                .get(&id)
+                .and_then(|chain| chain.current.as_ref())
+                .map(|current| current.file)
+            {
+                let _ = self.describe_resource_document(app, file);
+            }
             let Some(chain) = self.saves.get(&id) else {
                 return;
             };
@@ -177,7 +195,7 @@ impl ExtensionService {
                 let target = Target {
                     file: current.file,
                     stamp: current.stamp,
-                    path: current.path.clone(),
+                    resource: current.resource.clone(),
                     text: current.temp.clone(),
                     doc_id: current.doc_id,
                     version: current.version,
@@ -292,12 +310,15 @@ impl ExtensionService {
             .and_then(|chain| chain.current.as_mut())
             .expect("a current file");
         let edits = savediff::edits(&current.original, &current.temp);
-        if edits.is_empty() {
-            return Ok(true);
-        }
         let Some(document) = app.workspace.documents.get(&current.file) else {
             return Err("the file was closed while saving".into());
         };
+        if document.meta.resource != current.resource {
+            return Err("the resource changed while the save participants worked".into());
+        }
+        if edits.is_empty() {
+            return Ok(true);
+        }
         if document.stamp(current.file) != current.stamp {
             if current.replans >= REPLANS {
                 return Err("the file changed while the save participants worked".into());

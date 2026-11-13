@@ -18,6 +18,7 @@ use crate::domain::language::LanguageRules;
 use crate::domain::pane_layout::{Direction, PaneId, PaneNode};
 use crate::domain::view::{DocumentView, Presentation, ReaderPosition, ViewTarget};
 use loog_editor_core::text::{Editor, EditorMut, Selection, TextBuffer};
+use loog_workspace_api::ResourceRef;
 
 pub use crate::domain::view::AppPage;
 
@@ -39,6 +40,9 @@ pub(crate) struct OpenDocument {
     /// Membership index only. Per-view state lives in Workspace::views.
     pub(crate) view_ids: BTreeSet<ViewId>,
     pub(crate) disk_state: DiskState,
+    pub(crate) provider: Option<(loog_workspace_api::ScopeId, Option<String>)>,
+    /// A notification requests a baseline check; it is not itself a conflict.
+    pub(crate) resource_check: bool,
     /// Last watcher observation, separate from the saved disk baseline. Dirty
     /// conflicts deliberately leave disk_state unchanged.
     pub(crate) disk_observation: u64,
@@ -72,6 +76,8 @@ impl OpenDocument {
             dirty_cache,
             view_ids: BTreeSet::new(),
             disk_state,
+            provider: None,
+            resource_check: false,
             disk_observation: 0,
             observed_disk: None,
             disk_conflict: false,
@@ -185,6 +191,8 @@ pub enum ReconcileResult {
     Conflict(PathBuf),
     Missing(PathBuf),
     Failed(PathBuf, String),
+    /// A local watcher must not reconcile a provided resource.
+    Provided(ResourceRef),
 }
 
 #[derive(Clone)]
@@ -205,10 +213,85 @@ pub enum OpenMode {
     Permanent,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ResourceResolution {
+    Check,
+    KeepEditor,
+    Reload,
+}
+
 /// Constructed entirely on a worker; installing it does not scan the text.
 pub(crate) struct PreparedTextFile(OpenDocument);
 
 impl PreparedTextFile {
+    pub(crate) fn text_snapshot(&self) -> Arc<String> {
+        self.0.buffer.text_snapshot()
+    }
+    pub(crate) fn with_provider_root(mut self, root: Option<ResourceRef>) -> Self {
+        self.0.meta.provider_root = root;
+        self
+    }
+    pub(crate) fn with_read_override(
+        mut self,
+        format: Option<crate::domain::encoding::TextFormat>,
+    ) -> Self {
+        self.0.meta.read_override = format;
+        self
+    }
+    pub(crate) fn with_resource_language(
+        mut self,
+        relative: Option<Vec<String>>,
+        language: ResolvedLanguage,
+    ) -> Self {
+        self.0.meta.provider_relative = relative;
+        self.0.meta.set_language(language);
+        self
+    }
+    pub(crate) fn offline(
+        resource: ResourceRef,
+        name: String,
+        recovery: Option<crate::domain::workspace_session::SavedEncoding>,
+    ) -> Self {
+        let contents = recovery
+            .as_ref()
+            .and_then(|r| r.saved_text.as_ref())
+            .map(|s| s.as_ref().clone())
+            .unwrap_or_default();
+        let mut disk = DiskState::from_contents(&contents);
+        if let Some(recovery) = &recovery {
+            disk.format = recovery.saved;
+        }
+        let mut value = Self::with_resource(resource, name, contents, disk);
+        if recovery
+            .as_ref()
+            .is_none_or(|r| r.saved_text.is_none() && r.unsaved_text.is_none())
+        {
+            value.0.open_error =
+                Some("Resource is offline. Connect its provider and open the file again.".into());
+        }
+        value.0.recovery = recovery;
+        if value.0.open_error.is_none() {
+            restore_encoding(&mut value.0);
+        }
+        value
+    }
+    pub(crate) fn provided(
+        resource: ResourceRef,
+        name: String,
+        scope: loog_workspace_api::ScopeId,
+        revision: Option<String>,
+        decoded: crate::domain::encoding::DecodedText,
+    ) -> Self {
+        let mut disk = DiskState::from_contents(&decoded.text);
+        disk.size = decoded.bytes.len() as u64;
+        disk.format = decoded.format;
+        let mut value = Self::with_resource(resource, name, decoded.text, disk);
+        value.0.meta.encoding_source = decoded.source;
+        value.0.disk_bytes = Some(decoded.bytes.clone());
+        value.0.encoding_bytes = Some(decoded.bytes);
+        value.0.provider = Some((scope, revision));
+        value
+    }
     pub(crate) fn with_file_options(
         mut self,
         options: loog_editor_core::text::FileOptions,
@@ -224,6 +307,24 @@ impl PreparedTextFile {
     ) -> Self {
         let mut value = Self::with_disk_state(path, String::new(), disk);
         value.0.image = Some(Arc::new(image));
+        value
+    }
+    pub(crate) fn provided_image(
+        resource: ResourceRef,
+        name: String,
+        scope: loog_workspace_api::ScopeId,
+        revision: Option<String>,
+        image: crate::domain::media::Image,
+    ) -> Self {
+        let disk = DiskState {
+            modified_time: None,
+            size: image.byte_len,
+            content_hash: image.identity,
+            format: Default::default(),
+        };
+        let mut value = Self::with_resource(resource, name, String::new(), disk);
+        value.0.image = Some(Arc::new(image));
+        value.0.provider = Some((scope, revision));
         value
     }
     pub(crate) fn failed(path: PathBuf, error: String) -> Self {
@@ -246,12 +347,25 @@ impl PreparedTextFile {
     pub fn with_disk_state(path: PathBuf, contents: String, disk: DiskState) -> Self {
         Self(OpenDocument::new(FileMeta::from_path(path), contents, disk))
     }
+
+    pub fn with_resource(
+        resource: ResourceRef,
+        name: String,
+        contents: String,
+        disk: DiskState,
+    ) -> Self {
+        Self(OpenDocument::new(
+            FileMeta::provided(resource, name),
+            contents,
+            disk,
+        ))
+    }
 }
 
 #[derive(Clone)]
 pub struct Workspace<D, K> {
     pub(crate) documents: HashMap<FileId, OpenDocument>,
-    pub(crate) paths: HashMap<PathBuf, FileId>,
+    pub(crate) paths: HashMap<ResourceRef, FileId>,
     pub(crate) views: HashMap<ViewId, DocumentView>,
     pub(crate) diffs: HashMap<DiffId, DiffRecord<D, K>>,
     next_view_id: u64,
@@ -310,7 +424,9 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         let Some(document) = self.documents.get(&id) else {
             return ReconcileResult::Failed(PathBuf::new(), "Document is not open.".into());
         };
-        let path = document.meta.path.clone();
+        let Some(path) = document.meta.resource.local_path().map(Path::to_path_buf) else {
+            return ReconcileResult::Provided(document.meta.resource.clone());
+        };
         if !document.is_text() {
             return ReconcileResult::Unchanged(path);
         }
@@ -413,7 +529,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         new_path: PathBuf,
         disk: DiskState,
     ) -> bool {
-        let Some(id) = self.paths.remove(old_path) else {
+        let Some(id) = self.paths.remove(&ResourceRef::local(old_path)) else {
             return false;
         };
         let language = self.language_for(&new_path);
@@ -431,9 +547,61 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         document.meta.read_override = previous.read_override;
         document.disk_state = disk;
         document.missing_on_disk = false;
-        self.paths.insert(new_path, id);
+        self.paths.insert(ResourceRef::local(new_path), id);
         self.clamp_document_views(id);
         true
+    }
+
+    /// Apply provider-supplied path mappings without interpreting their paths.
+    /// Disk revisions are checked again before saving at the new identities.
+    pub fn relocate_resources(
+        &mut self,
+        environment: &loog_workspace_api::EnvironmentKey,
+        entries: &[loog_workspace_api::ResourceMove],
+    ) -> Result<(), String> {
+        let mut sources = std::collections::HashSet::new();
+        let mut targets = std::collections::HashSet::new();
+        let mut updates = Vec::new();
+        for entry in entries {
+            let source = ResourceRef::Provided {
+                environment: environment.clone(),
+                path: entry.source.clone(),
+            };
+            let target = ResourceRef::Provided {
+                environment: environment.clone(),
+                path: entry.target.clone(),
+            };
+            if !sources.insert(source.clone())
+                || !targets.insert(target.clone())
+                || entry.name.is_empty()
+            {
+                return Err("Invalid resource rename mapping".into());
+            }
+            if let Some(id) = self.file_id_for_resource(&source) {
+                let language = self.language_registry.resolve_filename(&entry.name);
+                updates.push((id, source, target, entry.name.clone(), language));
+            }
+        }
+        for (_, _, target, _, _) in &updates {
+            if self.file_id_for_resource(target).is_some() && !sources.contains(target) {
+                return Err("Renamed resource is already open as another document".into());
+            }
+        }
+        for (_, source, _, _, _) in &updates {
+            self.paths.remove(source);
+        }
+        for (id, _, target, name, language) in updates {
+            let document = self.documents.get_mut(&id).unwrap();
+            document.meta.resource = target.clone();
+            document.meta.name = name;
+            document.meta.provider_relative = None;
+            document.meta.lang = language;
+            document.meta.language_generation += 1;
+            document.disk_conflict = true;
+            document.missing_on_disk = false;
+            self.paths.insert(target, id);
+        }
+        Ok(())
     }
 
     pub fn new() -> Self {
@@ -687,7 +855,9 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         mut meta: FileMeta,
         content: Arc<D>,
     ) -> ViewId {
-        meta.lang = self.language_for(&meta.path);
+        if meta.local_path().is_some() {
+            meta.lang = self.language_for(meta.language_hint());
+        }
         let id = DiffId::new(self.next_diff_id);
         self.next_diff_id += 1;
         let view = self.create_view(ViewTarget::Diff(id), Presentation::Source);
@@ -749,7 +919,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
                 .view_document(id)
                 .and_then(|id| self.documents.get(&id))
                 .is_some_and(|doc| {
-                    doc.image.is_none() && !crate::domain::media::is_svg(&doc.meta.path)
+                    doc.image.is_none() && !crate::domain::media::is_svg(doc.meta.language_hint())
                 })
         {
             return false;
@@ -849,7 +1019,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
                     view.input_generation += 1;
                 } else if document.image.is_none()
                     && view.presentation == Presentation::Image
-                    && !crate::domain::media::is_svg(&document.meta.path)
+                    && !crate::domain::media::is_svg(document.meta.language_hint())
                 {
                     view.presentation = Presentation::Source;
                     view.associated_source = None;
@@ -959,7 +1129,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         let Some(pane) = self.panes.get(&pane) else {
             return HashMap::new();
         };
-        let mut groups: HashMap<String, Vec<(ViewId, &Path)>> = HashMap::new();
+        let mut groups: HashMap<String, Vec<(ViewId, &FileMeta)>> = HashMap::new();
         for id in &pane.items {
             let Some(meta) = self.view_meta(*id) else {
                 continue;
@@ -967,7 +1137,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
             groups
                 .entry(meta.name.clone())
                 .or_default()
-                .push((*id, meta.path.as_path()));
+                .push((*id, meta));
         }
 
         let mut labels = HashMap::with_capacity(pane.items.len());
@@ -979,7 +1149,12 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
 
             let parents = documents
                 .iter()
-                .map(|(_, path)| parent_components(path))
+                .map(|(_, meta)| match &meta.resource {
+                    ResourceRef::Local { path } => parent_components(path),
+                    ResourceRef::Provided { environment, path } => {
+                        vec![environment.instance().to_owned(), path.as_str().to_owned()]
+                    }
+                })
                 .collect::<Vec<_>>();
             for (index, (id, _)) in documents.iter().enumerate() {
                 let parts = &parents[index];
@@ -1105,7 +1280,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
                         d.view_ids.is_empty()
                     });
                     if orphan && let Some(d) = self.documents.remove(&document) {
-                        self.paths.remove(&d.meta.path);
+                        self.paths.remove(&d.meta.resource);
                         self.retired.push(Retired::Document(d));
                     }
                 }
@@ -1202,7 +1377,8 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         if self.active_page().is_some() {
             return None;
         }
-        self.active_meta().map(|meta| meta.path.as_path())
+        self.active_meta()
+            .and_then(|meta| meta.resource.local_path())
     }
 
     pub fn active_diff(&self) -> Option<&D> {
@@ -1408,7 +1584,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
             .into_iter()
             .filter_map(|id| self.documents.get(&id))
             .filter(|document| document.is_text())
-            .map(|document| document.meta.path.clone())
+            .filter_map(|document| document.meta.resource.local_path().map(Path::to_path_buf))
             .collect()
     }
 
@@ -1432,15 +1608,22 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
     }
 
     pub fn file_id_for_path(&self, path: &Path) -> Option<FileId> {
-        if let Some(id) = self.paths.get(path) {
+        self.file_id_for_resource(&ResourceRef::local(path))
+    }
+
+    pub fn file_id_for_resource(&self, resource: &ResourceRef) -> Option<FileId> {
+        if let Some(id) = self.paths.get(resource) {
             return Some(*id);
         }
+        let path = resource.local_path()?;
         // `\\?\D:\dir` (from `fs::canonicalize`, as the file tree reports) and
         // `D:\dir` (from the shell or a dialog) name the same file.
         let wanted = comparable(path);
-        self.paths
-            .iter()
-            .find_map(|(open, id)| (comparable(open) == wanted).then_some(*id))
+        self.paths.iter().find_map(|(open, id)| {
+            open.local_path()
+                .filter(|path| comparable(path) == wanted)
+                .map(|_| *id)
+        })
     }
 
     pub fn is_dirty(&self, id: FileId) -> bool {
@@ -1453,7 +1636,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         self.dirty_file_ids()
             .into_iter()
             .filter_map(|id| self.documents.get(&id))
-            .map(|document| document.meta.path.clone())
+            .filter_map(|document| document.meta.resource.local_path().map(Path::to_path_buf))
             .collect()
     }
 
@@ -1465,9 +1648,14 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
     }
 
     pub fn has_dirty_paths_under(&self, root: &Path) -> bool {
-        self.documents
-            .iter()
-            .any(|(id, document)| document.meta.path.starts_with(root) && self.is_dirty(*id))
+        self.documents.iter().any(|(id, document)| {
+            document
+                .meta
+                .resource
+                .local_path()
+                .is_some_and(|path| path.starts_with(root))
+                && self.is_dirty(*id)
+        })
     }
 
     pub fn has_disk_conflict(&self, id: FileId) -> bool {
@@ -1533,11 +1721,131 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         let document = self.documents.get(&id).filter(|d| d.is_text())?;
         Some(crate::domain::document::SaveSnapshot {
             stamp: document.stamp(id),
-            path: document.meta.path.clone(),
+            path: document.meta.resource.local_path()?.to_path_buf(),
             text: document.buffer.text_snapshot(),
             disk_observation: document.disk_observation,
             format: document.format(),
         })
+    }
+
+    pub(crate) fn resource_save_snapshot(
+        &self,
+        id: FileId,
+    ) -> Option<crate::domain::document::ResourceSaveSnapshot> {
+        let document = self.documents.get(&id).filter(|d| d.is_text())?;
+        let (scope, revision) = document.provider.as_ref()?;
+        Some(crate::domain::document::ResourceSaveSnapshot {
+            stamp: document.stamp(id),
+            resource: document.meta.resource.clone(),
+            scope: *scope,
+            revision: revision.clone(),
+            text: document.buffer.text_snapshot(),
+            format: document.format(),
+        })
+    }
+
+    pub(crate) fn mark_resource_saved(
+        &mut self,
+        saved: &crate::domain::document::ResourceSaveSnapshot,
+        revision: Option<String>,
+    ) -> bool {
+        let Some(document) = self.documents.get_mut(&saved.stamp.document).filter(|d| {
+            d.is_text()
+                && d.incarnation == saved.stamp.incarnation
+                && d.meta.resource == saved.resource
+                && d.provider.as_ref() == Some(&(saved.scope, saved.revision.clone()))
+        }) else {
+            return false;
+        };
+        document.provider = Some((saved.scope, revision));
+        document.saved_text = saved.text.clone();
+        document.saved_format = saved.format;
+        document.disk_bytes = None;
+        document.encoding_bytes = None;
+        document.disk_conflict = false;
+        if document.buffer.version() == saved.stamp.version {
+            document.buffer.break_undo_group();
+            if document.buffer.snapshot_identity() == saved.stamp.snapshot_identity {
+                *document.dirty_cache.lock().unwrap() =
+                    DirtyCache::clean(&document.buffer, &document.saved_text);
+            }
+        }
+        true
+    }
+
+    /// A new scope must observe the baseline before it may save recovered edits.
+    pub(crate) fn reconnect_resource(
+        &mut self,
+        id: FileId,
+        prepared: PreparedTextFile,
+    ) -> Result<(), &'static str> {
+        self.resolve_resource(id, prepared, ResourceResolution::Check)
+    }
+    pub(crate) fn resolve_resource(
+        &mut self,
+        id: FileId,
+        prepared: PreparedTextFile,
+        resolution: ResourceResolution,
+    ) -> Result<(), &'static str> {
+        let Some(document) = self
+            .documents
+            .get_mut(&id)
+            .filter(|d| d.meta.resource == prepared.0.meta.resource)
+        else {
+            return Err("Resource is no longer open");
+        };
+        let mut replacement = prepared.0;
+        document.resource_check = false;
+        document.meta.provider_relative = replacement.meta.provider_relative.clone();
+        document.meta.set_language(replacement.meta.lang.clone());
+        if replacement.is_text() {
+            document
+                .buffer
+                .initialize_file_options(replacement.buffer.file_options());
+        }
+        if document.is_text()
+            && replacement.is_text()
+            && document.buffer.text() == replacement.saved_text.as_str()
+            && document.format() == replacement.saved_format
+        {
+            document.provider = replacement.provider.take();
+            document.meta.provider_root = replacement.meta.provider_root.clone();
+            document.saved_text = replacement.saved_text.clone();
+            document.saved_format = replacement.saved_format;
+            document.disk_bytes = replacement.disk_bytes.clone();
+            document.disk_conflict = false;
+            document.missing_on_disk = false;
+            self.retired.push(Retired::Document(replacement));
+            return Ok(());
+        }
+        if document.is_text() && document.is_dirty() && resolution != ResourceResolution::Reload {
+            document.provider = replacement.provider.take();
+            document.meta.provider_root = replacement.meta.provider_root.clone();
+            let matches_current = document.buffer.text() == replacement.saved_text.as_str()
+                && document.format() == replacement.saved_format;
+            if resolution == ResourceResolution::KeepEditor || matches_current {
+                document.saved_text = replacement.saved_text.clone();
+                document.saved_format = replacement.saved_format;
+                document.disk_bytes = replacement.disk_bytes.clone();
+            } else if document.saved_text != replacement.saved_text
+                || document.saved_format != replacement.saved_format
+            {
+                document.disk_conflict = true;
+                self.retired.push(Retired::Document(replacement));
+                return Err(
+                    "Resource changed while disconnected. Your edits are preserved; resolve the conflict before saving.",
+                );
+            }
+            document.disk_conflict = false;
+            self.retired.push(Retired::Document(replacement));
+        } else {
+            replacement.view_ids = document.view_ids.clone();
+            let old = self.documents.remove(&id).unwrap();
+            self.insert_document(id, replacement);
+            self.retired.push(Retired::Document(old));
+            self.clamp_document_views(id);
+        }
+        Ok(())
     }
 
     /// A completed write advances only the saved baseline, never newer edits.
@@ -1547,7 +1855,9 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         disk: DiskState,
     ) -> bool {
         let Some(document) = self.documents.get_mut(&saved.stamp.document).filter(|d| {
-            d.is_text() && d.incarnation == saved.stamp.incarnation && d.meta.path == saved.path
+            d.is_text()
+                && d.incarnation == saved.stamp.incarnation
+                && d.meta.resource.local_path() == Some(saved.path.as_path())
         }) else {
             return false;
         };
@@ -1586,7 +1896,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         }
         Some((
             id,
-            document.meta.path.clone(),
+            document.meta.resource.local_path()?.to_path_buf(),
             document.buffer.text().to_owned(),
         ))
     }
@@ -1596,13 +1906,13 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         self.documents
             .values()
             .filter(|document| document.is_text())
-            .map(
-                |document| crate::domain::document_snapshot::DocumentSnapshot {
-                    path: document.meta.path.clone(),
+            .filter_map(|document| {
+                Some(crate::domain::document_snapshot::DocumentSnapshot {
+                    path: document.meta.resource.local_path()?.to_path_buf(),
                     text: document.buffer.text_snapshot(),
                     version: document.buffer.version(),
-                },
-            )
+                })
+            })
             .collect()
     }
 
@@ -1611,7 +1921,12 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
             .documents
             .values()
             .filter(|document| document.is_dirty())
-            .map(|document| (document.meta.path.clone(), document.buffer.version()))
+            .filter_map(|document| {
+                Some((
+                    document.meta.resource.local_path()?.to_path_buf(),
+                    document.buffer.version(),
+                ))
+            })
             .collect::<Vec<_>>();
         versions.sort();
         versions
@@ -1633,7 +1948,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         document.loading = Some(false);
         let id = self.allocate_file_id();
         self.insert_document(id, document);
-        self.paths.insert(path, id);
+        self.paths.insert(ResourceRef::local(path), id);
         self.attach_text_tab(id, OpenMode::Permanent)
     }
 
@@ -1650,11 +1965,9 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
     }
 
     pub(crate) fn fail_open(&mut self, id: FileId, path: &Path, error: String) -> bool {
-        let Some(document) = self
-            .documents
-            .get_mut(&id)
-            .filter(|document| document.loading.is_some() && document.meta.path == path)
-        else {
+        let Some(document) = self.documents.get_mut(&id).filter(|document| {
+            document.loading.is_some() && document.meta.resource.local_path() == Some(path)
+        }) else {
             return false;
         };
         document.loading = None;
@@ -1695,7 +2008,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         let mut seen = std::collections::HashSet::new();
         ids.into_iter()
             .filter(|id| seen.insert(*id) && self.is_loading(*id))
-            .filter_map(|id| self.meta(id).map(|m| (id, m.path.clone())))
+            .filter_map(|id| Some((id, self.meta(id)?.resource.local_path()?.to_path_buf())))
             .collect()
     }
 
@@ -1707,11 +2020,11 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         path: &Path,
         prepared: PreparedTextFile,
     ) -> bool {
-        let Some(document) = self
-            .documents
-            .get_mut(&id)
-            .filter(|d| d.loading.is_some() && d.meta.path == path && prepared.0.meta.path == path)
-        else {
+        let Some(document) = self.documents.get_mut(&id).filter(|d| {
+            d.loading.is_some()
+                && d.meta.resource.local_path() == Some(path)
+                && prepared.0.meta.resource.local_path() == Some(path)
+        }) else {
             self.retired.push(Retired::Document(prepared.0));
             return false;
         };
@@ -1728,7 +2041,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
 
     pub(crate) fn attach_text_tab(&mut self, id: FileId, mode: OpenMode) -> FileId {
         let pane = self.active_pane;
-        let svg = crate::domain::media::is_svg(&self.documents[&id].meta.path);
+        let svg = crate::domain::media::is_svg(self.documents[&id].meta.language_hint());
         let presentation = if self.documents[&id].image.is_some() || svg {
             Presentation::Image
         } else {
@@ -1775,8 +2088,8 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         prepared: PreparedTextFile,
         mode: OpenMode,
     ) -> FileId {
-        let path = prepared.0.meta.path.clone();
-        if let Some(id) = self.file_id_for_path(&path) {
+        let resource = prepared.0.meta.resource.clone();
+        if let Some(id) = self.file_id_for_resource(&resource) {
             if self.open_error(id).is_some() {
                 let old = self.documents.remove(&id).expect("failed document exists");
                 let mut replacement = prepared.0;
@@ -1795,7 +2108,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         }
         let id = self.allocate_file_id();
         self.insert_document(id, prepared.0);
-        self.paths.insert(path, id);
+        self.paths.insert(resource, id);
         self.attach_text_tab(id, mode)
     }
 
@@ -1824,7 +2137,9 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
     pub(crate) fn insert_document(&mut self, id: FileId, mut document: OpenDocument) {
         document.incarnation = self.next_incarnation;
         self.next_incarnation += 1;
-        document.meta.lang = self.language_for(&document.meta.path);
+        if document.meta.local_path().is_some() {
+            document.meta.lang = self.language_for(document.meta.language_hint());
+        }
         self.documents.insert(id, document);
     }
 
@@ -1852,9 +2167,12 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
             .map(|document| &mut document.meta);
         let diffs = self.diffs.values_mut().map(|diff| &mut diff.meta);
         for meta in text.chain(diffs) {
+            if meta.resource.environment().is_some() {
+                continue;
+            }
             let language = rules
-                .resolve(&meta.path)
-                .unwrap_or_else(|| registry.resolve_path(&meta.path));
+                .resolve(meta.language_hint())
+                .unwrap_or_else(|| registry.resolve_path(meta.language_hint()));
             let generation = meta.language_generation;
             meta.set_language(language);
             changed |= meta.language_generation != generation;
@@ -1949,7 +2267,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
                 retired.push(update);
                 continue;
             };
-            if document.meta.path != update.path
+            if document.meta.resource.local_path() != Some(update.path.as_path())
                 || document.disk_state != update.expected_disk
                 || document.disk_observation != update.expected_observation
                 || !Arc::ptr_eq(&document.saved_text, &update.expected_saved)
@@ -2005,7 +2323,11 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         let ids = self
             .paths
             .iter()
-            .filter_map(|(path, id)| path.starts_with(root).then_some(*id))
+            .filter_map(|(path, id)| {
+                path.local_path()
+                    .is_some_and(|path| path.starts_with(root))
+                    .then_some(*id)
+            })
             .collect::<Vec<_>>();
         let count = ids.len();
         for id in ids {

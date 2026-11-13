@@ -109,7 +109,12 @@ pub fn observe(ctx: &AppContext, app: &mut AppState) {
     };
     // A path that names something wins over what a server makes of one of its words.
     let roots = app.explorer.model.roots().to_vec();
-    if let Some((shown, found)) = path_at(&target.text, &rest.word, target.path.parent(), &roots) {
+    // COMPAT(native-word-paths): This resolver reads native files. Provided
+    // resources require provider path resolution; keep native probing local
+    // until that consumer migrates. No removal version is scheduled.
+    if let Some(path) = target.resource.local_path()
+        && let Some((shown, found)) = path_at(&target.text, &rest.word, path.parent(), &roots)
+    {
         let (places, folder) = match found {
             Found::File(place) => (vec![place], None),
             Found::Folder(path) => (Vec::new(), Some(path)),
@@ -129,7 +134,7 @@ pub fn observe(ctx: &AppContext, app: &mut AppState) {
     };
     let handle = Arc::new(services.request(RequestSpec::new(
         Feature::Definition,
-        target.path.clone(),
+        target.resource.clone(),
         target.lsp_stamp(),
         // The middle of the word: a server may not answer at its very edge.
         rest.word.start + (rest.word.end - rest.word.start) / 2,
@@ -158,13 +163,14 @@ pub fn tick(app: &mut AppState) -> bool {
     }
     let current = app
         .workspace
-        .active_path()
-        .map(std::path::Path::to_path_buf);
+        .active_document()
+        .and_then(|id| app.workspace.documents.get(&id))
+        .map(|doc| doc.meta.resource.clone());
     let places: Vec<Place> = super::actions::locations(&progress.parts, Feature::Definition)
         .into_iter()
         .filter_map(|place| {
             // The word at its own definition has nowhere else to go.
-            let here = current.as_deref() == Some(place.path.as_path())
+            let here = current.as_ref() == Some(&place.resource)
                 && place.range(&lookup.text).contains(&lookup.rest.word.start);
             (!here).then_some(place)
         })
@@ -413,7 +419,7 @@ mod tests {
         let Found::File(place) = found else {
             panic!("a file")
         };
-        assert_eq!(place.path, dir.join("sub").join("note.txt"));
+        assert_eq!(place.resource, dir.join("sub").join("note.txt").into());
         // Found in a workspace folder when not beside the document.
         assert!(path_at(text, &word("note"), None, std::slice::from_ref(&dir)).is_some());
         assert!(path_at(text, &word("missing"), Some(&dir), &[]).is_none());

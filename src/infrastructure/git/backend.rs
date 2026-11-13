@@ -50,6 +50,10 @@ impl CliGitBackend {
         &self.runner
     }
 
+    pub fn with_runner(runner: GitCommandRunner) -> Self {
+        Self { runner }
+    }
+
     pub fn diff(
         &self,
         repository: &Path,
@@ -527,7 +531,7 @@ impl CliGitBackend {
 
     pub fn commit(
         &self,
-        repository: &Path,
+        repository: impl Into<loog_workspace_api::ResourceRef>,
         message: &str,
         amend: bool,
         signoff: bool,

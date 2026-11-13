@@ -27,6 +27,19 @@ pub(crate) mod palette;
 #[cfg(test)]
 mod phase0_baseline;
 mod presentation;
+mod resource_bytes;
+pub(crate) mod resource_edit;
+mod resource_git;
+mod resource_git_tasks;
+mod resource_link;
+mod resource_options;
+mod resource_process;
+mod resource_project;
+mod resource_project_command;
+mod resource_search;
+mod resource_watch;
+mod resource_write;
+pub(crate) mod resources;
 pub(crate) mod runtime;
 pub(crate) mod saving;
 #[cfg(test)]
@@ -106,6 +119,7 @@ pub(crate) mod chrome;
 pub(crate) mod close_dialog;
 pub(crate) mod highlight_menu;
 pub(crate) mod language_services_menu;
+pub(crate) mod resource_terminal;
 pub(crate) mod trust_prompt;
 
 pub(crate) mod pane_chrome;

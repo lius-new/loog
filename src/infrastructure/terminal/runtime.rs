@@ -11,15 +11,24 @@ use crate::infrastructure::terminal::session::TerminalController;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 type Profiles = Arc<dyn Fn() -> Vec<ShellProfile> + Send + Sync>;
+type Transports = Arc<
+    dyn Fn(
+            &crate::features::terminal::model::ProvidedTerminal,
+        ) -> Arc<dyn super::transport::Transport>
+        + Send
+        + Sync,
+>;
 pub(crate) struct TerminalRuntime {
     sessions: Registry<TerminalController>,
     profiles: Mutex<Profiles>,
+    transports: Mutex<Transports>,
 }
 impl Default for TerminalRuntime {
     fn default() -> Self {
         Self {
             sessions: Registry::default(),
             profiles: Mutex::new(Arc::new(Vec::new)),
+            transports: Mutex::new(Arc::new(|_| Arc::new(super::transport::Unavailable))),
         }
     }
 }
@@ -29,6 +38,17 @@ impl Resource for TerminalController {
     }
 }
 impl TerminalRuntime {
+    pub fn set_transport_source(
+        &self,
+        source: impl Fn(
+            &crate::features::terminal::model::ProvidedTerminal,
+        ) -> Arc<dyn super::transport::Transport>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        *self.transports.lock().unwrap() = Arc::new(source);
+    }
     pub fn set_profile_source(
         &self,
         source: impl Fn() -> Vec<ShellProfile> + Send + Sync + 'static,
@@ -41,8 +61,16 @@ impl TerminalRuntime {
     }
     pub fn synchronize(&self, model: &TerminalModel) {
         let profiles = self.profiles();
+        let transports = self.transports.lock().unwrap().clone();
         for tab in model.tabs() {
             self.sessions.install(tab.id(), || {
+                if let Some(target) = tab.provided() {
+                    return TerminalController::with_transport(
+                        target.name.clone(),
+                        transports(target),
+                        tab.start_provided(),
+                    );
+                }
                 let session = TerminalController::with_shell(tab.shell());
                 session.set_profile(
                     profiles
@@ -57,6 +85,9 @@ impl TerminalRuntime {
     pub fn refresh_profiles(&self, model: &TerminalModel) {
         let profiles = self.profiles();
         for tab in model.tabs() {
+            if tab.provided().is_some() {
+                continue;
+            }
             if let Some(session) = self.sessions.get(tab.id()) {
                 session.set_profile(
                     profiles
@@ -147,6 +178,9 @@ impl TerminalHandle {
     }
     pub fn working_directory(&self) -> Option<PathBuf> {
         self.with(TerminalController::working_directory).flatten()
+    }
+    pub fn reported_directory(&self) -> Option<Option<loog_workspace_api::ProviderPath>> {
+        self.with(TerminalController::reported_directory).flatten()
     }
     pub fn ensure_started(
         &self,

@@ -20,6 +20,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock};
 
 struct Inner {
+    session: u64,
     service: Mutex<ExtensionService>,
     executor: OnceLock<Executor>,
     runner: OnceLock<tasks::Runner>,
@@ -33,6 +34,18 @@ struct Inner {
     application: ApplicationHandle,
     /// What to do when a save chain ends, by chain number.
     saves: Mutex<std::collections::HashMap<u64, SaveContinuation>>,
+    resource_callbacks:
+        Mutex<BTreeMap<loog_workspace_api::RequestId, (bool, ResourceContinuation)>>,
+    resource_observers: Mutex<
+        BTreeMap<
+            (
+                loog_workspace_api::ScopeId,
+                loog_workspace_api::Capability,
+                u64,
+            ),
+            ResourceObserver,
+        >,
+    >,
     /// Where the answers of a language request go, with how many are still owed.
     language_sinks: Mutex<std::collections::HashMap<u64, (PartSink, usize)>>,
     next_language: std::sync::atomic::AtomicU64,
@@ -45,9 +58,18 @@ struct Inner {
 }
 
 mod registry;
+#[cfg(test)]
+mod resource_acceptance;
 
 /// Runs on the UI thread when the participants are done; `true` means write the files.
 pub(crate) type SaveContinuation = Box<dyn FnOnce(&AppContext, bool) + Send>;
+pub(crate) type ResourceContinuation = Box<
+    dyn FnOnce(&mut AppState, Result<loog_workspace_api::Answer, loog_workspace_api::Failure>)
+        + Send,
+>;
+pub(crate) type ResourceObserver = Arc<
+    dyn Fn(Result<loog_workspace_api::Notification, loog_workspace_api::Failure>) + Send + Sync,
+>;
 
 fn read_json(path: &Path) -> Option<serde_json::Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
@@ -55,6 +77,12 @@ fn read_json(path: &Path) -> Option<serde_json::Value> {
 
 impl Drop for Inner {
     fn drop(&mut self) {
+        for observer in std::mem::take(self.resource_observers.get_mut().unwrap()).into_values() {
+            observer(Err(loog_workspace_api::Failure::new(
+                loog_workspace_api::FailureKind::Unavailable,
+                "Resource provider stopped",
+            )));
+        }
         if let Some(runner) = self.watches.get() {
             runner.cancel_all();
         }
@@ -71,6 +99,128 @@ impl Inner {
     fn apply(&self, app: &mut AppState, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
+                Effect::ResourceBookmarks(bookmarks) => {
+                    if app.explorer.resources.session == self.session {
+                        app.explorer.resources.bookmarks = bookmarks;
+                    }
+                }
+                Effect::ResourceRoots(roots) => {
+                    if app.explorer.resources.session != self.session {
+                        continue;
+                    }
+                    let added = roots
+                        .iter()
+                        .any(|root| app.explorer.resources.root(root.scope).is_none());
+                    app.explorer.resources.sync(roots);
+                    let scopes: Vec<_> = app
+                        .explorer
+                        .resources
+                        .roots
+                        .iter()
+                        .map(|root| root.descriptor.scope)
+                        .collect();
+                    let weak = self.self_ref.get().cloned();
+                    self.application.post(move || {
+                        if let Some(inner) = weak.and_then(|weak| weak.upgrade()) {
+                            let removed: Vec<_> = {
+                                let mut observers = inner.resource_observers.lock().unwrap();
+                                let keys: Vec<_> = observers
+                                    .keys()
+                                    .filter(|(scope, _, _)| !scopes.contains(scope))
+                                    .copied()
+                                    .collect();
+                                keys.into_iter()
+                                    .filter_map(|key| observers.remove(&key))
+                                    .collect()
+                            };
+                            for observer in removed {
+                                observer(Err(loog_workspace_api::Failure::new(
+                                    loog_workspace_api::FailureKind::Unavailable,
+                                    "Resource environment disconnected",
+                                )));
+                            }
+                        }
+                    });
+                    if added {
+                        let context = self.context.clone();
+                        self.application.post(move || {
+                            crate::app::resources::reconnect_active(&context);
+                            crate::app::resource_watch::start(&context);
+                        });
+                    }
+                }
+                Effect::ResourceDelivery(loog_workspace_api::Delivery::Complete {
+                    request,
+                    result,
+                }) => {
+                    let callback = self.resource_callbacks.lock().unwrap().remove(&request);
+                    if let Some((changes_state, callback)) = callback {
+                        // Effects can be applied during package retirement while
+                        // the service is borrowed. Consumers may submit their
+                        // next chunk, so always resume them on a later UI turn.
+                        let context = self.context.clone();
+                        let session = self.session;
+                        self.application.post(move || {
+                            context.update(|app| {
+                                let result = if app.explorer.resources.session == session {
+                                    result
+                                } else {
+                                    Err(loog_workspace_api::Failure::new(
+                                        if changes_state {
+                                            loog_workspace_api::FailureKind::UnknownOutcome
+                                        } else {
+                                            loog_workspace_api::FailureKind::Unavailable
+                                        },
+                                        "Resource session was replaced",
+                                    ))
+                                };
+                                callback(app, result);
+                            })
+                        });
+                    }
+                }
+                Effect::ResourceDelivery(loog_workspace_api::Delivery::Notification {
+                    scope,
+                    event,
+                    ..
+                }) => {
+                    let context = self.context.clone();
+                    let session = self.session;
+                    let weak = self.self_ref.get().cloned();
+                    self.application.post(move || {
+                        if context.get().explorer.resources.session == session {
+                            if let Some(inner) = weak.and_then(|weak| weak.upgrade()) {
+                                use loog_workspace_api::Notification as N;
+                                let (handle, ended) = match &event {
+                                    N::TerminalOutput { handle, .. }
+                                    | N::TerminalDirectory { handle, .. }
+                                    | N::TerminalWritable { handle, .. }
+                                    | N::Output { handle, .. }
+                                    | N::Writable { handle, .. } => (*handle, false),
+                                    N::TerminalExited { handle, .. } | N::Exited { handle, .. } => {
+                                        (*handle, true)
+                                    }
+                                    N::Changed { watch, .. } => (*watch, false),
+                                    N::WatchStopped { watch, .. } => (*watch, true),
+                                };
+                                let key = (scope, event.capability(), handle);
+                                let observer = {
+                                    let mut observers = inner.resource_observers.lock().unwrap();
+                                    if ended {
+                                        observers.remove(&key)
+                                    } else {
+                                        observers.get(&key).cloned()
+                                    }
+                                };
+                                if let Some(observer) = observer {
+                                    observer(Ok(event.clone()));
+                                }
+                            }
+                            crate::app::resource_watch::notify(&context, scope, event);
+                        }
+                    });
+                }
+                Effect::ResourceDelivery(_) => {}
                 Effect::ClearUi { session, owner } => app.extension_widgets.remove(session, &owner),
                 Effect::StartWatch { watch, spec } => {
                     if let Some(runner) = self.watches.get() {
@@ -110,6 +260,77 @@ impl Inner {
                     if let Some(runner) = self.processes.get() {
                         runner.kill(process);
                     }
+                }
+                Effect::ResourceWorkspaceEdit {
+                    owner,
+                    ticket,
+                    title,
+                    edit,
+                    stamps,
+                } => {
+                    let Some(weak) = self.self_ref.get().cloned() else {
+                        continue;
+                    };
+                    let context = self.context.clone();
+                    self.application.post(move || {
+                        let Some(inner) = weak.upgrade() else {
+                            return;
+                        };
+                        let valid = {
+                            let weak = weak.clone();
+                            let owner = owner.clone();
+                            Arc::new(move |app: &AppState| {
+                                weak.upgrade().is_some_and(|inner| {
+                                    inner
+                                        .service
+                                        .lock()
+                                        .unwrap()
+                                        .resource_edit_current(app, &owner, ticket)
+                                })
+                            })
+                        };
+                        let completion = Arc::new(move |result: Result<usize, String>| {
+                            let Some(inner) = weak.upgrade() else {
+                                return;
+                            };
+                            let result = result
+                                .map(|changed| loog_workspace_api::session::Reply::EditsApplied {
+                                    transaction: if changed == 0 {
+                                        0
+                                    } else {
+                                        inner.context.get().editor.language.next_transaction
+                                    },
+                                    changed: changed as u32,
+                                })
+                                .map_err(|reason| {
+                                    loog_workspace_api::Failure::new(
+                                        loog_workspace_api::FailureKind::Conflict,
+                                        reason,
+                                    )
+                                });
+                            let effects = inner
+                                .service
+                                .lock()
+                                .unwrap()
+                                .finish_resource_edit(&owner, ticket, result);
+                            inner.context.update(|app| inner.apply(app, effects));
+                        });
+                        let rect = context.get().editor.language.rect.unwrap_or_default();
+                        crate::app::language_ui::resource_edits::apply_guarded(
+                            &context,
+                            crate::app::language_ui::edit::Request {
+                                title,
+                                edit,
+                                stamps,
+                                rect,
+                                reply: Some(crate::app::language_ui::edit::Reply::Native(
+                                    completion,
+                                )),
+                            },
+                            valid,
+                        );
+                        drop(inner);
+                    });
                 }
                 Effect::WorkspaceOperation {
                     id,
@@ -228,7 +449,7 @@ impl Inner {
                 }
                 Effect::PublishDiagnostics {
                     source,
-                    path,
+                    resource,
                     stamp,
                     text,
                     items,
@@ -238,7 +459,7 @@ impl Inner {
                         .services()
                         .and_then(|runtime| runtime.language_services())
                     {
-                        services.publish_external(source, &path, stamp, text, items.into());
+                        services.publish_external(source, resource, stamp, text, items.into());
                     }
                 }
                 Effect::PublishFindings {
@@ -263,6 +484,25 @@ impl Inner {
                         services.clear_findings(source);
                     }
                 }
+                Effect::ClearLocalDiagnostics { source } => {
+                    if let Some(services) = self
+                        .context
+                        .services()
+                        .and_then(|runtime| runtime.language_services())
+                    {
+                        services.clear_findings(source);
+                        services.clear_external_matching(source, |r| r.local_path().is_some());
+                    }
+                }
+                Effect::ClearResourceDiagnostics { source, resource } => {
+                    if let Some(services) = self
+                        .context
+                        .services()
+                        .and_then(|runtime| runtime.language_services())
+                    {
+                        services.clear_external_matching(source, |r| r == &resource);
+                    }
+                }
                 Effect::ClearDiagnostics { source } => {
                     if let Some(services) = self
                         .context
@@ -274,7 +514,7 @@ impl Inner {
                 }
                 Effect::PublishHighlights {
                     source,
-                    path,
+                    resource,
                     stamp,
                     length,
                     items,
@@ -284,7 +524,7 @@ impl Inner {
                         .services()
                         .and_then(|runtime| runtime.language_services())
                     {
-                        services.publish_highlights(source, path, stamp, length, items);
+                        services.publish_highlights(source, resource, stamp, length, items);
                     }
                 }
                 Effect::OfferCompletion {
@@ -393,6 +633,16 @@ impl Inner {
                         }
                     }
                 }
+                Effect::LanguageFailure { token, message } => {
+                    let mut sinks = self.language_sinks.lock().unwrap();
+                    if let Some((sink, remaining)) = sinks.get_mut(&token) {
+                        sink.fail(message);
+                        *remaining -= 1;
+                        if *remaining == 0 {
+                            sinks.remove(&token);
+                        }
+                    }
+                }
                 Effect::Toast(message) => app.show_toast(message),
                 Effect::Error(message) => app.show_error(message),
             }
@@ -450,7 +700,7 @@ impl ExternalAnswers for LanguageHook {
     }
     fn capabilities(
         &self,
-        path: Option<&Path>,
+        path: Option<&loog_workspace_api::ResourceRef>,
     ) -> Vec<crate::app::language_services::CapabilitySource> {
         let Some(inner) = self.inner.upgrade() else {
             return Vec::new();
@@ -463,23 +713,25 @@ impl ExternalAnswers for LanguageHook {
         };
         let registry = Registry::builtin();
         let service = inner.service.lock().unwrap();
-        let language = service
-            .document_languages
-            .get(&spec.path)
-            .cloned()
-            .unwrap_or_else(|| {
-                registry
-                    .resolve_path(&spec.path)
-                    .definition()
-                    .name
-                    .to_string()
-            });
+        let language = if let Some(path) = spec.resource.local_path() {
+            service
+                .document_languages
+                .get(path)
+                .cloned()
+                .unwrap_or_else(|| registry.resolve_path(path).definition().name.to_string())
+        } else {
+            let Some(language) = service.resource_documents.language(&spec.resource) else {
+                return 0;
+            };
+            language.to_owned()
+        };
         service
-            .matching_language_providers(
+            .matching_language_providers_for(
                 spec.feature,
                 &language,
                 spec.target,
                 spec.server.as_deref(),
+                Some(&spec.resource),
             )
             .len()
     }
@@ -502,7 +754,7 @@ impl ExternalAnswers for LanguageHook {
             context.update(|app| {
                 let ask = LanguageAsk {
                     feature: spec.feature,
-                    path: spec.path.clone(),
+                    resource: spec.resource.clone(),
                     stamp: spec.stamp,
                     start: spec.start,
                     end: spec.end,
@@ -573,8 +825,27 @@ impl Drop for ExtensionHost {
         let session = self.inner.service.lock().unwrap().ui_session;
         let context = self.inner.context.clone();
         let saves = std::mem::take(&mut *self.inner.saves.lock().unwrap());
+        let resources = std::mem::take(&mut *self.inner.resource_callbacks.lock().unwrap());
         self.inner.application.post(move || {
-            context.update(|app| app.extension_widgets.end_session(session));
+            context.update(|app| {
+                app.extension_widgets.end_session(session);
+                if app.explorer.resources.session == session {
+                    app.explorer.resources.sync(Vec::new());
+                }
+                for (changes_state, callback) in resources.into_values() {
+                    callback(
+                        app,
+                        Err(loog_workspace_api::Failure::new(
+                            if changes_state {
+                                loog_workspace_api::FailureKind::UnknownOutcome
+                            } else {
+                                loog_workspace_api::FailureKind::Unavailable
+                            },
+                            "Resource subsystem stopped",
+                        )),
+                    );
+                }
+            });
             for then in saves.into_values() {
                 then(&context, false);
             }
@@ -583,6 +854,108 @@ impl Drop for ExtensionHost {
 }
 
 impl ExtensionHost {
+    pub(crate) fn refresh_resource_grants(&self) {
+        let effects = self.inner.service.lock().unwrap().pump_workspaces();
+        self.inner
+            .context
+            .update(|app| self.inner.apply(app, effects));
+    }
+    pub(crate) fn restore_resource(&self, bookmark: loog_workspace_api::session::ResourceBookmark) {
+        let result = self
+            .inner
+            .service
+            .lock()
+            .unwrap()
+            .restore_resource(bookmark);
+        self.inner.context.update(|app| match result {
+            Ok(effects) => self.inner.apply(app, effects),
+            Err(error) => app.show_error(error),
+        });
+    }
+    pub(crate) fn restore_resources(&self) {
+        let bookmarks = self
+            .inner
+            .service
+            .lock()
+            .unwrap()
+            .workspace_bookmarks
+            .clone();
+        for bookmark in bookmarks {
+            self.restore_resource(bookmark);
+        }
+    }
+    pub(crate) fn forget_resource(&self, resource: &loog_workspace_api::ResourceRef) {
+        let effects = {
+            let mut service = self.inner.service.lock().unwrap();
+            service
+                .workspace_bookmarks
+                .retain(|bookmark| &bookmark.resource != resource);
+            service.workspace_bookmarks_dirty = true;
+            service.pump_workspaces()
+        };
+        self.inner
+            .context
+            .update(|app| self.inner.apply(app, effects));
+    }
+    pub(crate) fn request_resource(
+        &self,
+        scope: loog_workspace_api::ScopeId,
+        operation: loog_workspace_api::Operation,
+        callback: ResourceContinuation,
+    ) -> Result<loog_workspace_api::RequestId, loog_workspace_api::Failure> {
+        let mut service = self.inner.service.lock().unwrap();
+        let changes_state = operation.changes_state();
+        let request = service.resource_request(scope, operation)?;
+        self.inner
+            .resource_callbacks
+            .lock()
+            .unwrap()
+            .insert(request, (changes_state, callback));
+        // Deliver on a later UI turn, including immediate provider failures.
+        let weak = Arc::downgrade(&self.inner);
+        self.inner.application.post(move || {
+            if let Some(inner) = weak.upgrade() {
+                let effects = inner.service.lock().unwrap().pump_workspaces();
+                inner.context.update(|app| inner.apply(app, effects));
+            }
+        });
+        Ok(request)
+    }
+    pub(crate) fn observe_resource_handle(
+        &self,
+        scope: loog_workspace_api::ScopeId,
+        capability: loog_workspace_api::Capability,
+        handle: u64,
+        observer: ResourceObserver,
+    ) {
+        self.inner
+            .resource_observers
+            .lock()
+            .unwrap()
+            .insert((scope, capability, handle), observer);
+    }
+    pub(crate) fn forget_resource_handle(
+        &self,
+        scope: loog_workspace_api::ScopeId,
+        capability: loog_workspace_api::Capability,
+        handle: u64,
+    ) {
+        self.inner
+            .resource_observers
+            .lock()
+            .unwrap()
+            .remove(&(scope, capability, handle));
+    }
+    pub(crate) fn cancel_resource(&self, request: loog_workspace_api::RequestId) {
+        self.inner.service.lock().unwrap().resource_cancel(request);
+        let weak = Arc::downgrade(&self.inner);
+        self.inner.application.post(move || {
+            if let Some(inner) = weak.upgrade() {
+                let effects = inner.service.lock().unwrap().pump_workspaces();
+                inner.context.update(|app| inner.apply(app, effects));
+            }
+        });
+    }
     /// Start the executor. Events are handled on the UI thread through `application`.
     pub(crate) fn start(
         context: AppContext,
@@ -591,8 +964,12 @@ impl ExtensionHost {
         trust: Arc<TrustStore>,
         user_settings: Option<PathBuf>,
     ) -> Result<Self, String> {
+        let mut service = ExtensionService::new(cache);
+        service.workspace_bookmarks = context.get().explorer.resources.bookmarks.clone();
+        let session = service.ui_session;
         let inner = Arc::new(Inner {
-            service: Mutex::new(ExtensionService::new(cache)),
+            session,
+            service: Mutex::new(service),
             executor: OnceLock::new(),
             runner: OnceLock::new(),
             processes: OnceLock::new(),
@@ -603,6 +980,8 @@ impl ExtensionHost {
             context: context.clone(),
             application: application.clone(),
             saves: Mutex::new(std::collections::HashMap::new()),
+            resource_callbacks: Mutex::new(BTreeMap::new()),
+            resource_observers: Mutex::new(BTreeMap::new()),
             language_sinks: Mutex::new(std::collections::HashMap::new()),
             next_language: std::sync::atomic::AtomicU64::new(1),
             hooked: std::sync::atomic::AtomicBool::new(false),
@@ -611,10 +990,23 @@ impl ExtensionHost {
             registry: Mutex::new(registry::State::default()),
         });
         let _ = inner.self_ref.set(Arc::downgrade(&inner));
-        let session = inner.service.lock().unwrap().ui_session;
         let ui_context = context.clone();
-        application
-            .post(move || ui_context.update(|app| app.extension_widgets.begin_session(session)));
+        application.post(move || {
+            ui_context.update(|app| {
+                app.extension_widgets.begin_session(session);
+                if app.explorer.resources.session < session {
+                    app.explorer.resources.session = session;
+                    app.explorer.resources.sync(Vec::new());
+                    app.explorer.resources.open_generation += 1;
+                    app.explorer.resources.pending_open = None;
+                    for document in app.workspace.documents.values_mut() {
+                        if document.meta.resource.environment().is_some() {
+                            document.provider = None;
+                        }
+                    }
+                }
+            })
+        });
         inner.service.lock().unwrap().set_trust(inner.trust.clone());
         let watch_inner = Arc::downgrade(&inner);
         let watch_context = context.clone();
@@ -676,7 +1068,7 @@ impl ExtensionHost {
                 let Some(inner) = inner.upgrade() else {
                     return;
                 };
-                let language_changed = matches!(
+                let mut language_changed = matches!(
                     &event,
                     Event::Provided { .. }
                         | Event::ProviderExpired { .. }
@@ -685,8 +1077,24 @@ impl ExtensionHost {
                         | Event::Failed { .. }
                         | Event::Loaded { .. }
                 );
+                language_changed |= matches!(&event, Event::WorkspaceSubmissions { submissions, .. }
+                    if submissions.iter().any(|item| matches!(item.command, loog_workspace_api::session::Command::ConfigureLanguageProviders { .. })));
                 context.update(|app| {
                     let effects = inner.service.lock().unwrap().handle_event(app, event);
+                    // Results may arrive through any guest interface. Observe
+                    // the effects rather than assuming the base provider event
+                    // is the only delivery route that can complete a UI request.
+                    language_changed |= effects.iter().any(|effect| {
+                        matches!(
+                            effect,
+                            Effect::LanguageAnswer { .. }
+                                | Effect::LanguageFailure { .. }
+                                | Effect::PublishDiagnostics { .. }
+                                | Effect::PublishHighlights { .. }
+                                | Effect::ClearLocalDiagnostics { .. }
+                                | Effect::ClearResourceDiagnostics { .. }
+                        )
+                    });
                     inner.apply(app, effects);
                 });
                 if language_changed {
@@ -787,11 +1195,11 @@ impl ExtensionHost {
     }
 
     /// The installed extensions that answer for languages, for the language services panel
-    /// and the status bar. What a running extension reports about `document` (its path)
+    /// and the status bar. What a running extension reports about `document`
     /// decides how it is doing; the lifecycle tells the rest.
     pub(crate) fn language_services(
         &self,
-        document: Option<&str>,
+        document: Option<&loog_workspace_api::ResourceRef>,
     ) -> Vec<crate::features::language_services_menu::Service> {
         use crate::app::language_services_menu::{report_state, short, state_of};
         use crate::features::language_services_menu::{Service, State};
@@ -823,13 +1231,13 @@ impl ExtensionHost {
                     // Running: what it says about itself, the most urgent first.
                     let reports = service.service_reports(&package.manifest.id, document);
                     let reported =
-                        State::most_urgent(reports.iter().map(|report| report_state(report.state)));
+                        State::most_urgent(reports.iter().map(|report| report_state(report.0)));
                     if let Some(reported) = reported {
                         state = reported;
                         note = reports
                             .iter()
-                            .find(|report| report_state(report.state) == reported)
-                            .and_then(|report| report.detail.as_deref())
+                            .find(|report| report_state(report.0) == reported)
+                            .and_then(|report| report.1)
                             .map(short)
                             .unwrap_or_default();
                     }
@@ -1003,7 +1411,12 @@ impl ExtensionHost {
                 .workspace
                 .documents
                 .values()
-                .filter(|d| d.is_text() && d.meta.path.starts_with(root))
+                .filter(|d| {
+                    d.is_text()
+                        && d.meta
+                            .local_path()
+                            .is_some_and(|path| path.starts_with(root))
+                })
                 .map(|d| d.meta.lang.definition().name.as_ref())
                 .collect::<Vec<_>>();
             let ids = service
@@ -1537,6 +1950,73 @@ mod lifetime_tests {
         ui.runtime.clear_extensions();
         ui.runtime.clear_language_services();
     }
+    #[test]
+    fn a_replaced_resource_session_rejects_old_results_and_old_drop_keeps_new_roots() {
+        use loog_workspace_api::{
+            Answer, Delivery, EnvironmentKey, FailureKind, PresentedRoot, ResourceRef,
+        };
+        let ui = crate::app::test_support::SavingUi::new(AppState::new());
+        let make = || {
+            ExtensionHost::start(
+                ui.state.clone(),
+                ui.tasks.application(),
+                std::env::temp_dir().join("loog-resource-session-cache"),
+                Arc::new(TrustStore::default()),
+                None,
+            )
+            .unwrap()
+        };
+        let old = make();
+        ui.tasks.run_all();
+        let result = Arc::new(Mutex::new(None));
+        let received = result.clone();
+        old.inner.resource_callbacks.lock().unwrap().insert(
+            1,
+            (
+                false,
+                Box::new(move |_, value| {
+                    *received.lock().unwrap() = Some(value);
+                }),
+            ),
+        );
+        let new = make();
+        ui.tasks.run_all();
+        let root = PresentedRoot {
+            scope: 1,
+            resource: ResourceRef::provided(
+                EnvironmentKey::new("fixture", "new").unwrap(),
+                "opaque:root",
+            )
+            .unwrap(),
+            name: "New session".into(),
+            capabilities: vec![],
+        };
+        ui.state.update(|app| {
+            app.explorer.resources.sync(vec![root.clone()]);
+            old.inner.apply(
+                app,
+                vec![
+                    Effect::ResourceRoots(Vec::new()),
+                    Effect::ResourceDelivery(Delivery::Complete {
+                        request: 1,
+                        result: Ok(Answer::Ok),
+                    }),
+                ],
+            );
+        });
+        ui.tasks.run_all();
+        assert_eq!(
+            result.lock().unwrap().take().unwrap().unwrap_err().kind,
+            FailureKind::Unavailable
+        );
+        drop(old);
+        ui.tasks.run_all();
+        assert_eq!(ui.state.get().explorer.resources.roots[0].descriptor, root);
+        drop(new);
+        ui.tasks.run_all();
+        assert!(ui.state.get().explorer.resources.roots.is_empty());
+    }
+
     #[test]
     fn unloading_the_host_releases_its_runners_and_executor() {
         let queue = crate::app::test_support::UiTasks::default();

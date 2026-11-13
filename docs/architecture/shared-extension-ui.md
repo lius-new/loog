@@ -1,5 +1,8 @@
 # Shared extension UI and application boundaries
 
+For resource identity, asynchronous workspace capabilities, native consumers and
+recovery, see [Resource workspaces](resource-workspaces.md).
+
 ## Required ownership boundary
 
 Loog provides reusable application capabilities. It MUST NOT contain an adapter,
@@ -77,6 +80,103 @@ participation. A refused report leaves the previous one. Extensions older than t
 interface keep publishing their own status region, which the shared-region rules above
 still mount; no removal of that path is scheduled by this change, and it disappears as
 those extensions are replaced by versions that report instead.
+
+Resource-aware clients use the independent workspace session's `ReportServices`
+command. It atomically replaces the current activation's reports; an empty list
+withdraws them. Each report has the same state/detail meaning, with optional
+`ResourceRef` contexts matched by full identity, including provider and environment.
+The host admits at most 16 reports, 128 contexts per report, 200 detail bytes and
+256 KiB of serialized reports per activation. It rejects duplicate keys and
+stale generations, and clears reports on unload. `documents.read` and `languages`
+grants are required. State interpretation and transitions remain plugin-owned.
+
+The base status ABI retains literal `DocumentRef.path` matching for local resources;
+it never treats a provider path as a local path. Global reports remain global.
+There is no scheduled removal of that ABI. The language services panel and status
+bar now select their context using the active document's complete resource identity.
+
+## Resource text proposals
+
+`ResolveSettings` resolves only the caller's declared defaults and user values.
+It never inherits the application's native-project settings. Optional project
+data must be an object of at most 256 KiB and accompany an available, readable
+resource scope; only a trusted scope can override project-scoped declarations.
+User-only declarations retain user values. Results contain JSON text for at most
+256 declared keys and at most 256 KiB total. Reading and interpreting a provider's
+project settings file belongs to the consumer plugin. This command is read-only
+and is permitted during snapshot save participation.
+An accepted query subscribes that activation to `SettingsChanged`. Only changes
+to its declared user-layer values trigger this resource event; unrelated keys
+and native-project overrides do not. Notifications coalesce until the next
+accepted resolution, retry when mailbox credit is unavailable, and retire with
+the activation. Resource root/trust changes use the existing `RootsChanged`
+event. A consumer must invalidate any pending reads and its project cache before
+resolving again. Project-file watching remains the consumer's responsibility.
+
+`ConfigureLanguageProviders` supplies the actual options of bound, declared
+providers for exact resource contexts. A batch atomically replaces the activation's
+resource configurations; after its first accepted batch, omitted contexts are
+unavailable. Native ABI configuration remains independent. Mode filters, aliases,
+resolve/prepare flags and trigger characters participate in source selection and
+capability queries. Limits are 128 groups, 128 contexts per group and 512 KiB total;
+each string list has at most 64 items. Trigger strings may include newline and are
+limited to 16 bytes; command/alias strings are limited to 256 bytes without line
+breaks. Duplicate provider/resource pairs and stale activations are rejected.
+Changing a resource's options invalidates its affected outstanding requests;
+disabled contexts lose only their own findings. A native server configuration
+change never cancels resource calls or clears their diagnostics.
+
+`ProvideWorkspaceEdit` completes an outstanding resource rename request with
+typed `ResourceDocumentEdit` values. URI interpretation and language-server
+version translation belong to the plugin. The host requires `documents.read`,
+`languages` and `workspace.edit`, a bound declared provider, the current activation,
+the exact source revision and any supplied target revisions. Every target must
+belong to the source environment. Duplicate resources, mixed identities and
+reversed ranges are rejected before delivery. Limits are 16 resources, 1024 edits,
+512 KiB replacement text and 1 MiB serialized data.
+
+The editor reads unopened targets through the resource provider and checks all
+captured buffer stamps again before committing one undo group. Input text is
+limited to 8 MiB; at most four preparations can be retained across windows, each
+with a 30-second deadline. Invalid positions or one stale target reject the entire
+buffer transaction and restore any newly opened tabs. This operation never saves
+files. Saves retain individual revision receipts and conflict handling; there is
+no cross-file disk atomicity. The command's `Done` acknowledges result delivery,
+not application or persistence.
+
+`ProvideCodeActions` completes a resource action or resolve request through the
+same owner, source-version, permission and target validation. Offers contain
+typed resource edits, bounded opaque data and provider commands; no native path
+conversion is involved. Limits are 64 actions (one for resolve), 768 KiB total,
+64 KiB of data per action and 64 command arguments. `FinishLanguageRequest`
+reports an explicit bounded provider failure, or actual execute-command completion.
+Command completion may follow edits to the source, but still requires its exact
+resource and document lifecycle. Failures enter the common request aggregation
+and cannot become synthetic success parts.
+
+Resource actions read unopened targets asynchronously. A following command runs
+only after a successful buffer transaction and while the originating document
+remains active in the same lifecycle. Save-time actions reuse the existing step
+and overall save deadlines; expired or superseded preparations cannot commit.
+The ordinary snapshot-only save-participant chain also accepts explicitly bound
+resource providers. Participants read each preceding participant's temporary
+snapshot, and the final buffer change remains one undo step. Save participation
+does not gain process writes, filesystem mutations or other side effects.
+
+`ApplyWorkspaceEdit` is a separate generic editor operation. It requires
+`documents.read` and `workspace.edit`, an exact open origin revision and targets
+in that origin's environment. It has the same proposal budgets and at most four
+outstanding operations per host. Its ticket receives a deferred `EditsApplied`
+reply with a transaction number and changed-resource count only after the buffer
+commit. Failures return a typed failure. The origin, activation, authorization
+and deadline remain guarded during reads. `CancelWorkspaceEdit` marks an owned
+pending ticket before commit; the original ticket still receives an outcome.
+Cancellation of a completed or unknown ticket fails and never implies rollback.
+Lost mutation receipts must not cause automatic resubmission.
+
+The base language-answer union continues to support old local-path results;
+resource requests accept only its path-free variants or the typed workspace
+commands. There is no scheduled removal of the local ABI.
 
 ## Output is data, not UI
 

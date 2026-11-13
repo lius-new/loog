@@ -177,24 +177,25 @@ pub(crate) fn collect(state: &AppContext) -> Vec<FileProblems> {
         return Vec::new();
     };
     let app = state.get();
-    let current = super::language_ui::target(&app, app.workspace.active_pane()).map(|t| t.path);
+    let current = super::language_ui::target(&app, app.workspace.active_pane())
+        .and_then(|t| t.resource.local_path().map(std::path::Path::to_path_buf));
     let only_current = app.log_panel.current_only;
     let mut groups = Vec::new();
     for (id, doc) in &app.workspace.documents {
-        if !doc.is_text() || (only_current && current.as_deref() != Some(doc.meta.path.as_path())) {
+        let Some(path) = doc.meta.local_path() else {
+            continue;
+        };
+        if !doc.is_text() || (only_current && current.as_deref() != Some(path)) {
             continue;
         }
-        let Some(found) = services
-            .results(&doc.meta.path, &doc.stamp(*id))
-            .diagnostics
-        else {
+        let Some(found) = services.results(path, &doc.stamp(*id)).diagnostics else {
             continue;
         };
         if found.is_empty() {
             continue;
         }
         let text = doc.buffer.text_snapshot();
-        if let Some(file) = problems::file_problems(doc.meta.path.clone(), &text, &found) {
+        if let Some(file) = problems::file_problems(path.to_path_buf(), &text, &found) {
             groups.push(file);
         }
     }
@@ -216,8 +217,9 @@ fn open_spelling(state: &AppContext, path: &std::path::Path) -> PathBuf {
     app.workspace
         .documents
         .values()
-        .find(|doc| problems::file_key(&doc.meta.path) == key)
-        .map(|doc| doc.meta.path.clone())
+        .filter_map(|doc| doc.meta.local_path())
+        .find(|path| problems::file_key(path) == key)
+        .map(std::path::Path::to_path_buf)
         .unwrap_or_else(|| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned()))
 }
 
@@ -227,7 +229,7 @@ fn open_files(app: &super::state::AppState) -> BTreeSet<String> {
         .documents
         .values()
         .filter(|doc| doc.is_text())
-        .map(|doc| problems::file_key(&doc.meta.path))
+        .filter_map(|doc| doc.meta.local_path().map(problems::file_key))
         .collect()
 }
 
@@ -246,7 +248,7 @@ pub(crate) fn counts(state: &AppContext) -> problems::Counts {
         .filter(|(_, doc)| doc.is_text())
         .filter_map(|(id, doc)| {
             services
-                .results(&doc.meta.path, &doc.stamp(*id))
+                .results(doc.meta.local_path()?, &doc.stamp(*id))
                 .diagnostics
         })
     {

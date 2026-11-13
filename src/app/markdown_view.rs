@@ -27,7 +27,7 @@ use std::sync::Arc;
 pub fn eligible(app: &AppState, view: ViewId) -> bool {
     app.workspace
         .view_meta(view)
-        .is_some_and(|meta| crate::features::markdown::is_markdown_path(&meta.path))
+        .is_some_and(|meta| crate::features::markdown::is_markdown_path(meta.language_hint()))
         && app.workspace.view_document(view).is_some()
 }
 fn reset_input(app: &mut AppState) {
@@ -232,10 +232,7 @@ pub fn render(
                             entries.sort_by_key(|(id, _)| id.0);
                             entries
                         },
-                        base: app
-                            .workspace
-                            .view_meta(view.id)
-                            .map(|meta| meta.path.clone()),
+                        base: super::markdown_assets::Base::for_view(&app, view.id),
                         remote: true,
                         page: true,
                     },
@@ -509,11 +506,24 @@ fn open_link(state: &AppContext, pane: PaneId, view: ViewId, result: &Rendered, 
     else {
         return;
     };
+    if state
+        .get()
+        .workspace
+        .view_meta(view)
+        .is_some_and(|meta| meta.resource.environment().is_some())
+        && matches!(
+            crate::features::markdown::reader::classify_link(destination),
+            crate::features::markdown::reader::LinkIntent::LocalDocument
+        )
+    {
+        super::resource_link::open(state, pane, view, destination);
+        return;
+    }
     let base = state
         .get()
         .workspace
         .view_meta(view)
-        .map(|meta| meta.path.clone());
+        .and_then(|meta| meta.local_path().map(std::path::Path::to_path_buf));
     use crate::features::markdown::resources::{Address, resolve};
     match resolve(base.as_deref(), destination) {
         Some(Address::Web(url)) => crate::app::language_ui::open_link(state, url),

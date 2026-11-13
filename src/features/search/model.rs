@@ -1,15 +1,27 @@
 //! Private search lifecycle data, with no framework or application dependency.
 use super::{FileMatches, Results, SearchSpec};
-use std::path::PathBuf;
+use loog_workspace_api::ResourceRef;
 use std::sync::Arc;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SearchKey {
     pub spec: SearchSpec,
-    pub roots: Vec<PathBuf>,
-    pub versions: Vec<(PathBuf, u64)>,
+    pub roots: Vec<ResourceRef>,
+    pub scopes: Vec<loog_workspace_api::ScopeId>,
+    pub versions: Vec<(ResourceRef, u64)>,
     pub composing: bool,
     pub refresh: u64,
+}
+impl SearchKey {
+    /// A filesystem hint can refresh the list while an explicitly selected
+    /// result is read. Navigation independently verifies that file's content.
+    pub fn same_navigation(&self, other: &Self) -> bool {
+        self.spec == other.spec
+            && self.roots == other.roots
+            && self.scopes == other.scopes
+            && self.versions == other.versions
+            && self.composing == other.composing
+    }
 }
 
 #[derive(Clone, Default)]
@@ -139,7 +151,11 @@ impl SearchModel {
         permanent: bool,
         focus_editor: bool,
     ) -> Option<NavigationIntent> {
-        if self.status.applied_key.as_ref() != Some(current)
+        if !self
+            .status
+            .applied_key
+            .as_ref()
+            .is_some_and(|key| key.same_navigation(current))
             || !self
                 .status
                 .results
@@ -152,6 +168,7 @@ impl SearchModel {
         }
         Some(NavigationIntent {
             generation: self.status.generation,
+            key: current.clone(),
             spec: current.spec.clone(),
             file,
             index,
@@ -169,6 +186,7 @@ impl SearchModel {
 #[derive(Clone)]
 pub struct NavigationIntent {
     pub generation: u64,
+    pub key: SearchKey,
     pub spec: SearchSpec,
     pub file: Arc<FileMatches>,
     pub index: usize,

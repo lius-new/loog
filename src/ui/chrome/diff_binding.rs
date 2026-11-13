@@ -65,6 +65,7 @@ pub enum Command {
     SplitDrag(PaneId, UiRect, f32),
     SplitEnd,
     Open(PathBuf),
+    OpenResource(loog_workspace_api::ResourceRef),
     Layout(PaneId, bool),
     ToggleChangeHighlight,
     Navigate(PaneId, Arc<Vec<usize>>, bool),

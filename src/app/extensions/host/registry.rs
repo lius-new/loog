@@ -83,6 +83,10 @@ fn asks(version: &VersionEntry) -> Vec<String> {
     for capability in &version.capabilities {
         let text = match capability.as_str() {
             "process.execute-local" => "Run programs on your computer, such as a language server",
+            "process.execute-tool" => "Run user tools on your computer even without an open folder",
+            "workspace.provide" => "Provide workspaces and their file operations",
+            "process.execute-environment" => "Run programs in a provided workspace",
+            "terminal.provide" => "Use terminals in a provided workspace",
             "network" => "Connect to the internet",
             "workspace.edit" => "Change the text of your open files",
             "workspace.files.write" => "Create, rename and delete files in your folders",

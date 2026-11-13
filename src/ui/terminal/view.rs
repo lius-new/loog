@@ -1590,8 +1590,12 @@ fn stable_name(tab: &TerminalTab) -> String {
 /// The card shown under a hovered tab with its full name and where it runs.
 fn tab_tooltip(id: UiId, strip: UiRect, tab_rect: UiRect, tab: &TerminalTab) -> Element {
     let title = tab.label();
-    let detail = match tab.working_directory() {
-        Some(dir) => format!("{} · {}", tab.short_label, dir.display()),
+    let directory = tab.resource_directory.clone().or_else(|| {
+        tab.working_directory()
+            .map(|path| path.display().to_string())
+    });
+    let detail = match directory {
+        Some(dir) => format!("{} · {}", tab.short_label, dir),
         None => tab.short_label.clone(),
     };
     let width = (measure(&title, theme::SMALL, 400).max(measure(&detail, theme::SMALL, 400))

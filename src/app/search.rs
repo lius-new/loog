@@ -13,9 +13,22 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub fn key(app: &AppState) -> Key {
-    Key {
+    let mut key = Key {
         spec: app.search.spec(),
-        roots: app.explorer.model.roots().to_vec(),
+        roots: app
+            .explorer
+            .model
+            .roots()
+            .iter()
+            .map(loog_workspace_api::ResourceRef::from)
+            .chain(
+                app.explorer
+                    .resources
+                    .roots
+                    .iter()
+                    .map(|root| root.descriptor.resource.clone()),
+            )
+            .collect(),
         versions: app
             .workspace
             .dirty_text_versions()
@@ -27,10 +40,34 @@ pub fn key(app: &AppState) -> Key {
                     .iter()
                     .any(|root| path.starts_with(root))
             })
+            .map(|(path, version)| (path.into(), version))
+            .chain(
+                app.workspace
+                    .documents
+                    .values()
+                    .filter(|doc| {
+                        doc.is_dirty()
+                            && doc.meta.resource.environment().is_some()
+                            && app.explorer.resources.roots.iter().any(|root| {
+                                root.descriptor.resource.environment()
+                                    == doc.meta.resource.environment()
+                            })
+                    })
+                    .map(|doc| (doc.meta.resource.clone(), doc.buffer.version())),
+            )
+            .collect(),
+        scopes: app
+            .explorer
+            .resources
+            .roots
+            .iter()
+            .map(|root| root.descriptor.scope)
             .collect(),
         composing: app.search.composing(),
         refresh: app.search.ui.refresh,
-    }
+    };
+    key.versions.sort();
+    key
 }
 
 /// Effect cleanup cancels only its own ticket, never a later search.
@@ -55,7 +92,11 @@ pub fn start(state: AppContext, application: ApplicationHandle, expected: Key) -
         if begin.running {
             request = Some(Request {
                 spec: expected.spec.clone(),
-                roots: expected.roots.clone(),
+                roots: expected
+                    .roots
+                    .iter()
+                    .filter_map(|root| root.local_path().map(std::path::Path::to_path_buf))
+                    .collect(),
                 buffers: app.workspace.text_snapshots(),
             });
         }
@@ -91,7 +132,9 @@ pub fn start(state: AppContext, application: ApplicationHandle, expected: Key) -
             applied.changed
         });
     });
-    let ticket = super::search_tasks::SearchTasks::launch(generation, request, cancel, queue);
+    let resource = super::resource_search::Request::capture(&state, &state.get());
+    let ticket =
+        super::search_tasks::SearchTasks::launch(generation, request, resource, cancel, queue);
     move || ticket.stop()
 }
 
@@ -194,15 +237,19 @@ pub fn navigate(
         return;
     };
     let generation = intent.generation;
+    let Some(path) = file.path.local_path().map(std::path::Path::to_path_buf) else {
+        super::resource_search::navigate(state, application, rect, editor_focus, intent);
+        return;
+    };
     let buffer = app
         .workspace
         .text_snapshots()
         .into_iter()
-        .find(|buffer| buffer.path == file.path);
+        .find(|buffer| buffer.path == path);
     state.update(|app| app.search.ui.selected = Some((file.path.clone(), index)));
     let state = state.clone();
     let worker_state = state.clone();
-    let failed_path = file.path.clone();
+    let failed_path = path.clone();
     let worker = std::thread::Builder::new()
         .name("loog-search-open".into())
         .spawn(move || {
@@ -226,7 +273,7 @@ pub fn navigate(
                                 .workspace
                                 .text_snapshots()
                                 .into_iter()
-                                .find(|snapshot| snapshot.path == file.path);
+                                .find(|snapshot| snapshot.path == path);
                             let unchanged = match (&buffer, &current) {
                                 (Some(before), Some(current)) => {
                                     before.version == current.version
@@ -245,9 +292,9 @@ pub fn navigate(
                                 text.as_ref().clone()
                             };
                             if permanent {
-                                app.workspace.open_path(file.path.clone(), contents);
+                                app.workspace.open_path(path.clone(), contents);
                             } else {
-                                app.workspace.preview_path(file.path.clone(), contents);
+                                app.workspace.preview_path(path.clone(), contents);
                             }
                             if let Some(mut editor) = app.workspace.active_editor_mut() {
                                 editor.select_range(range);
@@ -263,7 +310,7 @@ pub fn navigate(
                             } else {
                                 crate::app::workspace::OpenMode::Preview
                             };
-                            app.workspace.open_failed(file.path.clone(), error, mode);
+                            app.workspace.open_failed(path.clone(), error, mode);
                             app.chrome.toast = None;
                             focused = focus_editor;
                             app.search.ui.refresh += 1;
@@ -310,7 +357,8 @@ pub fn render(
         commands::{Command, Commands},
         view,
     };
-    let root_count = state.get().explorer.model.roots().len();
+    let app = state.get();
+    let root_count = app.explorer.model.roots().len() + app.explorer.resources.roots.len();
     let has_roots = root_count > 0;
     let header = crate::app::explorer_view::drawer_header(
         UiRect::new(
@@ -359,7 +407,33 @@ mod tests {
     use crate::features::keymap::action::Action;
     use crate::features::search;
     use crate::features::search::{Matcher, SearchSpec};
+    use loog_workspace_api::ResourceRef;
     use std::time::Duration;
+    #[test]
+    fn selection_and_clicks_distinguish_equal_provider_paths() {
+        let make = |instance: &str| {
+            let environment = loog_workspace_api::EnvironmentKey::new("fixture", instance).unwrap();
+            let mut file = (*crate::features::search::tests::result("needle").files[0]).clone();
+            file.path = ResourceRef::provided(environment.clone(), "opaque:file").unwrap();
+            file.root = ResourceRef::provided(environment, "opaque:root").unwrap();
+            Arc::new(file)
+        };
+        let first = make("first");
+        let second = make("second");
+        let mut app = AppState::new();
+        app.search.model.fixture_status().results = Arc::new(Results {
+            files: vec![first.clone(), second.clone()],
+            matches: 2,
+            complete: true,
+            ..Default::default()
+        });
+        app.search.ui.collapsed.insert(first.path.clone());
+        move_selection(&mut app, 1);
+        assert_eq!(app.search.ui.selected, Some((second.path.clone(), 0)));
+        assert_eq!(app.editor.tree_click_count(&first.path, 10.0, 20.0), 1);
+        assert_eq!(app.editor.tree_click_count(&second.path, 10.0, 20.0), 1);
+        assert_eq!(app.editor.tree_click_count(&second.path, 10.0, 20.0), 2);
+    }
     #[test]
     fn selection_scroll_uses_file_and_match_heights_with_collapsed_groups() {
         let mut app = AppState::new();
@@ -378,8 +452,9 @@ mod tests {
             .into_iter()
             .map(|name| {
                 Arc::new(FileMatches {
-                    path: name.into(),
-                    root: PathBuf::new(),
+                    path: ResourceRef::local(name),
+                    root: PathBuf::new().into(),
+                    provider: None,
                     content_hash: search::hash("x\nx\n"),
                     matches: matcher.matches("x\nx\n", &AtomicBool::new(false), 10),
                 })
@@ -391,18 +466,27 @@ mod tests {
             complete: true,
             ..Results::default()
         });
-        app.search.ui.collapsed.insert("a.rs".into());
+        app.search.ui.collapsed.insert(ResourceRef::local("a.rs"));
         move_selection(&mut app, 1);
-        assert_eq!(app.search.ui.selected, Some(("b.rs".into(), 0)));
+        assert_eq!(
+            app.search.ui.selected,
+            Some((ResourceRef::local("b.rs"), 0))
+        );
         assert_eq!(app.search.ui.scroll_y, 0.0);
         app.search.ui.viewport_height = 40.0;
         reveal_selection(&mut app);
         assert_eq!(app.search.ui.scroll_y, 28.0);
         move_selection(&mut app, 1);
-        assert_eq!(app.search.ui.selected, Some(("b.rs".into(), 1)));
+        assert_eq!(
+            app.search.ui.selected,
+            Some((ResourceRef::local("b.rs"), 1))
+        );
         assert_eq!(app.search.ui.scroll_y, 48.0);
         move_selection(&mut app, 1);
-        assert_eq!(app.search.ui.selected, Some(("c.rs".into(), 0)));
+        assert_eq!(
+            app.search.ui.selected,
+            Some((ResourceRef::local("c.rs"), 0))
+        );
         assert_eq!(app.search.ui.scroll_y, 92.0);
         move_selection(&mut app, -1);
         move_selection(&mut app, -1);

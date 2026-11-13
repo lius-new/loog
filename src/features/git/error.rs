@@ -20,6 +20,7 @@ pub enum GitErrorKind {
     DirtyWorktree,
     Cancelled,
     TimedOut,
+    UnknownOutcome,
     Unsupported,
     InvalidOutput,
     Io,
@@ -92,6 +93,7 @@ impl GitError {
                 "The repository is locked by another Git process.",
             )
         } else if lower.contains("please tell me who you are")
+            || lower.contains("empty ident name")
             || lower.contains("unable to auto-detect email address")
         {
             (

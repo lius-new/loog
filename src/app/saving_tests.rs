@@ -182,7 +182,12 @@ fn renamed_document_rejects_completion_for_the_previous_path() {
     assert!(workspace_commands::save_document(&f.ui.state, f.id));
     let renamed = f.root.join("renamed.txt");
     f.ui.state.update(|app| {
-        app.workspace.documents.get_mut(&f.id).unwrap().meta.path = renamed.clone();
+        app.workspace
+            .documents
+            .get_mut(&f.id)
+            .unwrap()
+            .meta
+            .resource = loog_workspace_api::ResourceRef::local(renamed.clone());
     });
     drop(gate);
     f.ui.wait();
@@ -238,7 +243,12 @@ fn failed_close_save_keeps_tabs_and_the_previous_disk_contents() {
     let f = Fixture::new();
     f.append(" saved");
     f.ui.state.update(|app| {
-        app.workspace.documents.get_mut(&f.id).unwrap().meta.path = f.root.join("missing/file.txt");
+        app.workspace
+            .documents
+            .get_mut(&f.id)
+            .unwrap()
+            .meta
+            .resource = loog_workspace_api::ResourceRef::local(f.root.join("missing/file.txt"));
     });
     f.close_request(CloseContinuation::ExitApplication);
     assert!(workspace_commands::save_close_request(
@@ -354,7 +364,12 @@ fn exit_barrier_checks_documents_that_became_dirty_after_the_close_request() {
 fn an_exit_barrier_does_not_hide_failure_of_an_earlier_clean_save() {
     let f = Fixture::new();
     f.ui.state.update(|app| {
-        app.workspace.documents.get_mut(&f.id).unwrap().meta.path = f.root.join("missing/file.txt");
+        app.workspace
+            .documents
+            .get_mut(&f.id)
+            .unwrap()
+            .meta
+            .resource = loog_workspace_api::ResourceRef::local(f.root.join("missing/file.txt"));
     });
     let gate = f.block();
     assert!(workspace_commands::save_document(&f.ui.state, f.id));

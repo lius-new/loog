@@ -9,8 +9,8 @@ use crate::features::language_service::request::Feature;
 use crate::features::outline::{self, Outline};
 use crate::features::providers::{Failure, RequestHandle, RequestSpec};
 use crate::ui::drawer::DrawerMode;
+use loog_workspace_api::ResourceRef;
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -41,7 +41,7 @@ struct Pending {
 pub struct OutlineUi {
     pub status: Status,
     pub outline: Arc<Outline>,
-    pub path: Option<PathBuf>,
+    pub resource: Option<ResourceRef>,
     pub collapsed: HashSet<String>,
     pub sorted: bool,
     pub scroll: f32,
@@ -130,7 +130,7 @@ pub fn observe(ctx: &AppContext, app: &mut AppState) {
         ui.follow();
         return;
     }
-    let same_file = ui.path.as_ref() == Some(&t.path);
+    let same_file = ui.resource.as_ref() == Some(&t.resource);
     ui.seen = Some(t.stamp);
     ui.pending = None;
     ui.timer = None;
@@ -139,7 +139,7 @@ pub fn observe(ctx: &AppContext, app: &mut AppState) {
         *ui = OutlineUi {
             status: Status::Loading,
             sorted: ui.sorted,
-            path: Some(t.path.clone()),
+            resource: Some(t.resource.clone()),
             caret: ui.caret,
             seen: ui.seen,
             ..OutlineUi::default()
@@ -173,7 +173,14 @@ fn refresh(ctx: &AppContext, app: &mut AppState) {
     }
     let ui = &mut app.editor.language.outline;
     ui.timer = None;
-    if crate::features::markdown::is_markdown_path(&t.path) {
+    if app.workspace.documents[&t.document]
+        .meta
+        .lang
+        .definition()
+        .name
+        .as_ref()
+        == "markdown"
+    {
         ui.outline = Arc::new(Outline::new(outline::markdown::items(&t.text)));
         ui.status = Status::Ready;
         ui.follow();
@@ -185,7 +192,7 @@ fn refresh(ctx: &AppContext, app: &mut AppState) {
     };
     let handle = Arc::new(services.request(RequestSpec::new(
         Feature::DocumentSymbol,
-        t.path.clone(),
+        t.resource.clone(),
         t.lsp_stamp(),
         t.cursor,
     )));

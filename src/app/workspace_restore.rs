@@ -92,7 +92,7 @@ impl SessionRestore {
                                     .workspace
                                     .meta(id)
                                     .filter(|_| app.workspace.is_loading(id))
-                                    .map(|m| m.path.clone());
+                                    .and_then(|m| m.local_path().map(std::path::Path::to_path_buf));
                                 if let Some(current) = current_path.filter(|p| *p != path) {
                                     crate::infrastructure::ui_dispatch::retire(prepared);
                                     let _ = retry.send(Some((id, current)));
@@ -147,7 +147,10 @@ fn finish(
         Ok(prepared) => app.workspace.install_restored(id, &path, prepared),
         Err(error) => {
             if !app.workspace.is_loading(id)
-                || app.workspace.meta(id).is_none_or(|m| m.path != path)
+                || app
+                    .workspace
+                    .meta(id)
+                    .is_none_or(|m| m.local_path() != Some(path.as_path()))
             {
                 return false;
             }

@@ -19,9 +19,15 @@ pub(crate) fn render(rect: UiRect, state: &AppContext, code_rect: UiRect) -> Ele
     );
     let rows = ui.outline.rows(&ui.collapsed, ui.sorted);
     let markdown = ui
-        .path
-        .as_deref()
-        .is_some_and(crate::features::markdown::is_markdown_path);
+        .resource
+        .as_ref()
+        .and_then(|resource| {
+            app.workspace
+                .documents
+                .values()
+                .find(|doc| &doc.meta.resource == resource)
+        })
+        .is_some_and(|doc| doc.meta.lang.definition().name.as_ref() == "markdown");
     let message = match &ui.status {
         Status::NoDocument => Some("Open a text file to see its structure."),
         Status::Loading if ui.outline.is_empty() => Some("Reading structure…"),
@@ -62,9 +68,19 @@ fn run(state: &AppContext, command: Command, code_rect: UiRect) {
         Command::Go(node) => {
             let app = state.get();
             let ui = &app.editor.language.outline;
-            if let (Some(path), Some(node)) = (ui.path.clone(), ui.outline.node(node)) {
+            // COMPAT(native-outline-navigation): Keep the old native navigator
+            // local until it accepts ResourceRef; no removal version is scheduled.
+            if let (Some(path), Some(node)) = (
+                ui.resource.as_ref().and_then(|r| r.local_path()),
+                ui.outline.node(node),
+            ) {
                 let at = node.select.start;
-                navigate::go(state, Place::bytes(path, at..at), code_rect, true);
+                navigate::go(
+                    state,
+                    Place::bytes(path.to_path_buf(), at..at),
+                    code_rect,
+                    true,
+                );
             }
         }
         Command::Toggle(key) => state.update(|app| app.editor.language.outline.toggle(&key)),

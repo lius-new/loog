@@ -186,11 +186,10 @@ impl ExtensionService {
         };
         let mut effects = Vec::new();
         for (file, saved) in std::mem::take(&mut package.pending_saved) {
-            let Some(document) =
-                app.workspace.documents.get(&file).filter(|d| {
-                    d.incarnation == saved.stamp.incarnation && d.meta.path == saved.path
-                })
-            else {
+            let Some(document) = app.workspace.documents.get(&file).filter(|d| {
+                d.incarnation == saved.stamp.incarnation
+                    && d.meta.local_path() == Some(saved.path.as_path())
+            }) else {
                 continue;
             };
             if saved.text.len()
@@ -239,7 +238,13 @@ impl ExtensionService {
                     continue;
                 };
                 let old = package.document_views.get(&id);
-                let path = document.meta.path.display().to_string();
+                let Some(path) = document
+                    .meta
+                    .local_path()
+                    .map(|path| path.display().to_string())
+                else {
+                    continue;
+                };
                 let language = document.meta.lang.definition().name.to_string();
                 let lifecycle = package
                     .feeds

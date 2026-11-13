@@ -73,6 +73,10 @@ jobs:
       - uses: ./.github/actions/cargo-cache
       - name: Test core without GUI build dependencies
         run: cargo test --locked -p loog-editor-core
+      - name: Test shared text decoding and search rules
+        run: cargo test --locked -p loog-text-core
+      - name: Test generic workspace capability contracts
+        run: cargo test --locked -p loog-workspace-api
       - name: Test workspace domain without GUI build dependencies
         run: cargo test --locked -p loog-workspace-tests
       - name: Test production Markdown rules without GUI build dependencies

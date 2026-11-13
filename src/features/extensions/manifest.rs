@@ -201,6 +201,20 @@ pub struct SettingDecl {
 pub struct CommandDecl {
     pub id: String,
     pub title: String,
+    #[serde(default)]
+    pub context: CommandContext,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CommandContext {
+    // COMPAT(document-command-default): Existing commands capture an editable
+    // document and retain their original read/edit permission checks. New
+    // window commands explicitly opt out of that snapshot. Keep this default
+    // until manifests migrate; no removal version is scheduled.
+    #[default]
+    Document,
+    Window,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
@@ -338,6 +352,9 @@ pub const CAPABILITIES: &[&str] = &[
     "workspace.edit",
     "workspace.files.read",
     "workspace.files.write",
+    "workspace.provide",
+    "process.execute-environment",
+    "terminal.provide",
     "events",
     "settings",
     "languages",
@@ -345,9 +362,12 @@ pub const CAPABILITIES: &[&str] = &[
     "network",
     "tasks",
     "process.execute-local",
+    "process.execute-tool",
 ];
 
 pub const EVENTS: &[&str] = &[
+    "workspace.restore",
+    "resource.documents",
     "document.open",
     "document.change",
     "document.close",

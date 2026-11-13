@@ -66,6 +66,97 @@ fn invariant(state: &AppContext, tabs: &TerminalStore) {
 }
 
 #[test]
+fn provider_terminal_new_and_split_keep_identity_and_layout_ownership() {
+    use crate::features::terminal::model::ProvidedTerminal;
+    use loog_workspace_api::{EnvironmentKey, ProviderPath, ResourceRef};
+    let (_session, state, tabs) = fixture();
+    let resource = ProvidedTerminal {
+        root: ResourceRef::provided(
+            EnvironmentKey::new("example.provider", "one").unwrap(),
+            "/work",
+        )
+        .unwrap(),
+        cwd: ProviderPath::new("/work/中文").unwrap(),
+        name: "Example".into(),
+    };
+    let first = new_provided(&state, &tabs, resource.clone(), None);
+    let mut resource = resource;
+    resource.cwd = ProviderPath::new("/work/changed").unwrap();
+    target(&tabs, first)
+        .unwrap()
+        .controller
+        .test_controller()
+        .test_report_directory(Some(resource.cwd.clone()));
+    let second = new_from_target(&state, &tabs, first, None).unwrap();
+    let third = split(&state, &tabs, first).unwrap();
+    for id in [first, second, third] {
+        let snapshot = tabs.get();
+        let tab = snapshot
+            .model()
+            .tabs()
+            .iter()
+            .find(|tab| tab.id() == id)
+            .unwrap();
+        assert_eq!(tab.provided(), Some(&resource));
+        assert!(tab.cwd().is_none());
+    }
+    invariant(&state, &tabs);
+    target(&tabs, first)
+        .unwrap()
+        .controller
+        .test_controller()
+        .test_report_directory(None);
+    let fourth = new_from_target(&state, &tabs, first, None).unwrap();
+    assert_eq!(
+        target(&tabs, fourth)
+            .unwrap()
+            .resource_target()
+            .unwrap()
+            .cwd
+            .as_str(),
+        "/work"
+    );
+    close(&state, &tabs, first, MenuAction::All, &application());
+    invariant(&state, &tabs);
+}
+
+#[test]
+fn empty_terminal_panel_uses_the_active_resource_and_never_falls_back_locally_when_offline() {
+    use crate::domain::workspace::{OpenMode, PreparedTextFile};
+    use crate::ui::terminal::state::PanelTab;
+    use loog_workspace_api::{Capability, EnvironmentKey, PresentedRoot, ResourceRef};
+    let (_session, state, tabs) = fixture();
+    let environment = EnvironmentKey::new("example.provider", "one").unwrap();
+    let root = ResourceRef::provided(environment.clone(), "/work").unwrap();
+    state.update(|app| {
+        let prepared = PreparedTextFile::offline(
+            ResourceRef::provided(environment, "/work/file.txt").unwrap(),
+            "file.txt".into(),
+            None,
+        )
+        .with_provider_root(Some(root.clone()));
+        app.workspace
+            .open_prepared_text(prepared, OpenMode::Permanent);
+        app.explorer.resources.sync(vec![PresentedRoot {
+            scope: 1,
+            resource: root.clone(),
+            name: "Example".into(),
+            capabilities: vec![Capability::Terminal],
+        }]);
+    });
+    let initial = tabs.get().active_id().unwrap();
+    close(&state, &tabs, initial, MenuAction::All, &application());
+    select_panel(&state, &tabs, PanelTab::Terminal);
+    let provided = tabs.get().active().unwrap();
+    assert_eq!(provided.resource_target().unwrap().root, root);
+    close(&state, &tabs, provided.id, MenuAction::All, &application());
+    state.update(|app| app.explorer.resources.sync(vec![]));
+    select_panel(&state, &tabs, PanelTab::Terminal);
+    assert!(tabs.get().is_empty());
+    invariant(&state, &tabs);
+}
+
+#[test]
 fn bottom_categories_keep_sessions_and_allow_history_without_a_shell() {
     use crate::ui::terminal::state::PanelTab;
     let (_session, state, tabs) = fixture();

@@ -3,12 +3,267 @@ use crate::domain::document::{DiskRead, DiskState, FileMeta};
 use crate::domain::identity::{FileId, ViewId};
 use crate::domain::pane_layout::Direction;
 use crate::domain::view::{Presentation, ReaderPosition, ViewTarget};
-use crate::domain::workspace::{AppPage, OpenMode, PreparedTextFile, Workspace};
+use crate::domain::workspace::{
+    AppPage, OpenMode, PreparedTextFile, ResourceResolution, Workspace,
+};
 use loog_editor_core::normal;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 type Model = Workspace<(), ()>;
+
+fn provided(text: &str, scope: u64, revision: &str) -> PreparedTextFile {
+    let resource = loog_workspace_api::ResourceRef::provided(
+        loog_workspace_api::EnvironmentKey::new("fixture", "saved").unwrap(),
+        "/work/a.txt",
+    )
+    .unwrap();
+    PreparedTextFile::provided(
+        resource,
+        "a.txt".into(),
+        scope,
+        Some(revision.into()),
+        crate::domain::encoding::DecodedText {
+            text: text.into(),
+            format: Default::default(),
+            source: Default::default(),
+            bytes: Arc::new(text.as_bytes().to_vec()),
+        },
+    )
+}
+
+#[test]
+fn resource_reconciliation_updates_options_even_with_identical_or_dirty_text() {
+    let mut w = Model::new();
+    let id = w.open_prepared_text(provided("before", 7, "r1"), OpenMode::Permanent);
+    for (text, indent) in [("before", 2), ("external", 4)] {
+        let options = loog_editor_core::text::FileOptions {
+            indent_size: Some(indent),
+            ..Default::default()
+        };
+        let result = w.resolve_resource(
+            id,
+            provided(text, 7, "r2").with_file_options(options),
+            ResourceResolution::Check,
+        );
+        if text == "before" {
+            result.unwrap();
+            normal::insert(&mut w.active_editor_mut().unwrap(), "edited ");
+        } else {
+            assert!(result.is_err());
+        }
+        assert_eq!(
+            w.documents[&id].buffer.file_options().indent_size,
+            Some(indent)
+        );
+    }
+    assert_eq!(w.documents[&id].buffer.text(), "edited before");
+    w.active_editor_mut().unwrap().undo();
+    assert_eq!(w.documents[&id].buffer.text(), "before");
+}
+
+#[test]
+fn resource_watch_echo_keeps_undo_and_external_changes_preserve_unsaved_text() {
+    let mut w = Model::new();
+    let id = w.open_prepared_text(provided("before", 7, "r1"), OpenMode::Permanent);
+    normal::insert(&mut w.active_editor_mut().unwrap(), "edited ");
+    let text = w.documents[&id].buffer.text().to_owned();
+    let saved = w.resource_save_snapshot(id).unwrap();
+    assert!(w.mark_resource_saved(&saved, Some("r2".into())));
+    let incarnation = w.documents[&id].incarnation;
+    w.documents.get_mut(&id).unwrap().disk_conflict = true;
+    w.resolve_resource(id, provided(&text, 7, "r2"), ResourceResolution::Check)
+        .unwrap();
+    assert_eq!(w.documents[&id].incarnation, incarnation);
+    w.active_editor_mut().unwrap().undo();
+    assert_eq!(w.documents[&id].buffer.text(), "before");
+    assert!(w.is_dirty(id));
+    assert!(
+        w.resolve_resource(id, provided("external", 7, "r3"), ResourceResolution::Check)
+            .is_err()
+    );
+    assert_eq!(w.documents[&id].buffer.text(), "before");
+    assert!(w.documents[&id].disk_conflict);
+}
+
+#[test]
+fn resource_save_preserves_later_edits_and_rejects_old_lifetimes_and_scopes() {
+    let mut w = Model::new();
+    let id = w.open_prepared_text(provided("before", 7, "r1"), OpenMode::Permanent);
+    w.document_editor_mut(id)
+        .unwrap()
+        .replace(0..6, "saved", loog_editor_core::text::EditKind::Other)
+        .unwrap();
+    let saved = w.resource_save_snapshot(id).unwrap();
+    w.document_editor_mut(id)
+        .unwrap()
+        .replace(0..5, "new edit", loog_editor_core::text::EditKind::Other)
+        .unwrap();
+    assert!(w.mark_resource_saved(&saved, Some("r2".into())));
+    assert!(w.is_dirty(id));
+    assert_eq!(w.documents[&id].buffer.text(), "new edit");
+    assert_eq!(w.documents[&id].saved_text.as_str(), "saved");
+    assert!(!w.mark_resource_saved(&saved, Some("late".into())));
+    w.close(id);
+    let reopened = w.open_prepared_text(provided("disk", 8, "r3"), OpenMode::Permanent);
+    assert!(!w.mark_resource_saved(&saved, Some("late".into())));
+    assert_eq!(w.documents[&reopened].saved_text.as_str(), "disk");
+}
+
+#[test]
+fn resource_relocation_preserves_dirty_text_and_undo_and_rejects_identity_collisions() {
+    use loog_workspace_api::{ResourceMove, ResourceRef};
+    let mut w = Model::new();
+    let id = w.open_prepared_text(provided("before", 7, "r1"), OpenMode::Permanent);
+    let old = w.documents[&id].meta.resource.clone();
+    let environment = old.environment().unwrap().clone();
+    w.document_editor_mut(id)
+        .unwrap()
+        .replace(0..6, "my edits", loog_editor_core::text::EditKind::Other)
+        .unwrap();
+    let saved = w.resource_save_snapshot(id).unwrap();
+    let new = ResourceRef::provided(environment.clone(), "/work/new.rs").unwrap();
+    let mapping = ResourceMove {
+        source: loog_workspace_api::ProviderPath::new("/work/a.txt").unwrap(),
+        target: loog_workspace_api::ProviderPath::new("/work/new.rs").unwrap(),
+        name: "new.rs".into(),
+    };
+    let collision = w.open_prepared_text(
+        PreparedTextFile::offline(new.clone(), "new.rs".into(), None),
+        OpenMode::Permanent,
+    );
+    assert!(
+        w.relocate_resources(&environment, std::slice::from_ref(&mapping))
+            .is_err()
+    );
+    assert_eq!(w.file_id_for_resource(&old), Some(id));
+    w.close(collision);
+    w.relocate_resources(&environment, &[mapping]).unwrap();
+    assert_eq!(w.file_id_for_resource(&old), None);
+    assert_eq!(w.file_id_for_resource(&new), Some(id));
+    assert_eq!(w.documents[&id].buffer.text(), "my edits");
+    assert!(w.documents[&id].disk_conflict);
+    assert!(w.is_dirty(id));
+    assert!(!w.mark_resource_saved(&saved, Some("late".into())));
+    w.document_editor_mut(id).unwrap().undo();
+    assert_eq!(w.documents[&id].buffer.text(), "before");
+    invariants(&w);
+}
+
+#[test]
+fn resource_session_retains_identity_and_unsaved_text_and_rechecks_on_reconnect() {
+    use crate::domain::workspace_session::{self, SavedPaneNode, SavedView};
+    let mut w = Model::new();
+    let id = w.open_prepared_text(provided("baseline", 7, "r1"), OpenMode::Permanent);
+    w.document_editor_mut(id)
+        .unwrap()
+        .replace(0..8, "my edits", loog_editor_core::text::EditKind::Other)
+        .unwrap();
+    let layout = workspace_session::capture(&w, None).unwrap();
+    let json = serde_json::to_value(&layout).unwrap();
+    assert_eq!(json["schema"], 3);
+    let restored: workspace_session::EditorLayout = serde_json::from_value(json).unwrap();
+    let SavedPaneNode::Pane { items, .. } = restored.root else {
+        panic!("pane")
+    };
+    let SavedView::Resource {
+        resource,
+        name,
+        encoding,
+        ..
+    } = items[0].clone()
+    else {
+        panic!("resource")
+    };
+    let mut restored = Model::new();
+    let id = restored.open_prepared_text(
+        PreparedTextFile::offline(resource, name, encoding),
+        OpenMode::Permanent,
+    );
+    assert_eq!(restored.documents[&id].buffer.text(), "my edits");
+    assert!(restored.is_dirty(id));
+    assert!(restored.shared_save_snapshot(id).is_none());
+    assert!(restored.resource_save_snapshot(id).is_none());
+    assert!(
+        restored
+            .reconnect_resource(id, provided("baseline", 8, "r2"))
+            .is_ok()
+    );
+    assert_eq!(restored.resource_save_snapshot(id).unwrap().scope, 8);
+    assert_eq!(restored.documents[&id].buffer.text(), "my edits");
+    assert!(
+        restored
+            .reconnect_resource(id, provided("external", 9, "r3"))
+            .is_err()
+    );
+    assert!(restored.documents[&id].disk_conflict);
+    assert_eq!(restored.documents[&id].buffer.text(), "my edits");
+}
+
+#[test]
+fn provided_documents_share_views_only_with_the_same_environment_and_path() {
+    use loog_workspace_api::{EnvironmentKey, ResourceRef};
+    let mut w = Model::new();
+    let a = ResourceRef::provided(
+        EnvironmentKey::new("fixture", "a").unwrap(),
+        "/work/main.rs",
+    )
+    .unwrap();
+    let b = ResourceRef::provided(
+        EnvironmentKey::new("fixture", "b").unwrap(),
+        "/work/main.rs",
+    )
+    .unwrap();
+    let first = w.open_prepared_text(
+        PreparedTextFile::with_resource(
+            a.clone(),
+            "main.rs".into(),
+            "one".into(),
+            DiskState::from_contents("one"),
+        ),
+        OpenMode::Permanent,
+    );
+    let second = w.open_prepared_text(
+        PreparedTextFile::with_resource(
+            b.clone(),
+            "main.rs".into(),
+            "two".into(),
+            DiskState::from_contents("two"),
+        ),
+        OpenMode::Permanent,
+    );
+    assert_ne!(first, second);
+    assert_eq!(w.file_id_for_resource(&a), Some(first));
+    assert_eq!(w.file_id_for_resource(&b), Some(second));
+    assert!(
+        w.file_id_for_path(std::path::Path::new("/work/main.rs"))
+            .is_none()
+    );
+    assert!(w.active_path().is_none());
+    assert!(
+        w.shared_save_snapshot(first).is_none(),
+        "local saver must not see provided files"
+    );
+    assert!(matches!(
+        w.reconcile_with_disk(first, DiskRead::Missing),
+        crate::domain::workspace::ReconcileResult::Provided(_)
+    ));
+    assert_eq!(w.close_paths_under(std::path::Path::new("/work")), 0);
+    w.split(w.active_pane(), Direction::Right);
+    let reopened = w.open_prepared_text(
+        PreparedTextFile::with_resource(
+            a,
+            "main.rs".into(),
+            "stale".into(),
+            DiskState::from_contents("stale"),
+        ),
+        OpenMode::Permanent,
+    );
+    assert_eq!(first, reopened);
+    assert_eq!(w.documents[&first].buffer.text(), "one");
+    invariants(&w);
+}
+
 fn open(w: &mut Model, path: &str, text: &str) -> (FileId, ViewId) {
     let document = w.open_prepared_text(
         PreparedTextFile::with_disk_state(path.into(), text.into(), DiskState::from_contents(text)),
@@ -30,7 +285,7 @@ fn invariants(w: &Model) {
     assert_eq!(slots.len(), w.views.len());
     for (&id, d) in &w.documents {
         assert!(!d.view_ids.is_empty());
-        assert_eq!(w.paths.get(&d.meta.path), Some(&id));
+        assert_eq!(w.paths.get(&d.meta.resource), Some(&id));
         assert_eq!(
             d.view_ids.iter().copied().collect::<HashSet<_>>(),
             w.views

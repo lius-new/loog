@@ -10,14 +10,41 @@ use lgui::core::{
 use lgui::render_skia::SkiaSoftwareSurface;
 use lgui::renderer::{FrameInfo, FrameReason};
 use lgui::session::UiSession;
+use loog_workspace_api::ResourceRef;
 use std::sync::Mutex;
+
+#[test]
+fn provided_search_labels_never_parse_client_paths() {
+    let environment = loog_workspace_api::EnvironmentKey::new("fixture", "target").unwrap();
+    let file = FileMatches {
+        path: ResourceRef::provided(environment.clone(), "opaque:document").unwrap(),
+        root: ResourceRef::provided(environment, "opaque:root").unwrap(),
+        provider: Some(crate::features::search::ProviderLabels {
+            name: "中文\\file.rs".into(),
+            relative: vec!["src".into(), "中文\\file.rs".into()],
+            root_name: "Target workspace".into(),
+        }),
+        matches: vec![],
+        content_hash: 0,
+    };
+    assert_eq!(file.name(), "中文\\file.rs");
+    assert_eq!(
+        file_labels(&file, false),
+        ("src/中文\\file.rs".into(), "src".into())
+    );
+    assert_eq!(
+        file_labels(&file, true),
+        ("src/中文\\file.rs".into(), "Target workspace/src".into())
+    );
+}
 
 #[cfg(windows)]
 #[test]
 fn search_file_labels_normalize_verbatim_paths_before_relativizing() {
     let file = |path: &str, root: &str| FileMatches {
-        path: path.into(),
-        root: root.into(),
+        path: ResourceRef::local(path),
+        root: ResourceRef::local(root),
+        provider: None,
         matches: Vec::new(),
         content_hash: 0,
     };
@@ -194,8 +221,9 @@ fn search_panel_renders_bounded_rows_and_switches_drawer_at_normal_and_small_siz
                 let matches =
                     matcher.matches(&value, &std::sync::atomic::AtomicBool::new(false), 10_000);
                 let file = Arc::new(FileMatches {
-                    path: "demo/src/main.rs".into(),
-                    root: "demo".into(),
+                    path: ResourceRef::local("demo/src/main.rs"),
+                    root: ResourceRef::local("demo"),
+                    provider: None,
                     content_hash: crate::features::search::hash(&value),
                     matches,
                 });
@@ -391,7 +419,7 @@ fn search_panel_renders_bounded_rows_and_switches_drawer_at_normal_and_small_siz
                     .get()
                     .search
                     .collapsed
-                    .contains(std::path::Path::new("demo/src/main.rs"))
+                    .contains(&ResourceRef::local("demo/src/main.rs"))
             );
             session.render_view(&view, viewport, UiScale::ONE);
             click_named(&mut session, &context, "Collapse or expand all results");
@@ -411,7 +439,8 @@ fn search_panel_renders_bounded_rows_and_switches_drawer_at_normal_and_small_siz
                             ("src/search_actions.rs", "pub fn start(app: &mut AppState) {\n    app.search.model.fixture_status().running = true;\n}\n"),
                             ("src/input/key_actions.rs", "    let state = app.search.clone();\n    state.search_next();\n"),
                         ].into_iter().map(|(path, content)| Arc::new(FileMatches {
-                            path: std::path::Path::new("demo").join(path), root: "demo".into(),
+                            path: std::path::Path::new("demo").join(path).into(), root: ResourceRef::local("demo"),
+                            provider: None,
                             content_hash: crate::features::search::hash(content),
                             matches: matcher.matches(content, &std::sync::atomic::AtomicBool::new(false), 100),
                         })).collect::<Vec<_>>();

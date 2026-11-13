@@ -22,6 +22,24 @@ preferences, such as the theme and the interface scale, can only be set in the
 user `settings.json`. Choose the theme with **Select Theme** in the command
 palette (`Ctrl+Shift+P`), which lists every theme and saves the choice.
 
+For a provider workspace, the same action opens `.loog/settings.json` in the
+active document's environment. It creates a missing template using an exclusive
+file creation and revision-checked initialization, and never overwrites an
+existing file. Settings are read through that provider, not through a similarly
+named local folder. The file accepts JSONC and is limited to 256 KiB. Monitoring
+reloads changes and deletions; invalid syntax retains the last valid settings
+and reports an error while leaving the file editable.
+
+Project `editor`, `editor_languages`, `encoding` and `file_associations` apply
+to that resource root. Editing precedence remains user, user language,
+EditorConfig, project, project language, then manual choices. Updating settings
+does not rewrite text or undo history, and encoding changes affect subsequent
+reads rather than reinterpreting an open buffer. A provider terminal uses its
+environment's default shell unless the project explicitly sets `default_shell`
+to `system`, `bash`, `power_shell` or `cmd`; these programs must exist in that
+environment. Local WSL and custom terminal profile IDs cannot select a remote
+program.
+
 ## Interface size
 
 Settings → Appearance → **Interface scale** resizes the entire app, including
@@ -88,7 +106,9 @@ Patterns use a small set of wildcards:
 - A pattern with `/` matches the path below the workspace folder, from its
   start (`docs/**/*.txt`). Files outside every workspace folder only match
   patterns without `/`.
-- Case is ignored on Windows and macOS and respected elsewhere.
+- For local files, case is ignored on Windows and macOS and respected elsewhere.
+  Provider file associations use case-sensitive matching against the provider's
+  relative components; a literal backslash in a target filename stays a character.
 - `[ ]`, `{ }` and `\` are not supported; a rule using them is skipped.
 
 A rule with an unknown language or an unsupported pattern is skipped and

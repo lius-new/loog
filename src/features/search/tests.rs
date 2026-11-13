@@ -2,6 +2,7 @@ use super::model::{SearchKey, SearchModel};
 use super::ports::{SearchSourcePort, SourceEntry};
 use super::*;
 use crate::domain::document_snapshot::DocumentSnapshot;
+use loog_workspace_api::ResourceRef;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -63,8 +64,9 @@ pub(crate) fn spec(value: &str) -> SearchSpec {
 }
 pub(crate) fn key(value: &str) -> SearchKey {
     SearchKey {
+        scopes: Vec::new(),
         spec: spec(value),
-        roots: vec!["project".into()],
+        roots: vec![ResourceRef::local("project")],
         versions: Vec::new(),
         composing: false,
         refresh: 0,
@@ -85,8 +87,9 @@ pub(crate) fn result(value: &str) -> Results {
     Results {
         matches: matches.len(),
         files: vec![Arc::new(FileMatches {
-            path: "project/note.txt".into(),
-            root: "project".into(),
+            path: ResourceRef::local("project/note.txt"),
+            root: ResourceRef::local("project"),
+            provider: None,
             content_hash: hash(value),
             matches,
         })],
@@ -195,9 +198,11 @@ fn changing_roots_or_dirty_versions_rejects_in_flight_results() {
         let start = model.begin(expected.clone());
         let mut current = expected.clone();
         if change_roots {
-            current.roots = vec!["other".into()];
+            current.roots = vec![ResourceRef::local("other")];
         } else {
-            current.versions.push(("project/note.txt".into(), 2));
+            current
+                .versions
+                .push((ResourceRef::local("project/note.txt"), 2));
         }
         assert!(
             !model
@@ -302,7 +307,7 @@ fn navigation_intent_is_scoped_to_current_results_and_uses_unsaved_text() {
             .is_none()
     );
     let buffer = DocumentSnapshot {
-        path: file.path.clone(),
+        path: file.path.local_path().unwrap().to_path_buf(),
         text: Arc::new("prefix\nold needle".into()),
         version: 4,
     };
@@ -336,7 +341,7 @@ fn stale_line_navigation_requests_refresh_instead_of_selecting_unrelated_text() 
         )
         .unwrap();
     let buffer = DocumentSnapshot {
-        path: intent.file.path.clone(),
+        path: intent.file.path.local_path().unwrap().to_path_buf(),
         text: Arc::new("unrelated needle".into()),
         version: 4,
     };

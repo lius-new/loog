@@ -20,18 +20,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         serde_json::from_slice(&std::fs::read(folder.join("corpus.json"))?)?;
     for id in corpus["plugins"].as_array().ok_or("missing plugins")? {
         let id = id.as_str().ok_or("invalid plugin id")?;
-        if ![
-            "loog.lsp.gopls",
-            "loog.lsp.rust-analyzer",
-            "loog.lsp.typescript-language-server",
-        ]
-        .contains(&id)
+        if id.len() > 128
+            || id.split('.').any(str::is_empty)
+            || !id.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b".-".contains(&byte)
+            })
         {
-            return Err("unexpected corpus plugin".into());
+            return Err("invalid corpus package identity".into());
         }
         let package = folder.join(id);
         let manifest: serde_json::Value =
             serde_json::from_slice(&std::fs::read(package.join("manifest.json"))?)?;
+        if manifest["id"] != id {
+            return Err("corpus and package identity differ".into());
+        }
         let wasm = std::fs::read(package.join("extension.wasm"))?;
         let cache = folder.join(format!("must-not-compile-{id}"));
         if cache.exists() {

@@ -18,7 +18,7 @@ struct Key {
     cursor: usize,
     scroll: (u32, u32),
     context: CodeActionContext,
-    workspace: Vec<(std::path::PathBuf, DocumentStamp)>,
+    workspace: Vec<(loog_workspace_api::ResourceRef, DocumentStamp)>,
 }
 #[derive(Clone, Default)]
 pub struct QuickFix {
@@ -35,7 +35,7 @@ fn current(ctx: &AppContext, app: &AppState) -> Option<(Target, Key)> {
     }
     let t = target(app, *pane)?;
     let s = services(ctx)?;
-    let found = s.results(&t.path, &t.stamp).diagnostics?;
+    let found = s.results(&t.resource, &t.stamp).diagnostics?;
     if !found.iter().any(|d| &d.range == range) {
         return None;
     }
@@ -50,7 +50,7 @@ fn current(ctx: &AppContext, app: &AppState) -> Option<(Target, Key)> {
         range: range.clone(),
         cursor: t.cursor,
         scroll: (view.scroll_x.to_bits(), view.scroll_y.to_bits()),
-        context: s.code_action_context(&t.path, t.lsp_stamp()),
+        context: s.code_action_context(&t.resource, t.lsp_stamp()),
         workspace,
     };
     Some((t, key))
@@ -120,7 +120,7 @@ pub fn observe(ctx: &AppContext, app: &mut AppState) {
                     s.request(
                         RequestSpec::new(
                             Feature::CodeAction,
-                            t.path.clone(),
+                            t.resource.clone(),
                             t.lsp_stamp(),
                             key.range.start,
                         )

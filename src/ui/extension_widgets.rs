@@ -8,6 +8,23 @@ use lgui::services::ServicesContextExt;
 use std::sync::Arc;
 pub type Sink = Arc<dyn Fn(Origin, Payload) + Send + Sync>;
 
+/// A public placement target for any extension's transient form or panel.
+/// The owner supplies its content, visibility and dismiss controls.
+pub fn overlays(rect: UiRect) -> Element {
+    group(rect)
+        .key("window.overlays")
+        .public_id("window.overlays")
+        .layout(LayoutSpec::Flex(FlexLayout {
+            axis: Axis::Vertical,
+            justify: Justify::Center,
+            align: Align::Center,
+            gap: 12.0,
+            padding: EdgeInsets::all(16.0),
+            ..Default::default()
+        }))
+        .overflow(Overflow::Clip)
+}
+
 /// One application-wide staging tree. Generic LGUI projection resolves public
 /// targets before measurement, independent of which native view declared them.
 pub fn layer(rect: UiRect, nodes: Vec<Arc<Node>>, sink: Sink) -> Element {
@@ -407,6 +424,46 @@ mod tests {
                 button: PointerButton::Left,
             },
         );
+    }
+    #[test]
+    fn overlay_target_centers_plugin_content_and_routes_clicks_without_a_window() {
+        let mut widget = (*node(Kind::Button)).clone();
+        widget.attachment = Attachment::Relative {
+            target: "window.overlays".into(),
+            relation: Relation::Append,
+            order: 0,
+        };
+        let public = widget.origin.public_id();
+        let widget = Arc::new(widget);
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let seen = events.clone();
+        let view: lgui::application::AppView = Arc::new(move |cx| {
+            let viewport = cx.viewport();
+            let seen = seen.clone();
+            group(viewport).child(overlays(viewport)).child(layer(
+                viewport,
+                vec![widget.clone()],
+                Arc::new(move |origin, payload| seen.lock().unwrap().push((origin, payload))),
+            ))
+        });
+        let context = lgui::application::ApplicationContext::empty(Default::default());
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let mut session = lgui::session::UiSession::new();
+        for (width, height) in [(800.0, 600.0), (600.0, 360.0)] {
+            session.render_view(&view, UiRect::new(0.0, 0.0, width, height), UiScale::ONE);
+            let bounds = session.tree().public_node(&public).unwrap().bounds;
+            assert!((bounds.left + bounds.width() / 2.0 - width / 2.0).abs() < 1.0);
+            assert!((bounds.top + bounds.height() / 2.0 - height / 2.0).abs() < 1.0);
+            pointer(
+                &mut session,
+                &context,
+                Point::new(width / 2.0, height / 2.0),
+            );
+        }
+        assert_eq!(events.lock().unwrap().len(), 2);
     }
     #[test]
     fn a_runtime_colored_button_has_a_public_identity_and_routes_native_clicks() {
@@ -1386,7 +1443,9 @@ mod tests {
                 );
                 let pixels = surface.pixels();
                 let ink = pixels
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .filter(|p| p[0] > 30 || p[1] > 30 || p[2] > 30)
                     .count();
                 assert!(

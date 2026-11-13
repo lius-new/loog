@@ -28,6 +28,7 @@ pub struct ExplorerUiState {
     pub menu: Option<(f32, f32)>,
     /// Row the menu was opened on; `None` acts on the containing root.
     pub menu_target: Option<ExplorerContextTarget>,
+    pub resource_menu: Option<crate::features::resource_tree::Target>,
     pub menu_hover: Option<usize>,
     /// Text of the inline create/rename row.
     pub create_input: InputState,
@@ -48,6 +49,7 @@ impl ExplorerUiState {
     pub fn dismiss_menu(&mut self) {
         self.menu = None;
         self.menu_target = None;
+        self.resource_menu = None;
         self.menu_hover = None;
     }
 
@@ -67,5 +69,6 @@ impl ExplorerUiState {
 #[derive(Clone, Default)]
 pub struct ExplorerPanelState {
     pub model: ExplorerModel,
+    pub resources: crate::features::resource_tree::Tree,
     pub ui: ExplorerUiState,
 }

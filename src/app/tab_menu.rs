@@ -54,11 +54,20 @@ fn action_enabled(app: &AppState, pane: PaneId, target: ViewId, action: Action) 
             .view_document(target)
             .is_some_and(|id| app.workspace.has_disk_conflict(id)),
         Action::CopyPath => true,
-        Action::CopyRelativePath => app.explorer.model.root_for_path(&meta.path).is_some(),
+        Action::CopyRelativePath => meta
+            .local_path()
+            .and_then(|path| app.explorer.model.root_for_path(path))
+            .is_some(),
         Action::RevealInTree => {
-            !app.workspace.is_diff(target) && app.explorer.model.root_for_path(&meta.path).is_some()
+            !app.workspace.is_diff(target)
+                && meta
+                    .local_path()
+                    .and_then(|path| app.explorer.model.root_for_path(path))
+                    .is_some()
         }
-        Action::RevealInFileExplorer => !app.workspace.is_diff(target),
+        Action::RevealInFileExplorer => {
+            !app.workspace.is_diff(target) && meta.local_path().is_some()
+        }
         _ => false,
     }
 }
@@ -78,15 +87,29 @@ pub fn execute(
     {
         return;
     }
-    let Some(action_path) = app
+    let Some(resource) = app
         .workspace
         .view_meta(target)
-        .map(|meta| meta.path.clone())
+        .map(|meta| meta.resource.clone())
     else {
         return;
     };
     drop(app);
     state.update(|app| app.editor.tabs.tab_context_menu = None);
+    if resource.local_path().is_none()
+        && matches!(action, Action::ReloadFromDisk | Action::KeepEditorVersion)
+    {
+        let id = state.get().workspace.view_document(target);
+        if let Some(id) = id {
+            let resolution = if action == Action::ReloadFromDisk {
+                crate::domain::workspace::ResourceResolution::Reload
+            } else {
+                crate::domain::workspace::ResourceResolution::KeepEditor
+            };
+            crate::app::resources::resolve(state, id, resolution);
+        }
+        return;
+    }
     if let Some(scope) = close_scope(action) {
         workspace_actions::request_close_tabs(state, pane, target, scope);
         return;
@@ -140,10 +163,17 @@ pub fn execute(
             });
         }
         Action::CopyPath | Action::CopyRelativePath => {
+            if let loog_workspace_api::ResourceRef::Provided { path, .. } = &resource {
+                match cx.application().clipboard().write_text(path.as_str()) {
+                    Ok(()) => state.update(|app| app.show_success("Copied path.")),
+                    Err(error) => state.update(|app| app.show_error(format!("Clipboard: {error}"))),
+                }
+                return;
+            }
             crate::app::explorer::copy_path(
                 state,
                 cx.application().clipboard().as_ref(),
-                &action_path,
+                resource.local_path().expect("local resource"),
                 action == Action::CopyRelativePath,
             );
         }
@@ -153,10 +183,13 @@ pub fn execute(
             }
         }
         Action::RevealInFileExplorer => {
+            let Some(path) = resource.local_path() else {
+                return;
+            };
             crate::app::explorer::reveal_item(
                 state,
                 &ExplorerContextTarget {
-                    path: action_path.clone(),
+                    path: path.to_path_buf(),
                     kind: ExplorerTargetKind::File,
                 },
             );

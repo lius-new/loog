@@ -5,15 +5,11 @@ use super::hover::word_at;
 use super::popup::{Item, Kind, Payload, Popup};
 use super::{AppContext, AppState, Target, services, target};
 use crate::domain::document::DocumentStamp;
-use crate::features::language_service::reply::{
-    self, Change, CodeAction, Command, DocumentEdit, TextEdit, WorkspaceEdit,
-};
+use crate::features::language_service::reply::{self, CodeAction, Command};
 use crate::features::language_service::request::Feature;
-use crate::features::language_service::uri;
 use crate::features::providers::{Failure, RequestHandle, RequestSpec};
 use lgui::prelude::UiRect;
 use serde_json::json;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 /// What the answer is wanted for.
@@ -41,7 +37,7 @@ pub struct Pending {
     pub wanted: Wanted,
     pub handle: Arc<RequestHandle>,
     pub target: Target,
-    pub stamps: Vec<(PathBuf, DocumentStamp)>,
+    pub stamps: Vec<(loog_workspace_api::ResourceRef, DocumentStamp)>,
     pub rect: UiRect,
 }
 
@@ -79,9 +75,14 @@ fn start(
         return;
     };
     services.sync(&app);
-    let mut spec = RequestSpec::new(feature, target.path.clone(), target.lsp_stamp(), range.0)
-        .range(range.1)
-        .extra(extra);
+    let mut spec = RequestSpec::new(
+        feature,
+        target.resource.clone(),
+        target.lsp_stamp(),
+        range.0,
+    )
+    .range(range.1)
+    .extra(extra);
     if let Some(instance) = target_instance {
         spec = spec.target(instance);
     }
@@ -114,7 +115,7 @@ pub fn begin_rename(state: &AppContext, rect: UiRect) {
     drop(app);
     let (can_rename, can_prepare) = services(state)
         .map(|s| {
-            let infos = s.capability_sources(Some(&t.path));
+            let infos = s.capability_sources(Some(&t.resource));
             let providers = || infos.iter().map(|i| &i.providers);
             (
                 providers().any(|p| p.rename.is_some()),
@@ -301,7 +302,7 @@ pub fn on_type(ctx: &AppContext, app: &mut AppState, typed: char) {
             app.workspace
                 .active_document()
                 .and_then(|id| app.workspace.documents.get(&id))
-                .map(|d| d.meta.path.as_path()),
+                .map(|d| &d.meta.resource),
         )
         .iter()
         .any(|info| {
@@ -319,7 +320,7 @@ pub fn on_type(ctx: &AppContext, app: &mut AppState, typed: char) {
         services.request(
             RequestSpec::new(
                 Feature::OnTypeFormatting,
-                t.path.clone(),
+                t.resource.clone(),
                 t.lsp_stamp(),
                 t.cursor,
             )
@@ -462,11 +463,18 @@ pub fn tick(app: &mut AppState) -> Vec<Effect> {
                 reply::code_actions(&json!([part.value.clone()]), part.encoding).pop()
             }) {
                 Some(mut action) => {
+                    if let Some(reason) = &action.disabled {
+                        app.show_toast(format!("{title}: {reason}"));
+                        return effects;
+                    }
                     // Anything still missing cannot be had; do what is there.
                     action.needs_resolve = false;
                     effects.extend(action_effects(*instance, &action, &pending));
                 }
-                None => app.show_toast(format!("{title}: the server gave no result")),
+                None => match &progress.failure {
+                    Some(Failure::Failed(reason)) => app.show_error(format!("{title}: {reason}")),
+                    _ => app.show_toast(format!("{title}: the server gave no result")),
+                },
             }
         }
         Wanted::OnType => {
@@ -474,21 +482,10 @@ pub fn tick(app: &mut AppState) -> Vec<Effect> {
             // answer wrong.
             let now = super::target(app, target.pane)
                 .filter(|t| t.same_view(target) && t.stamp == target.stamp);
-            if let (Some(part), Some(link), Some(_)) = (
-                progress.usable(Feature::OnTypeFormatting).first(),
-                uri::file_uri(&target.path),
-                now,
-            ) {
+            if let (Some(part), Some(_)) = (progress.usable(Feature::OnTypeFormatting).first(), now)
+            {
                 let found = reply::text_edits(&part.value, part.encoding);
-                if !found.is_empty() {
-                    effects.push(Effect::Apply(Request {
-                        edit: single_document_edit(link, found),
-                        stamps: pending.stamps.clone(),
-                        rect: pending.rect,
-                        title: "Format".to_owned(),
-                        reply: None,
-                    }));
-                }
+                let _ = edit::apply_text(app, target, found, "Format");
             }
         }
         Wanted::Format | Wanted::FormatSelection => {
@@ -499,14 +496,8 @@ pub fn tick(app: &mut AppState) -> Vec<Effect> {
             let edits = reply::text_edits(&part.value, part.encoding);
             if edits.is_empty() {
                 app.show_toast("Nothing to format");
-            } else if let Some(link) = uri::file_uri(&target.path) {
-                effects.push(Effect::Apply(Request {
-                    edit: single_document_edit(link, edits),
-                    stamps: pending.stamps.clone(),
-                    rect: pending.rect,
-                    title: "Format".to_owned(),
-                    reply: None,
-                }));
+            } else if let Err(error) = edit::apply_text(app, target, edits, "Format") {
+                app.show_error(format!("Format: {error}"));
             }
         }
         Wanted::Command { title } => {
@@ -601,26 +592,9 @@ fn action_item(instance: u64, action: CodeAction) -> Item {
     }
 }
 
-/// An edit that replaces ranges of one document.
-pub fn single_document_edit(uri: String, edits: Vec<TextEdit>) -> WorkspaceEdit {
-    WorkspaceEdit {
-        changes: vec![Change::Edit(DocumentEdit {
-            uri,
-            version: None,
-            edits,
-        })],
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn an_edit_for_one_document_is_a_workspace_edit() {
-        let edit = single_document_edit("file:///a".into(), Vec::new());
-        assert_eq!(edit.changes.len(), 1);
-    }
 
     #[test]
     fn disabled_actions_are_faint_and_say_why() {

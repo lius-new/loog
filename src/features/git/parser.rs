@@ -5,18 +5,30 @@ use super::error::{GitError, GitErrorKind, GitResult};
 use super::types::*;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ParsedStatus {
+pub struct ParsedStatus<P: Ord = PathBuf> {
     pub head: HeadState,
     /// The commit HEAD points at; `None` before the first commit.
     pub head_oid: Option<String>,
     pub upstream: Option<UpstreamState>,
     pub ahead: u32,
     pub behind: u32,
-    pub files: BTreeMap<PathBuf, FileState>,
-    pub ignored: BTreeSet<PathBuf>,
+    pub files: BTreeMap<P, FileState<P>>,
+    pub ignored: BTreeSet<P>,
 }
 
 pub fn parse_porcelain_v2(input: &[u8]) -> GitResult<ParsedStatus> {
+    parse_status_with(input, |bytes| Ok(bytes_to_path(bytes)))
+}
+
+pub fn parse_resource_status(input: &[u8]) -> GitResult<ParsedStatus<super::path::GitPath>> {
+    resource_budget(input)?;
+    parse_status_with(input, super::path::GitPath::from_git)
+}
+
+fn parse_status_with<P: Ord + Default>(
+    input: &[u8],
+    mut path: impl FnMut(&[u8]) -> GitResult<P>,
+) -> GitResult<ParsedStatus<P>> {
     let records = input.split(|byte| *byte == 0).collect::<Vec<_>>();
     let mut status = ParsedStatus::default();
     let mut branch_oid = None;
@@ -37,7 +49,7 @@ pub fn parse_porcelain_v2(input: &[u8]) -> GitResult<ParsedStatus> {
                 let fields = split_prefix(record, 8)?;
                 let xy = fields[1];
                 status.files.insert(
-                    bytes_to_path(fields[8]),
+                    path(fields[8])?,
                     FileState {
                         index: change_at(xy, 0),
                         worktree: change_at(xy, 1),
@@ -51,11 +63,11 @@ pub fn parse_porcelain_v2(input: &[u8]) -> GitResult<ParsedStatus> {
                 index += 1;
                 let xy = fields[1];
                 status.files.insert(
-                    bytes_to_path(fields[9]),
+                    path(fields[9])?,
                     FileState {
                         index: change_at(xy, 0),
                         worktree: change_at(xy, 1),
-                        original_path: Some(bytes_to_path(original)),
+                        original_path: Some(path(original)?),
                         ..FileState::default()
                     },
                 );
@@ -64,7 +76,7 @@ pub fn parse_porcelain_v2(input: &[u8]) -> GitResult<ParsedStatus> {
                 let fields = split_prefix(record, 10)?;
                 let xy = fields[1];
                 status.files.insert(
-                    bytes_to_path(fields[10]),
+                    path(fields[10])?,
                     FileState {
                         index: change_at(xy, 0),
                         worktree: change_at(xy, 1),
@@ -77,20 +89,18 @@ pub fn parse_porcelain_v2(input: &[u8]) -> GitResult<ParsedStatus> {
                 if record.len() < 3 || record[1] != b' ' {
                     return Err(invalid(record));
                 }
-                let path = bytes_to_path(&record[2..]);
+                let path = path(&record[2..])?;
                 if record[0] == b'!' {
                     // Ignored paths are not changes. Keeping them out of
                     // `files` keeps dirty counts and Source Control unaware.
                     status.ignored.insert(path);
                     continue;
                 }
-                status.files.insert(
-                    path,
-                    FileState {
-                        worktree: ChangeKind::Untracked,
-                        ..FileState::default()
-                    },
-                );
+                status
+                    .files
+                    .entry(path)
+                    .or_insert_with(FileState::default)
+                    .worktree = ChangeKind::Untracked;
             }
             _ => return Err(invalid(record)),
         }
@@ -114,6 +124,28 @@ pub fn parse_porcelain_v2(input: &[u8]) -> GitResult<ParsedStatus> {
 /// the first record followed by the old and new paths as separate NUL records;
 /// the statistics belong to the new path shown by porcelain status.
 pub fn parse_numstat(input: &[u8]) -> GitResult<BTreeMap<PathBuf, DiffStat>> {
+    parse_numstat_with(input, |bytes| Ok(bytes_to_path(bytes)))
+}
+
+pub fn parse_resource_numstat(input: &[u8]) -> GitResult<BTreeMap<super::path::GitPath, DiffStat>> {
+    resource_budget(input)?;
+    parse_numstat_with(input, super::path::GitPath::from_git)
+}
+
+fn resource_budget(input: &[u8]) -> GitResult<()> {
+    if input.len() > 16 * 1024 * 1024 || input.iter().filter(|byte| **byte == 0).count() > 100_000 {
+        return Err(GitError::new(
+            GitErrorKind::Unsupported,
+            "Git status exceeds its 16 MiB / 100,000 record budget",
+        ));
+    }
+    Ok(())
+}
+
+fn parse_numstat_with<P: Ord>(
+    input: &[u8],
+    mut path: impl FnMut(&[u8]) -> GitResult<P>,
+) -> GitResult<BTreeMap<P, DiffStat>> {
     let records = input.split(|byte| *byte == 0).collect::<Vec<_>>();
     let mut stats = BTreeMap::new();
     let mut index = 0;
@@ -147,9 +179,9 @@ pub fn parse_numstat(input: &[u8]) -> GitResult<BTreeMap<PathBuf, DiffStat>> {
             index += 1;
             let new_path = records.get(index).copied().ok_or_else(|| invalid(record))?;
             index += 1;
-            bytes_to_path(new_path)
+            path(new_path)?
         } else {
-            bytes_to_path(fields[2])
+            path(fields[2])?
         };
         stats.insert(
             path,
@@ -163,9 +195,9 @@ pub fn parse_numstat(input: &[u8]) -> GitResult<BTreeMap<PathBuf, DiffStat>> {
     Ok(stats)
 }
 
-fn parse_header(
+fn parse_header<P: Ord>(
     record: &[u8],
-    status: &mut ParsedStatus,
+    status: &mut ParsedStatus<P>,
     branch_oid: &mut Option<String>,
     branch_name: &mut Option<String>,
 ) -> GitResult<()> {
@@ -232,14 +264,14 @@ fn invalid(record: &[u8]) -> GitError {
 }
 
 #[cfg(unix)]
-fn bytes_to_path(value: &[u8]) -> PathBuf {
+pub(super) fn bytes_to_path(value: &[u8]) -> PathBuf {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
     PathBuf::from(OsString::from_vec(value.to_vec()))
 }
 
 #[cfg(not(unix))]
-fn bytes_to_path(value: &[u8]) -> PathBuf {
+pub(super) fn bytes_to_path(value: &[u8]) -> PathBuf {
     PathBuf::from(String::from_utf8_lossy(value).into_owned())
 }
 
@@ -313,6 +345,33 @@ pub fn parse_branches(input: &[u8]) -> GitResult<Vec<BranchInfo>> {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn resource_status_preserves_git_names_and_rejects_escaping_entries() {
+        use super::super::path::GitPath;
+        let input = "# branch.head main\0? src/中文\\name.txt\0! generated/\0";
+        let status = parse_resource_status(input.as_bytes()).unwrap();
+        let path = GitPath::from_git("src/中文\\name.txt".as_bytes()).unwrap();
+        assert_eq!(status.files[&path].worktree, ChangeKind::Untracked);
+        assert_eq!(path.components().count(), 2);
+        assert!(
+            status
+                .ignored
+                .contains(&GitPath::from_git(b"generated").unwrap())
+        );
+        assert!(parse_resource_status(b"? ../escape\0").is_err());
+        let stats = parse_resource_numstat("3\t2\tsrc/中文\\name.txt\0".as_bytes()).unwrap();
+        assert_eq!(stats[&path].additions, 3);
+        let removed =
+            parse_resource_status(b"1 D. N... 100644 000000 000000 a b keep.txt\0? keep.txt\0")
+                .unwrap();
+        let state = &removed.files[&GitPath::from_git(b"keep.txt").unwrap()];
+        assert_eq!(
+            (state.index, state.worktree),
+            (ChangeKind::Deleted, ChangeKind::Untracked)
+        );
+        assert!(parse_resource_status(&vec![0; 100_001]).is_err());
+    }
 
     #[test]
     fn branches_skip_remote_head_symrefs() {

@@ -515,7 +515,7 @@ pub fn perform(env: &KeyEnv, action: Action) -> bool {
             let (trust_prompt, close_request, clone_dialog, stash_switch, git_confirm) =
                 read(&env.state, |app| {
                     (
-                        app.chrome.trust_question().is_some(),
+                        super::trust_prompt::question(app).is_some(),
                         app.editor.close_request.is_some(),
                         app.git.ui.clone_visible,
                         app.git.ui.stash_switch.is_some(),
@@ -700,6 +700,38 @@ pub fn project_settings_root(app: &AppState) -> Option<std::path::PathBuf> {
 
 /// Open the current project's `.loog/settings.json`, creating it first.
 pub fn open_project_settings(state: &AppContext) -> bool {
+    let app = state.get();
+    let active = app
+        .workspace
+        .active_document()
+        .and_then(|id| app.workspace.documents.get(&id));
+    let root = active
+        .and_then(|document| document.meta.provider_root.clone())
+        .or_else(|| {
+            (app.explorer.model.roots().is_empty() && app.workspace.active_path().is_none())
+                .then(|| {
+                    app.explorer
+                        .resources
+                        .roots
+                        .first()
+                        .map(|root| root.descriptor.resource.clone())
+                })
+                .flatten()
+        });
+    let provided = active.is_some_and(|document| document.meta.resource.environment().is_some());
+    drop(app);
+    if let Some(root) = root {
+        super::resource_project_command::open(state, root);
+        return true;
+    }
+    if provided {
+        state.update(|app| {
+            app.show_error(
+                "Connect this document's resource workspace before opening project settings",
+            )
+        });
+        return false;
+    }
     let Some(root) = project_settings_root(&state.get()) else {
         state.update(|app| app.show_error("Open a folder to add project settings."));
         return false;

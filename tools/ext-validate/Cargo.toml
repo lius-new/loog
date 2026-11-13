@@ -12,6 +12,8 @@ tree-sitter = { path = "../../vendor/tree-sitter" }
 
 [dependencies]
 loog-editor-core = { path = "../../crates/editor-core", features = ["diagnostics"] }
+loog-workspace-api = { path = "../../crates/workspace-api" }
+loog-text-core = { path = "../../crates/text-core" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tree-sitter = { version = "0.27", features = ["wasm"] }

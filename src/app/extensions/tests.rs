@@ -130,8 +130,857 @@ fn fixture(name: &str, text: &str, select: std::ops::Range<usize>) -> Fixture {
     fixture_with(name, text, select, MANIFEST)
 }
 
+#[test]
+fn window_commands_activate_without_documents_or_edit_permissions() {
+    let mut manifest: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+    manifest["capabilities"] = serde_json::json!(["workspace.provide"]);
+    manifest["activation"] = serde_json::json!([{"kind":"command","id":"example.tools.workspace"}]);
+    manifest["contributes"]["commands"] = serde_json::json!([{
+        "id":"example.tools.workspace", "title":"Workspace fixture", "context":"window"
+    }]);
+    let mut f = fixture_with("window-command", "", 0..0, &manifest.to_string());
+    f.app = AppState::new();
+    f.run("example.tools.workspace");
+    f.pump(|_, event| matches!(event, Event::Log { text, .. } if text.contains("workspace event") && text.contains("\"environment\"")));
+    assert!(
+        f.service
+            .calls
+            .values()
+            .all(|call| call.snapshots.is_empty())
+    );
+    assert!(
+        f.service
+            .workspace_router
+            .resolve(&loog_workspace_api::EnvironmentKey::new("example.tools", "memory").unwrap())
+            .is_some()
+    );
+    assert!(f.app.workspace.active_document().is_none());
+}
+
+#[test]
+fn resource_recovery_activates_without_documents_and_respects_disabled_or_missing_packages() {
+    use loog_workspace_api::{
+        EnvironmentKey, ProviderPath, ResourceRef, session::ResourceBookmark,
+    };
+    let mut manifest: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+    manifest["capabilities"] = serde_json::json!(["workspace.provide"]);
+    manifest["activation"] = serde_json::json!([{"kind":"event","name":"workspace.restore"}]);
+    manifest["contributes"] = serde_json::json!({});
+    let mut f = fixture_with("resource-recovery", "", 0..0, &manifest.to_string());
+    f.app = AppState::new();
+    let bookmark = ResourceBookmark {
+        resource: ResourceRef::Provided {
+            environment: EnvironmentKey::new("example.tools", "memory").unwrap(),
+            path: ProviderPath::new("opaque:root").unwrap(),
+        },
+        name: "Memory workspace".into(),
+        state: "{\"profile\":\"example\"}".into(),
+    };
+    let effects = f.service.restore_resource(bookmark.clone()).unwrap();
+    assert!(matches!(&effects[..], [Effect::Submit(Job::Load { .. })]));
+    assert!(
+        f.service
+            .restore_resource(bookmark.clone())
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        f.service.pending_workspace_restores["example.tools"].len(),
+        1
+    );
+    f.apply(effects);
+    f.pump(|_, event| {
+        matches!(event, Event::Log { text, .. }
+        if text.contains("workspace event") && text.contains("\"restore\""))
+    });
+    assert!(f.service.pending_workspace_restores.is_empty());
+    assert!(f.app.workspace.active_document().is_none());
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .disabled = true;
+    assert!(
+        f.service
+            .restore_resource(bookmark.clone())
+            .unwrap_err()
+            .contains("disabled")
+    );
+    f.service.packages.remove("example.tools");
+    assert!(
+        f.service
+            .restore_resource(bookmark)
+            .unwrap_err()
+            .contains("not installed")
+    );
+}
+
+#[test]
+fn native_resource_consumers_require_owned_presented_scopes_and_stop_with_the_provider() {
+    use loog_workspace_api::{
+        self as api,
+        session::{Command, Reply},
+    };
+    let mut manifest: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+    manifest["capabilities"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!("workspace.provide"));
+    let mut f = fixture_with("native-resources", "", 0..0, &manifest.to_string());
+    f.run("example.tools.uppercase");
+    f.pump_until(|f| f.service.packages["example.tools"].lifecycle.state() == State::Active);
+    let owner = api::Owner {
+        id: "example.tools".into(),
+        generation: f.service.packages["example.tools"].lifecycle.generation(),
+    };
+    let Reply::Environment { id: environment } = f
+        .service
+        .workspace_command(
+            &owner,
+            Command::Register {
+                descriptor: api::EnvironmentDescriptor {
+                    key: api::EnvironmentKey::new("example.tools", "native-test").unwrap(),
+                    name: "Test provider".into(),
+                    platform: "memory".into(),
+                    capabilities: vec![
+                        api::Capability::FilesRead,
+                        api::Capability::FilesWrite,
+                        api::Capability::Process,
+                    ],
+                },
+            },
+        )
+        .unwrap()
+    else {
+        panic!("environment")
+    };
+    let path = api::ProviderPath::new("opaque:root").unwrap();
+    let Reply::Scope { id: scope } = f
+        .service
+        .workspace_command(
+            &owner,
+            Command::Mount {
+                environment,
+                root: path.clone(),
+            },
+        )
+        .unwrap()
+    else {
+        panic!("scope")
+    };
+    assert_eq!(
+        f.service
+            .resource_request(scope, api::Operation::Stat { path: path.clone() })
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    let wrong = api::Owner {
+        generation: owner.generation + 1,
+        ..owner.clone()
+    };
+    assert_eq!(
+        f.service
+            .workspace_command(&wrong, Command::Present { scope })
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    f.service
+        .workspace_command(&owner, Command::Present { scope })
+        .unwrap();
+    let effects = f.service.pump_workspaces();
+    f.apply(effects);
+    assert_eq!(f.app.explorer.resources.roots.len(), 1);
+    f.service
+        .workspace_command(
+            &owner,
+            Command::Remember {
+                scope,
+                state: "{\"profile\":\"memory\"}".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(f.service.workspace_bookmarks.len(), 1);
+    let remembered = f.service.workspace_bookmarks[0].resource.clone();
+    let effects = f.service.pump_workspaces();
+    f.apply(effects);
+    assert_eq!(
+        f.service
+            .workspace_command(
+                &wrong,
+                Command::Forget {
+                    resource: remembered.clone()
+                }
+            )
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    assert_eq!(f.service.workspace_bookmarks.len(), 1);
+    assert_eq!(
+        f.service
+            .resource_request(
+                scope,
+                api::Operation::Spawn {
+                    program: "untrusted".into(),
+                    args: vec![],
+                    cwd: path.clone(),
+                    env: vec![],
+                }
+            )
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    let request = f
+        .service
+        .resource_request(
+            scope,
+            api::Operation::Read {
+                path,
+                offset: 0,
+                limit: 8,
+            },
+        )
+        .unwrap();
+    let pending = f.service.workspace_router.poll(&owner, 1);
+    assert!(matches!(&pending[0], api::Delivery::Request(value) if value.id == request));
+    f.service
+        .workspace_router
+        .complete(
+            &owner,
+            request,
+            Ok(api::Answer::Bytes {
+                bytes: vec![0, 255],
+                revision: Some("r1".into()),
+                eof: true,
+            }),
+        )
+        .unwrap();
+    assert!(f.service.pump_workspaces().iter().any(|effect| matches!(effect,
+        Effect::ResourceDelivery(api::Delivery::Complete { request: id, result: Ok(api::Answer::Bytes { bytes, .. }) }) if *id == request && bytes == &[0, 255])));
+    let effects = f.service.stop(&owner.id);
+    f.apply(effects);
+    assert!(f.app.explorer.resources.roots.is_empty());
+    assert_eq!(
+        f.app.explorer.resources.bookmarks.len(),
+        1,
+        "retirement preserves recovery"
+    );
+    assert_eq!(
+        f.service
+            .resource_request(
+                scope,
+                api::Operation::Read {
+                    path: api::ProviderPath::new("opaque:file").unwrap(),
+                    offset: 0,
+                    limit: 8
+                }
+            )
+            .unwrap_err()
+            .kind,
+        api::FailureKind::Unavailable
+    );
+}
+
+#[test]
+fn workspace_consumers_discover_bounded_pages_and_require_package_grants_and_root_trust() {
+    use loog_workspace_api::{
+        self as api,
+        session::{Command, Event as WorkspaceEvent, Reply},
+    };
+    let mut manifest: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+    manifest["capabilities"] = serde_json::json!([
+        "documents.read",
+        "workspace.edit",
+        "workspace.provide",
+        "workspace.files.read",
+        "process.execute-environment"
+    ]);
+    let mut f = fixture_with("resource-consumer", "", 0..0, &manifest.to_string());
+    f.run("example.tools.uppercase");
+    f.pump_until(|f| f.service.packages["example.tools"].lifecycle.state() == State::Active);
+    let owner = api::Owner {
+        id: "example.tools".into(),
+        generation: f.service.packages["example.tools"].lifecycle.generation(),
+    };
+    f.service
+        .packages
+        .get_mut(&owner.id)
+        .unwrap()
+        .manifest
+        .contributes
+        .settings = serde_json::from_value(serde_json::json!([
+        {"key":"example.tools.projectValue","kind":"string","default":"default"},
+        {"key":"example.tools.userValue","kind":"string","default":"default","scope":"user"}
+    ]))
+    .unwrap();
+    f.service.set_setting_sources(serde_json::json!({"example.tools.projectValue":"user","example.tools.userValue":"user","another.plugin.secret":"hidden"}),
+        Some(serde_json::json!({"example.tools.projectValue":"wrong-local-project"})), true);
+    let resolve = |f: &mut Fixture, scope, project| {
+        let Reply::Settings { values } = f
+            .service
+            .workspace_command(&owner, Command::ResolveSettings { scope, project })
+            .unwrap()
+        else {
+            panic!("settings")
+        };
+        values
+            .into_iter()
+            .map(|(key, value)| (key, serde_json::from_str::<String>(&value).unwrap()))
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    let project_settings = || {
+        Some(
+            serde_json::json!({"example.tools.projectValue":"remote-project","example.tools.userValue":"forbidden"}),
+        )
+    };
+    let defaults = resolve(&mut f, None, None);
+    assert_eq!(defaults.len(), 2);
+    assert_eq!(defaults["example.tools.projectValue"], "user");
+    let notices = |effects: &[Effect]| {
+        effects
+            .iter()
+            .filter(|effect| {
+                matches!(
+                    effect,
+                    Effect::Submit(Job::WorkspaceEvent {
+                        event: WorkspaceEvent::SettingsChanged,
+                        ..
+                    })
+                )
+            })
+            .count()
+    };
+    let set_user = |f: &mut Fixture, value: &str| {
+        f.service.set_setting_sources(
+        serde_json::json!({"example.tools.projectValue":value,"example.tools.userValue":"user"}),
+        Some(serde_json::json!({"example.tools.projectValue":"wrong-local-project"})), true)
+    };
+    let effects = set_user(&mut f, "user-two");
+    assert_eq!(
+        notices(&effects),
+        1,
+        "a native project override must not hide user-layer changes"
+    );
+    assert!(effects.iter().any(|effect| matches!(effect, Effect::Submit(Job::Settings { changed, .. }) if changed.is_empty())));
+    assert_eq!(
+        notices(&set_user(&mut f, "user-three")),
+        0,
+        "coalesced until acknowledged"
+    );
+    assert_eq!(
+        resolve(&mut f, None, None)["example.tools.projectValue"],
+        "user-three"
+    );
+    assert_eq!(notices(&set_user(&mut f, "user")), 1);
+    assert_eq!(resolve(&mut f, None, None), defaults);
+    let effects = f.service.set_setting_sources(
+        serde_json::json!({"example.tools.projectValue":"user","example.tools.userValue":"user","another.plugin.secret":"changed"}),
+        Some(serde_json::json!({"example.tools.projectValue":"another-native-project"})), true);
+    assert_eq!(
+        notices(&effects),
+        0,
+        "unrelated keys and native-project changes do not invalidate resource settings"
+    );
+    assert_eq!(
+        f.service
+            .workspace_command(
+                &owner,
+                Command::ResolveSettings {
+                    scope: None,
+                    project: project_settings()
+                }
+            )
+            .unwrap_err()
+            .kind,
+        api::FailureKind::InvalidRequest
+    );
+    let trust =
+        std::sync::Arc::new(crate::infrastructure::extensions::trust_store::TrustStore::default());
+    f.service.set_trust(trust.clone());
+    let key = api::EnvironmentKey::new("example.tools", "consumer-test").unwrap();
+    let Reply::Environment { id: environment } = f
+        .service
+        .workspace_command(
+            &owner,
+            Command::Register {
+                descriptor: api::EnvironmentDescriptor {
+                    key: key.clone(),
+                    name: "Memory".into(),
+                    platform: "test".into(),
+                    capabilities: vec![
+                        api::Capability::FilesRead,
+                        api::Capability::FilesWrite,
+                        api::Capability::Process,
+                    ],
+                },
+            },
+        )
+        .unwrap()
+    else {
+        panic!("environment")
+    };
+    let mut scopes = Vec::new();
+    for token in ["\u{1}".repeat(32 * 1024), "\u{2}".repeat(32 * 1024)] {
+        let path = api::ProviderPath::new(token).unwrap();
+        let Reply::Scope { id } = f
+            .service
+            .workspace_command(
+                &owner,
+                Command::Mount {
+                    environment,
+                    root: path.clone(),
+                },
+            )
+            .unwrap()
+        else {
+            panic!("scope")
+        };
+        f.service
+            .workspace_command(&owner, Command::Present { scope: id })
+            .unwrap();
+        scopes.push((id, path));
+    }
+    let (scope, path) = &scopes[0];
+    let read = || Command::Request {
+        scope: *scope,
+        operation: api::Operation::Stat { path: path.clone() },
+        timeout_ms: 1000,
+    };
+    assert_eq!(
+        f.service
+            .workspace_command(&owner, read())
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    let Reply::Roots { roots, next } = f
+        .service
+        .workspace_command(
+            &owner,
+            Command::Roots {
+                after: None,
+                limit: 32,
+            },
+        )
+        .unwrap()
+    else {
+        panic!("roots")
+    };
+    assert_eq!(roots.len(), 1, "JSON byte limit, not just the item limit");
+    assert_eq!(next, Some(*scope));
+    assert_eq!(roots[0].capabilities, vec![api::Capability::FilesRead]);
+    let resource = roots[0].resource.clone();
+    assert_eq!(resolve(&mut f, Some(*scope), project_settings()), defaults);
+    assert_eq!(
+        f.service
+            .workspace_command(
+                &owner,
+                Command::ResolveSettings {
+                    scope: Some(u64::MAX),
+                    project: project_settings()
+                }
+            )
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    assert_eq!(
+        f.service
+            .workspace_command(
+                &owner,
+                Command::ResolveSettings {
+                    scope: Some(*scope),
+                    project: Some(
+                        serde_json::json!({"example.tools.projectValue":"x".repeat(256 * 1024)})
+                    )
+                }
+            )
+            .unwrap_err()
+            .kind,
+        api::FailureKind::LimitExceeded
+    );
+    let Reply::Roots {
+        roots: second,
+        next,
+    } = f
+        .service
+        .workspace_command(
+            &owner,
+            Command::Roots {
+                after: next,
+                limit: 32,
+            },
+        )
+        .unwrap()
+    else {
+        panic!("next page")
+    };
+    assert_eq!(second.len(), 1);
+    assert_eq!(next, None);
+    assert_eq!(second[0].scope, scopes[1].0);
+    f.service.pump_workspaces();
+    let Reply::Request { id } = f.service.workspace_command(&owner, read()).unwrap() else {
+        panic!("request")
+    };
+    assert!(
+        matches!(&f.service.workspace_router.poll(&owner, 1)[0], api::Delivery::Request(request) if request.id == id)
+    );
+    f.service
+        .workspace_router
+        .complete(
+            &owner,
+            id,
+            Err(api::Failure::new(api::FailureKind::NotFound, "fixture")),
+        )
+        .unwrap();
+    f.service.workspace_router.poll(&owner, 1);
+    let spawn = || Command::Request {
+        scope: *scope,
+        operation: api::Operation::Spawn {
+            program: "tool".into(),
+            args: vec![],
+            cwd: path.clone(),
+            env: vec![],
+        },
+        timeout_ms: 1000,
+    };
+    assert_eq!(
+        f.service
+            .workspace_command(&owner, spawn())
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    trust.decide_resource(&resource, true).unwrap();
+    let settings = resolve(&mut f, Some(*scope), project_settings());
+    assert_eq!(settings["example.tools.projectValue"], "remote-project");
+    assert_eq!(settings["example.tools.userValue"], "user");
+    assert_eq!(
+        resolve(&mut f, Some(scopes[1].0), project_settings()),
+        defaults
+    );
+    let effects = f.service.pump_workspaces();
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Submit(Job::WorkspaceEvent {
+            event: WorkspaceEvent::RootsChanged,
+            ..
+        })
+    )));
+    let Reply::Request { id } = f.service.workspace_command(&owner, spawn()).unwrap() else {
+        panic!("spawn")
+    };
+    let requests = f.service.workspace_router.poll(&owner, 1);
+    assert!(
+        matches!(&requests[0], api::Delivery::Request(request) if request.excluded_roots == vec![scopes[1].1.clone()])
+    );
+    f.service
+        .workspace_router
+        .complete(&owner, id, Ok(api::Answer::Started { handle: 99 }))
+        .unwrap();
+    f.service.workspace_router.poll(&owner, 1);
+    trust.decide_resource(&resource, false).unwrap();
+    assert_eq!(resolve(&mut f, Some(*scope), project_settings()), defaults);
+    let effects = f.service.pump_workspaces();
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Submit(Job::WorkspaceEvent {
+            event: WorkspaceEvent::Delivery {
+                event: api::Delivery::Notification {
+                    event: api::Notification::Exited { handle: 99, .. },
+                    ..
+                }
+            },
+            ..
+        })
+    )));
+    assert_eq!(
+        f.service
+            .workspace_command(&owner, spawn())
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    assert!(f.service.workspace_command(&owner, read()).is_ok());
+    assert_eq!(
+        f.service
+            .workspace_command(
+                &owner,
+                Command::Request {
+                    scope: *scope,
+                    operation: api::Operation::CreateFile { path: path.clone() },
+                    timeout_ms: 1000
+                }
+            )
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    f.service.retire_workspaces(&owner.id);
+    assert!(f.service.workspace_consumers.is_empty());
+    assert!(f.service.workspace_settings.is_empty());
+}
+
+#[test]
+fn resource_documents_require_current_package_grants_and_coalesce_changes_without_legacy_path_leaks()
+ {
+    use loog_workspace_api::{
+        self as api,
+        session::{Command, Event as WorkspaceEvent, Reply},
+    };
+    let mut f = fixture("resource-documents", "", 0..0);
+    f.run("example.tools.uppercase");
+    f.pump_until(|f| f.service.packages["example.tools"].lifecycle.state() == State::Active);
+    let owner = api::Owner {
+        id: "example.tools".into(),
+        generation: f.service.packages["example.tools"].lifecycle.generation(),
+    };
+    let resource = api::ResourceRef::provided(
+        api::EnvironmentKey::new("memory", "offline").unwrap(),
+        "/project/中.rs",
+    )
+    .unwrap();
+    let file = f.app.workspace.open_prepared_text(
+        crate::domain::workspace::PreparedTextFile::with_resource(
+            resource.clone(),
+            "中.rs".into(),
+            "unsaved".into(),
+            crate::domain::document::DiskState::from_contents("disk"),
+        ),
+        crate::domain::workspace::OpenMode::Permanent,
+    );
+    let query = || Command::Documents {
+        after: None,
+        revision: None,
+        limit: 32,
+    };
+    let Reply::Documents { documents, .. } = f
+        .service
+        .resource_document_command(&f.app, &owner, query())
+        .unwrap()
+    else {
+        panic!("documents")
+    };
+    let descriptor = documents
+        .into_iter()
+        .find(|d| d.resource == resource)
+        .unwrap();
+    let Reply::DocumentChunk { text, .. } = f
+        .service
+        .resource_document_command(
+            &f.app,
+            &owner,
+            Command::ReadDocument {
+                stamp: descriptor.stamp,
+                offset: 0,
+                limit: 16,
+            },
+        )
+        .unwrap()
+    else {
+        panic!("text")
+    };
+    assert_eq!(text, "unsaved");
+    let mut notices = 0;
+    for _ in 0..100 {
+        loog_editor_core::normal::insert(
+            &mut f.app.workspace.document_editor_mut(file).unwrap(),
+            "x",
+        );
+        notices += f
+            .service
+            .observe_resource_documents(&f.app)
+            .iter()
+            .filter(|effect| {
+                matches!(
+                    effect,
+                    Effect::Submit(Job::WorkspaceEvent {
+                        event: WorkspaceEvent::DocumentsChanged { .. },
+                        ..
+                    })
+                )
+            })
+            .count();
+    }
+    assert_eq!(
+        notices, 1,
+        "a slow consumer gets one invalidation until it queries again"
+    );
+    f.service
+        .resource_document_command(&f.app, &owner, query())
+        .unwrap();
+    assert!(f.service.observe_resource_documents(&f.app).is_empty());
+    let effects = f.service.observe(&f.app);
+    for effect in effects {
+        if let Effect::Submit(Job::Documents { changed, .. }) = effect {
+            assert!(
+                changed
+                    .iter()
+                    .all(|view| view.reference.path != "/project/中.rs")
+            );
+        }
+    }
+    let stale = api::Owner {
+        generation: owner.generation + 1,
+        ..owner.clone()
+    };
+    assert_eq!(
+        f.service
+            .resource_document_command(&f.app, &stale, query())
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    f.service.grants = Grants::default();
+    assert_eq!(
+        f.service
+            .resource_document_command(&f.app, &owner, query())
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    assert!(f.service.observe_resource_documents(&f.app).is_empty());
+}
+
+#[test]
+fn workspace_registration_uses_the_real_executor_and_is_withdrawn_on_stop() {
+    let mut manifest: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+    manifest["capabilities"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!("workspace.provide"));
+    manifest["activation"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({"kind":"command","id":"example.tools.workspace"}));
+    manifest["contributes"]["commands"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({"id":"example.tools.workspace","title":"Workspace fixture"}));
+    let mut fixture = fixture_with("workspace-register", "hello", 0..0, &manifest.to_string());
+    fixture.run("example.tools.workspace");
+    fixture.pump(|_, event| matches!(event, Event::Log { text, .. } if text.contains("workspace event") && text.contains("\"environment\"")));
+    let key = loog_workspace_api::EnvironmentKey::new("example.tools", "memory").unwrap();
+    assert!(fixture.service.workspace_router.resolve(&key).is_some());
+    let effects = fixture.service.stop("example.tools");
+    fixture.apply(effects);
+    assert!(fixture.service.workspace_router.resolve(&key).is_none());
+}
+
+#[test]
+fn user_tools_run_without_workspace_roots_and_require_their_own_package_grant() {
+    let mut manifest: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+    manifest["capabilities"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!("process.execute-tool"));
+    let mut f = fixture_with("user-tool", "", 0..0, &manifest.to_string());
+    f.run("example.tools.uppercase");
+    f.pump_until(|f| f.service.packages["example.tools"].lifecycle.state() == State::Active);
+    assert!(f.service.roots.is_empty());
+    assert!(f.service.trust.is_none());
+    let package = &f.service.packages["example.tools"];
+    let generation = package.lifecycle.generation();
+    let cwd = package.dir.clone();
+    let (program, args) = if cfg!(windows) {
+        (
+            "cmd.exe",
+            vec!["/d".into(), "/c".into(), "echo tool-fixture".into()],
+        )
+    } else {
+        ("printf", vec!["tool-fixture\\n".into()])
+    };
+    let plan = f
+        .service
+        .plan_user_tool("example.tools", program, &args)
+        .unwrap();
+    assert_eq!(plan.cwd, cwd);
+    assert!(plan.env.is_empty());
+    let effects = f.service.process_controls(
+        "example.tools",
+        generation,
+        vec![loog_extension_host::ProcessControl::LaunchTool {
+            process: 91,
+            program: program.into(),
+            args,
+        }],
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::StartProcess { .. }))
+    );
+    f.apply(effects);
+    f.pump_until(|f| {
+        f.log_lines()
+            .iter()
+            .any(|text| text.contains("process exited 91"))
+    });
+    assert!(
+        f.log_lines()
+            .iter()
+            .any(|text| text.contains("process output 91"))
+    );
+    let mut ungranted = fixture("user-tool-ungranted", "", 0..0);
+    assert!(
+        ungranted
+            .service
+            .plan_user_tool("example.tools", program, &[])
+            .is_err()
+    );
+    ungranted
+        .service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .manifest
+        .capabilities
+        .push("process.execute-tool".into());
+    assert!(
+        ungranted
+            .service
+            .plan_user_tool("example.tools", program, &[])
+            .is_err()
+    );
+}
+
+#[test]
+fn workspace_registration_without_its_package_grant_returns_a_failure() {
+    let mut manifest: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+    manifest["activation"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({"kind":"command","id":"example.tools.workspace"}));
+    manifest["contributes"]["commands"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({"id":"example.tools.workspace","title":"Workspace fixture"}));
+    let mut fixture = fixture_with(
+        "workspace-register-denied",
+        "hello",
+        0..0,
+        &manifest.to_string(),
+    );
+    fixture.run("example.tools.workspace");
+    fixture.pump(|_, event| matches!(event, Event::Log { text, .. } if text.contains("workspace event") && text.contains("permission_denied")));
+    let key = loog_workspace_api::EnvironmentKey::new("example.tools", "memory").unwrap();
+    assert!(fixture.service.workspace_router.resolve(&key).is_none());
+}
+
 fn fixture_with(name: &str, text: &str, select: std::ops::Range<usize>, manifest: &str) -> Fixture {
-    fixture_package(name, text, select, &package_dir_with(name, manifest), None)
+    // These fixtures verify command/edit behavior with the real five-second
+    // processing budget. Cold compilation under parallel load is measured by
+    // separate startup tests, not charged to the correctness fixture's command.
+    fixture_package(
+        name,
+        text,
+        select,
+        &package_dir_with(name, manifest),
+        Some(precompiled_cache().clone()),
+    )
 }
 
 fn fixture_package(
@@ -282,6 +1131,54 @@ impl Fixture {
         let mut messages = Vec::new();
         for effect in effects {
             match effect {
+                Effect::ResourceBookmarks(bookmarks) => {
+                    self.app.explorer.resources.bookmarks = bookmarks
+                }
+                Effect::ResourceRoots(roots) => self.app.explorer.resources.sync(roots),
+                Effect::ResourceDelivery(_) => {}
+                Effect::ResourceWorkspaceEdit {
+                    owner,
+                    ticket,
+                    title,
+                    edit,
+                    stamps,
+                } => {
+                    let result = if self
+                        .service
+                        .resource_edit_current(&self.app, &owner, ticket)
+                    {
+                        crate::app::language_ui::resource_edits::commit(
+                            &mut self.app,
+                            &crate::app::language_ui::edit::Request {
+                                title,
+                                edit,
+                                stamps,
+                                rect: Default::default(),
+                                reply: None,
+                            },
+                            HashMap::new(),
+                        )
+                    } else {
+                        Err("Resource edit origin or authorization changed".into())
+                    };
+                    let result = result
+                        .map(|changed| loog_workspace_api::session::Reply::EditsApplied {
+                            changed: changed as u32,
+                            transaction: if changed == 0 {
+                                0
+                            } else {
+                                self.app.editor.language.next_transaction
+                            },
+                        })
+                        .map_err(|reason| {
+                            loog_workspace_api::Failure::new(
+                                loog_workspace_api::FailureKind::Conflict,
+                                reason,
+                            )
+                        });
+                    let effects = self.service.finish_resource_edit(&owner, ticket, result);
+                    messages.extend(self.apply(effects));
+                }
                 Effect::WorkspaceOperation {
                     id,
                     generation,
@@ -362,6 +1259,8 @@ impl Fixture {
                     self.published.push((source, items))
                 }
                 Effect::ClearDiagnostics { source } => self.cleared.push(source),
+                Effect::ClearLocalDiagnostics { source } => self.cleared.push(source),
+                Effect::ClearResourceDiagnostics { .. } => {}
                 Effect::PublishFindings {
                     source,
                     path,
@@ -386,6 +1285,10 @@ impl Fixture {
                     self.resolved.push((source, item))
                 }
                 Effect::LanguageAnswer { token, answer } => self.language.push((token, answer)),
+                Effect::LanguageFailure { token, message } => {
+                    self.language.push((token, None));
+                    messages.push(message);
+                }
                 Effect::OfferSnippets { source, items, .. } => {
                     self.offered.push((source, Some((items, false))))
                 }
@@ -1396,7 +2299,7 @@ fn language_providers_answer_with_the_replies_a_server_would_give_and_only_for_t
             &f.app,
             &LanguageAsk {
                 stamp,
-                path: f.path.clone(),
+                resource: f.path.clone().into(),
                 feature,
                 start,
                 end,
@@ -1458,7 +2361,7 @@ fn language_providers_answer_with_the_replies_a_server_would_give_and_only_for_t
     // A request for a state the document has left is not asked at all.
     let mut stale = LanguageAsk {
         feature: Feature::Hover,
-        path: f.path.clone(),
+        resource: f.path.clone().into(),
         stamp,
         start: 0,
         end: 0,
@@ -1505,7 +2408,7 @@ fn one_extension_cannot_hold_more_requests_open_than_the_cap_allows() {
         let now = f.app.workspace.documents[&file].stamp(file);
         let ask = LanguageAsk {
             feature: Feature::Hover,
-            path: path.clone(),
+            resource: path.clone().into(),
             stamp: crate::features::language_service::sync::Stamp {
                 incarnation: now.incarnation,
                 version: now.version,
@@ -2045,6 +2948,1316 @@ impl Fixture {
 }
 
 #[test]
+fn resource_documents_activate_only_explicit_matching_granted_consumers() {
+    let mut manifest: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+    manifest["activation"] = serde_json::json!([
+        {"kind":"event","name":"resource.documents"},
+        {"kind":"document","selector":{"languages":["rust"]}}
+    ]);
+    manifest["capabilities"] = serde_json::json!(["documents.read", "events"]);
+    manifest["contributes"] = serde_json::json!({});
+    let mut f = fixture_with(
+        "resource-document-activation",
+        "",
+        0..0,
+        &manifest.to_string(),
+    );
+    f.app = AppState::new();
+    assert!(f.service.observe_resource_documents(&f.app).is_empty());
+    let file = f.app.workspace.open_prepared_text(
+        crate::domain::workspace::PreparedTextFile::with_resource(
+            loog_workspace_api::ResourceRef::provided(
+                loog_workspace_api::EnvironmentKey::new("memory", "one").unwrap(),
+                "/work/code.rs",
+            )
+            .unwrap(),
+            "code.rs".into(),
+            "fn main() {}".into(),
+            crate::domain::document::DiskState::from_contents("fn main() {}"),
+        ),
+        crate::domain::workspace::OpenMode::Permanent,
+    );
+    let package = f.service.packages.get_mut("example.tools").unwrap();
+    package
+        .manifest
+        .capabilities
+        .retain(|cap| cap != "documents.read");
+    assert!(f.service.observe_resource_documents(&f.app).is_empty());
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .manifest
+        .capabilities
+        .push("documents.read".into());
+    let effects = f.service.observe_resource_documents(&f.app);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Submit(Job::Load { .. })))
+    );
+    assert!(f.service.observe_resource_documents(&f.app).is_empty());
+    f.apply(effects);
+    f.pump_until(|f| f.service.packages["example.tools"].lifecycle.state() == State::Active);
+    assert!(!f.service.seen.contains_key(&file));
+    assert!(f.service.packages["example.tools"].feeds.is_empty());
+}
+
+#[test]
+fn resource_documents_cross_the_real_wasm_mailbox_with_typed_identity_and_stale_read_failures() {
+    use loog_workspace_api::{
+        self as api,
+        session::{Command, Event as WorkspaceEvent, Reply},
+    };
+    fn query(f: &mut Fixture, command: Command) -> Result<Reply, api::Failure> {
+        let submitted = f.op(serde_json::json!({"op":"workspace","command":command}));
+        let ticket: u64 = submitted
+            .strip_prefix("workspace submitted ")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let result = |f: &Fixture| {
+            f.service
+                .package("example.tools")
+                .unwrap()
+                .logs
+                .iter()
+                .find_map(|(_, log)| {
+                    let event: WorkspaceEvent =
+                        serde_json::from_str(log.strip_prefix("workspace event ")?).ok()?;
+                    match event {
+                        WorkspaceEvent::Reply { ticket: id, result } if id == ticket => {
+                            Some(result)
+                        }
+                        _ => None,
+                    }
+                })
+        };
+        f.pump_until(|f| result(f).is_some());
+        result(f).unwrap()
+    }
+    let (mut f, _) = Fixture::ops(
+        "resource-documents-wasm",
+        r#"["documents.read", "workspace.edit", "languages"]"#,
+    );
+    let resource = api::ResourceRef::provided(
+        api::EnvironmentKey::new("memory", "independent").unwrap(),
+        "/work/a\\中.rs",
+    )
+    .unwrap();
+    let file = f.app.workspace.open_prepared_text(
+        crate::domain::workspace::PreparedTextFile::with_resource(
+            resource.clone(),
+            "a\\中.rs".into(),
+            "a😀b".into(),
+            crate::domain::document::DiskState::from_contents("a😀b"),
+        ),
+        crate::domain::workspace::OpenMode::Permanent,
+    );
+    f.app.workspace.open_path(f.path.clone(), "text".into());
+    let report = api::session::ResourceServiceReport {
+        key: "environment-session".into(),
+        state: api::session::ServiceState::Working,
+        detail: Some("Indexing project".into()),
+        contexts: Some(vec![resource.clone()]),
+    };
+    query(
+        &mut f,
+        Command::ReportServices {
+            reports: vec![report.clone()],
+        },
+    )
+    .unwrap();
+    let other = api::ResourceRef::provided(
+        api::EnvironmentKey::new("memory", "other").unwrap(),
+        "/work/a\\中.rs",
+    )
+    .unwrap();
+    assert_eq!(
+        f.service
+            .service_reports("example.tools", Some(&resource))
+            .len(),
+        1
+    );
+    assert!(
+        f.service
+            .service_reports("example.tools", Some(&other))
+            .is_empty()
+    );
+    assert!(
+        f.service
+            .service_reports(
+                "example.tools",
+                Some(&api::ResourceRef::local("/work/a\\中.rs"))
+            )
+            .is_empty()
+    );
+    assert!(f.service.service_reports("example.tools", None).is_empty());
+    let mut invalid = report.clone();
+    invalid.detail = Some("x".repeat(201));
+    assert!(
+        query(
+            &mut f,
+            Command::ReportServices {
+                reports: vec![invalid]
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        query(
+            &mut f,
+            Command::ReportServices {
+                reports: vec![report.clone(); 17]
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        query(
+            &mut f,
+            Command::ReportServices {
+                reports: vec![report.clone(); 2]
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(
+        f.service.service_reports("example.tools", Some(&resource))[0].1,
+        Some("Indexing project")
+    );
+    let capabilities = f.service.packages["example.tools"]
+        .manifest
+        .capabilities
+        .clone();
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .manifest
+        .capabilities
+        .retain(|cap| cap != "languages");
+    assert_eq!(
+        query(&mut f, Command::ReportServices { reports: vec![] })
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .manifest
+        .capabilities = capabilities;
+    assert_eq!(
+        f.service
+            .service_reports("example.tools", Some(&resource))
+            .len(),
+        1
+    );
+    let generation = f
+        .service
+        .package("example.tools")
+        .unwrap()
+        .lifecycle
+        .generation();
+    assert!(
+        f.service
+            .report_resource_services(
+                &api::Owner {
+                    id: "example.tools".into(),
+                    generation: generation + 1
+                },
+                vec![]
+            )
+            .is_err()
+    );
+    assert_eq!(
+        f.service
+            .service_reports("example.tools", Some(&resource))
+            .len(),
+        1
+    );
+    query(&mut f, Command::ReportServices { reports: vec![] }).unwrap();
+    assert!(
+        f.service
+            .service_reports("example.tools", Some(&resource))
+            .is_empty()
+    );
+    let Reply::Documents { documents, .. } = query(
+        &mut f,
+        Command::Documents {
+            after: None,
+            revision: None,
+            limit: 32,
+        },
+    )
+    .unwrap() else {
+        panic!("documents")
+    };
+    let stamp = documents
+        .into_iter()
+        .find(|document| document.resource == resource)
+        .unwrap()
+        .stamp;
+    let Reply::DocumentChunk { text, next, .. } = query(
+        &mut f,
+        Command::ReadDocument {
+            stamp,
+            offset: 1,
+            limit: 4,
+        },
+    )
+    .unwrap() else {
+        panic!("chunk")
+    };
+    assert_eq!(text, "😀");
+    assert_eq!(next, Some(5));
+    let language = f.app.workspace.documents[&file]
+        .meta
+        .lang
+        .definition()
+        .name
+        .to_string();
+    f.service.packages.get_mut("example.tools").unwrap().manifest.contributes.language_service.providers.push(
+        serde_json::from_value(serde_json::json!({"id":"example.tools.resource-diagnostics", "kind":"diagnostics", "selector":{"languages":[language]}})).unwrap()
+    );
+    f.service.packages.get_mut("example.tools").unwrap().manifest.contributes.language_service.providers.push(
+        serde_json::from_value(serde_json::json!({"id":"example.tools.resource-hover", "kind":"hover", "selector":{"languages":[language]}})).unwrap()
+    );
+    let ask = LanguageAsk {
+        feature: crate::features::providers::Feature::Hover,
+        resource: resource.clone(),
+        stamp: Stamp {
+            incarnation: f.app.workspace.documents[&file].incarnation,
+            version: stamp.version,
+        },
+        start: 0,
+        end: 0,
+        extra: serde_json::Value::Null,
+        target: None,
+        server: None,
+        timeout: Some(Duration::from_secs(5)),
+    };
+    let mut effects = vec![];
+    assert_eq!(
+        f.service.request_language(&f.app, &ask, 5001, &mut effects),
+        0,
+        "old providers must not receive resource requests"
+    );
+    assert!(
+        query(
+            &mut f,
+            Command::BindLanguageProviders {
+                providers: vec!["someone.else".into()]
+            }
+        )
+        .is_err()
+    );
+    query(
+        &mut f,
+        Command::BindLanguageProviders {
+            providers: vec!["example.tools.resource-hover".into()],
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        f.service.request_language(&f.app, &ask, 5001, &mut effects),
+        1
+    );
+    f.apply(effects);
+    f.pump_until(|f| f.language.iter().any(|(token, _)| *token == 5001));
+    assert!(f.language.iter().any(|(token, answer)| {
+        *token == 5001
+            && answer
+                .as_ref()
+                .is_some_and(|answer| answer.value.to_string().contains("hover at 0"))
+    }));
+    f.pump_until(|f| {
+        f.service.packages["example.tools"]
+            .logs
+            .iter()
+            .any(|(_, text)| text.contains("provider_document"))
+    });
+    query(&mut f, Command::BindLanguageProviders { providers: vec![] }).unwrap();
+    assert_eq!(
+        f.service.request_language(&f.app, &ask, 5002, &mut vec![]),
+        0
+    );
+    f.service.packages.get_mut("example.tools").unwrap().manifest.contributes.language_service.providers.push(
+        serde_json::from_value(serde_json::json!({"id":"example.tools.resource-definition", "kind":"definition", "selector":{"languages":[language]}})).unwrap()
+    );
+    query(
+        &mut f,
+        Command::BindLanguageProviders {
+            providers: vec!["example.tools.resource-definition".into()],
+        },
+    )
+    .unwrap();
+    let location_ask = LanguageAsk {
+        feature: crate::features::providers::Feature::Definition,
+        resource: resource.clone(),
+        stamp: ask.stamp,
+        start: 0,
+        end: 0,
+        extra: serde_json::Value::Null,
+        target: None,
+        server: None,
+        timeout: Some(Duration::from_secs(5)),
+    };
+    // Keep the request pending while the real guest mailbox submits typed
+    // locations; the base fixture's native-path location handler is not used.
+    assert_eq!(
+        f.service
+            .request_language(&f.app, &location_ask, 5003, &mut vec![]),
+        1
+    );
+    let request = *f
+        .service
+        .language_calls
+        .iter()
+        .find(|(_, token)| **token == 5003)
+        .unwrap()
+        .0;
+    let location = api::session::ResourceLocation {
+        resource: api::ResourceRef::provided(
+            resource.environment().unwrap().clone(),
+            "/work/unopened\\中.rs",
+        )
+        .unwrap(),
+        range: api::session::ResourceRange {
+            start: api::session::ResourcePosition {
+                line: 8,
+                character: 2,
+            },
+            end: api::session::ResourcePosition {
+                line: 8,
+                character: 5,
+            },
+            encoding: api::session::ColumnEncoding::Utf16,
+        },
+    };
+    let mut foreign = location.clone();
+    foreign.resource = api::ResourceRef::provided(
+        api::EnvironmentKey::new("memory", "different").unwrap(),
+        "/work/unopened\\中.rs",
+    )
+    .unwrap();
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideLocations {
+                request,
+                stamp,
+                locations: vec![foreign]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::InvalidRequest
+    );
+    let mut local = location.clone();
+    local.resource = api::ResourceRef::local(f.path.clone());
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideLocations {
+                request,
+                stamp,
+                locations: vec![local]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::InvalidRequest
+    );
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideLocations {
+                request,
+                stamp: api::session::DocumentVersion {
+                    lifecycle: stamp.lifecycle + 1,
+                    ..stamp
+                },
+                locations: vec![]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::Conflict
+    );
+    let mut backwards = location.clone();
+    backwards.range.end = api::session::ResourcePosition {
+        line: 0,
+        character: 0,
+    };
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideLocations {
+                request,
+                stamp,
+                locations: vec![backwards]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::InvalidRequest
+    );
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideLocations {
+                request,
+                stamp,
+                locations: vec![location.clone(); 257]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::LimitExceeded
+    );
+    query(
+        &mut f,
+        Command::ProvideLocations {
+            request,
+            stamp,
+            locations: vec![location.clone()],
+        },
+    )
+    .unwrap();
+    let answer = f
+        .language
+        .iter()
+        .find(|(token, _)| *token == 5003)
+        .unwrap()
+        .1
+        .as_ref()
+        .unwrap();
+    assert_eq!(answer.provider, "example.tools.resource-definition");
+    assert_eq!(
+        answer.value[0]["resource"],
+        serde_json::to_value(&location.resource).unwrap()
+    );
+    assert_eq!(answer.value[0]["range"]["x-loog-column-unit"], "utf16");
+    assert!(!f.service.provider_calls.contains_key(&request));
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideLocations {
+                request,
+                stamp,
+                locations: vec![]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::PermissionDenied
+    );
+    query(&mut f, Command::BindLanguageProviders { providers: vec![] }).unwrap();
+    f.service.packages.get_mut("example.tools").unwrap().manifest.contributes.language_service.providers.push(
+        serde_json::from_value(serde_json::json!({"id":"example.tools.resource-rename", "kind":"rename", "selector":{"languages":[language]}})).unwrap()
+    );
+    query(
+        &mut f,
+        Command::BindLanguageProviders {
+            providers: vec!["example.tools.resource-rename".into()],
+        },
+    )
+    .unwrap();
+    let edit_ask = LanguageAsk {
+        feature: crate::features::providers::Feature::Rename,
+        ..location_ask.clone()
+    };
+    assert_eq!(
+        f.service
+            .request_language(&f.app, &edit_ask, 5004, &mut vec![]),
+        1
+    );
+    let request = *f
+        .service
+        .language_calls
+        .iter()
+        .find(|(_, token)| **token == 5004)
+        .unwrap()
+        .0;
+    let edited = api::session::ResourceDocumentEdit {
+        resource: resource.clone(),
+        version: Some(stamp),
+        edits: vec![api::session::ResourceTextEdit {
+            range: api::session::ResourceRange {
+                start: api::session::ResourcePosition {
+                    line: 0,
+                    character: 0,
+                },
+                end: api::session::ResourcePosition {
+                    line: 0,
+                    character: 1,
+                },
+                encoding: api::session::ColumnEncoding::Utf8,
+            },
+            new_text: "renamed".into(),
+        }],
+    };
+    let mut invalid = edited.clone();
+    invalid.resource = other.clone();
+    invalid.version = None;
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideWorkspaceEdit {
+                request,
+                stamp,
+                documents: vec![invalid]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::InvalidRequest
+    );
+    let mut invalid = edited.clone();
+    invalid.version.as_mut().unwrap().lifecycle += 1;
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideWorkspaceEdit {
+                request,
+                stamp,
+                documents: vec![invalid]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::Conflict
+    );
+    let mut invalid = edited.clone();
+    invalid.edits[0].new_text = "x".repeat(512 * 1024 + 1);
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideWorkspaceEdit {
+                request,
+                stamp,
+                documents: vec![invalid]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::LimitExceeded
+    );
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideWorkspaceEdit {
+                request,
+                stamp,
+                documents: vec![edited.clone(); 2]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::InvalidRequest
+    );
+    let package = f.service.packages.get_mut("example.tools").unwrap();
+    package
+        .manifest
+        .capabilities
+        .retain(|c| c != "workspace.edit");
+    // The fixture's document command itself needs workspace.edit. Check this
+    // denial directly so that refusal to launch it cannot hide the result.
+    let owner = api::Owner {
+        id: "example.tools".into(),
+        generation: f.service.packages["example.tools"].lifecycle.generation(),
+    };
+    assert_eq!(
+        f.service
+            .provide_resource_edit(&f.app, &owner, request, stamp, vec![edited.clone()])
+            .unwrap_err()
+            .kind,
+        api::FailureKind::PermissionDenied
+    );
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .manifest
+        .capabilities
+        .push("workspace.edit".into());
+    let generation = f.service.packages["example.tools"].lifecycle.generation();
+    assert!(
+        f.service
+            .provide_resource_edit(
+                &f.app,
+                &api::Owner {
+                    id: "example.tools".into(),
+                    generation: generation + 1
+                },
+                request,
+                stamp,
+                vec![]
+            )
+            .is_err()
+    );
+    query(
+        &mut f,
+        Command::ProvideWorkspaceEdit {
+            request,
+            stamp,
+            documents: vec![edited.clone()],
+        },
+    )
+    .unwrap();
+    let answer = f
+        .language
+        .iter()
+        .find(|(token, _)| *token == 5004)
+        .unwrap()
+        .1
+        .as_ref()
+        .unwrap();
+    assert_eq!(answer.provider, "example.tools.resource-rename");
+    assert_eq!(
+        answer.value["resourceChanges"][0],
+        serde_json::to_value(&edited).unwrap()
+    );
+    assert!(!f.service.provider_calls.contains_key(&request));
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideWorkspaceEdit {
+                request,
+                stamp,
+                documents: vec![]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::PermissionDenied
+    );
+    query(&mut f, Command::BindLanguageProviders { providers: vec![] }).unwrap();
+    f.service.packages.get_mut("example.tools").unwrap().manifest.contributes.language_service.providers.push(
+        serde_json::from_value(serde_json::json!({"id":"example.tools.resource-actions", "kind":"code-actions", "selector":{"languages":[language]}})).unwrap()
+    );
+    query(
+        &mut f,
+        Command::BindLanguageProviders {
+            providers: vec!["example.tools.resource-actions".into()],
+        },
+    )
+    .unwrap();
+    let begin_action = |f: &mut Fixture, token| {
+        let ask = LanguageAsk {
+            feature: crate::features::providers::Feature::CodeAction,
+            ..location_ask.clone()
+        };
+        assert_eq!(
+            f.service.request_language(&f.app, &ask, token, &mut vec![]),
+            1
+        );
+        *f.service
+            .language_calls
+            .iter()
+            .find(|(_, value)| **value == token)
+            .unwrap()
+            .0
+    };
+    let request = begin_action(&mut f, 5005);
+    let action = api::session::ResourceCodeAction {
+        title: "Resource action".into(),
+        kind: Some("quickfix".into()),
+        preferred: true,
+        disabled: None,
+        data: Some("opaque".into()),
+        documents: Some(vec![edited]),
+        command: Some(api::session::ResourceCommand {
+            name: "after".into(),
+            arguments: vec![],
+        }),
+    };
+    let mut invalid = action.clone();
+    invalid.documents.as_mut().unwrap()[0].resource = other.clone();
+    invalid.documents.as_mut().unwrap()[0].version = None;
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideCodeActions {
+                request,
+                stamp,
+                actions: vec![invalid]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::InvalidRequest
+    );
+    let stale = api::session::DocumentVersion {
+        version: stamp.version + 1,
+        ..stamp
+    };
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideCodeActions {
+                request,
+                stamp: stale,
+                actions: vec![]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::Conflict
+    );
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ProvideCodeActions {
+                request,
+                stamp,
+                actions: vec![action.clone(); 65]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::LimitExceeded
+    );
+    query(
+        &mut f,
+        Command::ProvideCodeActions {
+            request,
+            stamp,
+            actions: vec![action],
+        },
+    )
+    .unwrap();
+    let answer = f
+        .language
+        .iter()
+        .find(|(token, _)| *token == 5005)
+        .unwrap()
+        .1
+        .as_ref()
+        .unwrap();
+    assert_eq!(answer.provider, "example.tools.resource-actions");
+    assert_eq!(
+        answer.value[0]["edit"]["resourceChanges"][0]["resource"],
+        serde_json::to_value(&resource).unwrap()
+    );
+    assert_eq!(answer.value[0]["command"]["command"], "after");
+    assert!(!f.service.provider_calls.contains_key(&request));
+    assert!(
+        query(
+            &mut f,
+            Command::ProvideCodeActions {
+                request,
+                stamp,
+                actions: vec![]
+            }
+        )
+        .is_err()
+    );
+    let request = begin_action(&mut f, 5006);
+    assert_eq!(
+        query(
+            &mut f,
+            Command::FinishLanguageRequest {
+                request,
+                stamp,
+                error: None
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::InvalidRequest
+    );
+    query(
+        &mut f,
+        Command::FinishLanguageRequest {
+            request,
+            stamp,
+            error: Some("provider refused".into()),
+        },
+    )
+    .unwrap();
+    assert!(
+        f.language
+            .iter()
+            .any(|(token, answer)| *token == 5006 && answer.is_none())
+    );
+    assert!(!f.service.provider_calls.contains_key(&request));
+    query(&mut f, Command::BindLanguageProviders { providers: vec![] }).unwrap();
+    let diagnostic = api::session::ResourceDiagnostic {
+        start: 1,
+        end: 5,
+        severity: 1,
+        message: "resource finding".into(),
+        source: None,
+        code: None,
+        documentation_url: None,
+    };
+    assert!(matches!(
+        query(
+            &mut f,
+            Command::PublishDiagnostics {
+                provider: "example.tools.resource-diagnostics".into(),
+                stamp,
+                diagnostics: vec![diagnostic.clone()]
+            }
+        )
+        .unwrap(),
+        Reply::Done
+    ));
+    assert!(f.published.iter().any(|(_, items)| {
+        items
+            .iter()
+            .any(|item| item.message == "resource finding" && item.range == (1..5))
+    }));
+    assert_eq!(
+        query(
+            &mut f,
+            Command::PublishDiagnostics {
+                provider: "someone.else".into(),
+                stamp,
+                diagnostics: vec![]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::PermissionDenied
+    );
+    let mut malformed = diagnostic.clone();
+    malformed.start = 2;
+    assert_eq!(
+        query(
+            &mut f,
+            Command::PublishDiagnostics {
+                provider: "example.tools.resource-diagnostics".into(),
+                stamp,
+                diagnostics: vec![malformed]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::InvalidRequest
+    );
+    // The real mailbox returns a committed receipt only after the consumer has
+    // applied the buffer transaction; malformed ranges produce a failed receipt.
+    let mut edit = api::session::ResourceDocumentEdit {
+        resource: resource.clone(),
+        version: Some(stamp),
+        edits: vec![api::session::ResourceTextEdit {
+            range: api::session::ResourceRange {
+                start: api::session::ResourcePosition {
+                    line: 0,
+                    character: 0,
+                },
+                end: api::session::ResourcePosition {
+                    line: 0,
+                    character: 99,
+                },
+                encoding: api::session::ColumnEncoding::Utf8,
+            },
+            new_text: "A".into(),
+        }],
+    };
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ApplyWorkspaceEdit {
+                origin: stamp,
+                title: "Server edit".into(),
+                documents: vec![edit.clone()]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::Conflict
+    );
+    assert_eq!(f.app.workspace.documents[&file].buffer.text(), "a😀b");
+    let edit_owner = api::Owner {
+        id: "example.tools".into(),
+        generation,
+    };
+    for ticket in 9000..9004 {
+        assert!(matches!(
+            f.service
+                .prepare_resource_edit(
+                    &f.app,
+                    &edit_owner,
+                    ticket,
+                    stamp,
+                    "Deferred".into(),
+                    vec![]
+                )
+                .unwrap(),
+            Effect::ResourceWorkspaceEdit { .. }
+        ));
+        assert!(f.service.resource_edit_current(&f.app, &edit_owner, ticket));
+    }
+    assert_eq!(
+        f.service
+            .prepare_resource_edit(&f.app, &edit_owner, 9004, stamp, "Deferred".into(), vec![])
+            .unwrap_err()
+            .kind,
+        api::FailureKind::LimitExceeded
+    );
+    assert!(
+        f.service
+            .cancel_resource_edit(
+                &api::Owner {
+                    id: "example.tools".into(),
+                    generation: generation + 1
+                },
+                9000
+            )
+            .is_err()
+    );
+    f.service.cancel_resource_edit(&edit_owner, 9000).unwrap();
+    assert!(!f.service.resource_edit_current(&f.app, &edit_owner, 9000));
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .manifest
+        .capabilities
+        .retain(|c| c != "workspace.edit");
+    assert!(!f.service.resource_edit_current(&f.app, &edit_owner, 9001));
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .manifest
+        .capabilities
+        .push("workspace.edit".into());
+    assert!(f.service.resource_edit_current(&f.app, &edit_owner, 9001));
+    let clock = std::mem::replace(&mut f.service.clock, Box::new(|| u64::MAX));
+    assert!(!f.service.resource_edit_current(&f.app, &edit_owner, 9001));
+    f.service.clock = clock;
+    for ticket in 9000..9004 {
+        let result = Err(api::Failure::new(
+            api::FailureKind::Cancelled,
+            "Cancelled test edit",
+        ));
+        assert_eq!(
+            f.service
+                .finish_resource_edit(&edit_owner, ticket, result)
+                .len(),
+            1
+        );
+        assert!(
+            f.service
+                .finish_resource_edit(&edit_owner, ticket, Ok(Reply::Done))
+                .is_empty()
+        );
+    }
+    assert!(f.service.cancel_resource_edit(&edit_owner, 9000).is_err());
+    edit.edits[0].range.end.character = 1;
+    let receipt = query(
+        &mut f,
+        Command::ApplyWorkspaceEdit {
+            origin: stamp,
+            title: "Server edit".into(),
+            documents: vec![edit],
+        },
+    )
+    .unwrap();
+    assert!(matches!(receipt, Reply::EditsApplied { transaction, changed: 1 } if transaction > 0));
+    assert_eq!(f.app.workspace.documents[&file].buffer.text(), "A😀b");
+    loog_editor_core::normal::insert(
+        &mut f.app.workspace.document_editor_mut(file).unwrap(),
+        "edit",
+    );
+    f.observe();
+    f.wait_for_log("documents_changed");
+    assert_eq!(
+        query(
+            &mut f,
+            Command::PublishDiagnostics {
+                provider: "example.tools.resource-diagnostics".into(),
+                stamp,
+                diagnostics: vec![diagnostic]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::Conflict
+    );
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ReadDocument {
+                stamp,
+                offset: 0,
+                limit: 16
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::Conflict
+    );
+    query(
+        &mut f,
+        Command::ReportServices {
+            reports: vec![report],
+        },
+    )
+    .unwrap();
+    let owner = api::Owner {
+        id: "example.tools".into(),
+        generation,
+    };
+    let effects = f.service.stop("example.tools");
+    f.apply(effects);
+    assert!(
+        f.service
+            .resource_documents
+            .reports(&owner, Some(&resource))
+            .is_empty()
+    );
+}
+
+#[test]
+fn resource_provider_configurations_cross_the_mailbox_without_native_or_environment_interference() {
+    use loog_workspace_api::{
+        self as api,
+        session::{
+            Command, Event as WorkspaceEvent, LanguageMode, Reply, ResourceProviderConfiguration,
+        },
+    };
+    fn query(f: &mut Fixture, command: Command) -> Result<Reply, api::Failure> {
+        let answer = f.op(serde_json::json!({"op":"workspace","command":command}));
+        let ticket: u64 = answer
+            .strip_prefix("workspace submitted ")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let result = |f: &Fixture| {
+            f.service.packages["example.tools"]
+                .logs
+                .iter()
+                .find_map(|(_, log)| {
+                    let event: WorkspaceEvent =
+                        serde_json::from_str(log.strip_prefix("workspace event ")?).ok()?;
+                    match event {
+                        WorkspaceEvent::Reply { ticket: id, result } if id == ticket => {
+                            Some(result)
+                        }
+                        _ => None,
+                    }
+                })
+        };
+        f.pump_until(|f| result(f).is_some());
+        result(f).unwrap()
+    }
+    let (mut f, _) = Fixture::ops(
+        "resource-capabilities",
+        r#"["documents.read","workspace.edit","languages"]"#,
+    );
+    let mut resources = vec![];
+    let mut files = vec![];
+    for environment in ["one", "two"] {
+        let resource = api::ResourceRef::provided(
+            api::EnvironmentKey::new("memory", environment).unwrap(),
+            "/same.rs",
+        )
+        .unwrap();
+        files.push(f.app.workspace.open_prepared_text(
+            crate::domain::workspace::PreparedTextFile::with_resource(
+                resource.clone(),
+                "same.rs".into(),
+                "fn main() {}".into(),
+                crate::domain::document::DiskState::from_contents("fn main() {}"),
+            ),
+            crate::domain::workspace::OpenMode::Permanent,
+        ));
+        resources.push(resource);
+    }
+    let native = f.app.workspace.file_id_for_path(&f.path).unwrap();
+    f.app.workspace.activate_document(native);
+    let provider = "example.tools.resource-definition";
+    let language = f.app.workspace.documents[&files[0]]
+        .meta
+        .lang
+        .definition()
+        .name
+        .to_string();
+    f.service.packages.get_mut("example.tools").unwrap().manifest.contributes.language_service.providers.push(
+        serde_json::from_value(serde_json::json!({"id":provider,"kind":"definition","selector":{"languages":[language]}})).unwrap());
+    query(
+        &mut f,
+        Command::BindLanguageProviders {
+            providers: vec![provider.into()],
+        },
+    )
+    .unwrap();
+    let configuration = |resource: api::ResourceRef, mode| ResourceProviderConfiguration {
+        provider: provider.into(),
+        contexts: vec![resource],
+        enabled: true,
+        modes: Some(vec![mode]),
+        revision: 1,
+        resolve: false,
+        prepare: false,
+        triggers: vec!["\n".into()],
+        retriggers: vec![],
+        commands: vec![],
+        aliases: vec!["Environment server".into()],
+    };
+    let first = configuration(resources[0].clone(), LanguageMode::Definition);
+    let second = configuration(resources[1].clone(), LanguageMode::Declaration);
+    query(
+        &mut f,
+        Command::ConfigureLanguageProviders {
+            configurations: vec![first.clone(), second.clone()],
+        },
+    )
+    .unwrap();
+    assert!(
+        f.service
+            .capability_sources(Some(&resources[0]))
+            .iter()
+            .any(|s| s.providers.definition && !s.providers.declaration)
+    );
+    assert!(
+        f.service
+            .capability_sources(Some(&resources[1]))
+            .iter()
+            .any(|s| !s.providers.definition && s.providers.declaration)
+    );
+    let native_resource = api::ResourceRef::local(f.path.with_extension("rs"));
+    assert!(
+        f.service
+            .capability_sources(Some(&native_resource))
+            .iter()
+            .any(|s| s.providers.definition && s.providers.declaration)
+    );
+    assert_eq!(
+        query(
+            &mut f,
+            Command::ConfigureLanguageProviders {
+                configurations: vec![first.clone(); 2]
+            }
+        )
+        .unwrap_err()
+        .kind,
+        api::FailureKind::InvalidRequest
+    );
+    assert!(
+        f.service
+            .capability_sources(Some(&resources[1]))
+            .iter()
+            .any(|s| s.providers.declaration)
+    );
+    let doc = &f.app.workspace.documents[&files[0]];
+    let ask = LanguageAsk {
+        feature: crate::features::providers::Feature::Definition,
+        resource: resources[0].clone(),
+        stamp: Stamp {
+            incarnation: doc.incarnation,
+            version: doc.buffer.version(),
+        },
+        start: 0,
+        end: 0,
+        extra: serde_json::Value::Null,
+        target: None,
+        server: Some("Environment server".into()),
+        timeout: Some(Duration::from_secs(10)),
+    };
+    assert_eq!(
+        f.service.request_language(&f.app, &ask, 8001, &mut vec![]),
+        1
+    );
+    let request = *f
+        .service
+        .language_calls
+        .iter()
+        .find(|(_, token)| **token == 8001)
+        .unwrap()
+        .0;
+    let generation = f.service.packages["example.tools"].lifecycle.generation();
+    let mut base = f
+        .service
+        .provider_configuration(
+            &f.service.packages["example.tools"],
+            provider,
+            Some(&resources[0]),
+        )
+        .unwrap()
+        .clone();
+    base.enabled = false;
+    let effects = f.service.handle_event(
+        &mut f.app,
+        Event::ProvidersConfigured {
+            id: "example.tools".into(),
+            generation,
+            configurations: vec![base],
+        },
+    );
+    assert!(f.service.provider_calls.contains_key(&request));
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::ClearLocalDiagnostics { .. }))
+    );
+    assert!(!effects.iter().any(|e| matches!(
+        e,
+        Effect::ClearDiagnostics { .. } | Effect::ClearResourceDiagnostics { .. }
+    )));
+    f.apply(effects);
+    assert!(
+        f.service
+            .capability_sources(Some(&resources[1]))
+            .iter()
+            .any(|s| s.providers.declaration)
+    );
+    let owner = api::Owner {
+        id: "example.tools".into(),
+        generation,
+    };
+    assert!(
+        f.service
+            .configure_resource_providers(
+                &api::Owner {
+                    generation: generation + 1,
+                    ..owner.clone()
+                },
+                vec![]
+            )
+            .is_err()
+    );
+    let mut disabled = first;
+    disabled.enabled = false;
+    query(
+        &mut f,
+        Command::ConfigureLanguageProviders {
+            configurations: vec![disabled, second],
+        },
+    )
+    .unwrap();
+    assert!(!f.service.provider_calls.contains_key(&request));
+    assert!(
+        f.language
+            .iter()
+            .any(|(token, answer)| *token == 8001 && answer.is_none())
+    );
+    assert!(f.service.capability_sources(Some(&resources[0])).is_empty());
+    assert!(
+        f.service
+            .capability_sources(Some(&resources[1]))
+            .iter()
+            .any(|s| s.providers.declaration)
+    );
+    query(
+        &mut f,
+        Command::ConfigureLanguageProviders {
+            configurations: vec![],
+        },
+    )
+    .unwrap();
+    assert!(f.service.capability_sources(Some(&resources[1])).is_empty());
+}
+
+#[test]
 fn stored_values_live_in_their_scope_survive_a_restart_and_follow_the_set_of_folders() {
     let (mut f, _) = Fixture::ops(
         "store",
@@ -2300,6 +4513,111 @@ fn participants_change_the_text_in_one_undoable_step_after_all_of_them_answered(
     assert_eq!(f.text(), "a\nb\nkeep\n");
     f.app.workspace.document_editor_mut(file).unwrap().undo();
     assert_eq!(f.text(), "a  \nb  \nkeep\n", "one undo step");
+}
+
+#[test]
+fn resource_save_participants_share_temporary_snapshots_and_preserve_environment_identity() {
+    use loog_workspace_api::{EnvironmentKey, Owner, ResourceRef};
+    let probe = std::env::temp_dir().join("resource-save.txt");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&save_manifest(&language_of(&probe))).unwrap();
+    manifest["capabilities"]
+        .as_array_mut()
+        .unwrap()
+        .push("languages".into());
+    let mut prefix = manifest["contributes"]["language_service"]["providers"][0].clone();
+    prefix["id"] = "example.tools.a-prefix".into();
+    manifest["contributes"]["language_service"]["providers"]
+        .as_array_mut()
+        .unwrap()
+        .push(prefix);
+    let mut f = fixture_with(
+        "resource-save-chain",
+        "local  \n",
+        0..0,
+        &manifest.to_string(),
+    );
+    f.service.set_clock(|| 0);
+    // Activate through the unchanged local ABI, then opt in to resources.
+    f.begin_save();
+    f.pump_until(|f| !f.ready.is_empty());
+    assert!(f.ready[0].1);
+    f.ready.clear();
+    let local = f.text();
+    let mut resources = vec![];
+    let mut files = vec![];
+    for environment in ["one", "two"] {
+        let resource = ResourceRef::provided(
+            EnvironmentKey::new("test.provider", environment).unwrap(),
+            "/same/file.txt",
+        )
+        .unwrap();
+        let file = f.app.workspace.open_prepared_text(
+            crate::domain::workspace::PreparedTextFile::with_resource(
+                resource.clone(),
+                "file.txt".into(),
+                "x  \ny \n".into(),
+                crate::domain::document::DiskState::from_contents("x  \ny \n"),
+            ),
+            crate::domain::workspace::OpenMode::Permanent,
+        );
+        files.push(file);
+        resources.push(resource);
+    }
+    assert!(!f.service.has_participants(&f.app, &files));
+    let owner = Owner {
+        id: "example.tools".into(),
+        generation: f.service.packages["example.tools"].lifecycle.generation(),
+    };
+    f.service
+        .bind_resource_providers(
+            &owner,
+            vec!["example.tools.a-prefix".into(), "example.tools.trim".into()],
+        )
+        .unwrap();
+    assert!(f.service.has_participants(&f.app, &files));
+    let (chain, effects) = f.service.begin_save(&mut f.app, vec![files[0]]);
+    f.apply(effects);
+    assert_eq!(
+        f.app.workspace.documents[&files[0]].buffer.text(),
+        "x  \ny \n"
+    );
+    f.pump_until(|f| !f.ready.is_empty());
+    assert_eq!(f.ready, [(chain, true, None)]);
+    assert_eq!(
+        f.app.workspace.documents[&files[0]].buffer.text(),
+        "😀 x\ny\n"
+    );
+    assert_eq!(
+        f.app.workspace.documents[&files[0]].meta.resource,
+        resources[0]
+    );
+    assert_eq!(
+        f.app.workspace.documents[&files[1]].buffer.text(),
+        "x  \ny \n"
+    );
+    assert_eq!(f.text(), local);
+    f.app
+        .workspace
+        .document_editor_mut(files[0])
+        .unwrap()
+        .undo();
+    assert_eq!(
+        f.app.workspace.documents[&files[0]].buffer.text(),
+        "x  \ny \n"
+    );
+    f.ready.clear();
+    let (chain, effects) = f.service.begin_save(&mut f.app, vec![files[0]]);
+    f.apply(effects);
+    f.service.set_clock(|| u64::MAX);
+    let effects = f.service.expire_save(chain);
+    f.apply(effects);
+    assert_eq!(f.ready.len(), 1);
+    assert!(!f.ready[0].1);
+    assert_eq!(
+        f.app.workspace.documents[&files[0]].buffer.text(),
+        "x  \ny \n"
+    );
 }
 
 #[test]
@@ -2779,7 +5097,7 @@ fn official_language_components_reach_native_consumers_without_host_servers() {
             let document = &f.app.workspace.documents[&file];
             let ask = LanguageAsk {
                 feature,
-                path: path.clone(),
+                resource: path.clone().into(),
                 stamp: Stamp {
                     incarnation: document.incarnation,
                     version: document.buffer.version(),
@@ -3487,7 +5805,7 @@ fn typed_providers_cover_navigation_rename_hierarchies_lenses_and_their_origin_r
         let d = &f.app.workspace.documents[&file];
         let request = LanguageAsk {
             feature,
-            path: d.meta.path.clone(),
+            resource: d.meta.resource.clone(),
             stamp: Stamp {
                 incarnation: d.incarnation,
                 version: d.buffer.version(),

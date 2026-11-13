@@ -7,10 +7,13 @@ pub mod diff_document;
 pub mod diff_selection;
 #[cfg(test)]
 pub(crate) mod diff_selection_tests;
+pub mod diff_text;
 pub mod error;
 pub mod model;
 pub mod operation;
 pub mod parser;
+pub mod path;
+pub mod resources;
 pub mod snapshot;
 pub mod split_layout;
 pub mod types;

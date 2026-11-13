@@ -185,12 +185,17 @@ impl ExtensionService {
                     .workspace
                     .documents
                     .iter()
-                    .filter(|(_, d)| d.is_text() && d.meta.path.starts_with(path))
+                    .filter(|(_, d)| {
+                        d.is_text()
+                            && d.meta
+                                .local_path()
+                                .is_some_and(|file| file.starts_with(path))
+                    })
                     .find(|(file, _)| app.workspace.is_dirty(**file));
                 if let Some((_, document)) = dirty {
                     return Err(refuse(
                         ErrorKind::Conflict,
-                        format!("{} has unsaved changes", document.meta.path.display()),
+                        format!("{} has unsaved changes", document.meta.resource.display()),
                     ));
                 }
             }

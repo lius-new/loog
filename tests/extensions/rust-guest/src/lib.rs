@@ -3,10 +3,11 @@
 //! It shows the round protocol a Rust SDK has to provide: `dispatch` starts
 //! work and returns; host operations complete in a later `dispatch`.
 use std::cell::RefCell;
+mod memory_workspace;
 
 wit_bindgen::generate!({
     path: "../../../wit/loog-extension",
-    world: "extension-ui",
+    world: "extension-workspace",
     generate_all,
 });
 
@@ -50,7 +51,33 @@ fn run(
     selections: Vec<loog::extension::types::Selection>,
     precondition: Option<u64>,
 ) {
+    if memory_workspace::command(command) {
+        return;
+    }
+    if let Some(command) = command.strip_prefix("example.tools.launch:") {
+        let value: serde_json::Value = serde_json::from_str(command).unwrap();
+        let args: Vec<String> = serde_json::from_value(value["args"].clone()).unwrap();
+        match loog::workspace::tools::launch(value["program"].as_str().unwrap(), &args) {
+            Ok(process) => host::log(0, &format!("tool launched {process}")),
+            Err(error) => host::log(2, &error),
+        }
+        return;
+    }
+    if let Some(command) = command.strip_prefix("example.workspace:") {
+        match loog::workspace::session::submit(command) {
+            Ok(ticket) => host::log(0, &format!("workspace submitted {ticket}")),
+            Err(error) => host::log(2, &error),
+        }
+        return;
+    }
     match command {
+        "example.tools.workspace" => {
+            let request = r#"{"kind":"register","descriptor":{"key":{"provider":"example.tools","instance":"memory"},"name":"Memory files","platform":"independent","capabilities":["files_read"]}}"#;
+            match loog::workspace::session::submit(request) {
+                Ok(ticket) => host::log(0, &format!("workspace submitted {ticket}")),
+                Err(error) => host::log(2, &error),
+            }
+        }
         "example.tools.motion" => {
             use loog::extension::types::{UiDescription, UiKind, UiParent};
             use loog::ui::motion::{
@@ -312,6 +339,11 @@ fn run(
             let key = spec["key"].as_str().unwrap_or("k").to_owned();
             let value = spec["value"].as_str().unwrap_or_default().to_owned();
             let message = match spec["op"].as_str().unwrap_or_default() {
+                "workspace" => match loog::workspace::session::submit(&spec["command"].to_string())
+                {
+                    Ok(ticket) => format!("workspace submitted {ticket}"),
+                    Err(error) => format!("workspace refused: {error}"),
+                },
                 "configure" => {
                     let configuration = loog::extension::types::ProviderConfiguration {
                         modes: None,
@@ -516,6 +548,11 @@ fn run(
 
 impl Guest for Extension {
     fn dispatch(batch: Vec<Inbound>) -> Result<RoundStatus, HostError> {
+        for event in loog::workspace::session::poll() {
+            if !memory_workspace::event(&event) {
+                host::log(0, &format!("workspace event {event}"));
+            }
+        }
         for message in batch {
             match message {
                 Inbound::UiEvent(event) => {
@@ -829,6 +866,16 @@ impl Guest for Extension {
                         ProviderKind::Formatting
                         | ProviderKind::FormatOnType
                         | ProviderKind::Save => {
+                            if request.provider.ends_with(".a-prefix") {
+                                let _ = host::provide_edits(
+                                    request.request,
+                                    &[TextEdit {
+                                        range: ByteRange { start: 0, end: 0 },
+                                        text: "😀 ".into(),
+                                    }],
+                                );
+                                continue;
+                            }
                             let mut edits = Vec::new();
                             let mut offset = 0usize;
                             for line in text.split_inclusive('\n') {

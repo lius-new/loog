@@ -1,9 +1,9 @@
 //! Search input, composition, focus and viewport state; owned separately from business data.
 use crate::features::search::{SearchSpec, model::SearchModel};
 use crate::ui::components::input::InputState;
+use loog_workspace_api::ResourceRef;
 use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
-use std::path::PathBuf;
 
 #[derive(Clone, Default)]
 pub struct SearchUiState {
@@ -25,8 +25,8 @@ pub struct SearchUiState {
     pub scroll_y: f32,
     pub viewport_height: f32,
     pub scrollbar_drag: Option<(f32, f32)>,
-    pub selected: Option<(PathBuf, usize)>,
-    pub collapsed: HashSet<PathBuf>,
+    pub selected: Option<(ResourceRef, usize)>,
+    pub collapsed: HashSet<ResourceRef>,
 }
 
 impl SearchUiState {

@@ -26,7 +26,7 @@ pub fn facts(app: &AppState) -> ContextFacts {
             .and_then(|e| e.to_str())
             .map(str::to_owned),
         vim_mode: app.editor.vim.mode().context_name(),
-        trust: app.chrome.trust_question().is_some(),
+        trust: super::trust_prompt::question(app).is_some(),
         highlight_menu: app.highlight_menu.visible,
         language_services_menu: app.language_services_menu.visible,
         close: app.editor.close_request.is_some(),
@@ -35,7 +35,15 @@ pub fn facts(app: &AppState) -> ContextFacts {
         confirm: app.git.ui.confirm.is_some(),
         branch: app.git.ui.branch_picker.is_some(),
         palette: app.palette.visible,
-        commit: app.git.ui.commit_input.focused,
+        commit: app.git.ui.commit_input.focused
+            || app
+                .git
+                .resources
+                .model
+                .selected
+                .and_then(|scope| app.git.resources.model.entries.get(&scope))
+                .and_then(|entry| app.git.resources.messages.get(&entry.root.resource))
+                .is_some_and(|input| input.focused),
         search: app.drawer.visible
             && app.drawer.mode == crate::ui::drawer::DrawerMode::Search
             && (app.search.ui.query.focused

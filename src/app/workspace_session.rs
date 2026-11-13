@@ -21,6 +21,11 @@ pub use crate::domain::workspace_session::EditorLayout;
 pub use crate::domain::workspace_session::{SavedAxis, SavedChild, SavedPaneNode};
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct WorkspaceSession {
+    // COMPAT(local-only-workspace-session): Earlier sessions have no provider
+    // roots. Keep them readable as empty while resource-aware sessions add
+    // recovery records; remove only with that session format, no version scheduled.
+    #[serde(default, deserialize_with = "read_resource_roots")]
+    pub resource_roots: Vec<loog_workspace_api::session::ResourceBookmark>,
     #[serde(default)]
     pub open_folders: Vec<PathBuf>,
     #[serde(default)]
@@ -42,6 +47,11 @@ pub struct WorkspaceSession {
     pub terminal_titles: Vec<Option<String>>,
     #[serde(default)]
     pub terminal_directories: Vec<Option<PathBuf>>,
+    // COMPAT(local-only-terminal-session): Old files omit resource targets and
+    // retain local shells. New targets restore stopped, with no input replay.
+    // Remove with the old format; no removal version is scheduled.
+    #[serde(default)]
+    pub terminal_resources: Vec<Option<crate::features::terminal::model::ProvidedTerminal>>,
     #[serde(default)]
     pub terminal_workspace_root: Option<PathBuf>,
     #[serde(default)]
@@ -52,6 +62,19 @@ pub struct WorkspaceSession {
     pub terminal_height: Option<f32>,
     #[serde(default)]
     pub source_control_open: bool,
+}
+
+fn read_resource_roots<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<loog_workspace_api::session::ResourceBookmark>, D::Error> {
+    let roots = Vec::<loog_workspace_api::session::ResourceBookmark>::deserialize(deserializer)?;
+    let mut seen = std::collections::HashSet::new();
+    if roots.len() > 128 || roots.iter().any(|root| !seen.insert(root.resource.clone())) {
+        return Err(serde::de::Error::custom(
+            "Too many or duplicate resource recovery records",
+        ));
+    }
+    Ok(roots)
 }
 
 pub fn load() -> WorkspaceSession {
@@ -84,6 +107,58 @@ pub fn save(open_folders: &[PathBuf], recent_folders: &[PathBuf]) -> io::Result<
 
 pub fn save_window_geometry(geometry: WindowGeometry) -> io::Result<()> {
     update(|session| session.window = Some(geometry))
+}
+
+pub(crate) fn save_resource_roots(
+    roots: Vec<loog_workspace_api::session::ResourceBookmark>,
+) -> io::Result<()> {
+    if roots.len() > 128 {
+        return Err(io::Error::other("Too many saved resource roots"));
+    }
+    for root in &roots {
+        root.validate().map_err(io::Error::other)?;
+    }
+    let (reply, done) = std::sync::mpsc::sync_channel(1);
+    roots_writer()
+        .send(RootsWrite {
+            roots,
+            reply: Some(reply),
+        })
+        .map_err(|_| io::Error::other("Resource session writer stopped"))?;
+    done.recv()
+        .map_err(|_| io::Error::other("Resource session writer stopped"))?
+}
+pub(crate) fn queue_resource_roots(roots: Vec<loog_workspace_api::session::ResourceBookmark>) {
+    let _ = roots_writer().send(RootsWrite { roots, reply: None });
+}
+struct RootsWrite {
+    roots: Vec<loog_workspace_api::session::ResourceBookmark>,
+    reply: Option<std::sync::mpsc::SyncSender<io::Result<()>>>,
+}
+fn roots_writer() -> &'static std::sync::mpsc::Sender<RootsWrite> {
+    static WRITER: OnceLock<std::sync::mpsc::Sender<RootsWrite>> = OnceLock::new();
+    WRITER.get_or_init(|| {
+        let (sender, receiver) = std::sync::mpsc::channel::<RootsWrite>();
+        std::thread::Builder::new()
+            .name("loog-resource-session-writer".into())
+            .spawn(move || {
+                while let Ok(mut pending) = receiver.recv() {
+                    while pending.reply.is_none() {
+                        match receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+                            Ok(next) => pending = next,
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                        }
+                    }
+                    let result = update(|session| session.resource_roots = pending.roots);
+                    if let Some(reply) = pending.reply {
+                        let _ = reply.send(result);
+                    }
+                }
+            })
+            .expect("could not start resource session writer");
+        sender
+    })
 }
 
 pub fn save_terminal_workspace_root(root: Option<PathBuf>) -> io::Result<()> {
@@ -157,6 +232,7 @@ pub fn save_terminal_state(
     terminal_purposes: &[Option<String>],
     terminal_titles: &[Option<String>],
     terminal_directories: &[Option<PathBuf>],
+    terminal_resources: &[Option<crate::features::terminal::model::ProvidedTerminal>],
     active_terminal: Option<usize>,
     show_terminal: bool,
     terminal_height: f32,
@@ -168,6 +244,7 @@ pub fn save_terminal_state(
         session.terminal_purposes = terminal_purposes.to_vec();
         session.terminal_titles = terminal_titles.to_vec();
         session.terminal_directories = terminal_directories.to_vec();
+        session.terminal_resources = terminal_resources.to_vec();
         session.active_terminal = active_terminal;
         session.show_terminal = show_terminal;
         session.terminal_height = Some(terminal_height);
@@ -221,7 +298,8 @@ pub(crate) fn saved_app_editor_layout(app: &AppState) -> Option<EditorLayout> {
 
 pub(crate) fn save_editor_session(state: &AppContext) -> bool {
     let layout = saved_app_editor_layout(&state.get());
-    let result = save_editor_layout(layout.as_ref());
+    let result = save_editor_layout(layout.as_ref())
+        .and_then(|_| save_resource_roots(state.get().explorer.resources.bookmarks.clone()));
     if let Err(error) = result {
         state.update(|app| app.show_error(format!("Could not remember file tabs: {error}")));
         return false;
@@ -274,17 +352,35 @@ fn restore_editor_layout_with(
         let mut first = None;
         let mut active_id = None;
         for (index, saved) in items.into_iter().enumerate() {
-            let path = saved.path().to_path_buf();
-            let existing = app.workspace.file_id_for_path(&path);
-            let Some(document) = existing.or_else(|| open(&mut app.workspace, path)) else {
+            let resource = saved.resource();
+            let existing = app.workspace.file_id_for_resource(&resource);
+            let Some(document) = existing.or_else(|| match &saved {
+                editor_session::SavedView::Text { path, .. } => {
+                    open(&mut app.workspace, path.clone())
+                }
+                editor_session::SavedView::Resource {
+                    resource,
+                    root,
+                    name,
+                    encoding,
+                    ..
+                } => {
+                    let prepared = crate::domain::workspace::PreparedTextFile::offline(
+                        resource.clone(),
+                        name.clone(),
+                        encoding.clone(),
+                    )
+                    .with_provider_root(root.clone());
+                    Some(app.workspace.open_prepared_text(
+                        prepared,
+                        crate::domain::workspace::OpenMode::Permanent,
+                    ))
+                }
+            }) else {
                 continue;
             };
             let temporary = existing.is_none().then(|| app.workspace.active()).flatten();
-            if let crate::domain::workspace_session::SavedView::Text {
-                encoding: Some(encoding),
-                ..
-            } = &saved
-            {
+            if let Some(encoding) = saved.encoding() {
                 if let Some(doc) = app.workspace.documents.get_mut(&document) {
                     doc.recovery = Some(encoding.clone());
                     if doc.loading.is_none()
@@ -454,6 +550,7 @@ mod tests {
     #[test]
     fn workspace_session_round_trips_as_json() {
         let session = WorkspaceSession {
+            resource_roots: vec![],
             open_folders: vec![PathBuf::from("one"), PathBuf::from("two")],
             recent_folders: vec![PathBuf::from("two"), PathBuf::from("one")],
             window: Some(WindowGeometry {
@@ -494,6 +591,7 @@ mod tests {
             terminal_widths: vec![1.5, 0.5, 1.0],
             terminal_purposes: vec![Some("Testing".into()), None, Some("Development".into())],
             terminal_titles: vec![Some("API".into()), None, None],
+            terminal_resources: vec![None, None, None],
             terminal_directories: vec![
                 Some(PathBuf::from("one")),
                 None,
@@ -510,6 +608,39 @@ mod tests {
         let decoded: WorkspaceSession = serde_json::from_str(&json).unwrap();
 
         assert_eq!(decoded, session);
+    }
+
+    #[test]
+    fn resource_recovery_round_trips_and_rejects_invalid_or_duplicate_records() {
+        use loog_workspace_api::{
+            EnvironmentKey, ProviderPath, ResourceRef, session::ResourceBookmark,
+        };
+        let record = ResourceBookmark {
+            resource: ResourceRef::Provided {
+                environment: EnvironmentKey::new("example.provider", "test").unwrap(),
+                path: ProviderPath::new("opaque:root").unwrap(),
+            },
+            name: "Workspace".into(),
+            state: "{\"profile\":\"test\"}".into(),
+        };
+        let session = WorkspaceSession {
+            resource_roots: vec![record.clone()],
+            ..Default::default()
+        };
+        let wire = serde_json::to_value(&session).unwrap();
+        assert_eq!(
+            serde_json::from_value::<WorkspaceSession>(wire.clone()).unwrap(),
+            session
+        );
+        let mut duplicate = wire.clone();
+        duplicate["resource_roots"] = serde_json::json!([record.clone(), record]);
+        assert!(serde_json::from_value::<WorkspaceSession>(duplicate).is_err());
+        let mut invalid = wire.clone();
+        invalid["resource_roots"][0]["state"] = serde_json::json!("x".repeat(16 * 1024 + 1));
+        assert!(serde_json::from_value::<WorkspaceSession>(invalid).is_err());
+        let mut transient = wire;
+        transient["resource_roots"][0]["scope"] = serde_json::json!(1);
+        assert!(serde_json::from_value::<WorkspaceSession>(transient).is_err());
     }
 
     #[test]

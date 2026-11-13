@@ -96,16 +96,16 @@ pub struct DiffStat {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct FileState {
+pub struct FileState<P = PathBuf> {
     pub index: ChangeKind,
     pub worktree: ChangeKind,
     pub conflict: Option<ConflictKind>,
-    pub original_path: Option<PathBuf>,
+    pub original_path: Option<P>,
     pub index_stat: Option<DiffStat>,
     pub worktree_stat: Option<DiffStat>,
 }
 
-impl FileState {
+impl<P> FileState<P> {
     pub fn is_changed(&self) -> bool {
         self.index != ChangeKind::Unmodified
             || self.worktree != ChangeKind::Unmodified
@@ -185,19 +185,19 @@ pub struct OperationState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RepositorySnapshot {
+pub struct RepositorySnapshot<R = PathBuf, P: Ord = PathBuf> {
     pub id: RepositoryId,
-    pub worktree_root: PathBuf,
-    pub git_dir: PathBuf,
-    pub common_dir: PathBuf,
+    pub worktree_root: R,
+    pub git_dir: R,
+    pub common_dir: R,
     pub head: HeadState,
     pub upstream: Option<UpstreamState>,
     pub ahead: u32,
     pub behind: u32,
-    pub files: Arc<BTreeMap<PathBuf, FileState>>,
+    pub files: Arc<BTreeMap<P, FileState<P>>>,
     /// Paths that match an ignore rule, relative to the worktree root. An
     /// ignored directory is listed once and covers everything below it.
-    pub ignored: Arc<BTreeSet<PathBuf>>,
+    pub ignored: Arc<BTreeSet<P>>,
     pub repository_state: RepositoryState,
     /// The rebase step being applied and the total, during a rebase.
     pub operation_step: Option<(u32, u32)>,
@@ -208,7 +208,7 @@ pub struct RepositorySnapshot {
     /// Repository tags, newest first, including tags outside HEAD's history.
     pub tags: Arc<Vec<TagInfo>>,
     /// All worktrees sharing this repository, including the main worktree.
-    pub worktrees: Arc<Vec<WorktreeInfo>>,
+    pub worktrees: Arc<Vec<WorktreeInfo<R>>>,
     pub features: RepositoryFeatures,
     pub generation: u64,
 }
@@ -402,7 +402,7 @@ pub enum PathDecoration {
 }
 
 impl PathDecoration {
-    pub(crate) fn for_state(state: &FileState) -> Option<Self> {
+    pub(crate) fn for_state<P>(state: &FileState<P>) -> Option<Self> {
         if state.conflict.is_some() {
             return Some(Self::Conflict);
         }
@@ -560,8 +560,8 @@ pub struct TagDetails {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WorktreeInfo {
-    pub path: PathBuf,
+pub struct WorktreeInfo<R = PathBuf> {
+    pub path: R,
     pub oid: String,
     pub branch: Option<String>,
     pub bare: bool,

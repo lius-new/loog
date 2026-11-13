@@ -568,6 +568,9 @@ mod tests {
             .iter()
             .map(|item| match item {
                 crate::domain::workspace_session::SavedView::Text { source, .. } => source.cursor,
+                crate::domain::workspace_session::SavedView::Resource { source, .. } => {
+                    source.cursor
+                }
             })
             .collect::<Vec<_>>();
         assert_eq!(cursors, vec![13, 14]);

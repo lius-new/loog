@@ -217,6 +217,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             window_geometry::handle_focus_change(event.focused);
             // A background window does not poll; regaining focus rescans.
             window_focus_git_poll.set_paused(!event.focused);
+            window_focus_state.update(|app| app.git.resources.paused = !event.focused);
             if let Some(images) = window_focus_state
                 .services()
                 .and_then(|runtime| runtime.images())
@@ -337,6 +338,25 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         changed
     });
     let s = state.get();
+    let resource_git_state = state.clone();
+    cx.use_effect((), move || {
+        super::resource_git_tasks::start(resource_git_state)
+    });
+    let resource_git_state = state.clone();
+    let resource_git_key = (
+        s.explorer
+            .resources
+            .roots
+            .iter()
+            .map(|root| root.descriptor.clone())
+            .collect::<Vec<_>>(),
+        s.workspace.active_meta().map(|meta| meta.resource.clone()),
+        s.source_control.visible,
+    );
+    cx.use_effect(resource_git_key, move || {
+        super::resource_git_tasks::tick(&resource_git_state);
+        || {}
+    });
     let editing_key = s
         .workspace
         .documents
@@ -460,6 +480,11 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         workspace_persistence::queue_editor_layout(editor_layout);
         || {}
     });
+    let resource_roots = s.explorer.resources.bookmarks.clone();
+    cx.use_effect(resource_roots.clone(), move || {
+        workspace_persistence::queue_resource_roots(resource_roots);
+        || {}
+    });
     let document_state = state.clone();
     let active_view = (s.workspace.active_pane(), s.workspace.active());
     cx.use_effect(active_view, move || {
@@ -469,6 +494,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             // Leaving a view ends its Vim insert and returns it to Normal mode.
             crate::app::editor_vim::sync_view(app);
         });
+        crate::app::resources::reconnect_active(&document_state);
     });
     // The tree follows the active editor; the file's folders open and its row
     // scrolls into sight, but the drawer and focus stay as they are.
@@ -532,8 +558,9 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         || {}
     });
     let show_clone_dialog = s.git.ui.clone_visible;
-    let editing_explorer_entry =
-        s.explorer.model.create_request().is_some() || s.explorer.model.rename_request().is_some();
+    let editing_explorer_entry = s.explorer.model.create_request().is_some()
+        || s.explorer.model.rename_request().is_some()
+        || s.explorer.resources.edit.is_some();
 
     // ---- Region layout ------------------------------------------------
     let titlebar_rect = UiRect::new(0.0, 0.0, w, theme::TITLEBAR_H);
@@ -933,7 +960,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     });
     // The trust question takes keyboard focus the same way, again for each folder
     // it is asked about in turn.
-    let asking_about = s.chrome.trust_question().map(std::path::Path::to_path_buf);
+    let asking_about = super::trust_prompt::question(&s);
     let mounted_trust_focus = trust_dialog_focus.clone();
     cx.use_effect(asking_about.clone(), move || {
         if asking_about.is_some() {
@@ -1869,7 +1896,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             application_context.windows(),
         ));
     }
-    if s.chrome.trust_question().is_some() {
+    if super::trust_prompt::question(&s).is_some() {
         root = root.child(super::trust_prompt::render(
             vp,
             state.clone(),
@@ -1957,6 +1984,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         );
     }
 
+    root = root.child(crate::ui::extension_widgets::overlays(vp));
     let ui_state = state.clone();
     let extension_layer = crate::ui::extension_widgets::layer(
         vp,
@@ -1964,7 +1992,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             s.workspace
                 .active()
                 .and_then(|view| s.workspace.view_meta(view))
-                .map(|meta| meta.path.display().to_string())
+                .map(|meta| meta.context_key())
                 .as_deref(),
         ),
         Arc::new(move |origin, payload| {

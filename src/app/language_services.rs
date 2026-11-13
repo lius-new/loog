@@ -5,6 +5,7 @@ use crate::features::providers::{
     Cancellation, CodeActionContext, DocumentResults, PartSink, RequestHandle, RequestSpec,
     ResultStore, Stamp,
 };
+use loog_workspace_api::ResourceRef;
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -16,7 +17,7 @@ pub(crate) trait ExternalAnswers: Send + Sync {
     fn document_languages(&self, _languages: Vec<(PathBuf, String)>) {}
     fn saved(&self, _saved: crate::domain::document::SaveSnapshot) {}
     fn files_changed(&self, _change: crate::features::providers::FileChange) {}
-    fn capabilities(&self, _path: Option<&std::path::Path>) -> Vec<CapabilitySource> {
+    fn capabilities(&self, _resource: Option<&ResourceRef>) -> Vec<CapabilitySource> {
         Vec::new()
     }
     fn expected(&self, spec: &RequestSpec) -> usize;
@@ -35,7 +36,7 @@ pub(crate) struct CapabilitySource {
 pub(crate) struct LanguageServices {
     sent: Mutex<Option<u64>>,
     external: Mutex<Option<Arc<dyn ExternalAnswers>>>,
-    highlights: Mutex<std::collections::BTreeMap<(PathBuf, u64), HighlightPublication>>,
+    highlights: Mutex<std::collections::BTreeMap<(ResourceRef, u64), HighlightPublication>>,
     results: Mutex<ResultStore>,
     /// What services found in files that are not open, by file and source.
     closed: Mutex<std::collections::BTreeMap<(String, u64), ClosedFindings>>,
@@ -65,9 +66,9 @@ impl LanguageServices {
             .lock()
             .unwrap()
             .findings
-            .retain(|(path, _), publication| {
+            .retain(|(resource, _), publication| {
                 let Some(document) = app.workspace.documents.values().find(|d| {
-                    d.meta.path == *path
+                    &d.meta.resource == resource
                         && d.incarnation == publication.stamp.incarnation
                         && d.meta.language_generation == publication.stamp.language_generation
                 }) else {
@@ -111,9 +112,9 @@ impl LanguageServices {
                 publication.diagnostics = diagnostics.into();
                 true
             });
-        self.highlights.lock().unwrap().retain(|(path, _), p| {
+        self.highlights.lock().unwrap().retain(|(resource, _), p| {
             app.workspace.documents.values().any(|d| {
-                d.meta.path == *path
+                &d.meta.resource == resource
                     && d.incarnation == p.stamp.incarnation
                     && d.meta.language_generation == p.stamp.language_generation
                     && d.buffer.version() == p.stamp.version
@@ -133,11 +134,11 @@ impl LanguageServices {
                     .documents
                     .values()
                     .filter(|d| d.is_text())
-                    .map(|d| {
-                        (
-                            d.meta.path.clone(),
+                    .filter_map(|d| {
+                        Some((
+                            d.meta.local_path()?.to_path_buf(),
                             d.meta.lang.definition().name.to_string(),
-                        )
+                        ))
                     })
                     .collect(),
             );
@@ -157,7 +158,7 @@ impl LanguageServices {
     pub fn publish_external(
         &self,
         source: u64,
-        path: &std::path::Path,
+        resource: impl Into<ResourceRef>,
         stamp: crate::domain::document::DocumentStamp,
         text: Arc<String>,
         diagnostics: Arc<[crate::features::language_service::diagnostics::Diagnostic]>,
@@ -165,7 +166,7 @@ impl LanguageServices {
         self.results
             .lock()
             .unwrap()
-            .publish(source, path.into(), stamp, text, diagnostics);
+            .publish(source, resource.into(), stamp, text, diagnostics);
     }
     /// Replace what `source` found in a file that is not open; none removes it.
     pub fn publish_findings(
@@ -247,16 +248,31 @@ impl LanguageServices {
             .unwrap()
             .retain(|(_, id), _| *id != source);
     }
+    pub(crate) fn clear_external_matching(
+        &self,
+        source: u64,
+        matches: impl Fn(&ResourceRef) -> bool,
+    ) {
+        self.results
+            .lock()
+            .unwrap()
+            .findings
+            .retain(|(resource, id), _| *id != source || !matches(resource));
+        self.highlights
+            .lock()
+            .unwrap()
+            .retain(|(resource, id), _| *id != source || !matches(resource));
+    }
     pub fn publish_highlights(
         &self,
         source: u64,
-        path: PathBuf,
+        resource: impl Into<ResourceRef>,
         stamp: crate::domain::document::DocumentStamp,
         length: usize,
         spans: Vec<crate::features::syntax::TokenSpan>,
     ) {
         self.highlights.lock().unwrap().insert(
-            (path, source),
+            (resource.into(), source),
             HighlightPublication {
                 stamp,
                 length,
@@ -266,12 +282,13 @@ impl LanguageServices {
     }
     pub fn results(
         &self,
-        path: &std::path::Path,
+        resource: impl Into<ResourceRef>,
         stamp: &crate::domain::document::DocumentStamp,
     ) -> DocumentResults {
+        let resource = resource.into();
         let mut results = DocumentResults {
             diagnostics: self.results.lock().unwrap().diagnostics(
-                path,
+                &resource,
                 Stamp {
                     incarnation: stamp.incarnation,
                     version: stamp.version,
@@ -283,7 +300,7 @@ impl LanguageServices {
         let current = publications
             .iter()
             .filter(|((p, _), v)| {
-                p == path
+                p == &resource
                     && v.stamp.incarnation == stamp.incarnation
                     && v.stamp.version == stamp.version
                     && v.stamp.language_generation == stamp.language_generation
@@ -324,23 +341,23 @@ impl LanguageServices {
         }
         handle
     }
-    pub fn capability_sources(&self, path: Option<&std::path::Path>) -> Vec<CapabilitySource> {
+    pub fn capability_sources(&self, resource: Option<&ResourceRef>) -> Vec<CapabilitySource> {
         self.external
             .lock()
             .unwrap()
             .clone()
-            .map(|source| source.capabilities(path))
+            .map(|source| source.capabilities(resource))
             .unwrap_or_default()
     }
-    pub fn code_action_context(&self, path: &std::path::Path, stamp: Stamp) -> CodeActionContext {
+    pub fn code_action_context(&self, resource: &ResourceRef, stamp: Stamp) -> CodeActionContext {
         CodeActionContext {
             sources: self
-                .capability_sources(Some(path))
+                .capability_sources(Some(resource))
                 .into_iter()
                 .filter(|source| source.providers.code_action.is_some())
                 .map(|source| (source.id, source.run, source.revision))
                 .collect(),
-            diagnostics: self.results.lock().unwrap().parts(path, stamp),
+            diagnostics: self.results.lock().unwrap().parts(resource, stamp),
         }
     }
 }
@@ -357,7 +374,7 @@ fn fingerprint(app: &AppState) -> u64 {
         .filter(|d| d.is_text())
         .map(|d| {
             (
-                &d.meta.path,
+                &d.meta.resource,
                 d.incarnation,
                 d.buffer.version(),
                 d.meta.language_generation,

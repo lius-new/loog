@@ -96,7 +96,10 @@ impl Workspace {
         let Some(doc) = self.core.documents.get(&id).filter(|doc| doc.is_text()) else {
             return false;
         };
-        let disk = filesystem::capture_format(&doc.meta.path, doc.buffer.text(), doc.format());
+        let Some(path) = doc.meta.local_path() else {
+            return false;
+        };
+        let disk = filesystem::capture_format(path, doc.buffer.text(), doc.format());
         self.transaction(|core| core.mark_saved_with_disk(id, disk))
     }
 
@@ -141,10 +144,9 @@ impl Workspace {
             .filter(|id| {
                 self.core.documents.get(id).is_some_and(|document| {
                     (document.is_text() || document.image.is_some())
-                        && (full_rescan
-                            || changed_paths
-                                .iter()
-                                .any(|path| document.meta.path.starts_with(path)))
+                        && document.meta.local_path().is_some_and(|local| {
+                            full_rescan || changed_paths.iter().any(|path| local.starts_with(path))
+                        })
                 })
             })
             .collect::<Vec<_>>();
@@ -158,7 +160,11 @@ impl Workspace {
             let replacement = working.documents.remove(&id).unwrap();
             updates.push(PreparedDiskUpdate {
                 id,
-                path: original.meta.path.clone(),
+                path: original
+                    .meta
+                    .local_path()
+                    .expect("local watcher document")
+                    .to_path_buf(),
                 expected_disk: original.disk_state.clone(),
                 expected_observation: original.disk_observation,
                 expected_saved: original.saved_text.clone(),
@@ -183,8 +189,10 @@ impl Workspace {
                     || self.core.documents.get(id).is_some_and(|document| {
                         (document.is_text() || document.image.is_some())
                             && changed_paths.iter().any(|changed| {
-                                document.meta.path == *changed
-                                    || document.meta.path.starts_with(changed)
+                                document
+                                    .meta
+                                    .local_path()
+                                    .is_some_and(|path| path.starts_with(changed))
                             })
                     })
             })
@@ -195,6 +203,11 @@ impl Workspace {
     }
 
     pub fn reconcile_document(&mut self, id: FileId) -> ReconcileResult {
+        if let Some(document) = self.core.documents.get(&id)
+            && document.meta.local_path().is_none()
+        {
+            return ReconcileResult::Provided(document.meta.resource.clone());
+        }
         if self
             .core
             .documents
@@ -202,7 +215,11 @@ impl Workspace {
             .is_some_and(|d| d.image.is_some())
         {
             let document = &self.core.documents[&id];
-            let path = document.meta.path.clone();
+            let path = document
+                .meta
+                .local_path()
+                .expect("local document checked above")
+                .to_path_buf();
             let unchanged = std::fs::metadata(&path).is_ok_and(|metadata| {
                 metadata.len() == document.disk_state.size
                     && metadata.modified().ok() == document.disk_state.modified_time
@@ -239,7 +256,7 @@ impl Workspace {
             .filter(|doc| doc.is_text())
             .map_or(crate::domain::document::DiskRead::Missing, |doc| {
                 filesystem::read_with_encoding(
-                    &doc.meta.path,
+                    doc.meta.local_path().expect("local document checked above"),
                     doc.meta.read_override.map(|_| doc.format()),
                 )
             });
@@ -256,11 +273,19 @@ impl Workspace {
             return Err("Diff documents are read-only.".to_owned());
         }
         let (decoded, disk) = crate::infrastructure::document_filesystem::read_encoded(
-            &document.meta.path,
+            document
+                .meta
+                .local_path()
+                .ok_or("Resource reload requires its provider")?,
             document.meta.read_override.map(|_| document.format()),
             crate::infrastructure::document_filesystem::MAX_EDITABLE_FILE_BYTES,
         )
-        .map_err(|error| format!("Could not reload {}: {error}", document.meta.path.display()))?;
+        .map_err(|error| {
+            format!(
+                "Could not reload {}: {error}",
+                document.meta.resource.display()
+            )
+        })?;
         self.transaction(|core| {
             core.accept_disk_with(id, decoded.text, disk)?;
             if let Some(document) = core.documents.get_mut(&id) {
@@ -276,14 +301,21 @@ impl Workspace {
         let Some(document) = self.core.documents.get(&id).filter(|doc| doc.is_text()) else {
             return false;
         };
-        let disk = filesystem::read_contents(&document.meta.path)
+        let Some(path) = document.meta.local_path() else {
+            return false;
+        };
+        let disk = filesystem::read_contents(path)
             .ok()
-            .map(|contents| filesystem::capture(&document.meta.path, &contents));
+            .map(|contents| filesystem::capture(path, &contents));
         self.transaction(|core| core.keep_editor_with_disk(id, disk))
     }
 
     pub fn move_open_path(&mut self, old_path: &Path, new_path: PathBuf) -> bool {
-        let Some(id) = self.core.paths.get(old_path) else {
+        let Some(id) = self
+            .core
+            .paths
+            .get(&loog_workspace_api::ResourceRef::local(old_path))
+        else {
             return false;
         };
         let Some(document) = self.core.documents.get(id) else {
@@ -298,9 +330,10 @@ impl Workspace {
             .paths
             .keys()
             .filter_map(|path| {
+                let path = path.local_path()?;
                 path.strip_prefix(old_root)
                     .ok()
-                    .map(|relative| (path.clone(), new_root.join(relative)))
+                    .map(|relative| (path.to_path_buf(), new_root.join(relative)))
             })
             .collect::<Vec<_>>();
         let mut moved = 0;

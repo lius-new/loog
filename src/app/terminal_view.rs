@@ -30,6 +30,7 @@ fn session_frame(tab: crate::app::terminal_binding::TerminalTab) -> SessionFrame
         short_label,
         title,
         cwd: tab.working_directory(),
+        resource_directory: tab.resource_directory_label(),
         title_override: tab.title,
         purpose: tab.purpose,
         activity: tab.controller.command_activity(),
@@ -38,6 +39,11 @@ fn session_frame(tab: crate::app::terminal_binding::TerminalTab) -> SessionFrame
 }
 pub(crate) fn project(tabs: TerminalTabs) -> View {
     let mut live = tabs.frame_metadata();
+    let directories: std::collections::HashMap<_, _> = tabs
+        .tabs()
+        .iter()
+        .map(|tab| (tab.id, tab.resource_directory_label()))
+        .collect();
     let values = tabs
         .model()
         .tabs()
@@ -67,6 +73,7 @@ pub(crate) fn project(tabs: TerminalTabs) -> View {
                 short_label,
                 title,
                 cwd: cwd.or_else(|| tab.cwd()),
+                resource_directory: directories.get(&tab.id()).cloned().flatten(),
                 title_override: custom,
                 purpose,
                 running_program,

@@ -64,7 +64,7 @@ pub fn grow(ctx: &AppContext, app: &mut AppState) {
     services.sync(app);
     let handle = Arc::new(services.request(RequestSpec::new(
         Feature::SelectionRange,
-        t.path.clone(),
+        t.resource.clone(),
         t.lsp_stamp(),
         t.cursor,
     )));

@@ -1,7 +1,6 @@
 //! A viewport reads its own immutable scene and emits application intents.
 use std::collections::BTreeMap;
 use std::ops::Range;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use lgui::core::PointerButton;
@@ -15,7 +14,7 @@ use crate::domain::language::ResolvedLanguage;
 use crate::domain::line_change::LineChange;
 
 pub(crate) struct DocumentMeta {
-    pub path: PathBuf,
+    pub resource: loog_workspace_api::ResourceRef,
     pub lang: ResolvedLanguage,
 }
 #[derive(Clone)]

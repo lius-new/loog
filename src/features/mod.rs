@@ -15,6 +15,7 @@ pub(crate) mod palette;
 pub(crate) mod problems;
 pub(crate) mod process_framing;
 pub(crate) mod providers;
+pub(crate) mod resource_tree;
 
 pub(crate) mod search;
 

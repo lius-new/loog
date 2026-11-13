@@ -21,7 +21,7 @@ pub use self::registry::{LanguageDefinition, PLAIN_TEXT, Registry};
 // package compiles this module without those users.
 #[allow(unused_imports)]
 pub use self::rules::{
-    AssociationSpec, LanguageRules, PATH_CASE_INSENSITIVE, validate as validate_association,
+    AssociationSpec, Glob, LanguageRules, PATH_CASE_INSENSITIVE, validate as validate_association,
 };
 
 use std::hash::{Hash, Hasher};

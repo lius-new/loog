@@ -14,7 +14,15 @@ pub fn open(state: &AppContext) {
     state.update(|app| {
         if let Some(id) = app.workspace.active_document() {
             if let Some(doc) = app.workspace.documents.get(&id).filter(|d| d.is_text()) {
-                let options = app.settings_at(Some(&doc.meta.path)).encoding;
+                let options = doc
+                    .meta
+                    .provider_root
+                    .as_ref()
+                    .map_or_else(
+                        || app.settings_at(doc.meta.local_path()),
+                        |root| super::resource_project::settings(app, root),
+                    )
+                    .encoding;
                 let bytes = doc
                     .encoding_bytes
                     .clone()

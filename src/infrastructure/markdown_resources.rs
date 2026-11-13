@@ -72,6 +72,10 @@ pub fn load(base: Option<&Path>, destination: &str, remote: bool) -> Result<Load
         }
         Address::Anchor(_) => return Err("An anchor is not an image".into()),
     }
+    decode(bytes, local)
+}
+/// Decode supplied bytes without reading any filesystem or network resource.
+pub(crate) fn decode(bytes: Vec<u8>, local: Option<FileStamp>) -> Result<LoadedImage, String> {
     if bytes.len() > 8 * 1024 * 1024 {
         return Err("Image exceeds the 8 MiB encoded limit".into());
     }

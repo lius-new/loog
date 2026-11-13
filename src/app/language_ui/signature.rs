@@ -135,7 +135,10 @@ pub fn view(session: &Session) -> Option<View> {
 }
 
 /// Which brackets trigger signature help, from the servers that offer it.
-fn triggers(ctx: &AppContext, path: &std::path::Path) -> (Vec<String>, Vec<String>) {
+fn triggers(
+    ctx: &AppContext,
+    path: &loog_workspace_api::ResourceRef,
+) -> (Vec<String>, Vec<String>) {
     let mut open = Vec::new();
     let mut again = Vec::new();
     if let Some(services) = services(ctx) {
@@ -181,7 +184,7 @@ pub fn observe(ctx: &AppContext, app: &mut AppState, typed: Option<char>) {
     if !keep {
         close(app);
     }
-    let (open, again) = triggers(ctx, &t.path);
+    let (open, again) = triggers(ctx, &t.resource);
     let opens = typed.is_some_and(|c| open.iter().any(|s| s.chars().eq([c])));
     let refresh = app.editor.language.signature.is_some()
         && typed.is_some_and(|c| again.iter().any(|s| s.chars().eq([c])));
@@ -319,7 +322,7 @@ fn request_with_trigger(
     services.sync(app);
     let mut spec = RequestSpec::new(
         Feature::SignatureHelp,
-        t.path.clone(),
+        t.resource.clone(),
         t.lsp_stamp(),
         t.cursor,
     )

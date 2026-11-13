@@ -25,10 +25,30 @@ const META_SIZE: f32 = 9.0;
 const INPUT_H: f32 = search_field::HEIGHT;
 
 fn file_labels(file: &FileMatches, multiple_roots: bool) -> (String, String) {
+    if let Some(labels) = &file.provider {
+        let parent = labels
+            .relative
+            .get(..labels.relative.len().saturating_sub(1))
+            .unwrap_or_default()
+            .join("/");
+        let context = if multiple_roots {
+            if parent.is_empty() {
+                labels.root_name.clone()
+            } else {
+                format!("{}/{parent}", labels.root_name)
+            }
+        } else {
+            parent
+        };
+        return (labels.relative.join("/"), context);
+    }
+    let (Some(path), Some(root)) = (file.path.local_path(), file.root.local_path()) else {
+        return (file.path.display().to_string(), String::new());
+    };
     // Buffer paths may use Windows' verbatim prefix while search roots do not.
     // Normalize both lexically; drawing rows must not access the filesystem.
-    let path = std::path::PathBuf::from(crate::ui::display_path(&file.path));
-    let root = std::path::PathBuf::from(crate::ui::display_path(&file.root));
+    let path = std::path::PathBuf::from(crate::ui::display_path(path));
+    let root = std::path::PathBuf::from(crate::ui::display_path(root));
     let in_root = path.strip_prefix(&root).ok();
     let relative = in_root.unwrap_or(&path);
     let parent = relative.parent().unwrap_or(std::path::Path::new(""));
@@ -788,7 +808,7 @@ fn results(
             let group_focus = inputs.results_focus.clone();
             let path = file.path.clone();
             let (relative, context) = file_labels(&file, multiple_roots);
-            let name = file.path.file_name().unwrap_or_default().to_string_lossy();
+            let name = file.name();
             let count = number(file.matches.len());
             let badge_w =
                 (SingleLineText::new(&count, area, theme::mono(theme::c().text_soft, META_SIZE))
@@ -812,7 +832,7 @@ fn results(
             .min(available);
             let name_rect = UiRect::new(name_left, area.top, name_left + name_w, area.bottom);
             let mut heading = control_panel(area, false)
-                .key(format!("search-file-{}", file.path.display()))
+                .key(format!("search-file-{}", file.path.context_key()))
                 .semantics({
                     let mut semantics = Semantics::new(SemanticRole::Button).name(relative);
                     semantics.state.expanded = Some(expanded);
@@ -827,7 +847,7 @@ fn results(
                     });
                 })
                 .child(drawer_icon(
-                    UiId::owned(format!("search-chevron-{}", file.path.display())),
+                    UiId::owned(format!("search-chevron-{}", file.path.context_key())),
                     if expanded {
                         "chevron-down"
                     } else {
@@ -842,7 +862,7 @@ fn results(
                     theme::c().text_muted,
                 ))
                 .child(drawer_icon(
-                    UiId::owned(format!("search-file-icon-{}", file.path.display())),
+                    UiId::owned(format!("search-file-icon-{}", file.path.context_key())),
                     crate::ui::file_icons::icon_for_file(&name),
                     UiRect::new(
                         area.left + 25.0,
@@ -1040,7 +1060,7 @@ fn match_row(
     let highlight_right = measured.caret_x(highlight.end).max(highlight_left + 2.0);
     let click_file = file.clone();
     let mut row = control_panel(rect, false)
-        .key(format!("search-match-{}-{index}", file.path.display()))
+        .key(format!("search-match-{}-{index}", file.path.context_key()))
         .semantics({
             let mut semantics = Semantics::new(SemanticRole::Button).name(format!(
                 "Line {}: {}",

@@ -700,3 +700,10 @@ world extension-ui {
     import loog:service/status@0.1.0;
     import loog:service/findings@0.1.0;
 }
+
+/// Independent capability interface; previous worlds retain their shapes.
+world extension-workspace {
+    include extension-ui;
+    import loog:workspace/session@0.1.0;
+    import loog:workspace/tools@0.1.0;
+}

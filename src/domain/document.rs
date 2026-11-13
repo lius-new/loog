@@ -1,5 +1,6 @@
 //! Runtime document identity and metadata.
 
+use loog_workspace_api::ResourceRef;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -14,7 +15,11 @@ pub struct FileMeta {
     /// Bumped whenever the effective language changes, so results computed for
     /// the old language are dropped even if the text did not change.
     pub language_generation: u64,
-    pub path: PathBuf,
+    pub resource: ResourceRef,
+    /// Stable mounted root, independent of runtime scope handles.
+    pub provider_root: Option<ResourceRef>,
+    /// Provider-returned components below that root, never client Path parsing.
+    pub provider_relative: Option<Vec<String>>,
     pub encoding_source: crate::domain::encoding::EncodingSource,
     pub read_override: Option<crate::domain::encoding::TextFormat>,
 }
@@ -67,6 +72,16 @@ pub struct SaveSnapshot {
     pub format: crate::domain::encoding::TextFormat,
 }
 
+#[derive(Clone, Debug)]
+pub struct ResourceSaveSnapshot {
+    pub stamp: DocumentStamp,
+    pub resource: ResourceRef,
+    pub scope: loog_workspace_api::ScopeId,
+    pub revision: Option<String>,
+    pub text: std::sync::Arc<String>,
+    pub format: crate::domain::encoding::TextFormat,
+}
+
 /// A filesystem result. Missing and unreadable are distinct observations.
 #[derive(Clone, Debug)]
 pub enum DiskRead {
@@ -99,6 +114,18 @@ impl DiskState {
 pub use crate::domain::document_snapshot::content_hash;
 
 impl FileMeta {
+    pub fn local_path(&self) -> Option<&Path> {
+        self.resource.local_path()
+    }
+    pub fn context_key(&self) -> String {
+        // COMPAT(local-document-context): Existing components use the native
+        // display path as their shared UI context. Provided resources use the
+        // tagged resource key. Retire the local projection with the old
+        // DocumentRef contract; no removal version is scheduled.
+        self.local_path()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| self.resource.context_key())
+    }
     pub fn from_path(path: PathBuf) -> Self {
         let name = path
             .file_name()
@@ -111,7 +138,9 @@ impl FileMeta {
             encoding_source: Default::default(),
             read_override: None,
             language_generation: 0,
-            path,
+            resource: ResourceRef::local(path),
+            provider_root: None,
+            provider_relative: None,
         }
     }
 
@@ -125,11 +154,37 @@ impl FileMeta {
     }
 
     pub fn directory_label(&self) -> String {
-        self.path
-            .parent()
+        self.resource
+            .local_path()
+            .and_then(Path::parent)
             .and_then(Path::file_name)
             .map(|value| value.to_string_lossy().into_owned())
-            .unwrap_or_default()
+            .unwrap_or_else(|| {
+                self.resource
+                    .environment()
+                    .map(|e| e.instance().to_owned())
+                    .unwrap_or_default()
+            })
+    }
+
+    /// This is a filename hint for pure language recognition, never an IO path.
+    pub fn language_hint(&self) -> &Path {
+        self.resource
+            .local_path()
+            .unwrap_or_else(|| Path::new(&self.name))
+    }
+
+    pub fn provided(resource: ResourceRef, name: String) -> Self {
+        Self {
+            lang: crate::domain::language::Registry::builtin().resolve_filename(&name),
+            name,
+            resource,
+            encoding_source: Default::default(),
+            read_override: None,
+            language_generation: 0,
+            provider_root: None,
+            provider_relative: None,
+        }
     }
 }
 

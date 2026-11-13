@@ -1,0 +1,22 @@
+package loog:workspace@0.1.0;
+
+/// Generic capability broker. Payloads are UTF-8 JSON envelopes defined by
+/// loog-workspace-api::session, not a provider's wire protocol. Unknown fields
+/// and variants are rejected. Each submission completes on a later dispatch.
+interface session {
+    /// At most 1 MiB per envelope and 256 unconsumed submissions.
+    submit: func(command: string) -> result<u64, string>;
+    /// Called from guest dispatch. The executor schedules a round when events
+    /// arrive; an empty queue never requires guest polling or an idle timer.
+    poll: func() -> list<string>;
+}
+
+/// User-level tools, independent of workspace trust and root availability.
+/// Requires the separate process.execute-tool package grant. Working directory
+/// is the extension package; no workspace-derived launch configuration is read.
+interface tools {
+    /// Raw bytes and exit arrive through the existing process events. Use the
+    /// existing process write/close/kill functions with the returned handle.
+    /// The host never copies this tool's output into logs.
+    launch: func(program: string, args: list<string>) -> result<u64, string>;
+}

@@ -75,9 +75,7 @@ fn menu(state: &AppContext, app: &AppState) -> (highlight_menu::Menu, bool) {
         if !open_languages.contains(&name) {
             open_languages.push(name);
         }
-        if let Some(file) = document.meta.path.file_name() {
-            open_files.push(file.to_string_lossy().into_owned());
-        }
+        open_files.push(document.meta.name.clone());
     }
     let candidates = state
         .services()

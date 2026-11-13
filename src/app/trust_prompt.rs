@@ -10,8 +10,17 @@ use crate::features::keymap::action::Action;
 use crate::infrastructure::extensions::trust_store::TrustStore;
 use lgui::core::{UiFocusHandle, UiId};
 use lgui::prelude::{Element, UiRect};
+use loog_workspace_api::{Capability, ResourceRef};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+pub(crate) fn question(app: &AppState) -> Option<ResourceRef> {
+    app.chrome
+        .trust_question()
+        .map(ResourceRef::local)
+        .or_else(|| app.explorer.resources.trust_review.clone())
+        .or_else(|| app.explorer.resources.trust_prompt.clone())
+}
 
 /// The folder to ask about now: the first open folder nobody has decided on, else
 /// the folder of a file that is open outside every folder, when an extension
@@ -38,7 +47,7 @@ fn loose_directory(
 ) -> Option<PathBuf> {
     let id = app.workspace.active_document()?;
     let document = app.workspace.documents.get(&id).filter(|d| d.is_text())?;
-    let path = document.meta.path.as_path();
+    let path = document.meta.local_path()?;
     if app
         .explorer
         .model
@@ -60,6 +69,38 @@ fn loose_directory(
 /// what is decided. Runs after every state change.
 pub(crate) fn sync(app: &mut AppState, trust: &TrustStore, serves: impl Fn(&str) -> bool) {
     trust.set_workspace(app.explorer.model.roots());
+    app.explorer.resources.trust_prompt = trust
+        .ready()
+        .then(|| {
+            app.explorer
+                .resources
+                .roots
+                .iter()
+                .find(|root| {
+                    root.descriptor
+                        .capabilities
+                        .iter()
+                        .any(|cap| matches!(cap, Capability::Process | Capability::Terminal))
+                        && trust.resource_decision(&root.descriptor.resource) == Decision::Undecided
+                })
+                .map(|root| root.descriptor.resource.clone())
+        })
+        .flatten();
+    if app
+        .explorer
+        .resources
+        .trust_review
+        .as_ref()
+        .is_some_and(|resource| {
+            !app.explorer
+                .resources
+                .roots
+                .iter()
+                .any(|root| &root.descriptor.resource == resource)
+        })
+    {
+        app.explorer.resources.trust_review = None;
+    }
     let pending = pending_folder(app, trust, serves);
     if app.chrome.trust_prompt != pending {
         app.chrome.trust_prompt = pending;
@@ -75,10 +116,29 @@ pub(crate) fn sync(app: &mut AppState, trust: &TrustStore, serves: impl Fn(&str)
 /// What the title bar says while open folders are declined: how many, and what
 /// clicking it does. Nothing while a question is showing, which says it already.
 pub(crate) fn restricted(app: &AppState, trust: &TrustStore) -> Option<(usize, String)> {
-    if app.chrome.trust_question().is_some() {
+    if question(app).is_some() {
         return None;
     }
     let declined = trust.declined_open();
+    let resource_declined: Vec<_> = app
+        .explorer
+        .resources
+        .roots
+        .iter()
+        .filter(|root| trust.resource_decision(&root.descriptor.resource) == Decision::Declined)
+        .collect();
+    if !resource_declined.is_empty() {
+        let count = declined.len() + resource_declined.len();
+        let label = if count == 1 {
+            format!(
+                "{} is restricted. Decide again",
+                resource_declined[0].descriptor.name
+            )
+        } else {
+            format!("{count} folders are restricted. Decide again")
+        };
+        return Some((count, label));
+    }
     let first = declined.first()?;
     let name = |path: &Path| {
         path.file_name().map_or_else(
@@ -102,6 +162,26 @@ pub(crate) fn review(state: &AppContext) {
     };
     let declined = runtime.trust().declined_open();
     state.update(|app| {
+        let resources: Vec<_> = app
+            .explorer
+            .resources
+            .roots
+            .iter()
+            .filter(|root| {
+                runtime.trust().resource_decision(&root.descriptor.resource) == Decision::Declined
+            })
+            .map(|root| root.descriptor.resource.clone())
+            .collect();
+        if !resources.is_empty() {
+            let active = app
+                .workspace
+                .active_document()
+                .and_then(|id| app.workspace.documents[&id].meta.provider_root.clone());
+            app.explorer.resources.trust_review = active
+                .filter(|root| resources.contains(root))
+                .or_else(|| resources.first().cloned());
+            return;
+        }
         let active = app
             .workspace
             .active_path()
@@ -142,10 +222,23 @@ pub(crate) fn decide(state: &AppContext, root: &Path, trust: bool) {
 }
 
 fn answer(state: &AppContext, trust: bool) -> bool {
-    let Some(root) = state.get().chrome.trust_question().map(Path::to_path_buf) else {
+    let Some(root) = question(&state.get()) else {
         return false;
     };
-    decide(state, &root, trust);
+    if let Some(path) = root.local_path() {
+        decide(state, path, trust);
+    } else if let Some(runtime) = state.services() {
+        let saved = runtime.trust().decide_resource(&root, trust);
+        if let Some(host) = runtime.extensions() {
+            host.refresh_resource_grants();
+        }
+        state.update(|app| {
+            app.explorer.resources.trust_review = None;
+            if let Err(error) = saved {
+                app.show_error(format!("Could not save the trust decision: {error}"));
+            }
+        });
+    }
     true
 }
 
@@ -163,13 +256,28 @@ pub fn perform(state: &AppContext, editor_focus: &UiFocusHandle, action: Action)
     answered
 }
 
+fn question_label(app: &AppState) -> String {
+    question(app)
+        .map(|root| match root.local_path() {
+            Some(path) => crate::ui::display_path(path),
+            None => {
+                let ResourceRef::Provided { path, .. } = &root else {
+                    unreachable!()
+                };
+                app.explorer
+                    .resources
+                    .roots
+                    .iter()
+                    .find(|item| item.descriptor.resource == root)
+                    .map(|item| format!("{} — {}", item.descriptor.name, path.as_str()))
+                    .unwrap_or_else(|| path.as_str().to_owned())
+            }
+        })
+        .unwrap_or_default()
+}
+
 pub fn render(rect: UiRect, state: AppContext, id: UiId, focus: UiFocusHandle) -> Element {
-    let folder = state
-        .get()
-        .chrome
-        .trust_question()
-        .map(crate::ui::display_path)
-        .unwrap_or_default();
+    let folder = question_label(&state.get());
     let on_answer = state.clone();
     crate::ui::trust_prompt::render(
         rect,
@@ -185,6 +293,38 @@ pub fn render(rect: UiRect, state: AppContext, id: UiId, focus: UiFocusHandle) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn resource_questions_hide_opaque_ids_and_review_both_trust_decisions() {
+        let trust = store("resource-question");
+        let resource = ResourceRef::provided(
+            loog_workspace_api::EnvironmentKey::new("example.provider", "opaque-config").unwrap(),
+            "/work",
+        )
+        .unwrap();
+        let mut app = AppState::new();
+        app.explorer
+            .resources
+            .sync(vec![loog_workspace_api::PresentedRoot {
+                scope: 1,
+                resource: resource.clone(),
+                name: "Development".into(),
+                capabilities: vec![Capability::FilesRead, Capability::Terminal],
+            }]);
+        sync(&mut app, &trust, |_| false);
+        assert_eq!(question(&app), Some(resource.clone()));
+        assert_eq!(question_label(&app), "Development — /work");
+        trust.decide_resource(&resource, false).unwrap();
+        sync(&mut app, &trust, |_| false);
+        assert!(question(&app).is_none());
+        assert_eq!(restricted(&app, &trust).unwrap().0, 1);
+        trust.decide_resource(&resource, true).unwrap();
+        app.explorer.resources.trust_review = Some(resource.clone());
+        sync(&mut app, &trust, |_| false);
+        assert_eq!(question(&app), Some(resource));
+        app.explorer.resources.sync(vec![]);
+        sync(&mut app, &trust, |_| false);
+        assert!(question(&app).is_none());
+    }
 
     fn store(tag: &str) -> TrustStore {
         let store = TrustStore::default();

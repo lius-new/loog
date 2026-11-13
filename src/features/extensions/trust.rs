@@ -53,9 +53,35 @@ pub enum Decision {
 pub struct TrustedRoots {
     roots: BTreeSet<std::path::PathBuf>,
     declined: BTreeSet<std::path::PathBuf>,
+    resources: BTreeSet<loog_workspace_api::ResourceRef>,
+    declined_resources: BTreeSet<loog_workspace_api::ResourceRef>,
 }
 
 impl TrustedRoots {
+    /// Provider identities are exact; host platform path rules never apply.
+    pub fn decide_resource(&mut self, root: &loog_workspace_api::ResourceRef, trusted: bool) {
+        if root.environment().is_none() {
+            return;
+        }
+        if trusted {
+            self.declined_resources.remove(root);
+            self.resources.insert(root.clone());
+        } else {
+            self.resources.remove(root);
+            self.declined_resources.insert(root.clone());
+        }
+    }
+
+    pub fn resource_decision(&self, root: &loog_workspace_api::ResourceRef) -> Decision {
+        if self.resources.contains(root) {
+            Decision::Trusted
+        } else if self.declined_resources.contains(root) {
+            Decision::Declined
+        } else {
+            Decision::Undecided
+        }
+    }
+
     pub fn trust(&mut self, root: &std::path::Path) -> bool {
         let was_declined = self.declined.remove(root);
         self.roots.insert(root.to_path_buf()) || was_declined
@@ -136,8 +162,9 @@ impl TrustedRoots {
                 .map(|root| root.to_string_lossy().into_owned())
                 .collect()
         };
-        serde_json::json!({ "trusted": list(&self.roots), "declined": list(&self.declined) })
-            .to_string()
+        serde_json::json!({ "trusted": list(&self.roots), "declined": list(&self.declined),
+            "resource_trusted": self.resources, "resource_declined": self.declined_resources })
+        .to_string()
     }
 
     /// Tolerant of a missing or damaged file: that means nothing is trusted.
@@ -160,7 +187,34 @@ impl TrustedRoots {
             .into_iter()
             .filter(|path| !roots.contains(path))
             .collect();
-        Self { roots, declined }
+        // COMPAT(local-only-trust-file): Existing files have only local lists.
+        // Missing resource lists stay undecided while exact resource identities
+        // are added. Remove with the old format; no removal version is scheduled.
+        let read_resources = |key: &str| -> BTreeSet<loog_workspace_api::ResourceRef> {
+            value
+                .as_ref()
+                .and_then(|value| value.get(key))
+                .and_then(|list| list.as_array())
+                .filter(|list| list.len() <= 4096)
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| {
+                    serde_json::from_value::<loog_workspace_api::ResourceRef>(entry.clone()).ok()
+                })
+                .filter(|root| root.environment().is_some())
+                .collect()
+        };
+        let resources = read_resources("resource_trusted");
+        let declined_resources = read_resources("resource_declined")
+            .into_iter()
+            .filter(|root| !resources.contains(root))
+            .collect();
+        Self {
+            roots,
+            declined,
+            resources,
+            declined_resources,
+        }
     }
 }
 
@@ -231,6 +285,36 @@ mod tests {
     }
 
     const EXEC: &str = "process.execute-local";
+
+    #[test]
+    fn resource_trust_is_persisted_by_exact_environment_and_root_identity() {
+        use loog_workspace_api::{EnvironmentKey, ResourceRef};
+        let resource = |instance, path| {
+            ResourceRef::provided(
+                EnvironmentKey::new("example.provider", instance).unwrap(),
+                path,
+            )
+            .unwrap()
+        };
+        let root = resource("one", "/project");
+        let child = resource("one", "/project/nested");
+        let other = resource("two", "/project");
+        let mut roots = TrustedRoots::default();
+        roots.decide_resource(&root, true);
+        assert_eq!(roots.resource_decision(&root), Decision::Trusted);
+        assert_eq!(roots.resource_decision(&child), Decision::Undecided);
+        assert_eq!(roots.resource_decision(&other), Decision::Undecided);
+        assert!(!roots.is_trusted(std::path::Path::new("/project")));
+        roots.decide_resource(&child, false);
+        assert_eq!(TrustedRoots::from_json(&roots.to_json()), roots);
+        roots.decide_resource(&root, false);
+        assert_eq!(roots.resource_decision(&root), Decision::Declined);
+        assert_eq!(TrustedRoots::from_json(&roots.to_json()), roots);
+        assert_eq!(
+            TrustedRoots::from_json(r#"{"trusted":[],"declined":[]}"#).resource_decision(&root),
+            Decision::Undecided
+        );
+    }
 
     #[test]
     fn execution_needs_the_package_grant_and_a_trusted_root_and_nothing_more() {

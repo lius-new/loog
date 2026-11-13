@@ -30,7 +30,7 @@ pub struct RequestKey {
     pub density: f32,
     pub font_size: f32,
     pub line_height: f32,
-    pub base: Option<std::path::PathBuf>,
+    pub base: Option<super::markdown_assets::Base>,
     pub remote: bool,
     /// Lay out as a page (as the Markdown preview does) even though the request
     /// comes from a card, such as the readme of an extension.
@@ -75,7 +75,7 @@ struct LayoutEntry {
     width: f32,
     ink: Ink,
     resources: u64,
-    base: Option<std::path::PathBuf>,
+    base: Option<super::markdown_assets::Base>,
     remote: bool,
     page: bool,
     layout: Arc<DocumentLayout>,
@@ -100,6 +100,7 @@ struct Queue {
     loading: usize,
 }
 struct Shared {
+    context: super::context::AppContext,
     queue: Mutex<Queue>,
     wake: Condvar,
     alive: AtomicBool,
@@ -112,8 +113,13 @@ pub struct RenderWorker {
     shared: Arc<Shared>,
 }
 impl RenderWorker {
-    pub fn new(budget: MemoryBudget, notify: impl Fn() + Send + Sync + 'static) -> Self {
+    pub fn new(
+        budget: MemoryBudget,
+        context: super::context::AppContext,
+        notify: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
         let shared = Arc::new(Shared {
+            context,
             queue: Mutex::default(),
             wake: Condvar::new(),
             alive: AtomicBool::new(true),
@@ -341,7 +347,7 @@ const MAX_LOADERS: usize = 4;
 fn start_load(
     shared: &Arc<Shared>,
     assets: &mut super::markdown_assets::Assets,
-    base: Option<&std::path::Path>,
+    base: Option<&super::markdown_assets::Base>,
     destination: &str,
     remote: bool,
 ) {
@@ -357,10 +363,7 @@ fn start_load(
         queue.loading += 1;
     }
     assets.begin(base, destination, remote);
-    let (base, destination) = (
-        base.map(std::path::Path::to_path_buf),
-        destination.to_owned(),
-    );
+    let (base, destination) = (base.cloned(), destination.to_owned());
     let worker = shared.clone();
     let spawned = thread::Builder::new()
         .name("loog-markdown-image".into())
@@ -372,8 +375,13 @@ fn start_load(
                     hook();
                 }
             }
-            let fetched =
-                super::markdown_assets::Assets::fetch(base.as_deref(), &destination, remote);
+            let fetched = super::markdown_assets::Assets::fetch(
+                base.as_ref(),
+                &destination,
+                remote,
+                Some(&worker.context),
+                &|| !worker.alive.load(Ordering::Acquire),
+            );
             let mut queue = worker.queue.lock().unwrap();
             queue.loading -= 1;
             queue.completed.push(fetched);
@@ -450,7 +458,7 @@ fn render(
                     &node.kind
                 {
                     // No cached asset means the image is still loading.
-                    let asset = assets.get(key.base.as_deref(), destination, key.remote)?;
+                    let asset = assets.get(key.base.as_ref(), destination, key.remote)?;
                     let state = match &asset.outcome {
                         Ok(image) => ImageState::Loaded(ImageSize {
                             width: image.width as f32,
@@ -541,11 +549,11 @@ fn render(
             // Text must not wait for files or the network: an image that is not
             // cached yet loads on its own thread and the view renders again once
             // it arrives; until then it keeps its placeholder.
-            match assets.get(key.base.as_deref(), destination, key.remote) {
+            match assets.get(key.base.as_ref(), destination, key.remote) {
                 Some(asset) => {
                     images.insert(image.node, asset);
                 }
-                None => start_load(shared, assets, key.base.as_deref(), destination, key.remote),
+                None => start_load(shared, assets, key.base.as_ref(), destination, key.remote),
             }
         }
     }

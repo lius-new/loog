@@ -1,9 +1,11 @@
 //! Background executor for extension instances (design §5, §7.1, §8).
 //!
-//! One thread owns the Wasmtime runtime and every instance, so the UI thread
-//! never waits on guest code. The application sends [`Job`]s and receives
+//! One thread owns every instance; a bounded worker compiles code with the shared
+//! runtime while existing guests keep running. The UI never waits on guest code.
+//! The application sends [`Job`]s and receives
 //! [`Event`]s through a sink; nothing UI-shaped crosses this boundary, only
 //! typed values and opaque ids (design §5, last layering rule).
+mod component_loader;
 pub(crate) mod document_queue;
 pub mod documentation;
 pub mod fileops;
@@ -50,6 +52,7 @@ pub struct ProviderJob {
     pub token: u64,
     pub text: Arc<String>,
     pub document: u64,
+    pub resource: Option<loog_workspace_api::session::DocumentResource>,
     pub version: u64,
     pub range: Option<Range<usize>>,
     /// Completion: the caret, the triggering character and, for a resolve request,
@@ -84,6 +87,16 @@ pub struct Run {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Job {
+    ComponentLoaded(Box<component_loader::Completed>),
+    WorkspaceEvent {
+        id: String,
+        generation: u64,
+        event: loog_extension_host::workspace::Event,
+        _credit: loog_extension_host::PublicationCredit,
+    },
+    WorkspaceWakeAfter {
+        milliseconds: u64,
+    },
     WorkspaceFiles {
         id: String,
         generation: u64,
@@ -214,6 +227,12 @@ pub enum Job {
 
 #[derive(Debug)]
 pub enum Event {
+    WorkspaceSubmissions {
+        id: String,
+        generation: u64,
+        submissions: Vec<loog_extension_host::workspace::Submitted>,
+    },
+    WorkspaceWake,
     WorkspaceOperation {
         id: String,
         generation: u64,
@@ -328,6 +347,7 @@ pub struct Executor {
 impl Executor {
     pub fn spawn(sink: Sink) -> Result<Self, String> {
         let (jobs, inbox) = channel();
+        let replies = jobs.clone();
         let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let worker_stopped = stopped.clone();
         let thread = std::thread::Builder::new()
@@ -344,8 +364,12 @@ impl Executor {
                     return;
                 };
                 Worker {
+                    workspace_wake: None,
                     stopped: worker_stopped,
-                    runtime,
+                    runtime: Arc::new(runtime),
+                    replies,
+                    loader: None,
+                    loading: HashMap::new(),
                     sink,
                     instances: HashMap::new(),
                     inbox,
@@ -441,8 +465,12 @@ pub type UiMailbox = Arc<Mutex<Option<Vec<loog_extension_host::UiNode>>>>;
 pub type UiEvents = Arc<Mutex<Vec<loog_extension_host::UiEvent>>>;
 
 struct Worker {
+    workspace_wake: Option<std::time::Instant>,
     stopped: Arc<std::sync::atomic::AtomicBool>,
-    runtime: Runtime,
+    runtime: Arc<Runtime>,
+    replies: Sender<Job>,
+    loader: Option<component_loader::Loader>,
+    loading: HashMap<String, (u64, Arc<std::sync::atomic::AtomicBool>)>,
     sink: Sink,
     instances: HashMap<String, Slot>,
     inbox: Receiver<Job>,
@@ -478,10 +506,22 @@ impl Worker {
                 break;
             }
             let pending = self.flush_ui();
+            let workspace_wait = match self.workspace_wake {
+                Some(deadline) if deadline <= std::time::Instant::now() => {
+                    self.workspace_wake = None;
+                    (self.sink)(Event::WorkspaceWake);
+                    None
+                }
+                Some(deadline) => {
+                    Some(deadline.saturating_duration_since(std::time::Instant::now()))
+                }
+                None => None,
+            };
             let provider_wait = self
                 .expire_providers()
                 .into_iter()
                 .chain(self.poll_timers())
+                .chain(workspace_wait)
                 .min();
             let wait = match (pending, provider_wait) {
                 (true, Some(wait)) => Some(wait.min(std::time::Duration::from_millis(16))),
@@ -501,6 +541,7 @@ impl Worker {
                 }
             };
             match job {
+                Job::ComponentLoaded(completed) => self.loaded(*completed),
                 Job::CancelProvider {
                     id,
                     generation,
@@ -555,6 +596,36 @@ impl Worker {
                         .collect();
                     self.deliver(&id, generation, messages);
                 }
+                Job::WorkspaceWakeAfter { milliseconds } => {
+                    let deadline = std::time::Instant::now()
+                        + std::time::Duration::from_millis(milliseconds.min(60_000));
+                    self.workspace_wake = Some(
+                        self.workspace_wake
+                            .map_or(deadline, |old| old.min(deadline)),
+                    );
+                }
+                Job::WorkspaceEvent {
+                    id,
+                    generation,
+                    event,
+                    ..
+                } => {
+                    let result = self
+                        .slot(&id, generation)
+                        .map(|slot| slot.instance.deliver_workspace(&event));
+                    match result {
+                        Some(Ok(())) => self.deliver(&id, generation, Vec::new()),
+                        Some(Err(message)) => {
+                            self.instances.remove(&id);
+                            (self.sink)(Event::Failed {
+                                id,
+                                generation,
+                                error: ExtensionError::new(ErrorKind::LimitExceeded, message),
+                            });
+                        }
+                        None => {}
+                    }
+                }
                 Job::Shutdown => break,
                 Job::Load {
                     id,
@@ -567,18 +638,19 @@ impl Worker {
                     storage,
                     files,
                     domains,
-                } => self.load(
+                } => self.load(component_loader::Request {
                     id,
                     generation,
-                    &component,
-                    &package_dir,
-                    &version,
-                    &cache,
+                    component,
+                    package_dir,
+                    version,
+                    cache,
                     limits,
                     storage,
                     files,
                     domains,
-                ),
+                    cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                }),
                 Job::Run {
                     id,
                     generation,
@@ -672,6 +744,21 @@ impl Worker {
                         context: job.context,
                     });
                     if let Some(slot) = self.slot(&id, generation) {
+                        if let Some(document) = job.resource {
+                            let event = loog_workspace_api::session::Event::ProviderDocument {
+                                request: job.request,
+                                document,
+                            };
+                            if let Err(message) = slot.instance.deliver_workspace(&event) {
+                                self.instances.remove(&id);
+                                (self.sink)(Event::Failed {
+                                    id,
+                                    generation,
+                                    error: ExtensionError::new(ErrorKind::LimitExceeded, message),
+                                });
+                                continue;
+                            }
+                        }
                         slot.requests.insert(
                             job.request,
                             (
@@ -779,6 +866,7 @@ impl Worker {
                     messages,
                 } => self.deliver(&id, generation, messages),
                 Job::Stop { id } => {
+                    self.cancel_load(&id);
                     self.instances.remove(&id);
                 }
             }
@@ -879,42 +967,85 @@ impl Worker {
         pending
     }
 
-    fn load(
-        &mut self,
-        id: String,
-        generation: u64,
-        component: &[u8],
-        package_dir: &std::path::Path,
-        version: &str,
-        cache: &std::path::Path,
-        limits: Limits,
-        storage: Option<PathBuf>,
-        files: bool,
-        domains: Vec<String>,
-    ) {
+    fn cancel_load(&mut self, id: &str) {
+        if let Some((_, cancelled)) = self.loading.remove(id) {
+            cancelled.store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+
+    fn load(&mut self, request: component_loader::Request) {
         // A reload replaces the old instance first, so its callbacks cannot act on the new one.
+        let id = request.id.clone();
+        let generation = request.generation;
+        self.cancel_load(&id);
         self.instances.remove(&id);
-        let result = self
-            .runtime
-            .compile_package(component, cache, package_dir, &id, version)
-            .and_then(|loaded| {
-                let source = loaded.source;
-                self.runtime
-                    .instantiate(&loaded.component, limits)
-                    .map(|instance| (instance, source, loaded.aot_rejection))
-            });
+        if self.loader.is_none() {
+            match component_loader::Loader::new(
+                self.runtime.clone(),
+                self.replies.clone(),
+                self.stopped.clone(),
+            ) {
+                Ok(loader) => self.loader = Some(loader),
+                Err(message) => {
+                    self.load_failed(
+                        id,
+                        generation,
+                        ExtensionError::new(ErrorKind::ExtensionFailed, message),
+                    );
+                    return;
+                }
+            }
+        }
+        self.loading
+            .insert(id.clone(), (generation, request.cancelled.clone()));
+        if let Err(error) = self.loader.as_ref().unwrap().submit(request) {
+            self.cancel_load(&id);
+            self.load_failed(id, generation, error);
+        }
+    }
+
+    fn load_failed(&self, id: String, generation: u64, error: ExtensionError) {
+        (self.sink)(Event::Loaded {
+            id,
+            generation,
+            cache_hit: false,
+            source: loog_extension_host::CodeSource::Compiled,
+            aot_rejection: None,
+            result: Err(error),
+        });
+    }
+
+    fn loaded(&mut self, completed: component_loader::Completed) {
+        let request = completed.request;
+        let id = request.id;
+        let generation = request.generation;
+        if self
+            .loading
+            .get(&id)
+            .is_none_or(|(current, _)| *current != generation)
+            || request.cancelled.load(std::sync::atomic::Ordering::Acquire)
+        {
+            return;
+        }
+        self.loading.remove(&id);
+        let result = completed.code.and_then(|loaded| {
+            let source = loaded.source;
+            self.runtime
+                .instantiate(&loaded.component, request.limits)
+                .map(|instance| (instance, source, loaded.aot_rejection))
+        });
         match result {
             Ok((mut instance, source, rejection)) => {
                 // Capabilities are granted by giving the instance the port; without one
                 // every call fails with permission-denied.
-                if let Some(dir) = storage {
+                if let Some(dir) = request.storage {
                     instance.set_storage(Box::new(ports::FsStorage::new(dir)));
                 }
-                if files {
+                if request.files {
                     instance.set_files(Box::new(ports::FsFiles));
                 }
-                if !domains.is_empty() {
-                    instance.set_http(Box::new(http::BoundedHttp::new(domains)));
+                if !request.domains.is_empty() {
+                    instance.set_http(Box::new(http::BoundedHttp::new(request.domains)));
                 }
                 self.instances.insert(
                     id.clone(),
@@ -960,6 +1091,8 @@ impl Worker {
             };
             let status = slot.instance.dispatch(&batch);
             let accepted = slot.instance.take_accepted();
+            let workspace_submissions = slot.instance.take_workspace_submissions();
+            let workspace_pending = slot.instance.has_workspace_events();
             let logs = slot
                 .instance
                 .take_logs()
@@ -991,6 +1124,13 @@ impl Worker {
             let configurations = slot.instance.take_provider_configurations();
             let published = slot.instance.take_published();
             let operations = slot.instance.take_workspace_operations();
+            if !workspace_submissions.is_empty() {
+                (self.sink)(Event::WorkspaceSubmissions {
+                    id: id.to_owned(),
+                    generation,
+                    submissions: workspace_submissions,
+                });
+            }
             for (operation, request) in operations {
                 (self.sink)(Event::WorkspaceOperation {
                     id: id.to_owned(),
@@ -1072,6 +1212,7 @@ impl Worker {
             }
             match status {
                 Ok(RoundStatus::Runnable) => batch = Vec::new(),
+                Ok(_) if workspace_pending => batch = Vec::new(),
                 Ok(_) => return,
                 Err(error) => {
                     // A trap or limit fails the instance; the application reports it

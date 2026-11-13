@@ -8,6 +8,11 @@ const MAX_CONTROLS: usize = 128;
 
 #[derive(Debug)]
 pub enum ProcessControl {
+    LaunchTool {
+        process: u64,
+        program: String,
+        args: Vec<String>,
+    },
     Spawn {
         process: u64,
         request: ProcessRequest,
@@ -37,6 +42,28 @@ pub(super) struct Processes {
     controls: Vec<ProcessControl>,
 }
 impl Processes {
+    pub fn launch_tool(
+        &mut self,
+        program: String,
+        args: Vec<String>,
+        limit: usize,
+    ) -> Result<u64, HostError> {
+        self.budget()?;
+        if self.streams.len() >= limit {
+            return Err(host_error(
+                ErrorKind::LimitExceeded,
+                "too many running processes",
+            ));
+        }
+        self.next += 1;
+        self.streams.insert(self.next, Stream::default());
+        self.controls.push(ProcessControl::LaunchTool {
+            process: self.next,
+            program,
+            args,
+        });
+        Ok(self.next)
+    }
     fn budget(&self) -> Result<(), HostError> {
         if self.controls.len() >= MAX_CONTROLS {
             Err(host_error(

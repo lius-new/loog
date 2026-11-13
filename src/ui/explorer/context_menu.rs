@@ -95,6 +95,23 @@ const FILE_ENTRIES: &[Entry] = &[
     item("Delete", MenuAction::Delete),
 ];
 
+const RESOURCE_DIRECTORY_ENTRIES: &[Entry] = &[
+    item("New File", MenuAction::NewFile),
+    item("New Folder", MenuAction::NewFolder),
+    item("Refresh Explorer", MenuAction::RefreshExplorer),
+    item("Workspace Trust…", MenuAction::WorkspaceTrust),
+    item("Open in Terminal", MenuAction::OpenTerminal),
+    item("Copy Path", MenuAction::CopyPath),
+    Entry::Separator,
+    item("Rename", MenuAction::Rename),
+    item("Delete Permanently…", MenuAction::Delete),
+];
+const RESOURCE_FILE_ENTRIES: &[Entry] = &[
+    item("Copy Path", MenuAction::CopyPath),
+    item("Rename", MenuAction::Rename),
+    item("Delete Permanently…", MenuAction::Delete),
+];
+
 /// Shown on a multi-selection: only actions that apply to every item.
 const BATCH_ENTRIES: &[Entry] = &[
     item("Cut", MenuAction::Cut),
@@ -174,13 +191,20 @@ pub fn render(
     commands: Commands,
 ) -> Element {
     let s = state.get();
+    let resource_target = s.ui.resource_menu.clone();
     let target = context_target(&s, active_path);
     let has_item_target = s.ui.menu_target.is_some();
     let batch = s.ui.selection.len() > 1
         && target.as_ref().is_some_and(|target| {
             target.kind == ExplorerTargetKind::File && s.ui.selection.contains(&target.path)
         });
-    let entries: Vec<&'static Entry> = if batch {
+    let entries: Vec<&'static Entry> = if let Some(target) = &resource_target {
+        if target.kind == loog_workspace_api::FileKind::Directory {
+            RESOURCE_DIRECTORY_ENTRIES.iter().collect()
+        } else {
+            RESOURCE_FILE_ENTRIES.iter().collect()
+        }
+    } else if batch {
         BATCH_ENTRIES.iter().collect()
     } else {
         entries_for(target.as_ref())
@@ -292,8 +316,33 @@ pub fn render(
                 shortcut,
                 action,
             } => {
-                let enabled =
-                    action_enabled(*action, target.is_some(), has_item_target, can_remove);
+                let enabled = if let Some(target) = &resource_target {
+                    let write = s.resources.root(target.scope).is_some_and(|root| {
+                        root.descriptor
+                            .capabilities
+                            .contains(&loog_workspace_api::Capability::FilesWrite)
+                    });
+                    match action {
+                        MenuAction::OpenTerminal => {
+                            s.resources.root(target.scope).is_some_and(|root| {
+                                root.descriptor
+                                    .capabilities
+                                    .contains(&loog_workspace_api::Capability::Terminal)
+                            })
+                        }
+                        MenuAction::CopyPath
+                        | MenuAction::RefreshExplorer
+                        | MenuAction::WorkspaceTrust => true,
+                        MenuAction::Rename | MenuAction::Delete => {
+                            write
+                                && target.parent.is_some()
+                                && !s.resources.busy.contains(&target.scope)
+                        }
+                        _ => write && !s.resources.busy.contains(&target.scope),
+                    }
+                } else {
+                    action_enabled(*action, target.is_some(), has_item_target, can_remove)
+                };
                 let item_rect = UiRect::new(
                     card.left + MENU_BORDER,
                     y,
@@ -309,6 +358,7 @@ pub fn render(
                 let st_click = state.clone();
                 let click_commands = commands.clone();
                 let action_target = target.clone();
+                let resource_action_target = resource_target.clone();
                 let mut item = panel(
                     item_rect,
                     if hovered {
@@ -339,10 +389,17 @@ pub fn render(
                         return;
                     }
                     st_click.update(|panel| panel.ui.dismiss_menu());
-                    click_commands.dispatch(Command::Menu {
-                        action,
-                        target: action_target.clone(),
-                    });
+                    if let Some(target) = &resource_action_target {
+                        click_commands.dispatch(Command::ResourceAction {
+                            action,
+                            target: target.clone(),
+                        });
+                    } else {
+                        click_commands.dispatch(Command::Menu {
+                            action,
+                            target: action_target.clone(),
+                        });
+                    }
                 });
 
                 // Label (left-aligned).

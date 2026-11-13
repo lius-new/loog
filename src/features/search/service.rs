@@ -25,6 +25,7 @@ pub fn run(
         .collect::<HashMap<_, _>>();
     let mut seen = HashSet::new();
     let mut results = Results::default();
+    let mut result_bytes = 0;
     let mut last_publish = Instant::now();
     for root in request.roots {
         if cancel.load(Ordering::Relaxed) {
@@ -112,10 +113,26 @@ pub fn run(
                     results.limit_hit = true;
                     break;
                 }
+                result_bytes += path.as_os_str().len() + root.as_os_str().len();
+                let mut accepted = 0;
+                for found in &matches {
+                    let size = found.preview.len() + 96;
+                    if result_bytes + size > 16 * 1024 * 1024 {
+                        results.limit_hit = true;
+                        break;
+                    }
+                    result_bytes += size;
+                    accepted += 1;
+                }
+                matches.truncate(accepted);
+                if matches.is_empty() {
+                    break;
+                }
                 results.matches += matches.len();
                 results.files.push(Arc::new(FileMatches {
-                    path,
-                    root: root.clone(),
+                    path: path.into(),
+                    root: root.clone().into(),
+                    provider: None,
                     matches,
                     content_hash: hash(&text),
                 }));

@@ -228,7 +228,7 @@ impl MarkdownService {
                 remote: base.is_some(),
                 // An extension's readme reads like a Markdown page, not a hover card.
                 page: base.is_some(),
-                base,
+                base: base.map(super::markdown_assets::Base::Local),
                 fragment: None,
                 horizontal: {
                     let mut entries = horizontal

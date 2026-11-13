@@ -5,6 +5,81 @@ use loog_extension_host::{
 };
 
 impl ExtensionService {
+    /// User tools are admitted by a package grant, not by workspace contents.
+    /// Their cwd and dependency expansions always come from installed packages.
+    pub(super) fn plan_user_tool(
+        &self,
+        id: &str,
+        program: &str,
+        args: &[String],
+    ) -> Result<tasks::Spec, ExtensionError> {
+        use crate::features::extensions::{manifest::parse_requirement, resource_paths};
+        let invalid =
+            |message: &str| ExtensionError::new(ErrorKind::InvalidEdit, message.to_owned());
+        let package = self
+            .packages
+            .get(id)
+            .ok_or_else(|| invalid("unknown extension"))?;
+        if !package
+            .manifest
+            .capabilities
+            .iter()
+            .any(|cap| cap == "process.execute-tool")
+        {
+            return Err(ExtensionError::new(
+                ErrorKind::PermissionDenied,
+                "process.execute-tool is not declared by this extension",
+            ));
+        }
+        self.grants
+            .authorize(&package.identity, "process.execute-tool", None)
+            .map_err(|denial| {
+                ExtensionError::new(ErrorKind::PermissionDenied, execution_denial(denial))
+            })?;
+        if program.trim().is_empty()
+            || program.len() > 1024
+            || program.contains('\0')
+            || args.len() > 128
+            || args
+                .iter()
+                .any(|arg| arg.len() > 8192 || arg.contains('\0'))
+        {
+            return Err(invalid("invalid tool program or arguments"));
+        }
+        let runtime = |name: &str| {
+            let (_, required) = package
+                .manifest
+                .requires
+                .iter()
+                .filter_map(|text| parse_requirement(text))
+                .find(|(id, _)| *id == name)?;
+            let dependency = self.packages.get(name)?;
+            crate::features::extensions::range::parse_version(&dependency.manifest.version)
+                .filter(|version| required.matches(*version))?;
+            Some(dependency.dir.clone())
+        };
+        let program =
+            resource_paths::resolve_command(program, &package.dir, runtime, cfg!(windows))
+                .map_err(|message| invalid(&message))?;
+        if Path::new(&program).is_relative() && program.contains(['/', '\\']) {
+            return Err(invalid(
+                "tool paths must be absolute, package resources or PATH names",
+            ));
+        }
+        let args = args
+            .iter()
+            .map(|arg| resource_paths::resolve_argument(arg, &package.dir, runtime))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|message| invalid(&message))?;
+        Ok(tasks::Spec {
+            program,
+            args,
+            cwd: package.dir.clone(),
+            env: Vec::new(),
+            timeout: std::time::Duration::from_secs(120),
+        })
+    }
+
     pub(super) fn process_controls(
         &mut self,
         id: &str,
@@ -20,6 +95,48 @@ impl ExtensionService {
         }
         let mut effects = vec![];
         for control in controls {
+            if let ProcessControl::LaunchTool {
+                process,
+                program,
+                args,
+            } = control
+            {
+                match self.plan_user_tool(id, &program, &args) {
+                    Ok(task) => {
+                        self.next_process += 1;
+                        let global = self.next_process;
+                        self.processes.insert(
+                            global,
+                            TaskRecord {
+                                extension: id.into(),
+                                generation,
+                                local: process,
+                                root_id: None,
+                                cwd: task.cwd.clone(),
+                            },
+                        );
+                        effects.push(Effect::StartProcess {
+                            process: global,
+                            spec: Spec {
+                                task,
+                                framing: Framing::Raw,
+                            },
+                        });
+                    }
+                    Err(error) => effects.push(Effect::Submit(Job::Process {
+                        id: id.into(),
+                        generation,
+                        credit: None,
+                        message: Inbound::ProcessExited(ProcessExit {
+                            process,
+                            code: None,
+                            killed: false,
+                            error: Some(crate::infrastructure::extensions::wire_error(&error)),
+                        }),
+                    })),
+                }
+                continue;
+            }
             if let ProcessControl::Spawn { process, request } = control {
                 // Tasks and persistent processes use exactly the same admission
                 // rule, including the innermost workspace trust decision.
@@ -93,7 +210,7 @@ impl ExtensionService {
                                 extension: id.into(),
                                 generation,
                                 local: process,
-                                root_id,
+                                root_id: Some(root_id),
                                 cwd: task.cwd.clone(),
                             },
                         );
@@ -155,7 +272,11 @@ impl ExtensionService {
             return vec![];
         };
         let (id, generation, local) = (record.extension.clone(), record.generation, record.local);
-        record_output(&id, &event);
+        // User tool stdout may contain file bytes, tokens or protocol payloads.
+        // Keep lifecycle messages, but never copy either stream into Output.
+        if record.root_id.is_some() || !matches!(&event, ProcessEvent::Output { .. }) {
+            record_output(&id, &event);
+        }
         let (message, credit) = match event {
             ProcessEvent::Output {
                 channel,

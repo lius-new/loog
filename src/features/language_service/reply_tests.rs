@@ -56,7 +56,11 @@ fn an_empty_hover_is_no_hover() {
 
 #[test]
 fn locations_come_as_one_a_list_or_links() {
-    let one = json!({ "uri": "file:///a.rs", "range": range((1, 2), (1, 5)) });
+    let path = std::env::temp_dir().join("location-a.rs");
+    let target = std::env::temp_dir().join("location-b.rs");
+    let uri = crate::features::language_service::uri::file_uri(&path).unwrap();
+    let target_uri = crate::features::language_service::uri::file_uri(&target).unwrap();
+    let one = json!({ "uri": uri, "range": range((1, 2), (1, 5)) });
     assert_eq!(locations(&one, Utf16).len(), 1);
     assert_eq!(
         locations(&json!([one.clone(), one.clone()]), Utf16).len(),
@@ -64,18 +68,50 @@ fn locations_come_as_one_a_list_or_links() {
     );
     let link = json!([{
         "originSelectionRange": range((0, 0), (0, 3)),
-        "targetUri": "file:///b.rs",
+        "targetUri": target_uri,
         "targetRange": range((4, 0), (9, 1)),
         "targetSelectionRange": range((4, 3), (4, 6)),
     }]);
     let found = &locations(&link, Utf16)[0];
-    assert_eq!(found.uri, "file:///b.rs");
+    assert_eq!(found.resource, target.into());
     assert_eq!(found.span.start.character, 3, "the name is selected");
     assert_eq!(found.full.unwrap().end.line, 9);
     assert_eq!(found.origin.unwrap().end.character, 3);
     assert!(locations(&Value::Null, Utf16).is_empty());
     // An unreadable item is dropped without losing the others.
     assert_eq!(locations(&json!([{ "uri": 3 }, one]), Utf16).len(), 1);
+}
+
+#[test]
+fn resource_locations_preserve_environment_and_explicit_unicode_units() {
+    use loog_workspace_api::{EnvironmentKey, ResourceRef};
+    let first = ResourceRef::provided(
+        EnvironmentKey::new("provider", "one").unwrap(),
+        "/work/a\\中.rs",
+    )
+    .unwrap();
+    let second = ResourceRef::provided(
+        EnvironmentKey::new("provider", "two").unwrap(),
+        "/work/a\\中.rs",
+    )
+    .unwrap();
+    let mut span = range((0, 3), (0, 4));
+    span["x-loog-column-unit"] = json!("utf16");
+    let found = locations(
+        &json!([{"resource":first,"range":span},{"resource":second,"range":span}]),
+        Utf8,
+    );
+    assert_eq!(found.len(), 2);
+    assert_ne!(found[0].resource, found[1].resource);
+    assert_eq!(found[0].span.bytes("a😀b"), 5..6);
+    assert!(found[0].resource.local_path().is_none());
+    assert!(
+        locations(
+            &json!({"resource":{"kind":"provided","path":"a"},"uri":"file:///a","range":span}),
+            Utf8
+        )
+        .is_empty()
+    );
 }
 
 #[test]

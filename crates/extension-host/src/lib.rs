@@ -17,7 +17,7 @@ use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder, Trap};
 mod bindings {
     wasmtime::component::bindgen!({
         path: "../../wit/loog-extension",
-        world: "extension-ui",
+        world: "extension-workspace",
         additional_derives: [serde::Serialize],
     });
 }
@@ -27,6 +27,7 @@ pub use aot::{CodeSource, LoadedCode};
 mod completion_batch;
 mod documents;
 mod processes;
+pub mod workspace;
 pub use bindings::loog::extension::types::DocumentSnapshot;
 pub use documents::DocumentView;
 pub use processes::ProcessControl;
@@ -284,6 +285,7 @@ pub struct StartedFileOps {
 
 /// State behind the host imports.
 pub struct HostState {
+    workspace: workspace::Mailbox,
     clock_origin: std::time::Instant,
     timers: BTreeMap<u64, std::time::Instant>,
     next_timer: u64,
@@ -449,6 +451,7 @@ impl HostState {
 
     fn new(limits: &Limits) -> Self {
         Self {
+            workspace: Default::default(),
             clock_origin: std::time::Instant::now(),
             timers: BTreeMap::new(),
             next_timer: 1,
@@ -550,6 +553,27 @@ fn wit_kind(kind: ErrorKind) -> WitErrorKind {
 }
 
 impl types::Host for HostState {}
+
+impl bindings::loog::workspace::tools::Host for HostState {
+    fn launch(&mut self, program: String, args: Vec<String>) -> Result<u64, String> {
+        self.unrestricted("starting a user tool")
+            .map_err(|error| error.message)?;
+        validate_launch(&program, &args, None, &[]).map_err(|error| error.message)?;
+        self.processes
+            .launch_tool(program, args, self.task_limit)
+            .map_err(|error| error.message)
+    }
+}
+
+impl bindings::loog::workspace::session::Host for HostState {
+    fn submit(&mut self, command: String) -> Result<u64, String> {
+        self.workspace
+            .submit_with_policy(command, !self.save_requests.is_empty())
+    }
+    fn poll(&mut self) -> Vec<String> {
+        self.workspace.poll()
+    }
+}
 
 impl bindings::loog::service::status::Host for HostState {
     fn publish(&mut self, report: ServiceReport) -> Result<(), String> {
@@ -1181,6 +1205,8 @@ pub const KNOWN_IMPORTS: &[&str] = &[
     "loog:ui/shared@0.1.0",
     "loog:service/status@0.1.0",
     "loog:service/findings@0.1.0",
+    "loog:workspace/session@0.1.0",
+    "loog:workspace/tools@0.1.0",
 ];
 
 /// Length of one epoch tick.
@@ -1324,10 +1350,11 @@ impl Runtime {
         }
         let mut linker = Linker::<HostState>::new(engine);
         // COMPAT(base-extension-world): Register the supported interfaces; existing components
-        // may import only the base host or tree. New components can also import motion.
-        // Require the new import only after base-only components lose support;
+        // may import only the base host, tree or motion. New components use the
+        // independent workspace/session interface for capability routing.
+        // Remove this optional-import compatibility only when those older worlds retire;
         // no removal version has been scheduled.
-        bindings::ExtensionUi::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)
+        bindings::ExtensionWorkspace::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)
             .map_err(|error| failed(&error))?;
         linker
             .define_unknown_imports_as_traps(component)
@@ -1335,7 +1362,7 @@ impl Runtime {
         let mut store = Store::new(engine, HostState::new(&limits));
         store.limiter(|state| &mut state.limits);
         store.set_epoch_deadline(limits.round_ticks);
-        let bindings = bindings::ExtensionUi::instantiate(&mut store, component, &linker)
+        let bindings = bindings::ExtensionWorkspace::instantiate(&mut store, component, &linker)
             .map_err(|error| failed(&error))?;
         Ok(Instance {
             store,
@@ -1387,11 +1414,20 @@ pub type RoundResult = Result<RoundStatus, ExtensionError>;
 
 pub struct Instance {
     store: Store<HostState>,
-    bindings: bindings::ExtensionUi,
+    bindings: bindings::ExtensionWorkspace,
     limits: Limits,
 }
 
 impl Instance {
+    pub fn take_workspace_submissions(&mut self) -> Vec<workspace::Submitted> {
+        self.store.data_mut().workspace.take()
+    }
+    pub fn deliver_workspace(&mut self, event: &workspace::Event) -> Result<(), String> {
+        self.store.data_mut().workspace.deliver(event)
+    }
+    pub fn has_workspace_events(&self) -> bool {
+        self.store.data().workspace.has_events()
+    }
     /// Remove due timers before dispatch so callbacks may schedule replacements.
     pub fn poll_timers(&mut self) -> (Vec<Inbound>, Option<Duration>) {
         let now = std::time::Instant::now();

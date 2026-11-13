@@ -483,10 +483,10 @@ pub fn reveal(app: &mut AppState) {
         }
     }
 }
-fn providers(ctx: &AppContext, path: &std::path::Path) -> Providers {
+fn providers(ctx: &AppContext, resource: &loog_workspace_api::ResourceRef) -> Providers {
     let mut keys = super::language_ui::services(ctx)
         .map(|s| {
-            s.capability_sources(Some(path))
+            s.capability_sources(Some(resource))
                 .into_iter()
                 .filter(|i| i.providers.folding_range)
                 .map(|i| (i.id, i.run, i.revision))
@@ -522,9 +522,12 @@ fn request(ctx: &AppContext, app: &mut AppState, id: FileId) {
         return;
     };
     services.sync(app);
+    let Some(path) = doc.meta.local_path() else {
+        return;
+    };
     let handle = Arc::new(services.request(RequestSpec::new(
         Feature::FoldingRange,
-        doc.meta.path.clone(),
+        path.to_path_buf(),
         super::language_ui::lsp_stamp(&pending.stamp),
         0,
     )));
@@ -551,7 +554,7 @@ pub fn observe(ctx: &AppContext, app: &mut AppState) {
     {
         return;
     }
-    let keys = providers(ctx, &t.path);
+    let keys = providers(ctx, &t.resource);
     if keys.is_empty() {
         return;
     }
@@ -607,7 +610,7 @@ pub fn command(ctx: &AppContext, action: FoldAction, rect: lgui::prelude::UiRect
             super::editor::reveal_cursor(app, rect);
             return;
         }
-        let keys = providers(ctx, &t.path);
+        let keys = providers(ctx, &t.resource);
         app.editor
             .editing
             .folding

@@ -69,6 +69,137 @@ fn finding(range: std::ops::Range<usize>) -> Diagnostic {
 }
 
 #[test]
+fn resource_results_stay_in_their_environment_through_edits_and_source_retirement() {
+    use crate::domain::document::DiskState;
+    use crate::domain::workspace::{OpenMode, PreparedTextFile};
+    use loog_workspace_api::EnvironmentKey;
+    let services = LanguageServices::new();
+    let mut app = AppState::new();
+    let mut files = Vec::new();
+    for environment in ["one", "two"] {
+        let resource = ResourceRef::provided(
+            EnvironmentKey::new("memory", environment).unwrap(),
+            "/project/same.rs",
+        )
+        .unwrap();
+        let file = app.workspace.open_prepared_text(
+            PreparedTextFile::with_resource(
+                resource.clone(),
+                "same.rs".into(),
+                "abc".into(),
+                DiskState::from_contents("abc"),
+            ),
+            OpenMode::Permanent,
+        );
+        files.push((file, resource));
+    }
+    let (file, resource) = &files[0];
+    let doc = &app.workspace.documents[file];
+    services.publish_external(
+        7,
+        resource,
+        doc.stamp(*file),
+        doc.buffer.text_snapshot(),
+        vec![finding(1..2)].into(),
+    );
+    services.publish_highlights(
+        7,
+        resource,
+        doc.stamp(*file),
+        3,
+        vec![crate::features::syntax::TokenSpan {
+            range: 1..2,
+            class: Some(crate::features::highlighting::HighlightId::FUNCTION),
+        }],
+    );
+    assert!(
+        services
+            .results(resource, &doc.stamp(*file))
+            .diagnostics
+            .is_some()
+    );
+    let (other, other_resource) = &files[1];
+    let other_stamp = app.workspace.documents[other].stamp(*other);
+    assert!(
+        services
+            .results(other_resource, &other_stamp)
+            .diagnostics
+            .is_none()
+    );
+    assert!(
+        services
+            .results(other_resource, &other_stamp)
+            .semantic
+            .is_none()
+    );
+    assert!(
+        services
+            .results(ResourceRef::local("/project/same.rs"), &doc.stamp(*file))
+            .diagnostics
+            .is_none()
+    );
+    let local = ResourceRef::local("/project/same.rs");
+    services.publish_external(
+        7,
+        &local,
+        doc.stamp(*file),
+        doc.buffer.text_snapshot(),
+        vec![finding(0..1)].into(),
+    );
+    services.clear_external_matching(7, |r| r.local_path().is_some());
+    assert!(
+        services
+            .results(&local, &doc.stamp(*file))
+            .diagnostics
+            .is_none()
+    );
+    assert!(
+        services
+            .results(resource, &doc.stamp(*file))
+            .diagnostics
+            .is_some()
+    );
+    assert!(
+        services
+            .results(resource, &doc.stamp(*file))
+            .semantic
+            .is_some()
+    );
+    services.publish_external(
+        7,
+        other_resource,
+        other_stamp,
+        app.workspace.documents[other].buffer.text_snapshot(),
+        vec![finding(0..1)].into(),
+    );
+    services.clear_external_matching(7, |r| r == other_resource);
+    assert!(
+        services
+            .results(other_resource, &other_stamp)
+            .diagnostics
+            .is_none()
+    );
+    assert!(
+        services
+            .results(resource, &doc.stamp(*file))
+            .diagnostics
+            .is_some()
+    );
+    app.workspace
+        .document_editor_mut(*file)
+        .unwrap()
+        .set_cursor(0);
+    loog_editor_core::normal::insert(&mut app.workspace.document_editor_mut(*file).unwrap(), "x");
+    services.sync(&app);
+    let stamp = app.workspace.documents[file].stamp(*file);
+    let results = services.results(resource, &stamp);
+    assert_eq!(results.diagnostics.unwrap()[0].range, 2..3);
+    assert!(results.semantic.is_none());
+    services.clear_external(7);
+    assert!(services.results(resource, &stamp).diagnostics.is_none());
+}
+
+#[test]
 fn provider_diagnostics_follow_edit_metadata_and_results_expire_with_language_or_document_lifetimes()
  {
     let services = LanguageServices::new();

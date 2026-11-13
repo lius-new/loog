@@ -76,7 +76,7 @@ impl ImageService {
                             else {
                                 return false;
                             };
-                            if !crate::domain::media::is_svg(&doc.meta.path) {
+                            if !crate::domain::media::is_svg(doc.meta.language_hint()) {
                                 return false;
                             }
                             let previous = app
@@ -131,11 +131,10 @@ impl ImageService {
         let Some(id) = value.document() else {
             return;
         };
-        let Some(doc) = app
-            .workspace
-            .documents
-            .get(&id)
-            .filter(|doc| doc.is_text() && crate::domain::media::is_svg(&doc.meta.path))
+        let Some(doc) =
+            app.workspace.documents.get(&id).filter(|doc| {
+                doc.is_text() && crate::domain::media::is_svg(doc.meta.language_hint())
+            })
         else {
             return;
         };

@@ -98,12 +98,41 @@ pub(crate) fn new_from_target(
     shell: Option<ShellKind>,
 ) -> Option<SessionId> {
     let tab = target(tabs, id)?;
+    if shell.is_none()
+        && let Some(target) = tab.resource_target()
+    {
+        return Some(new_provided(state, tabs, target, Some(id)));
+    }
     request_new(
         state,
         tabs,
         Some(id),
         Some(shell.unwrap_or_else(|| tab.controller.shell())),
     )
+}
+
+pub(crate) fn new_provided(
+    state: &AppContext,
+    tabs: &TerminalStore,
+    target: crate::features::terminal::model::ProvidedTerminal,
+    beside: Option<SessionId>,
+) -> SessionId {
+    let mut id = 0;
+    tabs.update(|tabs| id = tabs.add_provided(target));
+    state.update(|app| {
+        if let Some(layout) = &mut app.layout.application_layout {
+            match beside {
+                Some(beside) => layout.attach_beside(id, beside),
+                None => layout.attach(id),
+            };
+        }
+        app.terminal_chrome.show_terminal = true;
+        app.terminal.ui.panel_tab = crate::ui::terminal::state::PanelTab::Terminal;
+        app.terminal.ui.terminal_shell_menu = false;
+        app.terminal.ui.terminal_tab_context_menu = None;
+    });
+    sync_layout(state, tabs);
+    id
 }
 
 fn new_workspace_directory(app: &AppState) -> Option<PathBuf> {
@@ -130,6 +159,48 @@ fn request_new(
     shell: Option<ShellKind>,
 ) -> Option<SessionId> {
     let app = state.get();
+    let resource_document = app
+        .workspace
+        .active_document()
+        .and_then(|id| app.workspace.documents.get(&id))
+        .filter(|document| document.meta.resource.environment().is_some());
+    if shell.is_none()
+        && let Some(document) = resource_document
+    {
+        let root = document
+            .meta
+            .provider_root
+            .as_ref()
+            .and_then(|resource| {
+                app.explorer
+                    .resources
+                    .roots
+                    .iter()
+                    .find(|root| &root.descriptor.resource == resource)
+            })
+            .filter(|root| {
+                root.descriptor
+                    .capabilities
+                    .contains(&loog_workspace_api::Capability::Terminal)
+            });
+        if let Some(root) = root
+            && let loog_workspace_api::ResourceRef::Provided { path, .. } =
+                &root.descriptor.resource
+        {
+            return Some(new_provided(
+                state,
+                tabs,
+                crate::features::terminal::model::ProvidedTerminal {
+                    root: root.descriptor.resource.clone(),
+                    cwd: path.clone(),
+                    name: root.descriptor.name.clone(),
+                },
+                target,
+            ));
+        }
+        state.update(|app| app.show_error("This resource environment does not currently provide a terminal. Connect it and try again."));
+        return None;
+    }
     let cwd = new_workspace_directory(&app);
     if cwd.is_none() && app.explorer.model.roots().len() > 1 {
         state.update(|app| {

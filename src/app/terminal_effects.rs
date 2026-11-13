@@ -43,6 +43,7 @@ pub(crate) fn restored(session: crate::app::workspace_session::WorkspaceSession)
     tabs.restore_purposes(&session.terminal_purposes);
     tabs.restore_titles(&session.terminal_titles);
     tabs.restore_directories(&session.terminal_directories);
+    tabs.restore_resources(&session.terminal_resources);
     tabs.into_model()
 }
 pub(crate) fn bind(
@@ -54,6 +55,10 @@ pub(crate) fn bind(
     runtime
         .terminals()
         .set_profile_source(move || source.get().preferences.values().terminal_profiles.clone());
+    let source = state.clone();
+    runtime.terminals().set_transport_source(move |target| {
+        super::resource_terminal::transport(source.clone(), target.clone())
+    });
     TerminalStore::new(model, runtime.terminals())
 }
 pub(crate) fn install_owner(
@@ -330,6 +335,7 @@ pub(crate) fn save(tabs: &TerminalStore, visible: bool, height: f32) {
         &tabs.purposes(),
         &tabs.titles(),
         &tabs.directories(),
+        &tabs.resources(),
         tabs.active_index(),
         visible,
         height,
@@ -351,6 +357,7 @@ pub(crate) fn install_save(cx: &mut RenderCx<'_, '_>, tabs: &TerminalStore, app:
         snapshot.purposes(),
         snapshot.titles(),
         snapshot.directories(),
+        snapshot.resources(),
         app.terminal.ui.terminal_split_drag,
         snapshot.active_index(),
         visible,

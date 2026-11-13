@@ -2,11 +2,8 @@
 use super::Stamp;
 use crate::domain::document::DocumentStamp;
 use crate::features::{language_service::diagnostics::Diagnostic, syntax::TokenSpan};
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use loog_workspace_api::ResourceRef;
+use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DocumentResults {
@@ -43,19 +40,19 @@ pub(crate) struct Publication {
 }
 #[derive(Default)]
 pub(crate) struct ResultStore {
-    pub findings: BTreeMap<(PathBuf, u64), Publication>,
+    pub findings: BTreeMap<(ResourceRef, u64), Publication>,
 }
 impl ResultStore {
     pub fn publish(
         &mut self,
         source: u64,
-        path: PathBuf,
+        resource: ResourceRef,
         stamp: DocumentStamp,
         text: Arc<String>,
         diagnostics: Arc<[Diagnostic]>,
     ) {
         self.findings.insert(
-            (path, source),
+            (resource, source),
             Publication {
                 stamp,
                 text,
@@ -66,19 +63,19 @@ impl ResultStore {
     pub fn clear(&mut self, source: u64) {
         self.findings.retain(|(_, id), _| *id != source);
     }
-    pub fn parts(&self, path: &Path, stamp: Stamp) -> Vec<Arc<[Diagnostic]>> {
+    pub fn parts(&self, resource: &ResourceRef, stamp: Stamp) -> Vec<Arc<[Diagnostic]>> {
         self.findings
             .iter()
             .filter(|((p, _), f)| {
-                p == path
+                p == resource
                     && f.stamp.incarnation == stamp.incarnation
                     && f.stamp.version == stamp.version
             })
             .map(|(_, f)| f.diagnostics.clone())
             .collect()
     }
-    pub fn diagnostics(&self, path: &Path, stamp: Stamp) -> Option<Arc<[Diagnostic]>> {
-        let parts = self.parts(path, stamp);
+    pub fn diagnostics(&self, resource: &ResourceRef, stamp: Stamp) -> Option<Arc<[Diagnostic]>> {
+        let parts = self.parts(resource, stamp);
         if parts.len() == 1 {
             return parts.into_iter().next();
         }

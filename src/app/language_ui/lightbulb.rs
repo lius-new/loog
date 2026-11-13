@@ -15,7 +15,7 @@ struct Seen {
     cursor: usize,
     selection: Option<Range<usize>>,
     context: CodeActionContext,
-    workspace: Vec<(std::path::PathBuf, DocumentStamp)>,
+    workspace: Vec<(loog_workspace_api::ResourceRef, DocumentStamp)>,
 }
 
 #[derive(Clone)]
@@ -36,7 +36,7 @@ pub struct Lightbulb {
 
 fn current(ctx: &AppContext, app: &AppState) -> Option<(Target, Seen)> {
     let t = target(app, app.workspace.active_pane())?;
-    let context = services(ctx)?.code_action_context(&t.path, t.lsp_stamp());
+    let context = services(ctx)?.code_action_context(&t.resource, t.lsp_stamp());
     let mut workspace = super::edit::stamps(app);
     workspace.sort_by(|a, b| a.0.cmp(&b.0));
     let seen = Seen {
@@ -130,7 +130,7 @@ fn request(ctx: &AppContext, app: &mut AppState, revision: u64) {
         services.request(
             RequestSpec::new(
                 Feature::CodeAction,
-                t.path.clone(),
+                t.resource.clone(),
                 t.lsp_stamp(),
                 range.start,
             )
