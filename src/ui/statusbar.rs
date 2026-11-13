@@ -142,6 +142,28 @@ pub fn render(rect: UiRect, state: StatusBinding) -> Element {
         )
         .overflow(Overflow::Clip)
         .dock(DockSide::Right);
+    // The first item is wrapped, so a widget can be placed before the first item of the right
+    // side whatever that item is. An empty side gets an empty anchor.
+    let start = |index: usize, width: f32, element: lgui::prelude::Element| {
+        if index != 0 {
+            return element;
+        }
+        lgui::core::group(row(width))
+            .public_id("statusbar.start")
+            // What is placed beside the first item keeps the bar's own gap.
+            .layout(LayoutSpec::Flex(FlexLayout {
+                gap: GAP,
+                ..Default::default()
+            }))
+            .size_constraints(SizeConstraints::new(
+                Dimension::Content,
+                Dimension::Points(height),
+            ))
+            .child(element)
+    };
+    if items.items.is_empty() {
+        settings = settings.child(lgui::core::group(row(0.0)).public_id("statusbar.start"));
+    }
     for index in 0..items.items.len() {
         let width = items.width_of(index);
         let (label, style) = items.items[index].clone();
@@ -149,12 +171,15 @@ pub fn render(rect: UiRect, state: StatusBinding) -> Element {
             && at == index
         {
             settings = settings.child(
-                service_entry(height, width, label, style, service, state.clone()).flex_item(
-                    FlexItem {
-                        shrink: 0.0,
-                        ..Default::default()
-                    },
-                ),
+                start(
+                    index,
+                    width,
+                    service_entry(height, width, label, style, service, state.clone()),
+                )
+                .flex_item(FlexItem {
+                    shrink: 0.0,
+                    ..Default::default()
+                }),
             );
             continue;
         }
@@ -224,7 +249,7 @@ pub fn render(rect: UiRect, state: StatusBinding) -> Element {
             )
             .cursor(lgui::core::CursorIcon::Pointer);
         }
-        settings = settings.child(slot.flex_item(FlexItem {
+        settings = settings.child(start(index, width, slot).flex_item(FlexItem {
             shrink: 0.0,
             ..Default::default()
         }));
@@ -681,6 +706,120 @@ mod tests {
                 |action| session.handle_default_action(action),
                 |_| {},
             );
+        }
+    }
+
+    /// An extension's entry of a mark and a name, placed before the language, takes the room its
+    /// parts need and stays clear of the language.
+    #[test]
+    fn an_extension_entry_with_a_mark_and_a_name_sits_clear_of_the_language() {
+        use crate::features::extensions::ui::{
+            Attachment, Kind, Node, Origin, Properties, Relation,
+        };
+        let part = |node: u64, id: &str, kind: Kind, text: &str, width: Option<f32>| {
+            Arc::new(Node {
+                origin: Origin {
+                    owner: "acme.remote".into(),
+                    session: 1,
+                    generation: 1,
+                    node,
+                    id: id.into(),
+                },
+                attachment: Attachment::Detached,
+                properties: Properties {
+                    id: id.into(),
+                    kind,
+                    text: Some(text.into()),
+                    icon: (kind == Kind::Icon).then(|| "svg-path:24x24:M12,2L2,22H22Z".into()),
+                    foreground: Some(0xfff4f4f5),
+                    background: None,
+                    width,
+                    height: Some(22.0),
+                    padding: 0.0,
+                    gap: 4.0,
+                    visible: true,
+                    label: None,
+                },
+                motion: Default::default(),
+                children: vec![],
+            })
+        };
+        let mut entry = (*part(1, "entry", Kind::Block, "", None)).clone();
+        entry.attachment = Attachment::Relative {
+            target: "statusbar.start".into(),
+            relation: Relation::Before,
+            order: 0,
+        };
+        entry.properties.background = Some(0xff6366f1);
+        entry.children = vec![
+            part(2, "lead", Kind::Block, "", Some(6.0)),
+            part(3, "icon", Kind::Icon, "", Some(14.0)),
+            part(4, "host", Kind::Text, "root@141.11.91.114", None),
+            part(5, "trail", Kind::Block, "", Some(6.0)),
+        ];
+        let widgets = vec![Arc::new(entry)];
+        let rect = UiRect::new(0.0, 0.0, 1000.0, 22.0);
+        let lang = crate::domain::language::builtin("rust");
+        // The entry leads the right side: before the language services item when there is one,
+        // before the cursor otherwise, and still shown when no file is open.
+        for (service, file, first) in [
+            (
+                Some(ServiceState::Ready),
+                true,
+                "statusbar.language-services",
+            ),
+            (None, true, "statusbar.cursor-position"),
+            (None, false, ""),
+        ] {
+            let frame = StatusFrame {
+                extension_widgets: Vec::new(),
+                pending: Vec::new(),
+                vim: None,
+                file: file.then(|| FileStatus {
+                    indent: "Spaces: 2".into(),
+                    line_ending: "LF".into(),
+                    encoding: "UTF-8".into(),
+                    lang: lang.clone(),
+                    missing: false,
+                    conflict: false,
+                    cursor: Some((0, 0)),
+                    is_diff: false,
+                    is_file: true,
+                }),
+                language: Vec::new(),
+                language_services: service,
+                problems: None,
+            };
+            let binding = StatusBinding::new(move || frame.clone(), |_| {});
+            let roots = widgets.clone();
+            let view: AppView = Arc::new(move |_| {
+                lgui::core::group(rect)
+                    .child(render(rect, binding.clone()))
+                    .child(crate::ui::extension_widgets::layer(
+                        rect,
+                        roots.clone(),
+                        Arc::new(|_, _| {}),
+                    ))
+            });
+            let context = ApplicationContext::empty(Default::default());
+            let _fonts = lgui::backend::install_text_environment(
+                &context,
+                lgui::render_skia::skia_text_system_handle(),
+            );
+            let mut session = UiSession::new();
+            session.render_view(&view, rect, UiScale::ONE);
+            let bounds = |id: &str| session.tree().public_node(id).map(|node| node.bounds);
+            let entry = bounds(&widgets[0].origin.public_id())
+                .unwrap_or_else(|| panic!("the entry is missing ({first})"));
+            assert!(entry.width() > 100.0, "{first}: entry {entry:?}");
+            assert!(entry.right <= rect.right, "{first}: entry {entry:?} leaves the bar");
+            if !first.is_empty() {
+                let next = bounds(first).unwrap();
+                assert!(
+                    entry.right <= next.left,
+                    "{first}: entry {entry:?} next {next:?}"
+                );
+            }
         }
     }
 
