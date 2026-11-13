@@ -93,6 +93,11 @@ pub(crate) fn render(
     let decorate = |path: &Path| decoration(&git, path);
     let frame = Frame {
         active_path: app.workspace.active_path(),
+        active_resource: app
+            .workspace
+            .active_document()
+            .and_then(|id| app.workspace.documents.get(&id))
+            .map(|doc| &doc.meta.resource),
         resizing: app.drawer.resizing,
         resizable: app.layout.application_layout.is_none(),
         decorate: &decorate,
@@ -129,6 +134,20 @@ pub(crate) fn render_menu(
         projection(state),
         app.workspace.active_path(),
         commands(state, services),
+    )
+}
+
+pub(crate) fn render_confirmation(
+    viewport: UiRect,
+    state: &AppContext,
+    services: &Services,
+    input: EditInput,
+) -> Element {
+    crate::ui::explorer::confirm::render(
+        viewport,
+        projection(state),
+        commands(state, services),
+        input,
     )
 }
 
@@ -175,7 +194,13 @@ fn run(state: &AppContext, services: &Services, command: Command) {
                         &services.terminal_tabs,
                         crate::features::terminal::model::ProvidedTerminal {
                             root: root.resource,
-                            cwd: target.path,
+                            cwd: if target.kind == loog_workspace_api::FileKind::Directory {
+                                target.path
+                            } else if let Some(parent) = target.parent {
+                                parent
+                            } else {
+                                return;
+                            },
                             name: root.name,
                         },
                         None,
@@ -196,6 +221,26 @@ fn run(state: &AppContext, services: &Services, command: Command) {
         Command::ResourceFile { scope, file } => {
             super::resources::open(state, scope, file);
             services.editor_focus.focus();
+        }
+        Command::PressResourceFile { scope, file, point } => state.update(|app| {
+            app.explorer.ui.pressed_resource = Some((scope, file.path, point));
+        }),
+        Command::ReleaseResourceFile { scope, file, point } => {
+            let mut open = false;
+            state.update(|app| {
+                open = app.explorer.ui.pressed_resource.take().is_some_and(
+                    |(pressed_scope, path, origin)| {
+                        pressed_scope == scope
+                            && path == file.path
+                            && (origin.0 - point.0).abs() < 5.0
+                            && (origin.1 - point.1).abs() < 5.0
+                    },
+                );
+            });
+            if open {
+                super::resources::open(state, scope, file);
+                services.editor_focus.focus();
+            }
         }
         Command::ToggleDirectory(key) => {
             state.update(move |app| explorer::toggle_directory(app, &key));
@@ -456,6 +501,178 @@ mod tests {
     }
 
     const VIEWPORT: UiRect = UiRect::new(0.0, 0.0, 800.0, 600.0);
+
+    fn provided_workspace() -> (AppState, crate::features::resource_tree::Target) {
+        use loog_workspace_api::{
+            Capability, EnvironmentKey, FileInfo, FileKind, PresentedRoot, ResourceRef,
+        };
+        let mut app = AppState::new();
+        let resource = ResourceRef::provided(
+            EnvironmentKey::new("fixture", "tree").unwrap(),
+            "opaque:root",
+        )
+        .unwrap();
+        app.explorer.resources.sync(vec![PresentedRoot {
+            scope: 7,
+            resource,
+            name: "workspace".into(),
+            capabilities: vec![Capability::FilesRead, Capability::FilesWrite],
+        }]);
+        let target = crate::features::resource_tree::Target {
+            scope: 7,
+            path: loog_workspace_api::ProviderPath::new("opaque:root").unwrap(),
+            parent: None,
+            name: "workspace".into(),
+            kind: FileKind::Directory,
+        };
+        let directory = app
+            .explorer
+            .resources
+            .directory_mut(7, &target.path)
+            .unwrap();
+        directory.expanded = true;
+        directory.loaded = true;
+        directory.entries.push(FileInfo {
+            path: loog_workspace_api::ProviderPath::new("opaque:file").unwrap(),
+            name: "a.rs".into(),
+            kind: FileKind::File,
+            size: 0,
+            revision: None,
+            readonly: false,
+        });
+        (app, target)
+    }
+
+    #[test]
+    fn local_and_provided_files_use_identical_inline_edit_geometry() {
+        use loog_workspace_api::{FileKind, ProviderPath};
+        for action in [
+            MenuAction::NewFile,
+            MenuAction::NewFolder,
+            MenuAction::Rename,
+        ] {
+            let (root, app) = workspace("shared-explorer-inline", &["a.rs"]);
+            let mut local = harness(app);
+            let (app, mut provided_target) = provided_workspace();
+            let mut provided = harness(app);
+            let (local_path, local_kind, icon) = if action == MenuAction::Rename {
+                provided_target.parent = Some(provided_target.path.clone());
+                provided_target.path = ProviderPath::new("opaque:file").unwrap();
+                provided_target.name = "a.rs".into();
+                provided_target.kind = FileKind::File;
+                (
+                    root.join("a.rs"),
+                    ExplorerTargetKind::File,
+                    "tree-rename-icon",
+                )
+            } else {
+                (
+                    root.clone(),
+                    ExplorerTargetKind::Directory,
+                    "tree-create-icon",
+                )
+            };
+            local.run(Command::Menu {
+                action,
+                target: target(local_path, local_kind),
+            });
+            provided.run(Command::ResourceAction {
+                action,
+                target: provided_target,
+            });
+            local.render();
+            provided.render();
+            for id in ["explorer-edit-input", icon] {
+                let local_rect = local
+                    .session
+                    .tree()
+                    .node(&UiId::new(id))
+                    .expect("local edit row")
+                    .layout_rect;
+                let provided_rect = provided
+                    .session
+                    .tree()
+                    .node(&UiId::new(id))
+                    .expect("provided edit row")
+                    .layout_rect;
+                assert_eq!(local_rect, provided_rect, "{action:?}: {id}");
+            }
+            assert!(
+                !provided
+                    .session
+                    .tree()
+                    .nodes()
+                    .iter()
+                    .filter_map(|node| node.text.as_deref())
+                    .any(|text| matches!(text, "New file name" | "New name" | "New folder name"))
+            );
+            if action == MenuAction::Rename {
+                assert_eq!(
+                    provided
+                        .session
+                        .tree()
+                        .nodes()
+                        .iter()
+                        .filter_map(|node| node.text.as_deref())
+                        .filter(|text| *text == "a.rs")
+                        .count(),
+                    local
+                        .session
+                        .tree()
+                        .nodes()
+                        .iter()
+                        .filter_map(|node| node.text.as_deref())
+                        .filter(|text| *text == "a.rs")
+                        .count(),
+                    "rename replaces the original row"
+                );
+            }
+            for h in [&mut local, &mut provided] {
+                h.state
+                    .update(|app| app.explorer.ui.create_input.focused = true);
+                h.run(Command::CancelEdit);
+                h.render();
+                assert!(
+                    h.session
+                        .tree()
+                        .node(&UiId::new("explorer-edit-input"))
+                        .is_none()
+                );
+                assert!(!h.state.get().explorer.ui.create_input.focused);
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn provided_delete_confirmation_does_not_insert_a_tree_row() {
+        let (app, mut target) = provided_workspace();
+        target.parent = Some(target.path.clone());
+        target.path = loog_workspace_api::ProviderPath::new("opaque:file").unwrap();
+        target.name = "a.rs".into();
+        target.kind = loog_workspace_api::FileKind::File;
+        let mut h = harness(app);
+        let before = h.session.tree().nodes().len();
+        h.run(Command::ResourceAction {
+            action: MenuAction::Delete,
+            target,
+        });
+        h.render();
+        assert!(crate::ui::explorer::confirm::visible(
+            &h.state.get().explorer
+        ));
+        assert_eq!(before, h.session.tree().nodes().len());
+        assert!(
+            h.session
+                .tree()
+                .node(&UiId::new("explorer-edit-input"))
+                .is_none()
+        );
+        h.run(Command::CancelEdit);
+        assert!(!crate::ui::explorer::confirm::visible(
+            &h.state.get().explorer
+        ));
+    }
 
     #[cfg(windows)]
     fn process_memory() -> (usize, usize, usize, usize) {

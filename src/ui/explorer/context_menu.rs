@@ -11,7 +11,7 @@ use lgui::prelude::{Color, Element, ShadowStyle, UiRect, VisualStyle, panel, tex
 use lgui::text::measure_width;
 use unicode_width::UnicodeWidthStr;
 
-use super::commands::{Command, Commands, MenuAction};
+use super::commands::{Commands, MenuAction};
 use super::state::ExplorerPanelState;
 use crate::features::explorer::model::ExplorerModel;
 use crate::features::explorer::{ExplorerContextTarget, ExplorerTargetKind};
@@ -64,6 +64,7 @@ const DIRECTORY_ENTRIES: &[Entry] = &[
     item("New File", MenuAction::NewFile),
     item("New Folder", MenuAction::NewFolder),
     item("Refresh Explorer", MenuAction::RefreshExplorer),
+    item("Workspace Trust…", MenuAction::WorkspaceTrust),
     Entry::Separator,
     item("Reveal in File Explorer", MenuAction::RevealInFileExplorer),
     item("Open in Terminal", MenuAction::OpenTerminal),
@@ -93,23 +94,6 @@ const FILE_ENTRIES: &[Entry] = &[
     Entry::Separator,
     item("Rename", MenuAction::Rename),
     item("Delete", MenuAction::Delete),
-];
-
-const RESOURCE_DIRECTORY_ENTRIES: &[Entry] = &[
-    item("New File", MenuAction::NewFile),
-    item("New Folder", MenuAction::NewFolder),
-    item("Refresh Explorer", MenuAction::RefreshExplorer),
-    item("Workspace Trust…", MenuAction::WorkspaceTrust),
-    item("Open in Terminal", MenuAction::OpenTerminal),
-    item("Copy Path", MenuAction::CopyPath),
-    Entry::Separator,
-    item("Rename", MenuAction::Rename),
-    item("Delete Permanently…", MenuAction::Delete),
-];
-const RESOURCE_FILE_ENTRIES: &[Entry] = &[
-    item("Copy Path", MenuAction::CopyPath),
-    item("Rename", MenuAction::Rename),
-    item("Delete Permanently…", MenuAction::Delete),
 ];
 
 /// Shown on a multi-selection: only actions that apply to every item.
@@ -198,17 +182,41 @@ pub fn render(
         && target.as_ref().is_some_and(|target| {
             target.kind == ExplorerTargetKind::File && s.ui.selection.contains(&target.path)
         });
-    let entries: Vec<&'static Entry> = if let Some(target) = &resource_target {
+    let candidates: Vec<&'static Entry> = if let Some(target) = &resource_target {
         if target.kind == loog_workspace_api::FileKind::Directory {
-            RESOURCE_DIRECTORY_ENTRIES.iter().collect()
+            DIRECTORY_ENTRIES.iter().collect()
         } else {
-            RESOURCE_FILE_ENTRIES.iter().collect()
+            FILE_ENTRIES.iter().collect()
         }
     } else if batch {
         BATCH_ENTRIES.iter().collect()
     } else {
         entries_for(target.as_ref())
     };
+    let mut entries = Vec::new();
+    for entry in candidates {
+        match entry {
+            Entry::Item { action, .. }
+                if super::source::supports_action(resource_target.as_ref(), *action) =>
+            {
+                entries.push(entry)
+            }
+            Entry::Separator
+                if entries
+                    .last()
+                    .is_some_and(|last| matches!(last, Entry::Item { .. })) =>
+            {
+                entries.push(entry)
+            }
+            _ => {}
+        }
+    }
+    if entries
+        .last()
+        .is_some_and(|last| matches!(last, Entry::Separator))
+    {
+        entries.pop();
+    }
     let can_remove = target.as_ref().is_some_and(|target| {
         target.kind == ExplorerTargetKind::Directory && s.model.is_root(&target.path)
     });
@@ -316,33 +324,10 @@ pub fn render(
                 shortcut,
                 action,
             } => {
-                let enabled = if let Some(target) = &resource_target {
-                    let write = s.resources.root(target.scope).is_some_and(|root| {
-                        root.descriptor
-                            .capabilities
-                            .contains(&loog_workspace_api::Capability::FilesWrite)
+                let enabled = super::source::action_enabled(&s, resource_target.as_ref(), *action)
+                    .unwrap_or_else(|| {
+                        action_enabled(*action, target.is_some(), has_item_target, can_remove)
                     });
-                    match action {
-                        MenuAction::OpenTerminal => {
-                            s.resources.root(target.scope).is_some_and(|root| {
-                                root.descriptor
-                                    .capabilities
-                                    .contains(&loog_workspace_api::Capability::Terminal)
-                            })
-                        }
-                        MenuAction::CopyPath
-                        | MenuAction::RefreshExplorer
-                        | MenuAction::WorkspaceTrust => true,
-                        MenuAction::Rename | MenuAction::Delete => {
-                            write
-                                && target.parent.is_some()
-                                && !s.resources.busy.contains(&target.scope)
-                        }
-                        _ => write && !s.resources.busy.contains(&target.scope),
-                    }
-                } else {
-                    action_enabled(*action, target.is_some(), has_item_target, can_remove)
-                };
                 let item_rect = UiRect::new(
                     card.left + MENU_BORDER,
                     y,
@@ -389,17 +374,11 @@ pub fn render(
                         return;
                     }
                     st_click.update(|panel| panel.ui.dismiss_menu());
-                    if let Some(target) = &resource_action_target {
-                        click_commands.dispatch(Command::ResourceAction {
-                            action,
-                            target: target.clone(),
-                        });
-                    } else {
-                        click_commands.dispatch(Command::Menu {
-                            action,
-                            target: action_target.clone(),
-                        });
-                    }
+                    click_commands.dispatch(super::source::menu_action(
+                        action,
+                        resource_action_target.as_ref(),
+                        action_target.as_ref(),
+                    ));
                 });
 
                 // Label (left-aligned).

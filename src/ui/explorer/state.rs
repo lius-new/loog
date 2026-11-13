@@ -29,6 +29,11 @@ pub struct ExplorerUiState {
     /// Row the menu was opened on; `None` acts on the containing root.
     pub menu_target: Option<ExplorerContextTarget>,
     pub resource_menu: Option<crate::features::resource_tree::Target>,
+    pub pressed_resource: Option<(
+        loog_workspace_api::ScopeId,
+        loog_workspace_api::ProviderPath,
+        (f32, f32),
+    )>,
     pub menu_hover: Option<usize>,
     /// Text of the inline create/rename row.
     pub create_input: InputState,

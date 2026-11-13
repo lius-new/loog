@@ -50,6 +50,16 @@ pub enum Command {
         scope: loog_workspace_api::ScopeId,
         file: loog_workspace_api::FileInfo,
     },
+    PressResourceFile {
+        scope: loog_workspace_api::ScopeId,
+        file: loog_workspace_api::FileInfo,
+        point: (f32, f32),
+    },
+    ReleaseResourceFile {
+        scope: loog_workspace_api::ScopeId,
+        file: loog_workspace_api::FileInfo,
+        point: (f32, f32),
+    },
     /// Expand or collapse a directory row (reads it on first expansion).
     ToggleDirectory(String),
     /// Open the context menu; `None` targets the drawer background.
@@ -114,6 +124,7 @@ pub struct Decoration {
 pub struct Frame<'a> {
     /// Path of the active editor tab, highlighted in the tree.
     pub active_path: Option<&'a Path>,
+    pub active_resource: Option<&'a loog_workspace_api::ResourceRef>,
     /// Drawer resize drag in progress.
     pub resizing: bool,
     /// Whether the drawer edge shows a resize handle.

@@ -357,6 +357,10 @@
       "owner": "ui/explorer/state",
       "migrated_in": "resource-providers"
     },
+    "pressed_resource": {
+      "owner": "ui/explorer/state",
+      "migrated_in": "shared-explorer"
+    },
     "menu_hover": {
       "owner": "ui/explorer/state",
       "migrated_in": "R5.2",

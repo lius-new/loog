@@ -79,6 +79,14 @@ the resource tree and never becomes a local recent-path entry.
 
 ## Native consumers and compatibility
 
+Explorer uses one tree layout, directory/file row renderer, inline create/rename
+field, sticky ancestor index and width/scroll calculation for native and provided
+resources. `ui/explorer/source.rs` adapts cached listings and semantic commands;
+the renderer never interprets provider paths. Context menus share item definitions
+and obtain availability and operation dispatch from the adapter. Irreversible
+deletion uses a file-operation confirmation outside the tree layout. Provider IO,
+connection protocols and path semantics remain outside these UI components.
+
 | Consumer | Provided resource behavior |
 | --- | --- |
 | Explorer and editor | Async pages/open/save/create/rename/delete, dirty buffers, undo and pane identity |

@@ -10,7 +10,8 @@
 //! The view reads only the Explorer projection and its frame inputs; anything
 //! touching other features goes out as a [`Command`].
 
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
 
 use lgui::core::{
     CursorIcon, EventPolicy, IconStyle, PointerButton, UiElement, UiEventKind, UiEventPayload,
@@ -19,8 +20,9 @@ use lgui::core::{
 use lgui::prelude::{Color, Element, TextAlign, UiRect, VisualStyle, panel, text};
 
 use super::commands::{Command, Commands, Decoration, EditInput, Frame, GitTone};
+use super::source::{self, Entry};
 use super::state::{ExplorerPanelState, ExplorerReveal};
-use crate::features::explorer::{ExplorerContextTarget, ExplorerCreateKind, ExplorerTargetKind};
+use crate::features::explorer::ExplorerCreateKind;
 use crate::ui::components::input::{self, AccessInputOptions, InputBinding, InputStyle};
 use crate::ui::components::scrollbar;
 use crate::ui::components::state_access::StateAccess;
@@ -51,6 +53,7 @@ struct StickyDirectory {
     depth: usize,
     source_y: f32,
     is_expanded: bool,
+    entry: Entry,
 }
 
 /// One row for sticky-header lookups. `dir` is the directory the row belongs
@@ -76,7 +79,6 @@ struct DirMeta {
 struct TreeIndex {
     rows: Vec<TreeRowMeta>,
     dirs: Vec<DirMeta>,
-    local_bottom: Option<f32>,
 }
 
 impl TreeIndex {
@@ -187,22 +189,10 @@ pub fn render(
             bar = bar.child(el);
         }
     } else {
-        let roots = s
-            .model
-            .roots()
-            .iter()
-            .map(|dir| {
-                let key = dir.to_string_lossy().into_owned();
-                let name = dir
-                    .file_name()
-                    .map(|value| value.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| key.clone());
-                (dir.clone(), key, name)
-            })
-            .collect::<Vec<_>>();
+        let roots = source::roots(&s);
         let content_right = roots
             .iter()
-            .map(|(_, key, name)| tree_content_right(key, name, &s, content_rect.left))
+            .map(|entry| tree_content_right(entry, &s, content_rect.left))
             .fold(content_rect.right, f32::max);
         let max_scroll_x = (content_right - content_rect.right).max(0.0);
         let scroll_x = s.ui.scroll_x.clamp(0.0, max_scroll_x);
@@ -278,15 +268,11 @@ pub fn render(
             let label_color = if directory.depth == 0 {
                 theme::c().text_soft
             } else {
-                tree_label_color(
-                    (frame.decorate)(Path::new(&directory.key)),
-                    theme::c().text_soft,
-                )
+                tree_label_color(directory.entry.decoration(frame), theme::c().text_soft)
             };
             bar = bar.child(dir_row(
                 &tree,
-                &directory.key,
-                &directory.name,
+                &directory.entry,
                 indent,
                 sticky.top,
                 -scroll_x,
@@ -541,13 +527,8 @@ fn edit_field(tree: &TreeContext<'_>, rect: UiRect, label: &'static str) -> Elem
     )
 }
 
-fn create_row(tree: &TreeContext<'_>, y: f32, indent: f32) -> Element {
+fn create_row(tree: &TreeContext<'_>, y: f32, indent: f32, kind: ExplorerCreateKind) -> Element {
     let rect = tree.rect;
-    let kind = tree
-        .panel
-        .model
-        .create_request()
-        .map_or(ExplorerCreateKind::File, |request| request.kind);
     let border = edit_border(tree.panel);
     let icon = if kind == ExplorerCreateKind::Folder {
         crate::ui::file_icons::FOLDER_ICON
@@ -597,7 +578,13 @@ fn create_row(tree: &TreeContext<'_>, y: f32, indent: f32) -> Element {
     .child(input)
 }
 
-fn rename_row(tree: &TreeContext<'_>, y: f32, indent: f32, is_expanded: bool) -> Element {
+fn rename_row(
+    tree: &TreeContext<'_>,
+    y: f32,
+    indent: f32,
+    entry: &Entry,
+    is_expanded: bool,
+) -> Element {
     let rect = tree.rect;
     let border = edit_border(tree.panel);
     let input_rect = UiRect::new(
@@ -612,23 +599,20 @@ fn rename_row(tree: &TreeContext<'_>, y: f32, indent: f32, is_expanded: bool) ->
         input_rect.right - 1.0,
         input_rect.bottom - 1.0,
     );
-    let request = tree.panel.model.rename_request();
-    let (label, icon) = match request.map(|request| request.kind) {
-        Some(ExplorerTargetKind::File) => {
-            let icon = request
-                .and_then(|request| request.path.file_name())
-                .map(|name| crate::ui::file_icons::icon_for_file(&name.to_string_lossy()))
-                .unwrap_or(crate::ui::file_icons::DEFAULT_FILE_ICON);
-            ("Rename file", icon)
-        }
-        _ => (
+    let (label, icon) = if !entry.directory {
+        (
+            "Rename file",
+            crate::ui::file_icons::icon_for_file(&entry.name),
+        )
+    } else {
+        (
             "Rename folder",
             if is_expanded {
                 crate::ui::file_icons::FOLDER_OPEN_ICON
             } else {
                 crate::ui::file_icons::FOLDER_ICON
             },
-        ),
+        )
     };
     let input = edit_field(tree, field_rect, label);
     panel(
@@ -688,8 +672,7 @@ fn track_hover(
 #[allow(clippy::too_many_arguments)]
 fn dir_row(
     tree: &TreeContext<'_>,
-    key: &str,
-    name: &str,
+    entry: &Entry,
     indent: f32,
     y: f32,
     content_offset_x: f32,
@@ -698,6 +681,8 @@ fn dir_row(
     hovered: bool,
     label_color: Color,
 ) -> Element {
+    let key = &entry.key;
+    let name = &entry.name;
     let rect = tree.rect;
     let content_right = tree.content_right;
     let row_right = if sticky { rect.right } else { content_right };
@@ -729,20 +714,11 @@ fn dir_row(
     }
 
     let commands = tree.commands.clone();
-    let click_key = key.to_string();
+    let click_entry = entry.clone();
     let row = row
         .on_pointer_down_with_button(move |cx, pointer, button| {
-            let key = click_key.clone();
-            match button {
-                PointerButton::Left => commands.dispatch(Command::ToggleDirectory(key)),
-                PointerButton::Right => commands.dispatch(Command::OpenMenu {
-                    point: (pointer.point.x, pointer.point.y),
-                    target: Some(ExplorerContextTarget {
-                        path: key.into(),
-                        kind: ExplorerTargetKind::Directory,
-                    }),
-                }),
-                _ => return,
+            if let Some(command) = click_entry.press((pointer.point.x, pointer.point.y), button) {
+                commands.dispatch(command);
             }
             cx.stop_propagation();
         })
@@ -773,23 +749,16 @@ fn dir_row(
     }
 }
 
-fn file_row(
-    tree: &TreeContext<'_>,
-    entry_path: &Path,
-    name: String,
-    key: &str,
-    indent: f32,
-    y: f32,
-) -> Element {
+fn file_row(tree: &TreeContext<'_>, entry: &Entry, indent: f32, y: f32) -> Element {
+    let name = &entry.name;
+    let key = &entry.key;
     let content_right = tree.content_right;
     let row_rect = UiRect::new(tree.rect.left, y, content_right, y + ROW_H);
     let icon_id = UiId::owned(format!("tree-file-icon-{key}"));
-    let icon = crate::ui::file_icons::icon_for_file(&name);
-    let decoration = (tree.frame.decorate)(entry_path);
+    let icon = crate::ui::file_icons::icon_for_file(name);
+    let decoration = entry.decoration(tree.frame);
     let label_color = tree_label_color(decoration, theme::c().text_muted);
-    let row_style = if tree.panel.ui.selection.contains(entry_path)
-        || tree.frame.active_path == Some(entry_path)
-    {
+    let row_style = if entry.selected(tree.panel, tree.frame) {
         VisualStyle::filled(theme::c().active_line)
     } else if tree.panel.ui.hovered_path.as_deref() == Some(key) {
         VisualStyle::filled(theme::c().surface)
@@ -797,30 +766,22 @@ fn file_row(
         VisualStyle::default()
     };
     let commands = tree.commands.clone();
-    let action_path = entry_path.to_path_buf();
+    let pressed = entry.clone();
+    let released = entry.clone();
+    let release_commands = tree.commands.clone();
     panel(row_rect, row_style)
         .event_policy(EventPolicy::INTERACTIVE)
         .on_pointer_move(track_hover(tree.state, key))
         .on_pointer_down_with_button(move |cx, pointer, button| {
-            let path = action_path.clone();
-            match button {
-                // Opening waits for the release: a press that moves becomes
-                // a drag into the editor.
-                PointerButton::Left => commands.dispatch(Command::PressFile {
-                    path,
-                    point: (pointer.point.x, pointer.point.y),
-                }),
-                PointerButton::Middle => commands.dispatch(Command::OpenPinned(path)),
-                PointerButton::Right => commands.dispatch(Command::OpenMenu {
-                    point: (pointer.point.x, pointer.point.y),
-                    target: Some(ExplorerContextTarget {
-                        path,
-                        kind: ExplorerTargetKind::File,
-                    }),
-                }),
-                _ => return,
+            if let Some(command) = pressed.press((pointer.point.x, pointer.point.y), button) {
+                commands.dispatch(command);
             }
             cx.stop_propagation();
+        })
+        .on_pointer_up(move |_, pointer| {
+            if let Some(command) = released.release((pointer.point.x, pointer.point.y)) {
+                release_commands.dispatch(command);
+            }
         })
         .child(precompiled(
             UiElement::icon(
@@ -842,7 +803,7 @@ fn file_row(
                 content_right - FILE_RIGHT_PAD,
                 y + 18.0,
             ),
-            &name,
+            name,
             label_color,
         ))
         .child(text(
@@ -887,495 +848,132 @@ fn tree_label_width(name: &str) -> f32 {
 /// the visible-window elements, the metadata of all rows and the content
 /// bottom. Each root starts a fresh ancestry; sticky roots stack while nested
 /// directories follow the currently visible project's path.
-fn build_roots(
-    tree: &TreeContext<'_>,
-    roots: &[(PathBuf, String, String)],
-) -> (Vec<Element>, TreeIndex, f32) {
-    let s = tree.panel;
-    let content_rect = tree.rect;
-    let mut y = content_rect.top;
-    let indent = content_rect.left + INDENT;
+fn build_roots(tree: &TreeContext<'_>, roots: &[Entry]) -> (Vec<Element>, TreeIndex, f32) {
+    let mut y = tree.rect.top;
     let mut index = TreeIndex::default();
     let mut tree_els = Vec::new();
-
-    for (root_path, key, root_name) in roots {
-        let is_expanded = s.model.is_expanded(key);
-        let root = index.push_dir(
-            StickyDirectory {
-                key: key.clone(),
-                name: root_name.clone(),
-                depth: 0,
-                source_y: y,
-                is_expanded,
-            },
+    for entry in roots {
+        build_tree(
+            tree,
+            entry,
+            &mut y,
+            0,
             None,
+            &mut index,
+            &mut tree_els,
+            &mut std::collections::HashSet::new(),
         );
-        index.rows.push(TreeRowMeta {
-            y,
-            depth: 0,
-            dir: root,
-        });
-        let renaming = s
-            .model
-            .rename_request()
-            .is_some_and(|request| request.path == *root_path);
-        if renaming {
-            tree_els.push(rename_row(tree, y, indent, is_expanded));
-        } else if tree.row_visible(y, ROW_H) {
-            tree_els.push(dir_row(
-                tree,
-                key,
-                root_name,
-                indent,
-                y,
-                0.0,
-                is_expanded,
-                false,
-                s.ui.hovered_path.as_deref() == Some(key.as_str()),
-                theme::c().text_soft,
-            ));
-        }
-        y += ROW_H;
-
-        if s.model
-            .create_request()
-            .is_some_and(|request| request.parent == *root_path)
-        {
-            tree_els.push(create_row(tree, y, indent));
-            y += CREATE_ROW_H;
-        }
-
-        if is_expanded {
-            let children_top = y;
-            let guide_x = indent + TREE_ICON_SIZE / 2.0;
-            let mut dir_path = root_path.clone();
-            tree_els.extend(build_tree(tree, &mut dir_path, &mut y, 1, root, &mut index));
-            if y > children_top && tree.row_visible(children_top, y - children_top) {
-                tree_els.push(panel(
-                    UiRect::new(guide_x, children_top, guide_x + 1.0, y),
-                    VisualStyle::filled(theme::c().border),
-                ));
-            }
-        }
     }
-    index.local_bottom = Some(y);
-    build_resource_roots(tree, &mut tree_els, &mut y);
     (tree_els, index, y)
 }
 
-fn build_resource_roots(tree: &TreeContext<'_>, elements: &mut Vec<Element>, y: &mut f32) {
-    use loog_workspace_api::{FileKind, ResourceRef};
-    for bookmark in &tree.panel.resources.bookmarks {
-        if tree
-            .panel
-            .resources
-            .roots
-            .iter()
-            .any(|root| root.descriptor.resource == bookmark.resource)
-        {
-            continue;
-        }
-        resource_row(
-            tree,
-            elements,
-            *y,
-            0,
-            &format!("{} · Offline — click to reconnect", bookmark.name),
-            crate::ui::file_icons::FOLDER_ICON,
-            Command::ResourceRecovery {
-                resource: bookmark.resource.clone(),
-                forget: false,
-            },
-            None,
-        );
-        *y += ROW_H;
-        resource_row(
-            tree,
-            elements,
-            *y,
-            1,
-            "Remove from workspace",
-            crate::ui::file_icons::FOLDER_ICON,
-            Command::ResourceRecovery {
-                resource: bookmark.resource.clone(),
-                forget: true,
-            },
-            None,
-        );
-        *y += ROW_H;
-    }
-    for root in &tree.panel.resources.roots {
-        let ResourceRef::Provided { path, .. } = &root.descriptor.resource else {
-            continue;
-        };
-        let scope = root.descriptor.scope;
-        let name = format!(
-            "{} · {}{}",
-            root.descriptor.name,
-            path.as_str(),
-            if root.watch.error.is_some() {
-                " · Monitoring paused"
-            } else {
-                ""
-            }
-        );
-        let mut pending = vec![(path.clone(), name, FileKind::Directory, 0usize, None, None)];
-        let mut visited = std::collections::HashSet::new();
-        while let Some((path, name, kind, depth, file, parent)) = pending.pop() {
-            if !visited.insert(path.clone())
-                || visited.len() > crate::features::resource_tree::MAX_ENTRIES
-                || depth > 64
-            {
-                continue;
-            }
-            let directory = root.directories.get(&path);
-            let target = crate::features::resource_tree::Target {
-                scope,
-                path: path.clone(),
-                parent,
-                name: name.clone(),
-                kind: kind.clone(),
-            };
-            let expanded = directory.is_some_and(|d| d.expanded);
-            let action = if kind == FileKind::Directory {
-                Command::ResourceDirectory {
-                    scope,
-                    path: path.clone(),
-                    more: false,
-                }
-            } else if let Some(file) = file {
-                Command::ResourceFile { scope, file }
-            } else {
-                continue;
-            };
-            let icon = if kind == FileKind::Directory {
-                if expanded {
-                    crate::ui::file_icons::FOLDER_OPEN_ICON
-                } else {
-                    crate::ui::file_icons::FOLDER_ICON
-                }
-            } else {
-                crate::ui::file_icons::icon_for_file(&name)
-            };
-            resource_row(tree, elements, *y, depth, &name, icon, action, Some(target));
-            *y += ROW_H;
-            if let Some(edit) = tree
-                .panel
-                .resources
-                .edit
-                .as_ref()
-                .filter(|edit| edit.target.scope == scope && edit.target.path == path)
-            {
-                use crate::features::resource_tree::EditKind;
-                let label = match edit.kind {
-                    EditKind::NewFile => "New file name",
-                    EditKind::NewFolder => "New folder name",
-                    EditKind::Rename => "New name",
-                    EditKind::Delete => "Type the name to delete permanently",
-                };
-                if tree.row_visible(*y, 50.0) {
-                    let left = tree.rect.left + INDENT * (depth + 1) as f32;
-                    let input_rect = UiRect::new(left, *y + 20.0, tree.rect.right - 8.0, *y + 48.0);
-                    elements.push(
-                        text(
-                            UiRect::new(left, *y, tree.rect.right - 8.0, *y + 18.0),
-                            label,
-                            theme::mono(theme::c().text_soft, theme::SMALL),
-                        )
-                        .into(),
-                    );
-                    elements.push(theme::bordered(
-                        input_rect,
-                        theme::c().bg,
-                        edit_border(tree.panel),
-                        3.0,
-                        1.0,
-                    ));
-                    elements.push(edit_field(
-                        tree,
-                        UiRect::new(
-                            input_rect.left + 1.0,
-                            input_rect.top + 1.0,
-                            input_rect.right - 1.0,
-                            input_rect.bottom - 1.0,
-                        ),
-                        label,
-                    ));
-                }
-                *y += 50.0;
-            }
-            if let Some(directory) = directory.filter(|d| d.expanded) {
-                if directory.pending.is_some()
-                    || directory.error.is_some()
-                    || directory.cursor.is_some()
-                {
-                    let label = directory
-                        .error
-                        .as_ref()
-                        .map(|e| format!("{e} — click to retry"))
-                        .unwrap_or_else(|| {
-                            if directory.pending.is_some() {
-                                "Loading…".into()
-                            } else {
-                                "Load more…".into()
-                            }
-                        });
-                    resource_row(
-                        tree,
-                        elements,
-                        *y,
-                        depth + 1,
-                        &label,
-                        crate::ui::file_icons::FOLDER_ICON,
-                        Command::ResourceDirectory {
-                            scope,
-                            path: path.clone(),
-                            more: directory.error.is_none(),
-                        },
-                        None,
-                    );
-                    *y += ROW_H;
-                }
-                for file in directory.entries.iter().rev() {
-                    pending.push((
-                        file.path.clone(),
-                        file.name.clone(),
-                        file.kind.clone(),
-                        depth + 1,
-                        Some(file.clone()),
-                        Some(path.clone()),
-                    ));
-                }
-            }
-        }
-    }
-}
-
-fn resource_row(
-    tree: &TreeContext<'_>,
-    elements: &mut Vec<Element>,
-    y: f32,
-    depth: usize,
-    name: &str,
-    icon: &'static str,
-    action: Command,
-    menu: Option<crate::features::resource_tree::Target>,
-) {
-    if !tree.row_visible(y, ROW_H) {
-        return;
-    }
-    let indent = tree.rect.left + INDENT * (depth + 1) as f32;
-    let commands = tree.commands.clone();
-    elements.push(
-        panel(
-            UiRect::new(tree.rect.left, y, tree.content_right, y + ROW_H),
-            VisualStyle::default(),
-        )
-        .event_policy(EventPolicy::INTERACTIVE)
-        .on_pointer_down_with_button(move |cx, point, button| {
-            if matches!(button, PointerButton::Left | PointerButton::Middle) {
-                commands.dispatch(action.clone());
-            } else if button == PointerButton::Right
-                && let Some(target) = &menu
-            {
-                commands.dispatch(Command::ResourceMenu {
-                    point: (point.point.x, point.point.y),
-                    target: target.clone(),
-                });
-            }
-            cx.stop_propagation();
-        })
-        .child(precompiled(
-            UiElement::icon(
-                UiId::owned(format!("resource-icon-{y}")),
-                UiRect::new(
-                    indent,
-                    y + 2.0,
-                    indent + TREE_ICON_SIZE,
-                    y + 2.0 + TREE_ICON_SIZE,
-                ),
-                icon,
-            )
-            .icon_style(IconStyle::new(theme::c().text_muted)),
-        ))
-        .child(tree_label(
-            UiRect::new(
-                indent + TREE_LABEL_OFFSET,
-                y + 2.0,
-                tree.content_right - DIRECTORY_RIGHT_PAD,
-                y + 18.0,
-            ),
-            name,
-            theme::c().text_soft,
-        )),
-    );
-}
-
-/// Renders the cached entries of the directory at `dir_path`, advancing `y` by
-/// one row per entry. Child directories render only when expanded. Rows
-/// outside the tree's visible window advance `y` without creating UI nodes,
-/// and rows below it are not even recorded, so a pass allocates in proportion
-/// to the window and to the rows above it rather than to the whole tree.
-/// `dir_path` is extended and restored in place instead of building a path
-/// per entry. `parent` is the index of the directory being listed.
+/// One layout and interaction path for every data source. Only visible rows
+/// allocate UI elements; sticky metadata is retained up to the viewport end.
+#[allow(clippy::too_many_arguments)]
 fn build_tree(
     tree: &TreeContext<'_>,
-    dir_path: &mut PathBuf,
+    entry: &Entry,
     y: &mut f32,
     depth: usize,
-    parent: u32,
+    parent: Option<u32>,
     index: &mut TreeIndex,
-) -> Vec<Element> {
-    let mut els = Vec::new();
-    let model = &tree.panel.model;
-
-    let Some(entries) = model.listing(&dir_path.to_string_lossy()) else {
-        return els;
-    };
-
-    for entry in entries.iter() {
-        let is_dir = entry.is_dir;
-        // From here until the `pop` below, `dir_path` is this entry's path.
-        dir_path.push(&entry.name);
-        let indent = tree.rect.left + INDENT + depth as f32 * INDENT;
-        let renaming = model
-            .rename_request()
-            .is_some_and(|request| request.path == *dir_path);
-        let recorded = *y < tree.visible.1;
-        let visible = tree.row_visible(*y, ROW_H);
-
-        let mut children_parent = parent;
-        let mut is_expanded = false;
-        if is_dir {
-            is_expanded = model.is_expanded(&dir_path.to_string_lossy());
-            if recorded {
-                children_parent = index.push_dir(
-                    StickyDirectory {
-                        key: dir_path.to_string_lossy().into_owned(),
-                        name: entry.name.clone(),
-                        depth,
-                        source_y: *y,
-                        is_expanded,
-                    },
-                    Some(parent),
-                );
-                index.rows.push(TreeRowMeta {
-                    y: *y,
-                    depth,
-                    dir: children_parent,
-                });
-            }
-            if renaming {
-                els.push(rename_row(tree, *y, indent, is_expanded));
-            } else if visible {
-                let directory = &index.dirs[children_parent as usize].directory;
-                els.push(dir_row(
-                    tree,
-                    &directory.key,
-                    &directory.name,
-                    indent,
-                    *y,
-                    0.0,
-                    is_expanded,
-                    false,
-                    tree.panel.ui.hovered_path.as_deref() == Some(directory.key.as_str()),
-                    tree_label_color(
-                        (tree.frame.decorate)(dir_path.as_path()),
-                        theme::c().text_soft,
-                    ),
-                ));
-            }
-        } else {
-            if recorded {
-                index.rows.push(TreeRowMeta {
-                    y: *y,
-                    depth,
-                    dir: parent,
-                });
-            }
-            if renaming {
-                els.push(rename_row(tree, *y, indent, false));
-            } else if visible {
-                let key = dir_path.to_string_lossy().into_owned();
-                els.push(file_row(
-                    tree,
-                    dir_path.as_path(),
-                    entry.name.clone(),
-                    &key,
-                    indent,
-                    *y,
-                ));
-            }
-        }
-
-        *y += ROW_H;
-
-        if is_dir
-            && model
-                .create_request()
-                .is_some_and(|request| request.parent == *dir_path)
-        {
-            els.push(create_row(tree, *y, indent));
-            *y += CREATE_ROW_H;
-        }
-
-        if is_dir && is_expanded {
-            // Indent guide under an expanded folder's icon: spans from the
-            // folder row bottom to the bottom of its last child.
-            let children_top = *y;
-            let guide_x = indent + TREE_ICON_SIZE / 2.0;
-            els.extend(build_tree(
-                tree,
-                dir_path,
-                y,
-                depth + 1,
-                children_parent,
-                index,
-            ));
-            if *y > children_top && tree.row_visible(children_top, *y - children_top) {
-                els.push(panel(
-                    UiRect::new(guide_x, children_top, guide_x + 1.0, *y),
-                    VisualStyle::filled(theme::c().border),
-                ));
-            }
-        }
-        dir_path.pop();
+    elements: &mut Vec<Element>,
+    visited: &mut std::collections::HashSet<String>,
+) {
+    if !visited.insert(entry.key.clone()) {
+        return;
     }
-
-    els
+    let indent = tree.rect.left + INDENT + depth as f32 * INDENT;
+    let expanded = entry.expanded(tree.panel);
+    let mut parent = parent;
+    if *y < tree.visible.1 {
+        if entry.directory {
+            parent = Some(index.push_dir(
+                StickyDirectory {
+                    key: entry.key.clone(),
+                    name: entry.name.clone(),
+                    depth,
+                    source_y: *y,
+                    is_expanded: expanded,
+                    entry: entry.clone(),
+                },
+                parent,
+            ));
+        }
+        if let Some(dir) = parent {
+            index.rows.push(TreeRowMeta { y: *y, depth, dir });
+        }
+    }
+    if entry.renaming(tree.panel) {
+        elements.push(rename_row(tree, *y, indent, entry, expanded));
+    } else if tree.row_visible(*y, ROW_H) {
+        if entry.directory {
+            elements.push(dir_row(
+                tree,
+                entry,
+                indent,
+                *y,
+                0.0,
+                expanded,
+                false,
+                tree.panel.ui.hovered_path.as_deref() == Some(entry.key.as_str()),
+                tree_label_color(entry.decoration(tree.frame), theme::c().text_soft),
+            ));
+        } else {
+            elements.push(file_row(tree, entry, indent, *y));
+        }
+    }
+    *y += ROW_H;
+    if let Some(kind) = entry.creating(tree.panel) {
+        elements.push(create_row(tree, *y, indent, kind));
+        *y += CREATE_ROW_H;
+    }
+    if entry.directory && expanded {
+        let children_top = *y;
+        for child in entry.children(tree.panel, depth) {
+            build_tree(tree, &child, y, depth + 1, parent, index, elements, visited);
+        }
+        if *y > children_top && tree.row_visible(children_top, *y - children_top) {
+            let guide_x = indent + TREE_ICON_SIZE / 2.0;
+            elements.push(panel(
+                UiRect::new(guide_x, children_top, guide_x + 1.0, *y),
+                VisualStyle::filled(theme::c().border),
+            ));
+        }
+    }
 }
 
 /// Right edge required by expanded tree rows. Reuse the tab strip's cached
 /// shaped widths so CJK and fallback glyphs contribute their actual advances.
-fn tree_content_right(root_key: &str, root_name: &str, s: &ExplorerPanelState, left: f32) -> f32 {
-    let mut right = row_content_right(left, 0, root_name, true);
-    if s.model.is_expanded(root_key) {
-        extend_content_right(&mut PathBuf::from(root_key), 1, s, left, &mut right);
-    }
+fn tree_content_right(entry: &Entry, s: &ExplorerPanelState, left: f32) -> f32 {
+    let mut right = left;
+    extend_content_right(
+        entry,
+        0,
+        s,
+        left,
+        &mut right,
+        &mut std::collections::HashSet::new(),
+    );
     right
 }
 
-/// Walks the expanded directories below `dir_path`, extending and restoring
-/// the one path buffer rather than allocating a path per directory.
+/// Width measurement uses the same source adapter and expanded nodes as layout.
 fn extend_content_right(
-    dir_path: &mut PathBuf,
+    entry: &Entry,
     depth: usize,
     s: &ExplorerPanelState,
     left: f32,
     right: &mut f32,
+    visited: &mut std::collections::HashSet<String>,
 ) {
-    let Some(entries) = s.model.listing(&dir_path.to_string_lossy()) else {
+    if !visited.insert(entry.key.clone()) {
         return;
-    };
-
-    for entry in entries.iter() {
-        *right = right.max(row_content_right(left, depth, &entry.name, entry.is_dir));
-        if entry.is_dir {
-            dir_path.push(&entry.name);
-            if s.model.is_expanded(&dir_path.to_string_lossy()) {
-                extend_content_right(dir_path, depth + 1, s, left, right);
-            }
-            dir_path.pop();
+    }
+    *right = right.max(row_content_right(left, depth, &entry.name, entry.directory));
+    if entry.directory && entry.expanded(s) {
+        for child in entry.children(s, depth) {
+            extend_content_right(&child, depth + 1, s, left, right, visited);
         }
     }
 }
@@ -1392,12 +990,6 @@ fn row_content_right(left: f32, depth: usize, name: &str, is_dir: bool) -> f32 {
 /// Keep scrolled project roots in stacked slots, followed by the current
 /// project's directory ancestry. Sibling directories still replace one another.
 fn sticky_rows(index: &TreeIndex, viewport_top: f32, scroll: f32) -> Vec<StickyRow> {
-    if index
-        .local_bottom
-        .is_some_and(|bottom| viewport_top + scroll >= bottom)
-    {
-        return Vec::new();
-    }
     if scroll <= 0.0 {
         return Vec::new();
     }
@@ -1613,6 +1205,7 @@ mod tests {
             depth,
             source_y,
             is_expanded: true,
+            entry: Entry::local(key.into(), key.into(), true),
         }
     }
 
@@ -1773,13 +1366,21 @@ mod tests {
         );
 
         assert_eq!(
-            tree_content_right(root_key, "root", &state, 100.0),
+            tree_content_right(
+                &Entry::local(root_key.into(), "root".into(), true),
+                &state,
+                100.0
+            ),
             row_content_right(100.0, 2, long_name, false)
         );
 
         state.model.set_expanded(nested_key, false);
         assert_eq!(
-            tree_content_right(root_key, "root", &state, 100.0),
+            tree_content_right(
+                &Entry::local(root_key.into(), "root".into(), true),
+                &state,
+                100.0
+            ),
             row_content_right(100.0, 1, "src", true)
         );
     }

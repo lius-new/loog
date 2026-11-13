@@ -1590,8 +1590,8 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                 &git_store,
                 &explorer_services,
                 crate::ui::explorer::commands::EditInput {
-                    id: explorer_create_input_id,
-                    focus: explorer_create_input_focus,
+                    id: explorer_create_input_id.clone(),
+                    focus: explorer_create_input_focus.clone(),
                 },
             ));
         }
@@ -1894,6 +1894,17 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             close_dialog_id,
             editor_focus.clone(),
             application_context.windows(),
+        ));
+    }
+    if crate::ui::explorer::confirm::visible(&s.explorer) {
+        root = root.child(super::explorer_view::render_confirmation(
+            vp,
+            &state,
+            &explorer_services,
+            crate::ui::explorer::commands::EditInput {
+                id: explorer_create_input_id,
+                focus: explorer_create_input_focus,
+            },
         ));
     }
     if super::trust_prompt::question(&s).is_some() {

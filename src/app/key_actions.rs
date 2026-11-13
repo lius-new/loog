@@ -67,6 +67,10 @@ pub fn attach(root: Element, env: KeyEnv) -> Element {
 
 /// Resolve one key-down event. Returns whether the keymap consumed it.
 pub fn handle_key_down(env: &KeyEnv, event: &KeyboardEvent) -> bool {
+    if crate::ui::explorer::confirm::visible(&env.state.get().explorer) {
+        // The operation's confirmation field owns Enter/Escape and editing keys.
+        return false;
+    }
     if env
         .state
         .get()
