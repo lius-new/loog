@@ -382,13 +382,15 @@ pub fn render(
         )),
         palette.accent,
     ));
-    // An empty text measures unreliably, so a session without a count draws none.
-    let count_w = if frame.position.is_empty() {
-        0.0
-    } else {
+    // An empty text measures unreliably, so a session without a count draws none. The mark of
+    // work in progress or of a failure takes the count's place at the end of the field.
+    let show_count = !frame.position.is_empty() && frame.activity == Activity::Idle;
+    let count_w = if show_count {
         measure(&frame.position, theme::SMALL, 400) + 4.0
+    } else {
+        0.0
     };
-    if !frame.position.is_empty() {
+    if show_count {
         surface = surface.child(text(
             UiRect::new(
                 query.right - PAD_X - count_w,
