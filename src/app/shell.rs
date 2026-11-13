@@ -1339,7 +1339,11 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     // click; a file row press records a fresh drag after this runs.
     let st_stale_file_drag = state.clone();
     root = root.on_event_capture(UiEventKind::PointerDown, move |_ctx, _payload| {
-        st_stale_file_drag.try_update(|app| app.editor.tabs.file_drag.take().is_some());
+        st_stale_file_drag.try_update(|app| {
+            let local = app.editor.tabs.file_drag.take().is_some();
+            let provided = app.explorer.ui.pressed_resource.take().is_some();
+            local || provided
+        });
     });
     // A drawer file press becomes a drag into the editor once it moves;
     // its release either opens it like a click or drops it on a pane.

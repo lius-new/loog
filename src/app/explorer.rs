@@ -19,6 +19,15 @@ use crate::infrastructure::explorer_filesystem::ExplorerFilesystem;
 use crate::model::document::FileId;
 use crate::ui::explorer::state::ExplorerReveal;
 
+/// Shared Explorer click policy for local and provided files.
+pub(crate) fn open_mode(clicks: u8) -> crate::app::workspace::OpenMode {
+    if clicks > 1 {
+        crate::app::workspace::OpenMode::Permanent
+    } else {
+        crate::app::workspace::OpenMode::Preview
+    }
+}
+
 /// Open a file clicked in the Explorer: a single click previews it, a double
 /// click keeps it open. Returns whether the editor should take focus.
 pub(crate) fn open_tree_file(
@@ -34,30 +43,15 @@ pub(crate) fn open_tree_file(
     {
         crate::app::file_loading::cancel(app);
         return open_tree_file_with(app, path, clicks, |_| Ok(String::new()));
-    } else if crate::app::file_loading::request(
-        app,
-        path.clone(),
-        if clicks > 1 {
-            crate::app::workspace::OpenMode::Permanent
-        } else {
-            crate::app::workspace::OpenMode::Preview
-        },
-        None,
-        loader,
-    ) {
+    } else if crate::app::file_loading::request(app, path.clone(), open_mode(clicks), None, loader)
+    {
         return true;
     }
     if crate::domain::media::is_raster(&path) || crate::domain::media::is_svg(&path) {
         let prepared = crate::app::encoding::prepare(&path)
             .unwrap_or_else(|error| crate::app::workspace::PreparedTextFile::failed(path, error));
-        app.workspace.open_prepared_text(
-            prepared,
-            if clicks > 1 {
-                crate::app::workspace::OpenMode::Permanent
-            } else {
-                crate::app::workspace::OpenMode::Preview
-            },
-        );
+        app.workspace
+            .open_prepared_text(prepared, open_mode(clicks));
         app.chrome.toast = None;
         return true;
     }
@@ -95,11 +89,7 @@ fn open_tree_file_with(
             true
         }
         Err(message) => {
-            let mode = if clicks > 1 {
-                crate::app::workspace::OpenMode::Permanent
-            } else {
-                crate::app::workspace::OpenMode::Preview
-            };
+            let mode = open_mode(clicks);
             app.workspace.open_failed(path, message, mode);
             app.chrome.toast = None;
             true

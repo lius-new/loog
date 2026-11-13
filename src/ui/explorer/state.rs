@@ -29,11 +29,7 @@ pub struct ExplorerUiState {
     /// Row the menu was opened on; `None` acts on the containing root.
     pub menu_target: Option<ExplorerContextTarget>,
     pub resource_menu: Option<crate::features::resource_tree::Target>,
-    pub pressed_resource: Option<(
-        loog_workspace_api::ScopeId,
-        loog_workspace_api::ProviderPath,
-        (f32, f32),
-    )>,
+    pub pressed_resource: Option<ResourcePress>,
     pub menu_hover: Option<usize>,
     /// Text of the inline create/rename row.
     pub create_input: InputState,
@@ -48,6 +44,15 @@ pub struct ExplorerUiState {
     pub scrollbar_drag_offset: f32,
     pub horizontal_scrollbar_dragging: bool,
     pub horizontal_scrollbar_drag_offset: f32,
+}
+
+#[derive(Clone)]
+pub struct ResourcePress {
+    pub scope: loog_workspace_api::ScopeId,
+    pub path: loog_workspace_api::ProviderPath,
+    pub point: (f32, f32),
+    pub clicks: u8,
+    pub dragged: bool,
 }
 
 impl ExplorerUiState {

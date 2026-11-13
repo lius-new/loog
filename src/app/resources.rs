@@ -1,6 +1,6 @@
 //! Native resource consumers. Providers own IO, paths and revision semantics.
 use super::{context::AppContext, extensions::host::ExtensionHost, state::AppState};
-use crate::domain::workspace::ResourceResolution;
+use crate::domain::workspace::{OpenMode, ResourceResolution};
 use loog_workspace_api::{
     Answer, Failure, FailureKind, FileInfo, FileKind, Operation, ProviderPath, ResourceRef, ScopeId,
 };
@@ -107,6 +107,7 @@ struct Opening {
     revision: Option<String>,
     existing: Option<(crate::domain::identity::FileId, u64)>,
     resolution: ResourceResolution,
+    mode: OpenMode,
     stamp: Option<crate::domain::document::DocumentStamp>,
     limit: usize,
     consumer: Option<TextConsumer>,
@@ -254,6 +255,7 @@ fn locate_text(
                         revision: None,
                         existing: None,
                         resolution: ResourceResolution::Check,
+                        mode: OpenMode::Permanent,
                         stamp: None,
                         limit,
                         consumer: Some(consumer),
@@ -276,7 +278,10 @@ fn locate_text(
 }
 
 pub(crate) fn open(state: &AppContext, scope: ScopeId, file: FileInfo) {
-    open_with(state, scope, file, ResourceResolution::Check);
+    open_in_mode(state, scope, file, OpenMode::Permanent);
+}
+pub(crate) fn open_in_mode(state: &AppContext, scope: ScopeId, file: FileInfo, mode: OpenMode) {
+    open_with(state, scope, file, ResourceResolution::Check, mode);
 }
 pub(crate) fn reconnect_active(state: &AppContext) {
     let id =
@@ -341,12 +346,18 @@ pub(crate) fn resolve(
         })
     };
     if let Some((scope, file)) = target {
-        open_with(state, scope, file, resolution);
+        open_with(state, scope, file, resolution, OpenMode::Permanent);
     } else {
         state.update(|app| app.show_error("Resource is offline. Connect its provider first."));
     }
 }
-fn open_with(state: &AppContext, scope: ScopeId, file: FileInfo, resolution: ResourceResolution) {
+fn open_with(
+    state: &AppContext,
+    scope: ScopeId,
+    file: FileInfo,
+    resolution: ResourceResolution,
+    mode: OpenMode,
+) {
     let Some(host) = state.services().and_then(|r| r.extensions()) else {
         return;
     };
@@ -374,7 +385,9 @@ fn open_with(state: &AppContext, scope: ScopeId, file: FileInfo, resolution: Res
         let existing = app.workspace.file_id_for_resource(&resource);
         if let Some(id) = existing {
             app.workspace.activate_document(id);
-            app.workspace.promote_active_preview();
+            if mode == OpenMode::Permanent {
+                app.workspace.promote_active_preview();
+            }
             if resolution == ResourceResolution::Check
                 && app.workspace.documents.get(&id).is_some_and(|d| {
                     d.provider.as_ref().is_some_and(|(old, _)| *old == scope)
@@ -420,6 +433,7 @@ fn open_with(state: &AppContext, scope: ScopeId, file: FileInfo, resolution: Res
                     .map(|d| (id, d.incarnation))
             }),
             resolution,
+            mode,
             stamp: existing.and_then(|id| app.workspace.documents.get(&id).map(|d| d.stamp(id))),
             limit,
             consumer: None,
@@ -738,8 +752,7 @@ fn finish_open(
                     return;
                 }
             } else {
-                app.workspace
-                    .open_prepared_text(prepared, super::workspace::OpenMode::Permanent);
+                app.workspace.open_prepared_text(prepared, opening.mode);
             }
             app.editor.drag = None;
             app.editor.ime = None;

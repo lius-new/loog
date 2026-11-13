@@ -346,6 +346,13 @@ pub fn update_file_drag(
     pointer_x: f32,
     pointer_y: f32,
 ) -> bool {
+    if let Some(press) = app.explorer.ui.pressed_resource.as_mut() {
+        let dragged = press.dragged
+            || (pointer_x - press.point.0).hypot(pointer_y - press.point.1) >= DRAG_THRESHOLD;
+        let changed = dragged != press.dragged;
+        press.dragged = dragged;
+        return changed;
+    }
     let Some(drag) = app.editor.tabs.file_drag.as_ref() else {
         return false;
     };

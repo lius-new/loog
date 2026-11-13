@@ -223,22 +223,47 @@ fn run(state: &AppContext, services: &Services, command: Command) {
             services.editor_focus.focus();
         }
         Command::PressResourceFile { scope, file, point } => state.update(|app| {
-            app.explorer.ui.pressed_resource = Some((scope, file.path, point));
+            let Some(environment) = app
+                .explorer
+                .resources
+                .root(scope)
+                .and_then(|root| root.descriptor.resource.environment())
+                .cloned()
+            else {
+                return;
+            };
+            let resource = loog_workspace_api::ResourceRef::Provided {
+                environment,
+                path: file.path.clone(),
+            };
+            let clicks = app.editor.tree_click_count(resource, point.0, point.1);
+            app.explorer.ui.pressed_resource = Some(crate::ui::explorer::state::ResourcePress {
+                scope,
+                path: file.path,
+                point,
+                clicks,
+                dragged: false,
+            });
         }),
         Command::ReleaseResourceFile { scope, file, point } => {
-            let mut open = false;
+            let mut clicks = None;
             state.update(|app| {
-                open = app.explorer.ui.pressed_resource.take().is_some_and(
-                    |(pressed_scope, path, origin)| {
-                        pressed_scope == scope
-                            && path == file.path
-                            && (origin.0 - point.0).abs() < 5.0
-                            && (origin.1 - point.1).abs() < 5.0
-                    },
-                );
+                clicks = app
+                    .explorer
+                    .ui
+                    .pressed_resource
+                    .take()
+                    .filter(|press| {
+                        press.scope == scope
+                            && press.path == file.path
+                            && !press.dragged
+                            && (press.point.0 - point.0).hypot(press.point.1 - point.1)
+                                < crate::ui::tabs::DRAG_THRESHOLD
+                    })
+                    .map(|press| press.clicks);
             });
-            if open {
-                super::resources::open(state, scope, file);
+            if let Some(clicks) = clicks {
+                super::resources::open_in_mode(state, scope, file, explorer::open_mode(clicks));
                 services.editor_focus.focus();
             }
         }
@@ -672,6 +697,68 @@ mod tests {
         assert!(!crate::ui::explorer::confirm::visible(
             &h.state.get().explorer
         ));
+    }
+
+    #[test]
+    fn provided_file_clicks_count_double_clicks_and_cancel_dragged_presses() {
+        use lgui::core::{InputEvent, Point, PointerButton, PointerData, dispatch_runtime_output};
+
+        let (app, _) = provided_workspace();
+        let mut h = harness(app);
+        let row = h
+            .session
+            .tree()
+            .nodes()
+            .iter()
+            .find(|node| node.text.as_deref() == Some("a.rs"))
+            .unwrap()
+            .layout_rect;
+        let point = Point::new(row.left + 2.0, row.top + 2.0);
+        let send = |h: &mut Harness, down| {
+            let pointer = PointerData::mouse(point);
+            let button = PointerButton::Left;
+            let input = if down {
+                InputEvent::PointerDown { pointer, button }
+            } else {
+                InputEvent::PointerUp { pointer, button }
+            };
+            let events = h.session.handle_input(input);
+            dispatch_runtime_output(
+                events,
+                &h.services.application,
+                &lgui::window::WindowId::new("provided-file-clicks-test"),
+                |action| h.session.handle_default_action(action),
+                |_| {},
+            );
+            h.render();
+        };
+        for expected in [1, 2] {
+            send(&mut h, true);
+            let press = h.state.get().explorer.ui.pressed_resource.clone().unwrap();
+            assert_eq!(press.clicks, expected);
+            assert_eq!(
+                super::super::explorer::open_mode(press.clicks),
+                if expected == 1 {
+                    crate::domain::workspace::OpenMode::Preview
+                } else {
+                    crate::domain::workspace::OpenMode::Permanent
+                }
+            );
+            send(&mut h, false);
+            assert!(h.state.get().explorer.ui.pressed_resource.is_none());
+        }
+        send(&mut h, true);
+        h.state.update(|app| {
+            super::super::tabs::update_file_drag(app, &[], point.x + 6.0, point.y);
+            super::super::tabs::update_file_drag(app, &[], point.x, point.y);
+            assert!(
+                app.explorer.ui.pressed_resource.as_ref().unwrap().dragged,
+                "moving out and back must not become a file click"
+            );
+        });
+        send(&mut h, false);
+        assert!(h.state.get().explorer.ui.pressed_resource.is_none());
+        assert!(h.state.get().workspace.active().is_none());
     }
 
     #[cfg(windows)]

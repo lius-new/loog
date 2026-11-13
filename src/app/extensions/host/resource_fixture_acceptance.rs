@@ -1,5 +1,6 @@
 //! The same native consumers with an independent opaque-token WASM provider.
 use super::*;
+use crate::domain::workspace::OpenMode;
 use loog_workspace_api::ResourceRef;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -93,9 +94,9 @@ fn native_resource_memory_provider_paging_stale_reads_and_lost_save_receipts() {
     // A held read cannot block another document or overwrite its active view.
     host.run_command(&ui.state, "example.tools.memory.hold");
     wait(&ui, |_| logged(&host, "memory holding"));
-    crate::app::resources::open(&ui.state, root.scope, file.clone());
+    crate::app::resources::open_in_mode(&ui.state, root.scope, file.clone(), OpenMode::Preview);
     wait(&ui, |_| logged(&host, "memory read held"));
-    crate::app::resources::open(&ui.state, root.scope, other.clone());
+    crate::app::resources::open_in_mode(&ui.state, root.scope, other.clone(), OpenMode::Preview);
     wait(&ui, |app| {
         app.workspace
             .active_meta()
@@ -112,6 +113,19 @@ fn native_resource_memory_provider_paging_stale_reads_and_lost_save_receipts() {
                 .to_owned()),
         Some("second".into())
     );
+    let preview = |app: &AppState| {
+        app.workspace
+            .pane(app.workspace.active_pane())
+            .unwrap()
+            .preview()
+    };
+    assert_eq!(preview(&ui.state.get()), ui.state.get().workspace.active());
+    crate::app::resources::open_in_mode(&ui.state, root.scope, other.clone(), OpenMode::Preview);
+    assert_eq!(
+        preview(&ui.state.get()),
+        ui.state.get().workspace.active(),
+        "another single click must not pin the preview"
+    );
     host.run_command(&ui.state, "example.tools.memory.release");
     wait(&ui, |_| {
         host.inner
@@ -127,13 +141,26 @@ fn native_resource_memory_provider_paging_stale_reads_and_lost_save_receipts() {
         other_resource
     );
 
-    crate::app::resources::open(&ui.state, root.scope, file.clone());
+    crate::app::resources::open_in_mode(&ui.state, root.scope, file.clone(), OpenMode::Preview);
     wait(&ui, |app| {
         app.workspace
             .active_meta()
             .is_some_and(|m| m.resource == resource)
     });
     let document = ui.state.get().workspace.active_document().unwrap();
+    assert_eq!(preview(&ui.state.get()), ui.state.get().workspace.active());
+    assert_eq!(
+        ui.state.get().workspace.active_items().len(),
+        1,
+        "single clicks reuse the preview slot"
+    );
+    assert!(
+        ui.state
+            .get()
+            .workspace
+            .file_id_for_resource(&other_resource)
+            .is_none()
+    );
     let original = ui.state.get().workspace.documents[&document]
         .buffer
         .text()
@@ -141,6 +168,10 @@ fn native_resource_memory_provider_paging_stale_reads_and_lost_save_receipts() {
     let format = ui.state.get().workspace.documents[&document].format();
     assert_eq!(original, "中文\r\nfirst");
     crate::app::resources::open(&ui.state, root.scope, file.clone());
+    assert!(
+        preview(&ui.state.get()).is_none(),
+        "a permanent open pins the existing preview"
+    );
     assert_eq!(
         ui.state.get().workspace.file_id_for_resource(&resource),
         Some(document)
