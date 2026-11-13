@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Remote SSH 原型</title>
+<style>
+/* 颜色取自 src/ui/theme.rs 的默认深色主题；布局取自实际界面截图 */
+:root{
+  --bg:#14161b;--sidebar:#111216;--surface:#1c1f26;--border:#262a35;--active-line:#1a1d24;--selection:#273449;
+  --accent:#818cf8;--accent-h:#6366f1;--on-accent:#f4f4f5;
+  --bright:#f4f4f5;--text:#e4e4e7;--soft:#d4d4d8;--muted:#a1a1aa;--dim:#71717a;--faint:#52525b;--ghost:#3f3f46;
+  --error:#f43f5e;--error-text:#fda4af;--warn:#fbbf24;--ok:#34d399;--ignored:#5f5f68;--added:#34d399;
+  --mono:"JetBrains Mono","Cascadia Mono","Cascadia Code",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:#0b0c0f;color:var(--text);font:12px/1.5 var(--mono);display:flex;flex-direction:column}
+button,input{font:inherit;color:inherit}
+/* 原型控制条（不属于产品界面） */
+.proto{flex:none;display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:6px 10px;background:#000;border-bottom:1px solid #222;font-family:"Segoe UI","Microsoft YaHei",sans-serif}
+.proto b{color:#777;font-weight:500;margin-right:4px}
+.proto button{background:#17181c;border:1px solid #2a2c33;color:#aaa;padding:3px 10px;border-radius:999px;cursor:pointer;font:12px "Segoe UI","Microsoft YaHei",sans-serif}
+.proto button.on{background:var(--accent-h);border-color:var(--accent-h);color:#fff}
+.note{flex:none;padding:6px 12px;background:#0f1013;color:#9a9aa3;font:12px "Segoe UI","Microsoft YaHei",sans-serif;border-bottom:1px solid #1c1d22;min-height:30px}
+.note strong{color:#ddd}
+
+/* ---------- 应用外壳 ---------- */
+.app{flex:1;min-height:0;display:grid;grid-template-rows:24px 1fr 24px;background:var(--bg);position:relative;overflow:hidden}
+.titlebar{background:var(--sidebar);display:flex;align-items:center;padding:0 10px;gap:8px;color:var(--muted)}
+.titlebar .name{color:var(--bright);font-weight:700}
+.titlebar .sep{color:var(--ghost)}
+.titlebar .branch{color:var(--warn)}
+.titlebar .host{display:none;background:#2a2d57;color:#c7ccff;border-radius:3px;padding:0 6px;font-size:11px}
+.titlebar .sp{flex:1}
+.titlebar .ctl{display:flex;gap:16px;color:var(--dim)}
+.body{display:grid;grid-template-columns:1fr 320px;min-height:0}
+.editor{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--sidebar)}
+.tabbar{flex:none;height:26px;background:var(--sidebar);display:flex}
+.tab{display:flex;align-items:center;gap:6px;padding:0 12px;color:var(--soft);background:var(--bg);border-top:1px solid transparent}
+.tab .md{color:#60a5fa;font-size:10px}
+.tab .x{color:var(--dim);margin-left:6px}
+.code{flex:1;overflow:hidden;padding-top:6px}
+.ln{display:flex;height:22.5px;align-items:center;color:var(--soft);white-space:pre}
+.ln i{flex:none;width:52px;text-align:right;padding-right:22px;color:var(--faint);font-style:normal}
+.ln.cur{background:var(--active-line)} .ln.cur i{color:var(--muted)}
+.ln .k{color:#f472b6}.ln .s{color:#4ade80}
+.pane{flex:none;border-top:1px solid var(--sidebar);display:none;height:170px;background:var(--bg)}
+.pane .h{height:24px;background:var(--sidebar);display:flex;align-items:center;gap:10px;padding:0 10px;color:var(--dim)}
+.pane .h .on{color:var(--soft)}
+.pane .tb{padding:8px 14px;color:var(--soft)}
+.pane .rtag{background:#2a2d57;color:#c7ccff;border-radius:3px;padding:0 5px;font-size:11px}
+
+/* 右侧侧栏 */
+.side{background:var(--sidebar);display:flex;flex-direction:column;min-height:0}
+.rail{display:flex;gap:4px;padding:6px 8px}
+.rail i{width:28px;height:24px;border-radius:4px;display:grid;place-items:center;color:var(--dim);font-style:normal}
+.rail i.on{background:var(--selection);color:var(--bright)}
+.tree{flex:1;overflow:hidden;padding-top:2px}
+.row{display:flex;align-items:center;gap:6px;height:19px;padding:0 8px 0 10px;color:var(--soft);white-space:nowrap}
+.row .ic{width:14px;color:#c8ccd2;text-align:center;font-size:11px}
+.row.root{font-weight:700;color:var(--bright)}
+.row.dim{color:var(--ignored)} .row.dim .ic{color:var(--ignored)}
+.row.new{color:var(--added)}
+.row.sel{background:var(--active-line)}
+.row .badge{margin-left:auto;background:#2a2d57;color:#c7ccff;border-radius:3px;padding:0 6px;font-size:10px;display:flex;gap:4px;align-items:center}
+.row .badge.warn{background:#3a3014;color:var(--warn)}
+.row .badge.err{background:#3a1820;color:var(--error-text)}
+.row.offline{opacity:.55}
+.child{padding-left:14px}
+
+/* 状态栏 */
+.status{background:var(--sidebar);display:flex;align-items:center;color:var(--dim);font-size:11px}
+.status .it{height:100%;padding:0 9px;display:flex;align-items:center;gap:5px;white-space:nowrap}
+.status .sp{flex:1}
+.status .remote{background:#242738;color:var(--muted);cursor:pointer}
+.status .remote:hover{background:#2d3150;color:var(--bright)}
+.status .remote.ok{background:var(--accent-h);color:var(--on-accent)}
+.status .remote.warn{background:#6b4f0b;color:#ffe9a6}
+.status .remote.err{background:#7f1d2d;color:#ffd5db}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block}
+.spin{width:10px;height:10px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:s .8s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+.blink{animation:b 1.2s infinite}@keyframes b{50%{opacity:.35}}
+
+/* 命令面板（复刻实际样式） */
+.scrim{position:absolute;inset:24px 0 24px 0;display:none}
+.palette{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:590px;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 12px 40px rgba(0,0,0,.55);display:none;overflow:hidden}
+.palette .in{display:flex;align-items:center;gap:10px;padding:0 14px;height:36px;border-bottom:1px solid var(--border)}
+.palette .in .gl{color:var(--accent)}
+.palette .in .q{flex:1;color:var(--text)} .palette .in .q.ph{color:var(--dim)}
+.palette .in .cnt{color:var(--dim);font-size:11px}
+.palette .grp{padding:7px 14px 3px;font-size:10px;letter-spacing:.1em;color:var(--faint)}
+.palette .it{display:flex;align-items:center;gap:10px;height:24.5px;padding:0 14px;border-left:2px solid transparent}
+.palette .it.sel{background:var(--selection);border-left-color:var(--accent)}
+.palette .it .b{width:15px;height:15px;border-radius:3px;display:grid;place-items:center;font-size:9px;background:#525fa0;color:#fff;font-weight:700;flex:none}
+.palette .it .b.w{background:#3b4a78}
+.palette .it .t{color:var(--bright);font-weight:600;white-space:nowrap}
+.palette .it .d{color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;min-width:0}
+.palette .it .r{margin-left:auto;color:#7d86d6;font-size:11px;flex:none}
+.palette .it .r.w{color:var(--faint)}
+.kc{display:inline-block;background:#2a2d36;color:#8a8c95;border-radius:3px;padding:0 5px;font-size:10px;margin-left:3px}
+.palette .ft{display:flex;gap:18px;padding:0 14px;height:24px;align-items:center;border-top:1px solid var(--border);color:var(--faint);font-size:10px}
+.palette .it .gicon{width:15px;text-align:center;color:var(--dim);flex:none}
+
+/* 通知（右下） */
+.toast{position:absolute;right:14px;bottom:34px;width:360px;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 12px 40px rgba(0,0,0,.55);display:none}
+.toast .th{display:flex;align-items:center;gap:8px;padding:8px 12px;color:var(--bright);font-weight:700}
+.toast .th .x{margin-left:auto;color:var(--dim);font-weight:400}
+.toast .tb{padding:0 12px 8px;color:var(--muted)}
+.toast .st{display:flex;gap:8px;padding:2px 0;color:var(--faint)}
+.toast .st.done{color:var(--muted)} .toast .st.done .m{color:var(--ok)}
+.toast .st.run{color:var(--bright)} .toast .st.run .m{color:var(--accent)}
+.toast .st.fail{color:var(--error-text)} .toast .st.fail .m{color:var(--error)}
+.toast .st .m{width:12px;text-align:center}
+.toast .st small{color:var(--dim);font-size:11px}
+.toast .why{margin:6px 12px 2px;padding:7px 9px;background:#2f1b23;border:1px solid #4a2430;border-radius:4px;color:var(--error-text)}
+.toast .why code{color:var(--bright)}
+.toast .acts{display:flex;gap:6px;padding:8px 12px 10px}
+.btn{background:#262a35;border:1px solid #333847;border-radius:4px;padding:2px 10px;cursor:pointer;color:var(--soft)}
+.btn.pri{background:var(--accent-h);border-color:var(--accent-h);color:#fff}
+.btn:hover{filter:brightness(1.15)}
+
+/* 连接表单（模态） */
+.dlg{position:absolute;left:50%;top:44px;transform:translateX(-50%);width:440px;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 16px 50px rgba(0,0,0,.6);display:none;z-index:6}
+.dlg .hd{display:flex;align-items:center;height:34px;padding:0 14px;border-bottom:1px solid var(--border);color:var(--bright);font-weight:700;gap:8px}
+.dlg .hd .x{margin-left:auto;color:var(--dim);font-weight:400}
+.dlg .bd{display:grid;grid-template-columns:176px 1fr;min-height:430px}
+.types{border-right:1px solid var(--border);padding:8px 0;background:#181a20}
+.types .ty{display:flex;gap:9px;align-items:center;padding:6px 14px;color:var(--muted);cursor:pointer;border-left:2px solid transparent}
+.types .ty small{display:block;color:var(--faint);font-size:10px;line-height:1.2}
+.types .ty .g{width:16px;text-align:center;color:var(--dim)}
+.types .ty:hover{background:#1e2128}
+.types .ty.on{background:var(--selection);border-left-color:var(--accent);color:var(--bright)}
+.types .ty.on .g{color:var(--accent)}
+.types .grp{padding:8px 14px 3px;font-size:10px;letter-spacing:.1em;color:var(--faint)}
+.fm{padding:12px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.fm h5{margin:0;font-size:10px;letter-spacing:.1em;color:var(--faint);font-weight:500}
+.fld{display:flex;flex-direction:column;gap:3px}
+.fld label{color:var(--muted);font-size:11px}
+.fld label em{color:var(--error);font-style:normal}
+.inp{height:26px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:0 8px;display:flex;align-items:center;color:var(--text);gap:6px}
+.inp.ph{color:var(--faint)} .inp.focus{border-color:var(--accent)} .inp.bad{border-color:var(--error)}
+.inp .tail{margin-left:auto;color:var(--dim)}
+.err{color:var(--error-text);font-size:11px}
+.hint{color:var(--faint);font-size:11px}
+.g2{display:grid;grid-template-columns:1fr 90px;gap:10px}
+.g3{display:grid;grid-template-columns:1fr 1fr 90px;gap:10px}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;align-self:flex-start}
+.seg span{padding:3px 12px;color:var(--muted);background:var(--bg);border-right:1px solid var(--border)}
+.seg span:last-child{border-right:0}
+.seg span.on{background:var(--selection);color:var(--bright)}
+.lst{border:1px solid var(--border);border-radius:4px;background:var(--bg);overflow:hidden}
+.lst .li{display:flex;align-items:center;gap:10px;padding:5px 10px;border-left:2px solid transparent;height:34px}
+.lst .li+.li{border-top:1px solid #1d2027}
+.lst .li.on{background:var(--selection);border-left-color:var(--accent)}
+.lst .li .n{color:var(--bright);font-weight:700}
+.lst .li .s{color:var(--dim);font-size:11px;line-height:1.2}
+.lst .li .tg{margin-left:auto;display:flex;gap:5px}
+.tag{font-size:10px;border-radius:3px;padding:0 5px;background:#262a35;color:var(--muted)}
+.tag.ok{background:#12302a;color:var(--ok)} .tag.ind{background:#2a2d57;color:#c7ccff}
+.pv{background:#0f1013;border:1px solid var(--border);border-radius:4px;padding:5px 9px;color:var(--muted);font-size:11px}
+.pv b{color:var(--faint);font-weight:500;margin-right:6px}
+.chain{display:flex;align-items:stretch;gap:6px;flex-wrap:wrap}
+.hop{border:1px solid var(--border);background:var(--bg);border-radius:4px;padding:6px 9px;min-width:120px}
+.hop .k{font-size:10px;color:var(--faint);letter-spacing:.08em}
+.hop .v{color:var(--bright);font-weight:700}
+.hop.me{border-style:dashed;color:var(--dim)} .hop.tgt{border-color:var(--accent)}
+.hop.add{border-style:dashed;color:var(--accent);display:grid;place-items:center;min-width:60px}
+.arrow{align-self:center;color:var(--faint)}
+.adv{color:var(--muted);display:flex;gap:6px;align-items:center}
+.chk{display:flex;gap:7px;align-items:center;color:var(--muted)}
+.chk i{width:12px;height:12px;border:1px solid var(--faint);border-radius:2px;display:inline-block;font-style:normal;font-size:9px;line-height:10px;text-align:center}
+.chk i.on{background:var(--accent-h);border-color:var(--accent-h);color:#fff}
+hr.sp{border:0;border-top:1px solid var(--border);margin:2px 0}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips span{background:#262a35;color:var(--muted);border-radius:3px;padding:0 7px;font-size:11px;cursor:pointer}
+.dlg .ft2{display:flex;align-items:center;gap:8px;padding:0 14px;height:40px;border-top:1px solid var(--border)}
+.dlg .ft2 .res{font-size:11px;display:flex;gap:6px;align-items:center}
+.dlg .ft2 .res.ok{color:var(--ok)} .dlg .ft2 .res.bad{color:var(--error-text)}
+.dlg .ft2 .sp{flex:1}
+.btn.dis{opacity:.4;pointer-events:none}
+.diag{border:1px solid #4a2430;background:#2f1b23;border-radius:4px;padding:7px 9px;color:var(--error-text);font-size:11px}
+.diag code{color:var(--bright)}
+.diag .a{margin-top:6px;display:flex;gap:6px}
+
+.lnk{color:var(--accent);cursor:pointer}
+.chip{background:#2a2d57;color:#c7ccff;border-radius:3px;padding:0 6px;font-size:11px}
+.lst .li{display:flex;height:30px}
+.lst .li .s{color:var(--dim);font-size:11px;margin-left:6px}
+.lst .li .tg{margin-left:auto}
+.adv{color:var(--faint);font-size:11px}
+/* 状态栏弹出菜单 */
+.menu{position:absolute;left:0;bottom:24px;width:300px;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 12px 40px rgba(0,0,0,.55);display:none;padding:4px 0}
+.menu .mh{padding:6px 12px;color:var(--faint);font-size:10px;letter-spacing:.1em}
+.menu .it{display:flex;align-items:center;gap:8px;height:24px;padding:0 12px;color:var(--soft)}
+.menu .it:hover,.menu .it.sel{background:var(--selection)}
+.menu .it .r{margin-left:auto;color:var(--faint);font-size:11px}
+.menu hr{border:0;border-top:1px solid var(--border);margin:4px 0}
+
+/* 横幅（编辑器顶部，复用 Loog 既有冲突提示的位置） */
+.banner{position:absolute;display:none;left:0;right:320px;top:50px;height:26px;background:#3a3014;color:var(--warn);align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid #4d4018;z-index:4}
+.banner .sp{flex:1}
+.banner .lnk{color:#ffe9a6;text-decoration:underline;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="proto" id="proto">
+  <b>场景</b>
+</div>
+<div class="note" id="note"></div>
+
+<div class="app" id="app">
+  <div class="titlebar">
+    <span class="host" id="tHost">⇄ dev-box</span>
+    <span class="name">loog</span><span class="sep">/</span><span class="branch">⎇ feat/provider-workspaces*</span><span style="color:var(--dim)">⟳</span>
+    <span class="sp"></span>
+    <span class="ctl"><span>▭</span><span>⊞</span><span>⚙</span><span>—</span><span>☐</span><span>✕</span></span>
+  </div>
+
+  <div class="body">
+    <div class="editor">
+      <div class="tabbar"><div class="tab"><span class="md">M↓</span>README.md<span class="x">×</span></div></div>
+      <div class="code" id="code"></div>
+      <div class="pane" id="pane"><div class="h"><span class="on">Terminal</span><span class="rtag" id="rtag"></span></div><div class="tb" id="tb"></div></div>
+    </div>
+    <div class="side">
+      <div class="rail"><i class="on">◈</i><i>⌕</i><i>☰</i></div>
+      <div class="tree" id="tree"></div>
+    </div>
+  </div>
+
+  <div class="status">
+    <div class="it remote" id="remote"></div>
+    <div class="it">⊗ 0</div><div class="it">⚠ 0</div><div class="it">ⓘ 0</div><div class="it">-- NORMAL --</div>
+    <div class="sp"></div>
+    <div class="it">Ln 27, Col 76</div><div class="it">Spaces: 2</div><div class="it">LF</div><div class="it">UTF-8</div><div class="it">TXT</div>
+  </div>
+
+  <div class="banner" id="banner"><span class="spin"></span><span id="bannerT"></span><span class="sp"></span><span class="lnk">Retry now</span><span class="lnk">Work offline</span></div>
+  <div class="palette" id="palette"></div>
+  <div class="dlg" id="dlg"></div>
+  <div class="toast" id="toast"></div>
+  <div class="menu" id="menu"></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const scenes=[
+ ['now','0 现状（截图）'],['p-ssh','1 输入 ssh'],['p-ssh2','2 已连接时输入 ssh'],['p-wsl','3 输入 wsl'],['p-docker','4 输入 docker'],['f-ssh','5 新主机·输入'],['f-auth','6 选择私钥'],['f-conn','7 连接中'],['f-err','8 连接失败'],['ok','9 已连接'],['menu','10 状态栏菜单'],['re','11 断线重连']
+];
+const notes={
+ now:'<strong>现状</strong>：命令面板里已有 “Remote SSH: Connect”，来自插件的命令（右侧 Extension 标记）。此时状态栏左侧没有任何远程入口。',
+ 'p-ssh':'<strong>已保存的主机直接出现在命令面板里</strong>：输入 ssh 即可看到“Remote SSH: <主机名>”，回车直接连接并打开上次的文件夹；第一项 “Connect to New Host…” 才打开对话框。沿用现有面板的样式和 Extension 标记。',
+ 'p-ssh2':'<strong>已连接时</strong>：当前连接的主机标为“已连接”，并出现 Disconnect；其余主机仍可直接连接。',
+ 'f-ssh':'<strong>连接新主机也在面板里</strong>：选 “Connect to New Host…” 后输入框前出现 Remote SSH 标签，直接键入 user@host[:端口]，回车连接。成功后自动出现在 SAVED HOSTS，不再有单独对话框。',
+ 'p-wsl':'<strong>WSL 也出现在命令面板里</strong>：输入 wsl 列出本机发行版，状态写在说明里，回车即连；未运行的会自动启动。',
+ 'p-docker':'<strong>容器同理</strong>：输入 docker 列出容器，回车即连。',
+ 'f-auth':'<strong>回车后选择认证方式</strong>：仍在同一个面板里，输入框前多出主机标签。默认“系统默认”（使用 SSH 配置与默认密钥），回车即开始连接；选 Private Key File… 则直接弹出系统文件选择窗口，选好文件后开始连接。',
+ 'f-conn':'<strong>连接中</strong>：面板保持打开，只在输入行最右侧显示一个加载图标，不再弹出进度卡片。',
+ 'f-err':'<strong>连接失败</strong>：同一位置显示失败图标（悬停可看原因），回车重试。',
+ ok:'<strong>已连接</strong>：沿用截图里已有的多根结构——资源管理器新增一个 dev-box 根并带主机徽标；状态栏左端出现主机名；终端标明运行位置；标题栏显示主机。',
+ menu:'<strong>状态栏菜单</strong>：点击左下角的主机名弹出，列出本连接的操作与其它环境（最多 4 个）。',
+ re:'<strong>断线重连</strong>：状态栏变琥珀色，远程根变暗并显示“重连中”，编辑器顶部出现横幅；未保存文本保留、保存暂停。'
+};
+
+/* 编辑器内容 */
+const readme=[
+'<p align="center">','  <img src="icons/source/app-icon-transparent-128.png" alt="Loog" width="96" height="96">','</p>','','<h1 align="center">Loog</h1>','',
+'<p align="center">','  <strong>English</strong> | <a href="README.zh-CN.md">简体中文</a>','</p>','','<p align="center">','  A fast, minimal code editor with an integrated terminal and Git, written in Rust','</p>','',
+'<p align="center">','  <a href="https://github.com/lius-new/loog/actions/workflows/ci.yml"><img src="..."></a>','</p>','','Loog is a desktop editor for Windows, macOS and Linux built on','[lgui](https://github.com/lius-new/lgui), a Rust GUI library that renders with','Skia. It aims to stay small and responsive while covering the daily loop of','editing, searching, running commands and working with Git, without leaving the','window.','','> [!NOTE]','> Loog is in early development (version 0.1). Expect rough edges, and expect','> settings and behavior to change between releases.'
+];
+$('code').innerHTML=readme.map((t,i)=>`<div class="ln ${i+1===27?'cur':''}"><i>${i+1}</i>${t.replace(/</g,'&lt;')}</div>`).join('');
+
+/* 文件树 */
+const local=['.claude','.git','.githooks','.github','.packaging*','.tmp*','assets','crates','docs+','examples','icons','scripts','sdk','src','target*','tests','tools','vendor','wit'];
+const localFiles=['.gitattributes','.gitignore','AGENTS.md','CONTRIBUTING.md','Cargo.lock','Cargo.toml','LICENSE-APACHE','LICENSE-MIT','README.md','README.zh-CN.md'];
+const rf=(n,c='')=>{const dim=n.endsWith('*'),neu=n.endsWith('+');n=n.replace(/[*+]$/,'');return `<div class="row ${dim?'dim':''} ${neu?'new':''} ${c}"><span class="ic">▣</span>${n}</div>`};
+const ff=(n,c='')=>`<div class="row ${c}"><span class="ic">▤</span>${n}</div>`;
+function remoteRoot(state){
+ const off=state==='re';
+ const badge=state==='ok'||off?`<span class="badge ${off?'warn':''}">${off?'<span class="spin"></span> Reconnecting':'⇄ dev-box'}</span>`:'';
+ const kids=['.git','.github','crates','docs','scripts','src','tests'].map(n=>rf(n,'child'+(off?' offline':''))).join('')+['Cargo.toml','README.md'].map(n=>ff(n,'child'+(off?' offline':''))).join('');
+ return `<div class="row root ${off?'offline':''}"><span class="ic">▾</span>loog-remote${badge}</div>`+kids;
+}
+function tree(state){
+ let h=`<div class="row root"><span class="ic">▾</span>loog</div>`+local.map(n=>rf(n,'child')).join('')+localFiles.map(n=>ff(n,'child'+(n==='README.md'?' sel':''))).join('');
+ if(['ok','re','menu','p-ssh2'].includes(state)) h+=remoteRoot(state==='re'?'re':'ok');
+ $('tree').innerHTML=h;
+}
+
+/* 面板 */
+const it=(b,t,d,r,sel,w)=>`<div class="it ${sel?'sel':''}"><span class="b ${w?'w':''}">${b}</span><span class="t">${t}</span><span class="d">${d}</span><span class="r ${w?'w':''}">${r||''}</span></div>`;
+const git=(g,t,d,r,sel)=>`<div class="it ${sel?'sel':''}"><span class="gicon">${g}</span><span class="t">${t}</span><span class="d">${d}</span><span class="r w">${r||''}</span></div>`;
+const foot=`<div class="ft"><span>↑↓ Select</span><span>Tab Complete</span><span>Enter Run</span><span>Esc Close</span></div>`;
+const head=(q,ph,c)=>`<div class="in"><span class="gl">⌘</span><span class="q ${q?'':'ph'}">${q||ph}</span><span class="cnt">${c||''}</span></div>`;
+const hl=t=>t.replace(/(SSH)/,'<span style="color:var(--accent)">$1</span>');
+const hit=(t,d,r,sel)=>`<div class="it ${sel?'sel':''}"><span class="b">E</span><span class="t">${t}</span><span class="d">${d}</span><span class="r">${r||'Extension'}</span></div>`;
+const G=t=>`<div class="grp">${t}</div>`;
+const hosts=(conn)=>(conn?G('CONNECTED')+hit(hl('Remote SSH')+': Disconnect dev-box','loog.remote.ssh.disconnect','Extension',true):'')+
+  G('COMMANDS')+hit(hl('Remote SSH')+': Connect to New Host…','loog.remote.ssh.connect','',!conn)+
+  G('SAVED HOSTS')+hit(hl('Remote SSH')+': dev-box','liu@10.0.0.21 · ~/loog',conn?'Connected':'Extension')+hit(hl('Remote SSH')+': build-01','ci@build-01.internal · /srv/app')+hit(hl('Remote SSH')+': gpu-lab','liu@gpu.lab.example:2222')+hit(hl('Remote SSH')+': staging','deploy@staging.example');
+const wslItems=[['Ubuntu-22.04','WSL 2 · Running · ~'],['Debian','WSL 2 · Stopped · ~']];
+const dockItems=[['loog-dev','rust:1.82 · Running · /workspace'],['postgres-16','postgres:16 · Running'],['old-build','ubuntu:22.04 · Stopped']];
+const chipHead=(q,c)=>`<div class="in"><span class="gl">⌘</span><span class="chip">Remote SSH</span><span class="q ${q?'':'ph'}">${q||'user@host[:port]'}</span><span class="cnt">${c||''}</span></div>`;
+const authHead=(ph)=>`<div class="in"><span class="gl">⌘</span><span class="chip">Remote SSH</span><span class="chip">liu@10.0.0.21</span><span class="q ph">${ph}</span><span class="cnt"></span></div>`;
+const ai=(t,d,r,sel)=>`<div class="it ${sel?'sel':''}"><span class="b">E</span><span class="t">${t}</span><span class="d">${d||''}</span><span class="r">${r||''}</span></div>`;
+const panels={
+ 'f-auth':authHead('Select private key')+G('PRIVATE KEY')+ai('Default Location','Keys in ~/.ssh and your SSH config','Recommended',true)+ai('Choose Key File…','Use one specific private key','')+`<div class="ft"><span>↑↓ Select</span><span>Enter Connect</span><span>Esc Back</span></div>`,
+ 'f-ssh':chipHead('liu@10.0.0.21','')+G('CONNECT')+hit('Connect to <span style="color:var(--bright)">liu@10.0.0.21</span>','Saved to hosts after connecting','New',true)+`<div class="ft"><span>Enter Next</span><span>Esc Back</span></div>`,
+ 'f-conn':`<div class="in"><span class="gl">⌘</span><span class="chip">Remote SSH</span><span class="chip">liu@10.0.0.21</span><span class="q ph">Connecting…</span><span class="cnt"><span class="spin" style="color:var(--accent)"></span></span></div><div class="ft"><span>Esc Cancel</span></div>`,
+ 'f-err':`<div class="in"><span class="gl">⌘</span><span class="chip">Remote SSH</span><span class="chip">ci@build-01.internal</span><span class="q ph">Connection failed. Press Enter to retry</span><span class="cnt"><span style="color:var(--error);font-size:13px" title="Permission denied (publickey)">✕</span></span></div><div class="ft"><span>Enter Retry</span><span>Esc Back</span></div>`,
+ 'p-wsl':head('wsl','','1 / 2')+G('WSL DISTRIBUTIONS')+wslItems.map((x,i)=>hit('Remote <span style="color:var(--accent)">WSL</span>: '+x[0],x[1],'Extension',i===0)).join('')+foot,
+ 'p-docker':head('docker','','1 / 3')+G('CONTAINERS')+dockItems.map((x,i)=>hit('Remote <span style="color:var(--accent)">Docker</span>: '+x[0],x[1],'Extension',i===0)).join('')+foot,
+ 'p-ssh':head('ssh','','1 / 5')+hosts(false)+foot,
+ 'p-ssh2':head('ssh','','1 / 6')+hosts(true)+foot,
+ now:head('','Search commands','1 / 109')+`<div class="grp">RECENT</div>`+it('E','Remote SSH: Connect','loog.remote.ssh.connect','Extension',true)+`<div class="grp">WORKSPACE</div>`+
+  it('W','Toggle Drawer','Show or hide the Explorer drawer','<span class="kc">Ctrl</span><span class="kc">B</span>',0,1)+it('W','Open Explorer','Show the Explorer drawer','Workspace',0,1)+it('W','Open Search','Search across workspace files','<span class="kc">Ctrl</span><span class="kc">Shift</span><span class="kc">F</span>',0,1)+foot,
+};
+function steps(kind){
+ const S=[['SSH reachable','dev-box (10.0.0.21)'],['Host key trusted','SHA256:q3x…9Ke'],['Python 3 found','/usr/bin/python3 · 3.11'],['Agent verified and started','SHA-256 match · protocol 1'],['Search scanner ready','x86_64 musl'],['Open /home/liu/loog','']];
+ const st=kind==='fail'?['done','done','fail','todo','todo','todo']:['done','done','done','run','todo','todo'];
+ return S.map((s,i)=>`<div class="st ${st[i]}"><span class="m">${{done:'✓',run:'<span class="spin"></span>',fail:'✕',todo:'○'}[st[i]]}</span><span>${s[0]}${s[1]&&st[i]!=='todo'&&st[i]!=='fail'?` <small>${s[1]}</small>`:''}</span></div>`).join('');
+}
+const toasts={
+ prog:`<div class="th"><span class="spin" style="color:var(--accent)"></span>Connecting to dev-box<span class="x">×</span></div><div class="tb">${steps('prog')}</div><div class="acts"><button class="btn">Continue in Background</button><button class="btn">Cancel</button></div>`,
+ fail:`<div class="th"><span style="color:var(--error)">✕</span>Cannot connect to build-01<span class="x">×</span></div><div class="tb">${steps('fail')}</div>
+  <div class="why">Python 3 is missing on the target. Tried <code>python3</code>, <code>/usr/bin/python3</code>, <code>/usr/local/bin/python3</code>.</div>
+  <div class="acts"><button class="btn pri">Set Python Path…</button><button class="btn">Copy Diagnostics</button><button class="btn">Show Log</button></div>`
+};
+const menuHtml=`<div class="mh">REMOTE SSH · dev-box</div><div class="it"><span style="color:var(--ok)" class="dot"></span>Connected<span class="r">18 ms</span></div><hr>
+ <div class="it sel">↻ Reconnect</div><div class="it">⏏ Disconnect</div><div class="it">☰ Show Log</div><hr>
+ <div class="mh">Other environments (1 / 4)</div><div class="it"><span style="color:var(--warn)" class="dot"></span>build-01<span class="r">Reconnecting</span></div><div class="it">⇄ Connect to New Host…</div>`;
+
+function setRemote(k){
+ const r=$('remote');r.className='it remote '+(['ok','menu','p-ssh2'].includes(k)?'ok':k==='re'?'warn':k==='fail'?'err':'');
+ r.innerHTML={ now:'⇄ Remote', 'f-ssh':'⇄ Remote','p-ssh':'⇄ Remote','f-auth':'⇄ Remote','f-conn':'<span class="spin"></span> Connecting to dev-box','p-wsl':'⇄ Remote','p-docker':'⇄ Remote','p-ssh2':'⇄ dev-box','f-wsl':'⇄ Remote','f-docker':'⇄ Remote','f-err':'⇄ Remote', prog:'<span class="spin"></span> Connecting to dev-box', fail:'⚠ build-01 connection failed', ok:'⇄ dev-box', menu:'⇄ dev-box', re:'<span class="spin"></span> dev-box · Reconnecting' }[k];
+}
+function show(k){
+ document.querySelectorAll('.proto button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+ $('note').innerHTML=notes[k];$('app').dataset.k=k;
+ tree(k);setRemote(k);
+ ['palette','toast','menu','banner','dlg'].forEach(i=>$(i).style.display='none');
+ 
+ const conn=['ok','menu','re','p-ssh2'].includes(k);
+ $('tHost').style.display=conn?'inline':'none';
+ $('pane').style.display=conn?'block':'none';
+ if(conn){$('rtag').textContent=k==='re'?'dev-box · Disconnected':'dev-box';
+  $('tb').innerHTML=k==='re'?'<span style="color:var(--dim)">Connection lost. Terminal paused; a new session starts after reconnecting.</span>':'liu@dev-box:~/loog$ cargo check<br>&nbsp;&nbsp;&nbsp;Finished dev profile in 0.4s<br>liu@dev-box:~/loog$ <span class="blink">▮</span>';}
+ if(panels[k]){$('palette').innerHTML=panels[k];$('palette').style.display='block';}
+ if(toasts[k]){$('toast').innerHTML=toasts[k];$('toast').style.display='block';}
+ if(k==='menu'){$('menu').innerHTML=menuHtml;$('menu').style.display='block';}
+ if(k==='re'){$('banner').style.display='flex';$('bannerT').textContent='Connection to dev-box lost. Retrying (attempt 2). Unsaved changes are kept; saving is paused.';}
+}
+$('proto').insertAdjacentHTML('beforeend',scenes.map(s=>`<button data-k="${s[0]}">${s[1]}</button>`).join(''));
+document.querySelectorAll('.proto button').forEach(b=>b.onclick=()=>show(b.dataset.k));
+$('remote').onclick=()=>{const k=$('app').dataset.k;show(k==='ok'?'menu':k==='menu'?'ok':k==='re'||k==='fail'?'menu':'f-ssh')};
+show('now');
+</script>
+</body>
+</html>
