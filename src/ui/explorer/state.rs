@@ -56,6 +56,9 @@ impl ExplorerUiState {
     /// Reset the inline row after its request opened, closed or failed.
     pub fn clear_edit(&mut self) {
         self.create_input.clear();
+        // The row can unmount before a blur event reaches it. Its stale focus
+        // would keep editor shortcuts in the Input keymap context.
+        self.create_input.focused = false;
         self.create_error = None;
     }
 

@@ -586,6 +586,10 @@ pub fn insert_text(app: &mut AppState, input: &str, rect: UiRect) {
 #[path = "editor_view_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "editor_focus_tests.rs"]
+mod focus_tests;
+
 pub(crate) fn pointer_down(
     app: &mut AppState,
     pane: crate::domain::identity::PaneId,
