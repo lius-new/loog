@@ -68,6 +68,10 @@ button,input{font:inherit;color:inherit}
 .row .badge.err{background:#3a1820;color:var(--error-text)}
 .row.offline{opacity:.55}
 .child{padding-left:14px}
+/* 远程根：目录名为主，主机在右侧徽标里，限宽并以省略号截断 */
+.row .badge .n{max-width:116px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row.root .nm{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.row.offline .badge{opacity:1}
 
 /* 状态栏 */
 .status{background:var(--sidebar);display:flex;align-items:center;color:var(--dim);font-size:11px}
@@ -278,7 +282,7 @@ hr.sp{border:0;border-top:1px solid var(--border);margin:2px 0}
 <script>
 const $=id=>document.getElementById(id);
 const scenes=[
- ['now','0 现状（截图）'],['p-ssh','1 输入 ssh'],['p-ssh2','2 已连接时输入 ssh'],['p-wsl','3 输入 wsl'],['p-docker','4 输入 docker'],['f-ssh','5 新主机·输入'],['f-auth','6 选择私钥'],['f-conn','7 连接中'],['f-err','8 连接失败'],['d-load','9 读取目录'],['d-pick','10 输入路径'],['d-type','11 补全路径'],['d-bad','12 路径不存在'],['d-change','13 修改打开的目录'],['ok','14 已连接'],['menu','15 状态栏菜单'],['re','16 断线重连']
+ ['now','0 现状（截图）'],['p-ssh','1 输入 ssh'],['p-ssh2','2 已连接时输入 ssh'],['p-wsl','3 输入 wsl'],['p-docker','4 输入 docker'],['f-ssh','5 新主机·输入'],['f-auth','6 选择私钥'],['f-conn','7 连接中'],['f-err','8 连接失败'],['d-load','9 读取目录'],['d-pick','10 输入路径'],['d-type','11 补全路径'],['d-bad','12 路径不存在'],['d-change','13 修改打开的目录'],['ok','14 已连接'],['menu','15 状态栏菜单'],['re','16 断线重连'],['tree','17 文件树展示'],['rn-pick','18 重命名·选主机'],['rn-input','19 重命名·输入'],['rn-dup','20 重命名·重名'],['rn-done','21 重命名后']
 ];
 const notes={
  now:'<strong>现状</strong>：命令面板里已有 “Remote SSH: Connect”，来自插件的命令（右侧 Extension 标记）。此时状态栏左侧没有任何远程入口。',
@@ -295,8 +299,13 @@ const notes={
  'd-type':'<strong>输入过滤文件树</strong>：输入框里的路径同时过滤文件树，匹配的部分高亮，RECENT 在过滤时隐藏；树仍保持从 / 开始的层级缩进。',
  'd-bad':'<strong>路径不存在</strong>：右侧失败图标，列表位置显示一行红色提示写明原因，输入框保留所输内容，直接改写即可；回车重试。',
  'd-change':'<strong>新命令 Remote SSH: Open Folder…</strong>：用于修改当前连接打开的目录。同样的面板，多一个 Open Folder 标签，输入框预填当前打开的目录；回车或点图标后，在这条连接上换成新目录。',
- ok:'<strong>已连接</strong>：沿用截图里已有的多根结构——资源管理器新增一个 dev-box 根并带主机徽标；状态栏左端出现主机名；终端标明运行位置；标题栏显示主机。',
+ ok:'<strong>已连接</strong>：沿用截图里已有的多根结构——资源管理器新增一个以目录名命名的根，主机在右侧徽标里（详见 17）；状态栏左端出现主机名；终端标明运行位置；标题栏显示主机。',
  menu:'<strong>状态栏条目的菜单</strong>：点击状态栏里的主机名，在命令面板里列出本连接的操作。<em>Open Folder…</em> 是新增的：进入选目录（同上），选定后断开重连并挂载新目录。',
+ tree:'<strong>文件树里的远程根</strong>：<em>主体是目录名</em>（这才是要找的东西），主机放在右侧徽标里，<em>限宽、过长用省略号</em>，不会撑破侧栏。主机显示名的规则：别名或域名原样显示；只给了 IP 时用服务器自己的主机名；取不到才显示 IP；非 22 端口加 :端口；不显示 user@。只显示徽标，没有悬停卡片或其他浮层。三个根依次是：IP 连接（云主机自动生成的长主机名被截断）、已折叠的别名主机、断线重连中（变暗，徽标转圈）。只有已连接的才出现在文件树里，断开后随之消失，也不会在重启后自动连接。',
+ 'rn-pick':'<strong>重命名入口一：命令面板</strong>。新命令 <em>Remote SSH: Rename Host…</em> 只占命令列表一行，选中后在同一个面板里列出已保存的主机（副标题是 user@host，方便认出是哪台），回车选定。<em>云主机自动生成的主机名不好认，所以给每台主机一个自己起的名字。</em>',
+ 'rn-input':'<strong>输入新名字</strong>：输入框前依次是 Remote SSH、Rename、被改的主机；输入框预填当前显示名，改完回车保存，Esc 取消。下面一行说明名字会显示在哪里，以及<em>留空回车则恢复默认</em>（别名或域名原样；只有 IP 时用机器自己的主机名）。名字限 1 到 32 个字符，不含控制字符。',
+ 'rn-dup':'<strong>重名</strong>：与另一台主机重名时不保存。右侧出现失败图标，列表位置给出一行红色提示，输入框保留所输内容，直接改写即可。同一台主机的名字没变时不算重名。',
+ 'rn-done':'<strong>改名之后</strong>：文件树根节点的徽标、状态栏、命令面板里的主机行都换成新名字。命令面板的主机行副标题始终是 user@host，所以改了名也能认出是哪台。状态栏菜单里也有 <em>Rename…</em>（见 15），直接对当前连接改名，跳过选主机。名字存在已保存的主机里，不属于文件树，重启后不会自动连接。',
  re:'<strong>断线重连</strong>：状态栏变琥珀色，远程根变暗并显示“重连中”，编辑器顶部出现横幅；未保存文本保留、保存暂停。'
 };
 
@@ -313,15 +322,24 @@ const local=['.claude','.git','.githooks','.github','.packaging*','.tmp*','asset
 const localFiles=['.gitattributes','.gitignore','AGENTS.md','CONTRIBUTING.md','Cargo.lock','Cargo.toml','LICENSE-APACHE','LICENSE-MIT','README.md','README.zh-CN.md'];
 const rf=(n,c='')=>{const dim=n.endsWith('*'),neu=n.endsWith('+');n=n.replace(/[*+]$/,'');return `<div class="row ${dim?'dim':''} ${neu?'new':''} ${c}"><span class="ic">▣</span>${n}</div>`};
 const ff=(n,c='')=>`<div class="row ${c}"><span class="ic">▤</span>${n}</div>`;
-function remoteRoot(state){
- const off=state==='re';
- const badge=state==='ok'||off?`<span class="badge ${off?'warn':''}">${off?'<span class="spin"></span> Reconnecting':'⇄ dev-box'}</span>`:'';
- const kids=['.git','.github','crates','docs','scripts','src','tests'].map(n=>rf(n,'child'+(off?' offline':''))).join('')+['Cargo.toml','README.md'].map(n=>ff(n,'child'+(off?' offline':''))).join('');
- return `<div class="row root ${off?'offline':''}"><span class="ic">▾</span>loog-remote${badge}</div>`+kids;
+/* 远程根：目录名 + 主机徽标。主机显示名：别名/域名原样；只给了 IP 时用服务器自己的主机名；都没有才显示 IP */
+function remoteRoot(o){
+ const off=!!o.off, kids=o.kids||['.git','crates','docs','src','tests'], files=o.files===undefined?['Cargo.toml','README.md']:o.files;
+ const badge=`<span class="badge ${off?'warn':''}" title="${o.host}">${off?'<span class="spin"></span>':'⇄'}<span class="n">${o.host}</span></span>`;
+ const body=o.open===false?'':kids.map(n=>rf(n,'child'+(off?' offline':''))).join('')+files.map(n=>ff(n,'child'+(off?' offline':''))).join('');
+ return `<div class="row root ${off?'offline':''}"><span class="ic">${o.open===false?'▸':'▾'}</span><span class="nm">${o.name}</span>${badge}</div>`+body;
 }
 function tree(state){
- let h=`<div class="row root"><span class="ic">▾</span>loog</div>`+local.map(n=>rf(n,'child')).join('')+localFiles.map(n=>ff(n,'child'+(n==='README.md'?' sel':''))).join('');
- if(['ok','re','menu','p-ssh2','d-change'].includes(state)) h+=remoteRoot(state==='re'?'re':'ok');
+ let h=`<div class="row root"><span class="ic">▾</span>loog</div>`+local.slice(0,['tree','rn-done'].includes(state)?5:99).map(n=>rf(n,'child')).join('')+localFiles.slice(0,['tree','rn-done'].includes(state)?3:99).map(n=>ff(n,'child'+(n==='README.md'?' sel':''))).join('');
+ if(['ok','menu','p-ssh2','d-change'].includes(state)) h+=remoteRoot({name:'loog',host:'dev-box'});
+ if(state==='re') h+=remoteRoot({name:'loog',host:'dev-box',off:true});
+ if(state==='tree'){
+  /* 三种根并排：IP 连接用机器名（很长时截断）、别名、断线重连 */
+  h+=remoteRoot({name:'log-manual-test',host:'hkg20-20260326100823aada56',kids:['src','docs'],files:['README.md']});
+  h+=remoteRoot({name:'app',host:'build-01',open:false});
+  h+=remoteRoot({name:'notes',host:'gpu-lab:2222',off:true,kids:[],files:['todo.txt']});
+ }
+ if(state==='rn-done') h+=remoteRoot({name:'log-manual-test',host:'prod-hk',kids:['src','docs'],files:['README.md']});
  $('tree').innerHTML=h;
 }
 
@@ -344,8 +362,14 @@ const ai=(t,d,r,sel)=>`<div class="it ${sel?'sel':''}"><span class="b">E</span><
 const dirChips=`<span class="chip">Remote SSH</span><span class="chip">root@141.11.91.114</span>`;
 const dh=(q,ph,cnt)=>`<div class="in"><span class="gl">⌘</span>${dirChips}<span class="q ${q?'':'ph'}">${q||ph}</span><span class="cnt">${cnt||''}</span></div>`;
 const dfoot=`<div class="ft"><span>↑↓ Select</span><span>Enter Open</span><span>Esc Disconnect</span></div>`;
+const rnHead=(text,cnt)=>`<div class="in"><span class="gl">⌘</span><span class="chip">Remote SSH</span><span class="chip">Rename</span><span class="chip">root@141.11.91.114</span><span class="q">${text}</span><span class="cnt">${cnt||''}</span></div>`;
+const rnHint=(t,err)=>`<div style="padding:9px 14px;color:${err?'var(--error-text)':'var(--muted)'};font-size:11px">${t}</div>`;
 const panels={
- menu:`<div class="in"><span class="gl">⌘</span>${dirChips}<span class="q ph">Select an action</span><span class="cnt"></span></div>`+G('ACTIONS')+ai('Open Folder…','/home/liu/loog','',true)+ai('Disconnect','','')+ai('Connect to New Host…','','')+`<div class="ft"><span>↑↓ Select</span><span>Enter Run</span><span>Esc Close</span></div>`,
+ 'rn-pick':`<div class="in"><span class="gl">⌘</span><span class="chip">Remote SSH</span><span class="chip">Rename</span><span class="q ph">Select a host to rename</span><span class="cnt">2 / 4</span></div>`+G('SAVED HOSTS')+
+   ai('dev-box','liu@10.0.0.21','')+ai('hkg20-20260326100823aada56','root@141.11.91.114','',true)+ai('build-01','ci@build-01.internal','')+ai('gpu-lab','liu@gpu.lab.example:2222','')+`<div class="ft"><span>↑↓ Select</span><span>Enter Rename</span><span>Esc Close</span></div>`,
+ 'rn-input':rnHead('prod-hk','')+rnHint('Shown in the file tree, the status bar and the palette. Leave empty to use the default: hkg20-20260326100823aada56.')+`<div class="ft"><span>Enter Save</span><span>Esc Cancel</span></div>`,
+ 'rn-dup':rnHead('build-01','<span style="color:var(--error);font-size:13px" title="Another host is already named build-01">✕</span>')+rnHint('Another host is already named build-01.',true)+`<div class="ft"><span>Enter Retry</span><span>Esc Cancel</span></div>`,
+ menu:`<div class="in"><span class="gl">⌘</span>${dirChips}<span class="q ph">Select an action</span><span class="cnt"></span></div>`+G('ACTIONS')+ai('Open Folder…','/home/liu/loog','',true)+ai('Rename…','Name shown for this host','')+ai('Disconnect','','')+ai('Connect to New Host…','','')+`<div class="ft"><span>↑↓ Select</span><span>Enter Run</span><span>Esc Close</span></div>`,
  'f-auth':authHead('Select private key')+G('PRIVATE KEY')+ai('Default Location','Keys in ~/.ssh and your SSH config','Recommended',true)+ai('Choose Key File…','Use one specific private key','')+`<div class="ft"><span>↑↓ Select</span><span>Enter Connect</span><span>Esc Back</span></div>`,
  'f-ssh':chipHead('liu@10.0.0.21','')+G('CONNECT')+hit('Connect to <span style="color:var(--bright)">liu@10.0.0.21</span>','Saved to hosts after connecting','New',true)+`<div class="ft"><span>Enter Next</span><span>Esc Back</span></div>`,
  'f-conn':`<div class="in"><span class="gl">⌘</span><span class="chip">Remote SSH</span><span class="chip">liu@10.0.0.21</span><span class="q ph">Connecting…</span><span class="cnt"><span class="spin" style="color:var(--accent)"></span></span></div><div class="ft"><span>Esc Cancel</span></div>`,
@@ -400,8 +424,8 @@ const pathPanels={
 Object.assign(panels,pathPanels);
 
 function setRemote(k){
- const r=$('remote');r.className='it remote '+(['ok','menu','p-ssh2','d-pick','d-type','d-bad','d-change'].includes(k)?'ok':k==='re'?'warn':k==='fail'?'err':'');
- r.innerHTML={ 'd-load':'<span class="spin"></span> Connecting to root@141.11.91.114','d-pick':'⇄ root@141.11.91.114','d-type':'⇄ root@141.11.91.114','d-bad':'⇄ root@141.11.91.114','d-change':'⇄ dev-box', now:'⇄ Remote', 'f-ssh':'⇄ Remote','p-ssh':'⇄ Remote','f-auth':'⇄ Remote','f-conn':'<span class="spin"></span> Connecting to dev-box','p-wsl':'⇄ Remote','p-docker':'⇄ Remote','p-ssh2':'⇄ dev-box','f-wsl':'⇄ Remote','f-docker':'⇄ Remote','f-err':'⇄ Remote', prog:'<span class="spin"></span> Connecting to dev-box', fail:'⚠ build-01 connection failed', ok:'⇄ dev-box', menu:'⇄ dev-box', re:'<span class="spin"></span> dev-box · Reconnecting' }[k];
+ const r=$('remote');r.className='it remote '+(['ok','menu','p-ssh2','d-pick','d-type','d-bad','d-change','tree','rn-done','rn-pick','rn-input','rn-dup'].includes(k)?'ok':k==='re'?'warn':k==='fail'?'err':'');
+ r.innerHTML={ 'd-load':'<span class="spin"></span> Connecting to root@141.11.91.114','d-pick':'⇄ root@141.11.91.114','d-type':'⇄ root@141.11.91.114','d-bad':'⇄ root@141.11.91.114','d-change':'⇄ dev-box', tree:'⇄ hkg20-20260326100823aada56','rn-pick':'⇄ hkg20-20260326100823aada56','rn-input':'⇄ hkg20-20260326100823aada56','rn-dup':'⇄ hkg20-20260326100823aada56','rn-done':'⇄ prod-hk', now:'⇄ Remote', 'f-ssh':'⇄ Remote','p-ssh':'⇄ Remote','f-auth':'⇄ Remote','f-conn':'<span class="spin"></span> Connecting to dev-box','p-wsl':'⇄ Remote','p-docker':'⇄ Remote','p-ssh2':'⇄ dev-box','f-wsl':'⇄ Remote','f-docker':'⇄ Remote','f-err':'⇄ Remote', prog:'<span class="spin"></span> Connecting to dev-box', fail:'⚠ build-01 connection failed', ok:'⇄ dev-box', menu:'⇄ dev-box', re:'<span class="spin"></span> dev-box · Reconnecting' }[k];
 }
 function show(k){
  document.querySelectorAll('.proto button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
@@ -409,7 +433,7 @@ function show(k){
  tree(k);setRemote(k);
  ['palette','toast','menu','banner','dlg','fdlg'].forEach(i=>$(i).style.display='none');
 
- const conn=['ok','menu','re','p-ssh2','d-change'].includes(k);
+ const conn=['ok','menu','re','p-ssh2','d-change','tree','rn-done','rn-pick','rn-input','rn-dup'].includes(k);
  $('tHost').style.display=conn?'inline':'none';
  $('pane').style.display=conn?'block':'none';
  if(conn){$('rtag').textContent=k==='re'?'dev-box · Disconnected':'dev-box';
