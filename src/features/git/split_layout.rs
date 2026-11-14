@@ -89,7 +89,7 @@ impl<'a> Layout<'a> {
             for item in &overview.sections {
                 let doc = &files[item.index].document;
                 let top = out.rows;
-                let body = top.map(|row| row + 2);
+                let body = top.map(|row| row + overview.heading_rows);
                 let closed = item.body_rows == 0;
                 let end = std::array::from_fn(|side| {
                     body[side]

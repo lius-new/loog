@@ -176,6 +176,14 @@ pub(crate) fn render(
 
         let st_wheel = state.clone();
         root = root.on_wheel(move |cx, delta| {
+            if crate::ui::wheel_zoom::is_zoom(delta) {
+                let steps = crate::ui::wheel_zoom::steps(delta);
+                if steps != 0 {
+                    st_wheel.send(Event::Zoom(steps));
+                }
+                cx.stop_propagation();
+                return;
+            }
             let (step_x, step_y) = match delta.unit {
                 WheelUnit::Lines => (
                     delta.x * fonts::editor().line_h * 3.0,

@@ -257,8 +257,16 @@ impl Workspace {
                 if let (Some(old_sections), Some(new_sections)) =
                     (&current.sections, &next.sections)
                 {
-                    let old_layout = current.changes_layout(split, &document.collapsed_diffs);
-                    let new_layout = next.changes_layout(split, &document.collapsed_diffs);
+                    let old_layout = current.changes_layout(
+                        split,
+                        &document.collapsed_diffs,
+                        crate::ui::diff_editor::heading_rows(),
+                    );
+                    let new_layout = next.changes_layout(
+                        split,
+                        &document.collapsed_diffs,
+                        crate::ui::diff_editor::heading_rows(),
+                    );
                     if let Some(view) = core.views.get_mut(&document.view) {
                         let row = view.source.scroll_y / crate::ui::diff_editor::row_h();
                         if let Some(old) = old_layout
@@ -301,7 +309,11 @@ impl Workspace {
         };
         document.focused_diff = Some(request.clone());
         document.collapsed_diffs.remove(request);
-        let layout = diff.changes_layout(split, &document.collapsed_diffs);
+        let layout = diff.changes_layout(
+            split,
+            &document.collapsed_diffs,
+            crate::ui::diff_editor::heading_rows(),
+        );
         if let Some(section) = layout
             .sections
             .iter()

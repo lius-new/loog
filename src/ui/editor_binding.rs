@@ -167,6 +167,8 @@ pub(crate) enum Event {
         y: f32,
         metrics: Metrics,
     },
+    /// Ctrl+wheel: change the editor font size by this many steps.
+    Zoom(i32),
     GutterHover(Option<(PaneId, usize)>),
     /// The range of the diagnostic now under the pointer, if any.
     DiagnosticHover(Option<(PaneId, Range<usize>)>),

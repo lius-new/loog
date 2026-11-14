@@ -60,6 +60,8 @@ pub struct Snapshot {
 }
 pub enum Command {
     Wheel(PaneId, f32, f32, f32, f32),
+    /// Ctrl+wheel: change the editor font size, which the diff rows follow.
+    Zoom(i32),
     Activate(PaneId),
     SplitStart(PaneId),
     SplitDrag(PaneId, UiRect, f32),

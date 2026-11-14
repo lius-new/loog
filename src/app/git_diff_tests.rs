@@ -96,7 +96,11 @@ fn progressive_diff_completion_preserves_scroll_collapses_and_focus() {
     assert_eq!(app.workspace.active_diff_focus(), Some(&request("b.txt")));
     let doc = app.workspace.active_diff().unwrap();
     assert!(doc.loading.is_none());
-    let layout = doc.changes_layout(true, &app.workspace.collapsed_diffs(pane));
+    let layout = doc.changes_layout(
+        true,
+        &app.workspace.collapsed_diffs(pane),
+        crate::ui::diff_editor::heading_rows(),
+    );
     let b = &layout.sections[1];
     assert_eq!(
         app.workspace.scroll(pane),

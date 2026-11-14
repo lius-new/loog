@@ -517,6 +517,23 @@ mod tests {
         app.zoom_markdown_steps(0);
         assert_eq!(app.preferences.values().markdown.font_size, 14);
     }
+
+    #[test]
+    fn editor_zoom_steps_change_the_font_size_and_keep_the_top_line() {
+        let mut app = AppState::new();
+        app.workspace
+            .open_path("zoom.rs".into(), "fn main() {}\n".repeat(100));
+        app.workspace.set_active_scroll(0.0, 240.0);
+        app.zoom_editor_steps(2);
+        assert_eq!(app.preferences.values().editor_font.size, 14);
+        assert_eq!(app.preferences.values().terminal_font.size, 12);
+        app.zoom_editor_steps(-3);
+        assert_eq!(app.preferences.values().editor_font.size, 11);
+        app.zoom_editor_steps(-1000);
+        assert_eq!(app.preferences.values().editor_font.size, fonts::MIN_SIZE);
+        app.zoom_editor_steps(1000);
+        assert_eq!(app.preferences.values().editor_font.size, fonts::MAX_SIZE);
+    }
     #[test]
     fn settings_file_values_apply_and_round_trip() {
         let mut app = AppState::new();

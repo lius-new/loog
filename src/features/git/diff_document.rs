@@ -88,6 +88,8 @@ pub struct SectionLayout {
 pub struct ChangesLayout {
     pub sections: Vec<SectionLayout>,
     pub row_count: usize,
+    /// Rows each file heading occupies; the view picks it from the row height.
+    pub heading_rows: usize,
     pub starts: Arc<Vec<usize>>,
 }
 
@@ -251,16 +253,22 @@ impl DiffDocument {
         }
     }
 
-    pub fn changes_layout(&self, split: bool, collapsed: &BTreeSet<DiffRequest>) -> ChangesLayout {
+    pub fn changes_layout(
+        &self,
+        split: bool,
+        collapsed: &BTreeSet<DiffRequest>,
+        heading_rows: usize,
+    ) -> ChangesLayout {
         let mut layout = ChangesLayout {
             sections: Vec::new(),
             row_count: 0,
+            heading_rows,
             starts: Arc::default(),
         };
         let mut starts = Vec::new();
         for (index, section) in self.sections.iter().flatten().enumerate() {
             let top = layout.row_count;
-            layout.row_count += 2;
+            layout.row_count += heading_rows;
             let body_top = layout.row_count;
             let body_rows = if collapsed.contains(&section.request()) {
                 0

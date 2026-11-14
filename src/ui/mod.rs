@@ -42,6 +42,7 @@ pub mod titlebar;
 pub mod toast;
 pub mod trust_prompt;
 pub mod welcome;
+pub(crate) mod wheel_zoom;
 pub mod workspace_home;
 
 /// Give `target` keyboard focus while an overlay is open, then hand focus

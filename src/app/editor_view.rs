@@ -730,6 +730,7 @@ pub(crate) fn dispatch(app: &mut AppState, pane: PaneId, rect: UiRect, event: Ev
                 (sy - y).clamp(0.0, metrics.max_y),
             );
         }
+        Event::Zoom(steps) => app.zoom_editor_steps(steps),
         Event::GutterHover(hovered) => {
             let changed = app.editor.editor_gutter_hover != hovered;
             app.editor.editor_gutter_hover = hovered;
