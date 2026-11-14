@@ -391,6 +391,25 @@ mod tests {
     }
 
     #[test]
+    fn font_size_shortcuts_reach_the_markdown_preview() {
+        let mut app = AppState::new();
+        app.workspace.open_path("a.md".into(), "# Title\n".into());
+        let view = app.workspace.active().unwrap();
+        app.workspace
+            .set_presentation(view, crate::domain::view::Presentation::Markdown);
+        app.editor.focused = true;
+        let s = secondary();
+        assert_eq!(
+            action(&app, character("=", s)),
+            Some(Action::IncreaseFontSize)
+        );
+        assert_eq!(
+            action(&app, character("-", s)),
+            Some(Action::DecreaseFontSize)
+        );
+        assert_eq!(action(&app, character("0", s)), Some(Action::ResetFontSize));
+    }
+    #[test]
     fn terminal_keeps_shell_keys_and_clipboard_conventions() {
         let mut app = AppState::new();
         app.terminal.ui.terminal_focused = true;

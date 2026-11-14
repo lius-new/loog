@@ -475,6 +475,38 @@ mod tests {
     }
 
     #[test]
+    fn markdown_preview_zooms_its_own_size_and_resets() {
+        let mut app = AppState::new();
+        app.workspace.open_path("a.md".into(), "# Title\n".into());
+        let view = app.workspace.active().unwrap();
+        assert!(
+            app.workspace
+                .set_presentation(view, crate::domain::view::Presentation::Markdown)
+        );
+        assert_eq!(app.main_surface(), crate::app::state::MainSurface::Markdown);
+        let editor = app.preferences.values().editor_font.clone();
+        app.apply(Action::IncreaseFontSize);
+        let markdown = app.preferences.values().markdown;
+        assert_eq!(markdown.font_size, 17);
+        assert!(markdown.line_height > 26);
+        assert_eq!(app.preferences.values().editor_font, editor);
+        app.apply(Action::ResetFontSize);
+        let defaults = crate::features::settings::markdown::MarkdownSettings::default();
+        assert_eq!(app.preferences.values().markdown, defaults);
+        for _ in 0..40 {
+            app.apply(Action::DecreaseFontSize);
+        }
+        let markdown = app.preferences.values().markdown;
+        assert_eq!(markdown.font_size, 10);
+        assert!(markdown.validate().is_ok());
+        for _ in 0..40 {
+            app.apply(Action::IncreaseFontSize);
+        }
+        let markdown = app.preferences.values().markdown;
+        assert_eq!(markdown.font_size, 32);
+        assert!(markdown.validate().is_ok());
+    }
+    #[test]
     fn settings_file_values_apply_and_round_trip() {
         let mut app = AppState::new();
         assert!(!app.apply_settings(app.settings()));

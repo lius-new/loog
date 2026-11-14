@@ -17,11 +17,15 @@ impl Default for MarkdownSettings {
     }
 }
 impl MarkdownSettings {
+    pub const MIN_FONT_SIZE: u16 = 10;
+    pub const MAX_FONT_SIZE: u16 = 32;
+    pub const MIN_LINE_HEIGHT: u16 = 14;
+    pub const MAX_LINE_HEIGHT: u16 = 80;
     pub fn validate(self) -> Result<(), String> {
-        if !(10..=32).contains(&self.font_size) {
+        if !(Self::MIN_FONT_SIZE..=Self::MAX_FONT_SIZE).contains(&self.font_size) {
             return Err("markdown.font_size must be between 10 and 32".into());
         }
-        if !(14..=80).contains(&self.line_height) {
+        if !(Self::MIN_LINE_HEIGHT..=Self::MAX_LINE_HEIGHT).contains(&self.line_height) {
             return Err("markdown.line_height must be between 14 and 80".into());
         }
         if !(320..=1800).contains(&self.max_width) {
