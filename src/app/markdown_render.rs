@@ -228,6 +228,9 @@ pub(super) fn geometry_for(
         Arc::from([])
     }
 }
+/// The previous result stays on screen while a new one is prepared. A change of
+/// font size or line height (zoom) is included: showing the old layout until
+/// the new one is ready avoids flashing the loading surface on every step.
 fn compatible_status(status: Option<&Status>, key: &RequestKey) -> Status {
     match status {
         Some(Status::Ready(old))
@@ -236,9 +239,7 @@ fn compatible_status(status: Option<&Status>, key: &RequestKey) -> Status {
                 && old.key.ink == key.ink
                 && old.key.base == key.base
                 && old.key.remote == key.remote
-                && old.key.page == key.page
-                && old.key.font_size == key.font_size
-                && old.key.line_height == key.line_height =>
+                && old.key.page == key.page =>
         {
             Status::Ready(old.clone())
         }

@@ -257,6 +257,39 @@ impl AppState {
         true
     }
 
+    /// Zooms the Markdown preview by changing its font size, keeping the line
+    /// height in proportion; reset restores the defaults.
+    fn zoom_markdown(&mut self, action: Action) {
+        use crate::features::settings::markdown::MarkdownSettings;
+        let current = self.preferences.values().markdown;
+        let defaults = MarkdownSettings::default();
+        let font_size = match action {
+            Action::IncreaseFontSize => current.font_size.saturating_add(1),
+            Action::DecreaseFontSize => current.font_size.saturating_sub(1),
+            _ => defaults.font_size,
+        }
+        .clamp(
+            MarkdownSettings::MIN_FONT_SIZE,
+            MarkdownSettings::MAX_FONT_SIZE,
+        );
+        if font_size == current.font_size {
+            return;
+        }
+        let line_height = if font_size == defaults.font_size {
+            defaults.line_height
+        } else {
+            (f32::from(current.line_height) * f32::from(font_size) / f32::from(current.font_size))
+                .round() as u16
+        }
+        .clamp(
+            MarkdownSettings::MIN_LINE_HEIGHT,
+            MarkdownSettings::MAX_LINE_HEIGHT,
+        );
+        let markdown = &mut self.preferences.values_mut().markdown;
+        markdown.font_size = font_size;
+        markdown.line_height = line_height;
+    }
+
     /// Applies an editor font preference, keeping open views on the same line.
     pub fn set_editor_font(&mut self, font: crate::ui::fonts::FontSettings) {
         use crate::features::git::diff_document::row_height_for;
@@ -625,6 +658,13 @@ impl AppState {
             }
             Action::OpenExtensions => {
                 self.workspace.open_extensions();
+            }
+            // A Markdown preview zooms its own reading size, not the editor's.
+            Action::IncreaseFontSize | Action::DecreaseFontSize | Action::ResetFontSize
+                if !self.terminal.ui.terminal_focused
+                    && self.main_surface() == MainSurface::Markdown =>
+            {
+                self.zoom_markdown(action);
             }
             Action::IncreaseFontSize | Action::DecreaseFontSize | Action::ResetFontSize => {
                 let terminal = self.terminal.ui.terminal_focused;
