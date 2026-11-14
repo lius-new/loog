@@ -247,6 +247,8 @@ pub enum ReaderEvent {
         axis: ScrollAxis,
     },
     Focus(bool),
+    /// Ctrl+wheel: change the preview's reading size by this many steps.
+    Zoom(i32),
     HorizontalScroll {
         key: FrameKey,
         node: NodeId,
@@ -358,6 +360,7 @@ pub fn reduce(
             }
         }
         ReaderEvent::ScrollbarUp { .. } => state.scrollbar = None,
+        ReaderEvent::Zoom(_) => {}
         ReaderEvent::Focus(value) => {
             effects.focus = Some(value);
             if !value {
@@ -826,7 +829,7 @@ impl ReaderEvent {
     /// transaction. Different documents/parses remain invalid.
     pub fn on_frame(mut self, frame: FrameKey) -> Option<Self> {
         let key = match &mut self {
-            Self::Focus(_) => return Some(self),
+            Self::Focus(_) | Self::Zoom(_) => return Some(self),
             Self::ScrollbarDown { key, .. }
             | Self::ScrollbarDrag { key, .. }
             | Self::ScrollbarUp { key, .. }

@@ -257,6 +257,18 @@ impl AppState {
         true
     }
 
+    /// Zooms the Markdown preview by `steps` font sizes (positive zooms in).
+    pub(crate) fn zoom_markdown_steps(&mut self, steps: i32) {
+        let action = if steps > 0 {
+            Action::IncreaseFontSize
+        } else {
+            Action::DecreaseFontSize
+        };
+        for _ in 0..steps.unsigned_abs() {
+            self.zoom_markdown(action);
+        }
+    }
+
     /// Zooms the Markdown preview by changing its font size, keeping the line
     /// height in proportion; reset restores the defaults.
     fn zoom_markdown(&mut self, action: Action) {

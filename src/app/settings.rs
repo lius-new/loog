@@ -506,6 +506,17 @@ mod tests {
         assert_eq!(markdown.font_size, 32);
         assert!(markdown.validate().is_ok());
     }
+
+    #[test]
+    fn markdown_zoom_steps_change_the_size_in_both_directions() {
+        let mut app = AppState::new();
+        app.zoom_markdown_steps(3);
+        assert_eq!(app.preferences.values().markdown.font_size, 19);
+        app.zoom_markdown_steps(-5);
+        assert_eq!(app.preferences.values().markdown.font_size, 14);
+        app.zoom_markdown_steps(0);
+        assert_eq!(app.preferences.values().markdown.font_size, 14);
+    }
     #[test]
     fn settings_file_values_apply_and_round_trip() {
         let mut app = AppState::new();
