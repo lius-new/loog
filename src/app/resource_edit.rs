@@ -14,16 +14,6 @@ pub(crate) fn action(
     target: Target,
     clipboard: &dyn lgui::services::Clipboard,
 ) {
-    if action == MenuAction::WorkspaceTrust {
-        state.update(|app| {
-            app.explorer.resources.trust_review = app
-                .explorer
-                .resources
-                .root(target.scope)
-                .map(|root| root.descriptor.resource.clone());
-        });
-        return;
-    }
     if action == MenuAction::RefreshExplorer {
         refresh(state, target.scope);
         return;

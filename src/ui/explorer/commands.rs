@@ -13,7 +13,6 @@ pub enum MenuAction {
     NewFolder,
     RefreshExplorer,
     OpenTerminal,
-    WorkspaceTrust,
     Cut,
     Copy,
     Rename,

@@ -345,14 +345,13 @@ pub(super) fn roots(panel: &ExplorerPanelState) -> Vec<Entry> {
 
 pub(super) fn supports_action(target: Option<&Target>, action: MenuAction) -> bool {
     if target.is_none() {
-        return action != MenuAction::WorkspaceTrust;
+        return true;
     }
     matches!(
         action,
         MenuAction::NewFile
             | MenuAction::NewFolder
             | MenuAction::RefreshExplorer
-            | MenuAction::WorkspaceTrust
             | MenuAction::OpenTerminal
             | MenuAction::CopyPath
             | MenuAction::Rename
@@ -378,7 +377,7 @@ pub(super) fn action_enabled(
                 .capabilities
                 .contains(&loog_workspace_api::Capability::Terminal)
         }),
-        MenuAction::CopyPath | MenuAction::RefreshExplorer | MenuAction::WorkspaceTrust => true,
+        MenuAction::CopyPath | MenuAction::RefreshExplorer => true,
         MenuAction::Rename | MenuAction::Delete => write && target.parent.is_some(),
         _ => write,
     })

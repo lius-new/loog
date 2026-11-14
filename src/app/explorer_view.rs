@@ -498,7 +498,6 @@ fn run_menu(
             }
         }
         MenuAction::AddFolder => unreachable!("handled before the target check"),
-        MenuAction::WorkspaceTrust => {}
     }
 }
 

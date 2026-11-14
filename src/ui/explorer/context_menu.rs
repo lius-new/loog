@@ -64,7 +64,6 @@ const DIRECTORY_ENTRIES: &[Entry] = &[
     item("New File", MenuAction::NewFile),
     item("New Folder", MenuAction::NewFolder),
     item("Refresh Explorer", MenuAction::RefreshExplorer),
-    item("Workspace Trust…", MenuAction::WorkspaceTrust),
     Entry::Separator,
     item("Reveal in File Explorer", MenuAction::RevealInFileExplorer),
     item("Open in Terminal", MenuAction::OpenTerminal),
@@ -165,6 +164,34 @@ fn measure(s: &str) -> f32 {
     measure_width(s, bounds, theme::UI_SIZE, 400).map_or(mono_width, |width| width.max(mono_width))
 }
 
+/// Width of the widest entry (label and optional shortcut) any menu can show. Every menu
+/// is that wide, so one that lacks the long entries (a remote folder's, a file's) is not
+/// narrower than the rest.
+fn menu_content_width() -> f32 {
+    [
+        DIRECTORY_ENTRIES,
+        FILE_ENTRIES,
+        BATCH_ENTRIES,
+        MARKDOWN_ENTRIES,
+        SVG_ENTRIES,
+    ]
+    .into_iter()
+    .flatten()
+    .map(|e| match e {
+        Entry::Item {
+            label, shortcut, ..
+        } => {
+            let mut w = measure(label);
+            if let Some(sc) = shortcut {
+                w += SHORTCUT_GAP + measure(sc);
+            }
+            w
+        }
+        Entry::Separator => 0.0,
+    })
+    .fold(0.0, f32::max)
+}
+
 /// Renders the right-click menu anchored at `pos` (screen coords), flipped and
 /// clamped so it stays inside `rect` (the viewport).
 pub fn render(
@@ -221,23 +248,7 @@ pub fn render(
         target.kind == ExplorerTargetKind::Directory && s.model.is_root(&target.path)
     });
 
-    // Size the menu to its widest entry (label + optional shortcut).
-    let content_w = entries
-        .iter()
-        .map(|e| match e {
-            Entry::Item {
-                label, shortcut, ..
-            } => {
-                let mut w = measure(label);
-                if let Some(sc) = shortcut {
-                    w += SHORTCUT_GAP + measure(sc);
-                }
-                w
-            }
-            Entry::Separator => 0.0,
-        })
-        .fold(0.0, f32::max);
-    let menu_w = content_w + ITEM_PAD_X * 2.0 + TEXT_MARGIN;
+    let menu_w = menu_content_width() + ITEM_PAD_X * 2.0 + TEXT_MARGIN;
 
     let menu_h = MENU_PAD * 2.0
         + entries
@@ -557,6 +568,27 @@ mod tests {
         let mono_width = UnicodeWidthStr::width(label) as f32 * theme::UI_CHAR_W;
 
         assert!(measure(label) >= mono_width);
+    }
+
+    #[test]
+    fn every_menu_has_the_width_of_the_widest_entry_any_menu_can_show() {
+        let widest = measure("Remove Folder From Workspace");
+        assert!(menu_content_width() >= widest);
+        // No entry of any menu is wider, so no menu can need more than the shared width.
+        for entry in DIRECTORY_ENTRIES.iter().chain(FILE_ENTRIES).chain(BATCH_ENTRIES) {
+            if let Entry::Item { label, .. } = entry {
+                assert!(measure(label) <= menu_content_width());
+            }
+        }
+    }
+
+    #[test]
+    fn the_folder_menu_has_no_workspace_trust_entry() {
+        for entry in DIRECTORY_ENTRIES {
+            if let Entry::Item { label, .. } = entry {
+                assert!(!label.contains("Trust"));
+            }
+        }
     }
     #[test]
     fn svg_toggle_is_only_in_svg_file_menus() {
