@@ -282,6 +282,7 @@ pub(crate) fn run(
             modifiers,
         } => commands::wheel(tabs, target, delta, modifiers),
         Command::Scrollback { target, rows } => commands::set_scrollback(tabs, target, rows),
+        Command::Zoom(steps) => state.update(|app| app.zoom_terminal_steps(steps)),
         Command::Focus => state.update(|app| {
             app.terminal.ui.terminal_focused = true;
             app.editor.focused = false;
