@@ -384,6 +384,10 @@ pub(super) fn event(
         {
             return;
         }
+        if let ReaderEvent::Zoom(steps) = action {
+            app.zoom_markdown_steps(steps);
+            return;
+        }
         if let ReaderEvent::Focus(focused) = action {
             app.editor.focused = focused;
             app.editor.ime = None;

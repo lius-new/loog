@@ -212,6 +212,25 @@ fn translated(
 }
 /// Only visible paragraphs and bounded visible glyph rectangles enter the scene.
 /// Selection/copy remains a full-document logical range outside this scene.
+/// Ctrl+wheel zoom steps for one wheel event: a notch is one step, and smooth
+/// pixel deltas accumulate until they add up to a notch.
+fn wheel_zoom_steps(delta: lgui::core::WheelDelta) -> i32 {
+    use std::cell::Cell;
+    const PIXELS_PER_STEP: f32 = 40.0;
+    thread_local! {
+        static PENDING: Cell<f32> = const { Cell::new(0.0) };
+    }
+    match delta.unit {
+        WheelUnit::Lines => delta.y.signum() as i32 * (delta.y != 0.0) as i32,
+        WheelUnit::Pixels => PENDING.with(|pending| {
+            let total = pending.get() + delta.y;
+            let steps = (total / PIXELS_PER_STEP).trunc();
+            pending.set(total - steps * PIXELS_PER_STEP);
+            steps as i32
+        }),
+    }
+}
+
 pub fn render(id: UiId, rect: UiRect, binding: Binding, focus: UiFocusHandle) -> Element {
     let emphasized = false;
     // A card sits on its own surface, so the reader adds no fill of its own.
@@ -815,6 +834,14 @@ pub fn render_in(
     });
     let wheel = binding.clone();
     root = root.on_wheel(move |cx, delta| {
+        if delta.modifiers.ctrl() || delta.modifiers.meta() {
+            let steps = wheel_zoom_steps(delta);
+            if steps != 0 {
+                wheel.send(ReaderEvent::Zoom(steps));
+            }
+            cx.stop_propagation();
+            return;
+        }
         let frame = wheel.get();
         let amount = match delta.unit {
             WheelUnit::Lines => -delta.y * frame.layout.style.line_height * 3.0,
@@ -1073,6 +1100,17 @@ pub(crate) fn set_context_feedback(node: crate::features::markdown::model::NodeI
 mod tests {
     use super::*;
 
+    #[test]
+    fn wheel_zoom_steps_follow_notches_and_accumulate_smooth_scrolling() {
+        use lgui::core::WheelDelta;
+        assert_eq!(wheel_zoom_steps(WheelDelta::lines(0.0, 1.0)), 1);
+        assert_eq!(wheel_zoom_steps(WheelDelta::lines(0.0, -2.0)), -1);
+        assert_eq!(wheel_zoom_steps(WheelDelta::lines(0.0, 0.0)), 0);
+        let steps: i32 = (0..10)
+            .map(|_| wheel_zoom_steps(WheelDelta::pixels(0.0, 12.0)))
+            .sum();
+        assert_eq!(steps, 3, "120px of smooth scrolling is three steps");
+    }
     #[test]
     fn copy_feedback_expires_without_sleeping() {
         use crate::features::markdown::model::NodeId;
