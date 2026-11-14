@@ -257,6 +257,13 @@ impl AppState {
         true
     }
 
+    /// Zooms the terminal by `steps` font sizes (positive zooms in).
+    pub(crate) fn zoom_terminal_steps(&mut self, steps: i32) {
+        let mut font = self.preferences.values().terminal_font.clone();
+        font.size = (i32::from(font.size) + steps).clamp(0, i32::from(u16::MAX)) as _;
+        self.set_terminal_font(font);
+    }
+
     /// Zooms the editor by `steps` font sizes (positive zooms in).
     pub(crate) fn zoom_editor_steps(&mut self, steps: i32) {
         let mut font = self.preferences.values().editor_font.clone();

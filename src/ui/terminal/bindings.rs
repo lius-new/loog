@@ -289,6 +289,8 @@ pub enum Command {
         rows: usize,
     },
     Focus,
+    /// Ctrl+wheel: change the terminal font size by this many steps.
+    Zoom(i32),
     ResizeStart,
     Resize(f32),
     ResizeEnd,

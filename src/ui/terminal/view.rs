@@ -908,6 +908,15 @@ pub(crate) fn render_session(
     let wheel_application = application.clone();
     let wheel_state = state.clone();
     terminal = terminal.on_wheel(move |cx, delta| {
+        // Zoom wins over scrollback and over mouse reports to the program.
+        if crate::ui::wheel_zoom::is_zoom(delta) {
+            let steps = crate::ui::wheel_zoom::steps(delta);
+            if steps != 0 {
+                wheel_state.run(Command::Zoom(steps));
+            }
+            cx.stop_propagation();
+            return;
+        }
         let lines = match delta.unit {
             WheelUnit::Lines => delta.y,
             WheelUnit::Pixels => delta.y / (terminal_line_h() * 3.0),

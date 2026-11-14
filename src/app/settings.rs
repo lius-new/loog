@@ -534,6 +534,21 @@ mod tests {
         app.zoom_editor_steps(1000);
         assert_eq!(app.preferences.values().editor_font.size, fonts::MAX_SIZE);
     }
+
+    #[test]
+    fn terminal_zoom_steps_change_only_the_terminal_font() {
+        let mut app = AppState::new();
+        let editor = app.preferences.values().editor_font.clone();
+        app.zoom_terminal_steps(3);
+        assert_eq!(app.preferences.values().terminal_font.size, 15);
+        app.zoom_terminal_steps(-4);
+        assert_eq!(app.preferences.values().terminal_font.size, 11);
+        assert_eq!(app.preferences.values().editor_font, editor);
+        app.zoom_terminal_steps(-1000);
+        assert_eq!(app.preferences.values().terminal_font.size, fonts::MIN_SIZE);
+        app.zoom_terminal_steps(1000);
+        assert_eq!(app.preferences.values().terminal_font.size, fonts::MAX_SIZE);
+    }
     #[test]
     fn settings_file_values_apply_and_round_trip() {
         let mut app = AppState::new();
