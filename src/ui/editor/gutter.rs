@@ -155,12 +155,21 @@ pub fn render_rows(
             } else {
                 CHANGE_BAR_W
             };
+            // Neighbouring lines of the same change join into one continuous
+            // bar; only the ends of a run are inset.
+            let joins_above = i > 0 && git_change(decorations, i) == Some(change);
+            let joins_below = git_change(decorations, i + 2) == Some(change);
+            let line_h = fonts::editor().line_h;
             g = g.child(lgui::prelude::panel(
                 UiRect::new(
                     rect.right - width,
-                    y + 2.0,
+                    if joins_above { y } else { y + 2.0 },
                     rect.right,
-                    y + fonts::editor().line_h - 2.0,
+                    if joins_below {
+                        y + line_h
+                    } else {
+                        y + line_h - 2.0
+                    },
                 ),
                 VisualStyle::filled(color),
             ));
