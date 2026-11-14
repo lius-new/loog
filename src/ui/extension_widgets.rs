@@ -11,18 +11,26 @@ pub type Sink = Arc<dyn Fn(Origin, Payload) + Send + Sync>;
 /// A public placement target for any extension's transient form or panel.
 /// The owner supplies its content, visibility and dismiss controls.
 pub fn overlays(rect: UiRect) -> Element {
-    group(rect)
-        .key("window.overlays")
-        .public_id("window.overlays")
-        .layout(LayoutSpec::Flex(FlexLayout {
-            axis: Axis::Vertical,
-            justify: Justify::Center,
-            align: Align::Center,
-            gap: 12.0,
-            padding: EdgeInsets::all(16.0),
-            ..Default::default()
-        }))
-        .overflow(Overflow::Clip)
+    // The layer spans the window, but only what extensions place in it should be under the
+    // pointer: the cursor is resolved from the frontmost node, even one that handles no
+    // events, so a hit area here would hide the cursor of everything beneath it, such as the
+    // resize cursors of the drawers, panels and splits.
+    Element::new(move |cx| {
+        UiElement::group(cx.id, rect)
+            .hit_rect(UiRect::new(rect.left, rect.top, rect.left, rect.top))
+            .children(cx.children)
+    })
+    .key("window.overlays")
+    .public_id("window.overlays")
+    .layout(LayoutSpec::Flex(FlexLayout {
+        axis: Axis::Vertical,
+        justify: Justify::Center,
+        align: Align::Center,
+        gap: 12.0,
+        padding: EdgeInsets::all(16.0),
+        ..Default::default()
+    }))
+    .overflow(Overflow::Clip)
 }
 
 /// One application-wide staging tree. Generic LGUI projection resolves public
@@ -360,6 +368,33 @@ mod tests {
     use crate::features::extensions::motion::{Animation, Ease, Motion, Prop, Track};
     use crate::features::extensions::ui::Properties;
     use std::sync::Mutex;
+    #[test]
+    fn the_window_overlay_layer_does_not_mask_the_resize_cursors_under_it() {
+        use lgui::application::AppView;
+        use lgui::prelude::VisualStyle;
+        use lgui::session::UiSession;
+        let viewport = UiRect::new(0.0, 0.0, 800.0, 600.0);
+        let handle = UiRect::new(492.0, 0.0, 500.0, 600.0);
+        let view: AppView = Arc::new(move |_| {
+            // A drawer's resize strip, then the layer the application puts over everything.
+            panel(viewport, VisualStyle::default())
+                .child(crate::ui::components::resize_handle::render(
+                    "drawer",
+                    handle,
+                    UiRect::new(499.0, 0.0, 500.0, 600.0),
+                    CursorIcon::ResizeHorizontal,
+                    false,
+                ))
+                .child(overlays(viewport))
+        });
+        let mut session = UiSession::new();
+        session.render_view(&view, viewport, UiScale::ONE);
+        assert_eq!(
+            session.tree().cursor_at(Point::new(496.0, 300.0)),
+            Some(CursorIcon::ResizeHorizontal)
+        );
+    }
+
     fn node(kind: Kind) -> Arc<Node> {
         Arc::new(Node {
             attachment: Attachment::Legacy,
