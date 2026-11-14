@@ -168,6 +168,7 @@ impl GitService {
         mode: RefreshMode,
     ) -> GitResult<GitStoreSnapshot> {
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let _ = super::remote::take_problem();
         let discovered = match mode {
             RefreshMode::Fast => super::discovery::discover_fast(self.backend.runner(), roots)?,
             RefreshMode::Detailed => self.backend.discover(roots)?,
@@ -182,7 +183,10 @@ impl GitService {
             let snapshot = match status {
                 Ok(snapshot) => snapshot,
                 // An environment repository that cannot be read leaves the others be.
-                Err(_) if super::remote::is_remote(&repository.worktree_root) => continue,
+                Err(error) if super::remote::is_remote(&repository.worktree_root) => {
+                    super::remote::report_problem(error);
+                    continue;
+                }
                 Err(error) => return Err(error),
             };
             repositories.insert(id, snapshot);
@@ -214,7 +218,8 @@ impl GitService {
             repositories: repositories.into(),
             active_repository: None,
             operation: None,
-            last_error: None,
+            // Why an environment repository was left out, shown when nothing else is.
+            last_error: super::remote::take_problem(),
             runtime_label: Some(format!(
                 "{:?} Git {}.{}.{}",
                 runtime.source, runtime.version.major, runtime.version.minor, runtime.version.patch

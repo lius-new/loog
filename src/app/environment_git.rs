@@ -48,7 +48,7 @@ impl EnvironmentGit {
                         GitErrorKind::RuntimeUnavailable
                     },
                     if process {
-                        "This folder is not connected, or is not trusted to run Git."
+                        "Git cannot run in this folder: it is not trusted, or its environment cannot run programs."
                     } else {
                         "The environment of this repository is not connected."
                     },

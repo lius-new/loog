@@ -108,6 +108,23 @@ pub fn is_remote(path: &Path) -> bool {
     location::decode(path).is_some()
 }
 
+thread_local! {
+    static PROBLEM: std::cell::RefCell<Option<GitError>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Note why an environment repository could not be read during this scan, so the scan can
+/// go on with the others and still say it. The first one is kept.
+pub fn report_problem(error: GitError) {
+    PROBLEM.with(|problem| {
+        problem.borrow_mut().get_or_insert(error);
+    });
+}
+
+/// What [`report_problem`] noted on this thread since the last call.
+pub fn take_problem() -> Option<GitError> {
+    PROBLEM.with(|problem| problem.borrow_mut().take())
+}
+
 /// Run `command` in `target`.
 pub fn run(
     target: &RemoteTarget,
@@ -438,6 +455,16 @@ pub(crate) mod tests {
         let service = crate::infrastructure::git::GitService::new(env.backend.clone());
         let snapshot = service.refresh(&[env.repository.clone()], None).unwrap();
         let repository = snapshot.repositories.values().next().expect("repository");
+        // Discovery asks in a form every Git understands: `--path-format` needs 2.31, and an
+        // older Git echoes it back as if it were a name.
+        assert!(
+            env.fake
+                .commands
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|args| !args.iter().any(|arg| arg.starts_with("--path-format")))
+        );
         // Identity is the environment path, and paths inside it join as usual.
         assert_eq!(repository.worktree_root, env.repository);
         assert_eq!(
@@ -690,5 +717,170 @@ three
         // A command that may prompt locally still cannot in an environment.
         let prompting = environment_variables(&GitCommand::new().allow_prompt());
         assert!(prompting.contains(&("GIT_TERMINAL_PROMPT".into(), "0".into())));
+    }
+}
+
+#[cfg(all(test, windows))]
+mod wsl_probe {
+    //! A manual probe: the Git code against a real WSL distribution, to catch commands an
+    //! older Git there does not know. Run with
+    //! `LOOG_WSL_PROBE=<distro>:<folder> cargo test wsl_probe -- --ignored --nocapture`.
+    use super::*;
+    use std::process::{Command, Stdio};
+
+    struct Wsl(String);
+
+    impl Wsl {
+        fn sh(&self, directory: &str, script: &str) -> std::io::Result<std::process::Output> {
+            Command::new("wsl.exe")
+                .args(["-d", &self.0, "--cd", directory, "--", "sh", "-c", script])
+                .output()
+        }
+    }
+
+    impl RemoteGit for Wsl {
+        fn run(&self, target: &RemoteTarget, command: &GitCommand, _: &CancellationToken) -> GitResult<GitOutput> {
+            let args = arguments(command)?;
+            let mut process = Command::new("wsl.exe");
+            process
+                .args(["-d", &self.0, "--cd", &target.path, "--exec", "git"])
+                .args(&args)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let mut child = process.spawn()?;
+            {
+                use std::io::Write;
+                if let Some(mut stdin) = child.stdin.take() {
+                    stdin.write_all(&command.stdin)?;
+                }
+            }
+            let output = child.wait_with_output()?;
+            if !output.status.success()
+                && !output.status.code().is_some_and(|code| command.accepted_exit_codes.contains(&code))
+            {
+                return Err(GitError::from_stderr(&output.stderr, output.status.code()));
+            }
+            Ok(GitOutput { code: output.status.code(), stdout: output.stdout, stderr: output.stderr })
+        }
+        fn read_file(&self, target: &RemoteTarget, limit: usize) -> GitResult<Option<Vec<u8>>> {
+            let out = self.sh("/", &format!("cat '{}'", target.path))?;
+            if !out.status.success() { return Ok(None); }
+            Ok((out.stdout.len() <= limit).then_some(out.stdout))
+        }
+        fn stat(&self, target: &RemoteTarget) -> GitResult<Option<RemoteStat>> {
+            let p = &target.path;
+            let out = self.sh("/", &format!("if [ -d '{p}' ]; then echo d; elif [ -f '{p}' ]; then echo f; fi"))?;
+            let text = String::from_utf8_lossy(&out.stdout);
+            Ok(match text.trim() {
+                "d" => Some(RemoteStat { directory: true, file: false, size: 0 }),
+                "f" => Some(RemoteStat { directory: false, file: true, size: 0 }),
+                _ => None,
+            })
+        }
+        fn list_directories(&self, target: &RemoteTarget, limit: usize) -> GitResult<Vec<String>> {
+            let out = self.sh(&target.path, "for d in */; do echo \"${d%/}\"; done")?;
+            Ok(String::from_utf8_lossy(&out.stdout).lines().take(limit).map(str::to_owned).collect())
+        }
+        fn list_names(&self, target: &RemoteTarget, limit: usize) -> GitResult<Vec<String>> {
+            let out = self.sh(&target.path, "ls -A")?;
+            Ok(String::from_utf8_lossy(&out.stdout).lines().take(limit).map(str::to_owned).collect())
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn write_operations_against_a_real_wsl_distribution() {
+        let Ok(spec) = std::env::var("LOOG_WSL_PROBE") else { return };
+        let (distro, _) = spec.split_once(':').unwrap();
+        let _serial = fake::SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+        let wsl = Wsl(distro.to_owned());
+        let folder = format!("/tmp/loog-probe-{}", std::process::id());
+        let make = wsl.sh("/", &format!("rm -rf {folder} && mkdir -p {folder} && cd {folder} && git init -q -b main && git config user.name probe && git config user.email probe@example.invalid && printf 'one\ntwo\n' > a.txt")).unwrap();
+        assert!(make.status.success(), "{}", String::from_utf8_lossy(&make.stderr));
+        install(Arc::new(Wsl(distro.to_owned())));
+        let Some((_, backend)) = super::super::backend::tests::repository() else { return };
+        let key = EnvironmentKey::new("probe", "wsl-write").unwrap();
+        let root = crate::features::git::location::path_for(&key, &folder);
+        let a = PathBuf::from("a.txt");
+        let mut results: Vec<(String, Result<String, GitError>)> = Vec::new();
+        let mut step = |name: &str, result: Result<String, GitError>| results.push((name.to_owned(), result));
+        step("stage", backend.stage(&root, std::slice::from_ref(&a)).map(|()| String::new()));
+        step("commit", backend.commit(root.clone(), "first
+
+body", false, false).map(|t| t.lines().next().unwrap_or("").to_owned()));
+        let _ = wsl.sh(&folder, "printf 'one\nTWO\n' > a.txt; printf new > b.txt");
+        let snapshot = crate::infrastructure::git::GitService::new(backend.clone()).refresh(&[root.clone()], None);
+        step("status", snapshot.map(|s| format!("{} files", s.repositories.values().next().map_or(0, |r| r.files.len()))));
+        step("stage again", backend.stage(&root, std::slice::from_ref(&a)).map(|()| String::new()));
+        step("unstage", backend.unstage(&root, std::slice::from_ref(&a)).map(|()| String::new()));
+        step("restore", backend.restore_worktree(&root, std::slice::from_ref(&a)).map(|()| String::new()));
+        step("patch", backend.apply_zero_context_patch(&root, "--- a/a.txt
++++ b/a.txt
+@@ -2,1 +2,1 @@
+-two
++three
+", false, false).map(|()| String::new()));
+        step("clean", backend.clean_untracked(&root, &[PathBuf::from("b.txt")]).map(|()| String::new()));
+        step("stash push", backend.stash_push(&root, Some("wip"), false, false));
+        step("stash pop", backend.stash_pop(&root).map(|_| String::new()));
+        step("create branch", backend.create_branch(&root, "feature", None).map(|()| String::new()));
+        step("switch", backend.switch(&root, "main").map(|()| String::new()));
+        step("tag", backend.create_tag(&root, "v1", None).map(|()| String::new()));
+        step("worktree add", backend.add_worktree(&root, &root.with_file_name(format!("loog-probe-{}-wt", std::process::id())), Some("feature"), false).map(|()| String::new()));
+        step("worktrees", backend.worktrees(&root).map(|v| v.len().to_string()));
+        let _ = wsl.sh("/", &format!("git -C {folder} worktree prune; rm -rf {folder} {folder}-wt"));
+        uninstall();
+        for (name, result) in results {
+            match result {
+                Ok(text) => println!("ok   {name}: {text}"),
+                Err(error) => println!("FAIL {name}: {:?} {}", error.kind, error.detail.clone().unwrap_or_default().lines().last().unwrap_or_default()),
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn the_git_code_against_a_real_wsl_distribution() {
+        let Ok(spec) = std::env::var("LOOG_WSL_PROBE") else { return };
+        let (distro, folder) = spec.split_once(':').unwrap();
+        let _serial = fake::SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+        install(Arc::new(Wsl(distro.to_owned())));
+        let Some((_, backend)) = super::super::backend::tests::repository() else { return };
+        let key = EnvironmentKey::new("probe", "wsl").unwrap();
+        let root = crate::features::git::location::path_for(&key, folder);
+        let service = crate::infrastructure::git::GitService::new(backend);
+        for fast in [true, false] {
+            let result = if fast { service.refresh(&[root.clone()], None) } else { service.refresh(&[root.clone()], Some(&root.join("README.md"))) };
+            match result {
+                Ok(snapshot) => {
+                    println!("fast={fast}: repositories={} error={:?}", snapshot.repositories.len(), snapshot.last_error);
+                    for repository in snapshot.repositories.values() {
+                        println!("  root={:?} branch={:?} files={}", repository.worktree_root, repository.head, repository.files.len());
+                    }
+                }
+                Err(error) => println!("fast={fast}: ERROR {error:?}"),
+            }
+        }
+        let history = service.backend().history(&root, None, None, 0, 3);
+        println!("history: {} commits", history.as_ref().map_or(0, Vec::len));
+        let backend = service.backend();
+        let head = history.as_ref().ok().and_then(|h| h.first()).map(|c| c.oid.clone()).unwrap_or_default();
+        let report = |name: &str, result: Result<String, GitError>| match result {
+            Ok(text) => println!("ok   {name}: {text}"),
+            Err(error) => println!("FAIL {name}: {:?} {}", error.kind, error.detail.clone().unwrap_or_default().lines().last().unwrap_or_default()),
+        };
+        report("branches", backend.branches(&root).map(|v| v.len().to_string()));
+        report("tags", backend.tags(&root).map(|v| v.len().to_string()));
+        report("remotes", backend.remotes(&root).map(|v| v.len().to_string()));
+        report("stash_list", backend.stash_list(&root).map(|v| v.len().to_string()));
+        report("worktrees", backend.worktrees(&root).map(|v| v.len().to_string()));
+        report("commit_details", backend.commit_details(&root, &head).map(|d| format!("{d:?}").chars().take(60).collect::<String>()));
+        report("blame", backend.blame(&root, std::path::Path::new("README.md")).map(|v| v.len().to_string()));
+        report("commit_files", backend.commit_files(&root, &head).map(|v| v.len().to_string()));
+        report("conflict_stages", backend.conflict_stages(&root).map(|v| v.len().to_string()));
+        report("parsed_full_diff", backend.parsed_full_diff(&root, crate::features::git::types::DiffTarget::HeadToWorktree, &[std::path::PathBuf::from("README.md")]).map(|d| d.files.len().to_string()));
+        report("show", backend.show(&root, &head).map(|t| t.len().to_string()));
+        uninstall();
     }
 }

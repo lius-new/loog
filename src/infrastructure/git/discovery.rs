@@ -118,9 +118,42 @@ fn from_git_marker(root: &Path) -> GitResult<DiscoveredRepository> {
 /// there) finds nothing instead of failing the scan of the local repositories too.
 fn discover_in(runner: &GitCommandRunner, path: &Path) -> GitResult<Option<DiscoveredRepository>> {
     match discover_one(runner, path) {
-        Err(_) if remote::is_remote(path) => Ok(None),
+        Err(error) if remote::is_remote(path) => {
+            remote::report_problem(error);
+            Ok(None)
+        }
         result => result,
     }
+}
+
+/// `--git-common-dir` is relative to the directory Git ran in unless it is the same as the
+/// git dir. Older Git has no `--path-format=absolute` (it echoes the flag as if it were a
+/// name), so a relative answer is made absolute here, in the spelling of that directory:
+/// POSIX for an environment, native for a local path.
+fn absolute_from(directory: &Path, printed: &str) -> String {
+    let absolute = printed.starts_with('/') || std::path::Path::new(printed).is_absolute();
+    if absolute {
+        return printed.to_owned();
+    }
+    match remote::locate(directory) {
+        Some(Ok(target)) => normalize_posix(&format!("{}/{printed}", target.path)),
+        _ => directory.join(printed).to_string_lossy().into_owned(),
+    }
+}
+
+/// A POSIX path with `.` and `..` steps and doubled slashes resolved.
+fn normalize_posix(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+    format!("/{}", parts.join("/"))
 }
 
 pub fn discover_one(
@@ -131,7 +164,6 @@ pub fn discover_one(
         .cwd(path)
         .args([
             "rev-parse",
-            "--path-format=absolute",
             "--show-toplevel",
             "--absolute-git-dir",
             "--git-common-dir",
@@ -156,8 +188,34 @@ pub fn discover_one(
     Ok(Some(DiscoveredRepository {
         worktree_root: spell(&lines[0]),
         git_dir: spell(&lines[1]),
-        common_dir: spell(&lines[2]),
+        common_dir: spell(&absolute_from(path, &lines[2])),
         bare: lines[3] == "true",
     }))
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn posix_paths_are_normalized_without_touching_a_disk() {
+        assert_eq!(normalize_posix("/home/lius/loom/src/../.git"), "/home/lius/loom/.git");
+        assert_eq!(normalize_posix("/a//b/./c"), "/a/b/c");
+        assert_eq!(normalize_posix("/../x"), "/x");
+    }
+
+    #[test]
+    fn a_relative_common_dir_is_made_absolute_where_git_ran() {
+        let environment = loog_workspace_api::EnvironmentKey::new("fixture", "absolute-from").unwrap();
+        let place = crate::features::git::location::path_for(&environment, "/home/lius/loom/src");
+        assert_eq!(absolute_from(&place, "../.git"), "/home/lius/loom/.git");
+        assert_eq!(absolute_from(&place, "/already/absolute"), "/already/absolute");
+        // A local directory joins natively.
+        let local = Path::new("repo").join("src");
+        assert_eq!(
+            Path::new(&absolute_from(&local, "../.git")),
+            local.join("../.git")
+        );
+    }
+}

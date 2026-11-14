@@ -20,19 +20,14 @@ pub(crate) struct GitScanNotification {
     pub result: GitResult<GitStoreSnapshot>,
 }
 
-/// The folders Source Control scans: the workspace folders, then each provided root that
-/// may run processes, spelled as environment paths (see `features::git::location`). A
-/// root without that ability is not scanned, since Git cannot run there.
+/// The folders Source Control scans: the workspace folders, then each provided root,
+/// spelled as environment paths (see `features::git::location`). A root that may not run
+/// processes (not trusted, or an environment that cannot) is scanned too, so the panel
+/// can say why Git is unavailable there instead of showing nothing.
 pub(crate) fn scan_roots(app: &AppState) -> Vec<PathBuf> {
     let mut roots = app.explorer.model.roots().to_vec();
     for root in &app.explorer.resources.roots {
         let descriptor = &root.descriptor;
-        if !descriptor
-            .capabilities
-            .contains(&loog_workspace_api::Capability::Process)
-        {
-            continue;
-        }
         if let loog_workspace_api::ResourceRef::Provided { environment, path } = &descriptor.resource {
             let path = crate::features::git::location::path_for(environment, path.as_str());
             if !roots.contains(&path) {
@@ -239,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_roots_add_the_provided_roots_that_may_run_processes_as_environment_paths() {
+    fn scan_roots_add_the_provided_roots_as_environment_paths() {
         use loog_workspace_api::{Capability, EnvironmentKey, PresentedRoot, ResourceRef};
         let environment = EnvironmentKey::new("fixture", "scan-roots").unwrap();
         let root = |scope: u64, name: &str, capabilities: Vec<Capability>| PresentedRoot {
@@ -258,12 +253,20 @@ mod tests {
             root(2, "untrusted", vec![Capability::FilesRead]),
         ]);
         let expected = crate::features::git::location::path_for(&environment, "/srv/trusted");
-        assert_eq!(scan_roots(&app), [PathBuf::from("local"), expected.clone()]);
+        let untrusted = crate::features::git::location::path_for(&environment, "/srv/untrusted");
+        // A root that may not run processes is scanned as well, to say why Git is off.
+        assert_eq!(
+            scan_roots(&app),
+            [PathBuf::from("local"), expected.clone(), untrusted.clone()]
+        );
         // A worktree Source Control was told about is scanned too, once.
         app.git.model.add_environment_worktree(expected.clone());
         let other = crate::features::git::location::path_for(&environment, "/srv/wt");
         app.git.model.add_environment_worktree(other.clone());
-        assert_eq!(scan_roots(&app), [PathBuf::from("local"), expected, other]);
+        assert_eq!(
+            scan_roots(&app),
+            [PathBuf::from("local"), expected, untrusted, other]
+        );
     }
 
     #[test]

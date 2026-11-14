@@ -195,7 +195,9 @@ impl CliGitBackend {
                     "show",
                     "--format=",
                     "--name-status",
-                    "--diff-merges=first-parent",
+                    // `--diff-merges=first-parent` is Git 2.31; this spelling is understood by all.
+                    "-m",
+                    "--first-parent",
                     "-z",
                     commit,
                 ])
@@ -298,7 +300,7 @@ impl CliGitBackend {
         if let Some(context) = context {
             args.push(OsString::from(format!("--unified={context}")));
         }
-        args.push(OsString::from("--diff-merges=first-parent"));
+        args.extend([OsString::from("-m"), OsString::from("--first-parent")]);
         args.push(OsString::from(commit));
         args.push(OsString::from("--"));
         args.extend(paths.iter().map(|path| path.as_os_str().to_owned()));
@@ -327,7 +329,7 @@ impl CliGitBackend {
         if let Some(context) = context {
             args.push(OsString::from(format!("--unified={context}")));
         }
-        args.push(OsString::from("--diff-merges=first-parent"));
+        args.extend([OsString::from("-m"), OsString::from("--first-parent")]);
         args.push(OsString::from(commit));
         args.push(OsString::from("--"));
         args.extend(paths.iter().map(|path| path.as_os_str().to_owned()));
@@ -611,7 +613,8 @@ impl CliGitBackend {
                         "show",
                         "--no-ext-diff",
                         "--shortstat",
-                        "--diff-merges=first-parent",
+                        "-m",
+                        "--first-parent",
                         "--date=format-local:%Y-%m-%d %H:%M",
                         "--format=%an%x00%ae%x00%ad%x00%B%x00",
                         commit,
@@ -986,12 +989,15 @@ impl CliGitBackend {
     }
 
     pub fn worktrees(&self, repository: &Path) -> GitResult<Vec<WorktreeInfo>> {
-        let output = self.runner.run(
-            GitCommand::new()
-                .cwd(repository)
-                .args(["worktree", "list", "--porcelain", "-z"])
-                .read_only(),
-        )?;
+        // `-z` is Git 2.36. A repository in an environment may have an older Git, so it is
+        // asked for lines there; a name with a newline in it is then not told apart.
+        let mut args = vec!["worktree", "list", "--porcelain"];
+        if !remote::is_remote(repository) {
+            args.push("-z");
+        }
+        let output = self
+            .runner
+            .run(GitCommand::new().cwd(repository).args(args).read_only())?;
         parse_worktrees(repository, &output.stdout)
     }
 
@@ -1700,11 +1706,14 @@ fn validate_ref(value: &str) -> GitResult<()> {
 fn parse_worktrees(repository: &Path, input: &[u8]) -> GitResult<Vec<WorktreeInfo>> {
     let mut values = Vec::new();
     let mut current = None::<WorktreeInfo>;
+    // Records end at a NUL with `-z`, else at a line end.
+    let separator = if input.contains(&0) { 0 } else { b'\n' };
     for record in input
-        .split(|byte| *byte == 0)
+        .split(|byte| *byte == separator)
         .filter(|record| !record.is_empty())
     {
         let text = String::from_utf8_lossy(record);
+        let text = text.trim_end_matches('\r');
         if let Some(path) = text.strip_prefix("worktree ") {
             if let Some(previous) = current.take() {
                 values.push(previous);
