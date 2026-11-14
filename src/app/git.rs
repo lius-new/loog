@@ -55,7 +55,7 @@ fn open_diff_to(
     let Some(application) = state.services().and_then(|runtime| runtime.application()) else {
         return false;
     };
-    let roots = app.explorer.model.roots().to_vec();
+    let roots = super::git_poll::scan_roots(&app);
     let active_view = (app.workspace.active_pane(), app.workspace.active());
     let destination_view = drop.map(|drop| {
         let pane = match drop {
@@ -103,7 +103,7 @@ fn open_diff_to(
                     if !app.git.model.finish_diff_open(sequence) {
                         return;
                     }
-                    if app.explorer.model.roots() != roots
+                    if super::git_poll::scan_roots(app) != roots
                         || (app.workspace.active_pane(), app.workspace.active()) != active_view
                         || destination_view.is_some_and(|(pane, active)| {
                             active.is_none()
@@ -186,7 +186,7 @@ fn sections(store: &State<GitStoreSnapshot>, repository: &RepositorySnapshot) ->
 
 /// Whether any of `paths` (relative to `root`) has unsaved editor changes.
 fn unsaved(state: &AppContext, root: &Path, paths: &[PathBuf]) -> bool {
-    let dirty = state.get().workspace.dirty_paths();
+    let dirty = state.get().workspace.dirty_git_paths();
     paths
         .iter()
         .any(|path| dirty.iter().any(|dirty| dirty == &root.join(path)))
@@ -357,10 +357,18 @@ pub fn request_discard(
         [path] => format!("Delete {}?", file_name(path)),
         _ => format!("Discard changes to {} files?", all.len()),
     };
-    let message = match (tracked.is_empty(), untracked.is_empty()) {
-        (false, true) => "Your changes will be lost. This cannot be undone.",
-        (true, false) => "Untracked files are moved to the trash.",
-        _ => "Changes to tracked files will be lost; untracked files are moved to the trash.",
+    // An environment has no trash to move files to: they are deleted for good.
+    let remote = crate::infrastructure::git::remote::is_remote(&root);
+    let message = match (tracked.is_empty(), untracked.is_empty(), remote) {
+        (false, true, _) => "Your changes will be lost. This cannot be undone.",
+        (true, false, false) => "Untracked files are moved to the trash.",
+        (true, false, true) => "Untracked files are deleted. This cannot be undone.",
+        (_, _, false) => {
+            "Changes to tracked files will be lost; untracked files are moved to the trash."
+        }
+        (_, _, true) => {
+            "Changes to tracked files will be lost and untracked files are deleted. This cannot be undone."
+        }
     };
     state.update(move |app| {
         app.git.ui.confirm = Some(GitConfirm {
@@ -409,7 +417,15 @@ pub fn discard_paths(
         message,
         move |service, root| {
             service.write(root, |backend| {
-                backend.restore_worktree(root, &tracked)?;
+                if !tracked.is_empty() {
+                    backend.restore_worktree(root, &tracked)?;
+                }
+                if crate::infrastructure::git::remote::is_remote(root) {
+                    if !untracked.is_empty() {
+                        backend.clean_untracked(root, &untracked)?;
+                    }
+                    return Ok(Vec::new());
+                }
                 let mut deleted = Vec::new();
                 for path in &untracked {
                     let path = root.join(path);
@@ -1617,7 +1633,7 @@ pub fn revert_commit(
 pub fn select_repository(state: &AppContext, store: &State<GitStoreSnapshot>, root: PathBuf) {
     let pinned = root.clone();
     state.update(move |app| {
-        let active_path = app.workspace.active_path().map(Path::to_path_buf);
+        let active_path = app.workspace.active_git_path();
         app.git.model.pin_repository(pinned, active_path);
         app.git.ui.reset_scroll();
     });
@@ -1626,7 +1642,7 @@ pub fn select_repository(state: &AppContext, store: &State<GitStoreSnapshot>, ro
 
 /// Open means add the worktree and select its repository in our single window.
 pub fn open_worktree(state: &AppContext, store: &State<GitStoreSnapshot>, path: PathBuf) -> bool {
-    if !path.is_dir() {
+    if !crate::infrastructure::git::repo_fs::is_dir(&path) {
         state.update(|app| {
             app.show_error(format!(
                 "Worktree is no longer available: {}",
@@ -1635,8 +1651,13 @@ pub fn open_worktree(state: &AppContext, store: &State<GitStoreSnapshot>, path: 
         });
         return false;
     }
-    let path = std::fs::canonicalize(&path).unwrap_or(path);
-    state.update(|app| crate::app::explorer::add_folder(app, path.clone()));
+    let path = crate::infrastructure::git::repo_fs::canonical(path);
+    // An environment has no workspace folder to add a worktree to; Source Control scans it.
+    if crate::infrastructure::git::remote::is_remote(&path) {
+        state.update(|app| app.git.model.add_environment_worktree(path.clone()));
+    } else {
+        state.update(|app| crate::app::explorer::add_folder(app, path.clone()));
+    }
     select_repository(state, store, path);
     state
         .services()
@@ -1647,7 +1668,7 @@ pub fn open_worktree(state: &AppContext, store: &State<GitStoreSnapshot>, path: 
 }
 
 pub fn add_worktree_folder(state: &AppContext, path: PathBuf) {
-    if !path.is_dir() {
+    if !crate::infrastructure::git::repo_fs::is_dir(&path) {
         state.update(|app| {
             app.show_error(format!(
                 "Worktree is no longer available: {}",
@@ -1656,7 +1677,11 @@ pub fn add_worktree_folder(state: &AppContext, path: PathBuf) {
         });
         return;
     }
-    state.update(|app| crate::app::explorer::add_folder(app, path));
+    if crate::infrastructure::git::remote::is_remote(&path) {
+        state.update(|app| app.git.model.add_environment_worktree(path));
+    } else {
+        state.update(|app| crate::app::explorer::add_folder(app, path));
+    }
     state
         .services()
         .map(|runtime| runtime.git_poll_control())
@@ -1792,9 +1817,13 @@ pub fn create_worktree(
             })
         },
         move |app, ()| {
-            let path = std::fs::canonicalize(&created).unwrap_or(created);
-            crate::app::explorer::add_folder(app, path.clone());
-            let active_path = app.workspace.active_path().map(Path::to_path_buf);
+            let path = crate::infrastructure::git::repo_fs::canonical(created);
+            if crate::infrastructure::git::remote::is_remote(&path) {
+                app.git.model.add_environment_worktree(path.clone());
+            } else {
+                crate::app::explorer::add_folder(app, path.clone());
+            }
+            let active_path = app.workspace.active_git_path();
             app.git.model.pin_repository(path, active_path);
             app.git.ui.reset_scroll();
             app.show_success("Created worktree and added it to the workspace.");
@@ -1902,7 +1931,13 @@ pub fn remove_worktree(
     let Some(repository) = store.get().repository_for_path(root).cloned() else {
         return false;
     };
-    if state.get().workspace.has_dirty_paths_under(&path) {
+    if state
+        .get()
+        .workspace
+        .dirty_git_paths()
+        .iter()
+        .any(|dirty| dirty.starts_with(&path))
+    {
         state.update(|app| {
             app.show_toast("Save or discard editor changes before deleting this worktree.")
         });
@@ -1924,6 +1959,7 @@ pub fn remove_worktree(
         move |app, removed| {
             if removed {
                 crate::app::explorer::forget_worktree(app, &target);
+                app.git.model.forget_environment_worktree(&target);
                 app.show_success("Deleted worktree. Its branch was kept.");
             } else {
                 app.git.ui.confirm = Some(worktree_removal_confirmation(

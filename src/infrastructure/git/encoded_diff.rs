@@ -85,11 +85,8 @@ pub(super) fn compare(
         let new = if target == DiffTarget::HeadToIndex {
             blob(runner, root, "", path)?
         } else {
-            match crate::infrastructure::document_filesystem::read_bytes(&root.join(path), LIMIT) {
-                Ok(bytes) => Some(bytes),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-                Err(e) => return Err(e.into()),
-            }
+            // The working-tree side, read where the repository is.
+            super::repo_fs::read(&root.join(path), LIMIT as usize)?
         };
         (old, new)
     };

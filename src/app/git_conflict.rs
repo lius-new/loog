@@ -41,12 +41,10 @@ pub(crate) fn go_to(
     let Some(target) = target(&app, app.workspace.active_pane()) else {
         return false;
     };
-    // COMPAT(native-git-conflicts): This Git store indexes native paths. Keep
-    // it local until the resource Git consumer lands; no removal is scheduled.
-    let Some(path) = target.resource.local_path() else {
+    let Some(path) = crate::features::git::location::git_path(&target.resource) else {
         return false;
     };
-    let regions = store.get().conflicts.get(path).cloned();
+    let regions = store.get().conflicts.get(&path).cloned();
     let Some(regions) = regions.filter(|regions| !regions.is_empty()) else {
         state.update(|app| app.show_toast("No conflicts in this file"));
         return true;

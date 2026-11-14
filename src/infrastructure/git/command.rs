@@ -149,6 +149,13 @@ impl GitCommandRunner {
                 "Git operation was cancelled.",
             ));
         }
+        // A repository in a provider environment is named by an encoded path; its
+        // `git` runs there, never here.
+        if let Some(path) = command.cwd.as_ref().and_then(ResourceRef::local_path)
+            && let Some(target) = super::remote::locate(path)
+        {
+            return super::remote::run(&target?, &command, cancellation);
+        }
         let mut process = Command::new(&self.runtime.executable);
         if let Some(cwd) = &command.cwd {
             let path = cwd.local_path().ok_or_else(|| {

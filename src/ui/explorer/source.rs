@@ -213,7 +213,13 @@ impl Entry {
     pub fn decoration(&self, frame: &Frame<'_>) -> Decoration {
         match &self.origin {
             Origin::Local(path) => (frame.decorate)(path),
-            _ => Decoration::default(),
+            // A file of an environment is decorated by its repository there.
+            Origin::Provided(..) => self
+                .resource
+                .as_ref()
+                .and_then(crate::features::git::location::git_path)
+                .map_or_else(Decoration::default, |path| (frame.decorate)(&path)),
+            Origin::Action(_) => Decoration::default(),
         }
     }
 

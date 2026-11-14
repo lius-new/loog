@@ -5,6 +5,8 @@
 pub mod backend;
 pub mod command;
 pub mod discovery;
+pub mod remote;
+pub mod repo_fs;
 mod encoded_diff;
 pub mod runtime;
 pub mod service;

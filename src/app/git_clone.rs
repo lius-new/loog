@@ -26,7 +26,7 @@ pub fn clone_repository(state: &AppContext) -> bool {
         return false;
     };
     let target = parent.join(directory_name);
-    if target.exists() {
+    if crate::infrastructure::git::repo_fs::exists(&target) {
         let message = format!("{} already exists.", target.display());
         state.update(move |app| app.git.ui.clone_error = Some(message));
         return false;

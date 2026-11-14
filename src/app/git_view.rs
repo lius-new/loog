@@ -29,10 +29,7 @@ pub(crate) fn binding(state: &AppContext, store: &State<GitStoreSnapshot>) -> Bi
                         target: d.target,
                     }),
                 active_diff_focus: app.workspace.active_diff_focus().cloned(),
-                active_file: app
-                    .workspace
-                    .active_path()
-                    .map(std::path::Path::to_path_buf),
+                active_file: app.workspace.active_git_path(),
             }
         },
         move |command| run(&dispatch_state, &store, command),
@@ -309,6 +306,11 @@ pub(crate) fn run(state: &AppContext, store: &State<GitStoreSnapshot>, command: 
             true
         }
         Command::OpenFile { path } => {
+            // A file of an environment opens by its provider.
+            if let Some((environment, provider)) = crate::features::git::location::resolve(&path) {
+                return loog_workspace_api::ResourceRef::provided(environment, provider)
+                    .is_ok_and(|resource| super::environment_git::open_file(state, resource));
+            }
             let mut focus = false;
             state.update(|app| {
                 focus = super::explorer::open_tree_file(
@@ -325,10 +327,24 @@ pub(crate) fn run(state: &AppContext, store: &State<GitStoreSnapshot>, command: 
             relative,
             clipboard,
         } => {
+            if crate::features::git::location::decode(&path).is_some() {
+                match super::environment_git::copy_text(state, &path, relative) {
+                    Some(text) => match clipboard.write_text(&text) {
+                        Ok(()) => state.update(|app| app.show_success("Copied path.")),
+                        Err(error) => state.update(move |app| app.show_error(format!("Clipboard: {error}"))),
+                    },
+                    None => state.update(|app| app.show_toast("Path is outside the workspace.")),
+                }
+                return true;
+            }
             super::explorer::copy_path(state, clipboard.as_ref(), &path, relative);
             true
         }
         Command::Reveal { path } => {
+            if crate::features::git::location::decode(&path).is_some() {
+                state.update(|app| app.show_toast("Reveal is only available for local files."));
+                return true;
+            }
             super::explorer::reveal_item(
                 state,
                 &crate::features::explorer::ExplorerContextTarget {

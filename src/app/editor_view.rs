@@ -104,9 +104,9 @@ pub(crate) fn snapshot(
             })
         });
     let has_repository = document.as_ref().is_some_and(|doc| {
-        doc.meta.resource.local_path().is_some_and(|path| {
-            git.repository_for_path(path)
-                .is_some_and(|value| value.relative_path(path).is_some())
+        crate::features::git::location::git_path(&doc.meta.resource).is_some_and(|path| {
+            git.repository_for_path(&path)
+                .is_some_and(|value| value.relative_path(&path).is_some())
         })
     });
     let visible_lines = document
@@ -180,7 +180,7 @@ pub(crate) fn snapshot(
         .into();
     let changes = document
         .as_ref()
-        .and_then(|doc| git.line_changes.get(doc.meta.resource.local_path()?));
+        .and_then(|doc| git.line_changes.get(&crate::features::git::location::git_path(&doc.meta.resource)?));
     let line_changes = changes
         .map(|changes| {
             changes
@@ -203,7 +203,7 @@ pub(crate) fn snapshot(
     let conflicts = document
         .as_ref()
         .and_then(|doc| {
-            let regions = git.conflicts.get(doc.meta.resource.local_path()?)?;
+            let regions = git.conflicts.get(&crate::features::git::location::git_path(&doc.meta.resource)?)?;
             let saved = app.workspace.documents.get(&doc.stamp.document)?;
             let found = if saved.is_dirty() {
                 crate::features::git::conflict::shifted(
@@ -230,7 +230,9 @@ pub(crate) fn snapshot(
         .unwrap_or_default();
     let peek_visible = state.editor_hunk_peek.as_ref().is_some_and(|peek| {
         document.as_ref().is_some_and(|doc| {
-            peek.pane == pane && doc.meta.resource.local_path() == Some(peek.path.as_path())
+            peek.pane == pane
+                && crate::features::git::location::git_path(&doc.meta.resource).as_deref()
+                    == Some(peek.path.as_path())
         })
     });
     ViewState {
@@ -419,14 +421,14 @@ pub(crate) fn binding(
                     .and_then(|id| app.workspace.view_meta(id))
                 {
                     let store = git.get();
-                    if let Some(path) = meta.local_path()
-                        && let Some(repo) = store.repository_for_path(path)
-                        && let Some(relative) = repo.relative_path(path)
+                    if let Some(path) = crate::features::git::location::git_path(&meta.resource)
+                        && let Some(repo) = store.repository_for_path(&path)
+                        && let Some(relative) = repo.relative_path(&path)
                     {
                         super::git_peek::toggle(
                             &dispatcher,
                             pane,
-                            path.to_path_buf(),
+                            path.clone(),
                             repo.worktree_root.clone(),
                             relative,
                             line,
@@ -594,12 +596,12 @@ pub(crate) fn binding(
                     .pane(pane)
                     .and_then(|value| value.active())
                     .and_then(|id| app.workspace.view_meta(id))?;
-                let path = meta.local_path()?;
+                let path = &crate::features::git::location::git_path(&meta.resource)?;
                 let peek = app
                     .editor
                     .editor_hunk_peek
                     .as_ref()
-                    .filter(|peek| peek.pane == pane && peek.path == path)?;
+                    .filter(|peek| peek.pane == pane && peek.path == *path)?;
                 let store = git.get();
                 let repo = store.repository_for_path(path)?;
                 let relative = repo.relative_path(path)?;

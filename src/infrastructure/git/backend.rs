@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use super::command::{CancellationToken, GitCommand, GitCommandRunner, nul_pathspec};
 use super::discovery::{self, DiscoveredRepository};
+use super::remote;
+use super::repo_fs;
 use super::runtime::GitRuntime;
 use crate::features::git::diff::{DiffLine, FileDiff, UnifiedDiff, parse_unified};
 use crate::features::git::error::{GitError, GitErrorKind, GitResult};
@@ -456,6 +458,23 @@ impl CliGitBackend {
         Ok(())
     }
 
+    /// Delete untracked files and folders. There is no trash behind this, so it is for
+    /// repositories where the system trash is out of reach.
+    pub fn clean_untracked(&self, repository: &Path, paths: &[PathBuf]) -> GitResult<()> {
+        // `git clean` has no pathspec file, so the paths go on the command line, in
+        // batches that keep it short.
+        for batch in paths.chunks(100) {
+            let mut args: Vec<OsString> = ["clean", "-f", "-d", "--"]
+                .into_iter()
+                .map(OsString::from)
+                .collect();
+            args.extend(batch.iter().map(|path| path.as_os_str().to_owned()));
+            self.runner
+                .run(GitCommand::new().cwd(repository).args(args))?;
+        }
+        Ok(())
+    }
+
     pub fn restore_worktree(&self, repository: &Path, paths: &[PathBuf]) -> GitResult<()> {
         if !self.git_runtime().capabilities.restore {
             return Err(GitError::new(
@@ -630,7 +649,7 @@ impl CliGitBackend {
         let mut branches = parse_branches(&output.stdout)?;
         for branch in &mut branches {
             if let Some(path) = &mut branch.worktree_path {
-                *path = std::fs::canonicalize(&*path).unwrap_or_else(|_| path.clone());
+                *path = repo_fs::spell(repository, &path.to_string_lossy());
             }
         }
         Ok(branches)
@@ -973,7 +992,7 @@ impl CliGitBackend {
                 .args(["worktree", "list", "--porcelain", "-z"])
                 .read_only(),
         )?;
-        parse_worktrees(&output.stdout)
+        parse_worktrees(repository, &output.stdout)
     }
 
     pub fn add_worktree(
@@ -1473,19 +1492,25 @@ impl GitBackend for CliGitBackend {
                 "Repository URL is empty.",
             ));
         }
-        self.runner.run_cancellable(
-            GitCommand::new()
-                .args([
-                    OsString::from("clone"),
-                    OsString::from("--progress"),
-                    OsString::from("--"),
-                    OsString::from(url),
-                    target.as_os_str().to_owned(),
-                ])
-                .allow_prompt()
-                .timeout(Duration::from_secs(60 * 60)),
-            cancellation,
-        )?;
+        // A destination in an environment is cloned from its folder, by name, there.
+        let (folder, destination) = match (remote::is_remote(target), target.parent(), target.file_name()) {
+            (true, Some(parent), Some(name)) => (Some(parent.to_path_buf()), name.to_owned()),
+            _ => (None, target.as_os_str().to_owned()),
+        };
+        let mut command = GitCommand::new()
+            .args([
+                OsString::from("clone"),
+                OsString::from("--progress"),
+                OsString::from("--"),
+                OsString::from(url),
+                destination,
+            ])
+            .allow_prompt()
+            .timeout(Duration::from_secs(60 * 60));
+        if let Some(folder) = folder {
+            command = command.cwd(folder);
+        }
+        self.runner.run_cancellable(command, cancellation)?;
         Ok(())
     }
 }
@@ -1599,7 +1624,7 @@ impl CliGitBackend {
 /// the apply backend.
 fn rebase_step(git_dir: &Path) -> Option<(u32, u32)> {
     let read =
-        |path: PathBuf| -> Option<u32> { std::fs::read_to_string(path).ok()?.trim().parse().ok() };
+        |path: PathBuf| -> Option<u32> { repo_fs::read_to_string(&path)?.trim().parse().ok() };
     [
         ("rebase-merge", "msgnum", "end"),
         ("rebase-apply", "next", "last"),
@@ -1614,7 +1639,7 @@ fn rebase_step(git_dir: &Path) -> Option<(u32, u32)> {
 /// Stashes, newest first, read from the stash reflog without starting Git.
 /// Each line is `<old> <new> <ident> <time> <zone>\t<message>`.
 fn read_stashes(common_dir: &Path) -> Vec<StashInfo> {
-    let Ok(log) = std::fs::read_to_string(common_dir.join("logs").join("refs").join("stash"))
+    let Some(log) = repo_fs::read_to_string(&common_dir.join("logs").join("refs").join("stash"))
     else {
         return Vec::new();
     };
@@ -1639,17 +1664,17 @@ fn read_stashes(common_dir: &Path) -> Vec<StashInfo> {
 }
 
 fn repository_state(repository: &DiscoveredRepository, head: &HeadState) -> RepositoryState {
-    let git = &repository.git_dir;
-    let common = &repository.common_dir;
-    if git.join("MERGE_HEAD").exists() {
+    let git = repo_fs::Names::of(&repository.git_dir);
+    let common = repo_fs::Names::of(&repository.common_dir);
+    if git.has("MERGE_HEAD") {
         RepositoryState::MergeInProgress
-    } else if git.join("rebase-merge").exists() || git.join("rebase-apply").exists() {
+    } else if git.has("rebase-merge") || git.has("rebase-apply") {
         RepositoryState::RebaseInProgress
-    } else if git.join("CHERRY_PICK_HEAD").exists() {
+    } else if git.has("CHERRY_PICK_HEAD") {
         RepositoryState::CherryPickInProgress
-    } else if git.join("REVERT_HEAD").exists() {
+    } else if git.has("REVERT_HEAD") {
         RepositoryState::RevertInProgress
-    } else if common.join("BISECT_LOG").exists() {
+    } else if common.has("BISECT_LOG") {
         RepositoryState::Bisecting
     } else {
         match head {
@@ -1672,7 +1697,7 @@ fn validate_ref(value: &str) -> GitResult<()> {
     }
 }
 
-fn parse_worktrees(input: &[u8]) -> GitResult<Vec<WorktreeInfo>> {
+fn parse_worktrees(repository: &Path, input: &[u8]) -> GitResult<Vec<WorktreeInfo>> {
     let mut values = Vec::new();
     let mut current = None::<WorktreeInfo>;
     for record in input
@@ -1685,10 +1710,7 @@ fn parse_worktrees(input: &[u8]) -> GitResult<Vec<WorktreeInfo>> {
                 values.push(previous);
             }
             current = Some(WorktreeInfo {
-                path: {
-                    let path = PathBuf::from(path);
-                    std::fs::canonicalize(&path).unwrap_or(path)
-                },
+                path: repo_fs::spell(repository, path),
                 oid: String::new(),
                 branch: None,
                 bare: false,
@@ -1716,17 +1738,14 @@ fn parse_worktrees(input: &[u8]) -> GitResult<Vec<WorktreeInfo>> {
 }
 
 fn repository_features(repository: &DiscoveredRepository) -> RepositoryFeatures {
-    let attributes = std::fs::read_to_string(repository.worktree_root.join(".gitattributes"))
-        .unwrap_or_default();
+    let attributes =
+        repo_fs::read_to_string(&repository.worktree_root.join(".gitattributes")).unwrap_or_default();
     RepositoryFeatures {
-        submodules: repository.worktree_root.join(".gitmodules").is_file(),
+        submodules: repo_fs::is_file(&repository.worktree_root.join(".gitmodules")),
         lfs: attributes.lines().any(|line| line.contains("filter=lfs")),
-        sparse_checkout: repository
-            .common_dir
-            .join("info")
-            .join("sparse-checkout")
-            .is_file(),
-        shallow: repository.common_dir.join("shallow").is_file(),
+        sparse_checkout: repo_fs::Names::of(&repository.common_dir.join("info"))
+            .has("sparse-checkout"),
+        shallow: repo_fs::Names::of(&repository.common_dir).has("shallow"),
     }
 }
 

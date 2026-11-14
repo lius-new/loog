@@ -2,6 +2,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::command::{GitCommand, GitCommandRunner};
+use super::remote;
+use super::repo_fs;
 use crate::features::git::error::{GitErrorKind, GitResult};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,13 +21,13 @@ pub fn discover(
     let mut seen = HashSet::new();
     let mut repositories = Vec::new();
     for root in workspace_roots {
-        if let Some(repository) = discover_one(runner, root)?
+        if let Some(repository) = discover_in(runner, root)?
             && seen.insert(repository.worktree_root.clone())
         {
             repositories.push(repository);
         }
-        for child in direct_children(root) {
-            if let Some(repository) = discover_one(runner, &child)?
+        for child in repo_fs::child_repositories(root) {
+            if let Some(repository) = discover_in(runner, &child)?
                 && seen.insert(repository.worktree_root.clone())
             {
                 repositories.push(repository);
@@ -47,11 +49,13 @@ pub fn discover_fast(
     let mut seen = HashSet::new();
     let mut repositories = Vec::new();
     for root in workspace_roots {
-        let root = canonical(root.clone());
-        let repository = if root.join(".git").exists() {
+        let root = repo_fs::canonical(root.clone());
+        // One `rev-parse` resolves an environment root, whose `.git` file would name a
+        // directory in the environment's own spelling.
+        let repository = if !remote::is_remote(&root) && repo_fs::exists(&root.join(".git")) {
             Some(from_git_marker(&root)?)
         } else {
-            discover_one(runner, &root)?
+            discover_in(runner, &root)?
         };
         if let Some(repository) = repository
             && seen.insert(repository.worktree_root.clone())
@@ -64,10 +68,15 @@ pub fn discover_fast(
 
 fn from_git_marker(root: &Path) -> GitResult<DiscoveredRepository> {
     let marker = root.join(".git");
-    let git_dir = if marker.is_dir() {
+    let git_dir = if repo_fs::is_dir(&marker) {
         marker
     } else {
-        let contents = std::fs::read_to_string(&marker)?;
+        let contents = repo_fs::read_to_string(&marker).ok_or_else(|| {
+            crate::features::git::error::GitError::new(
+                GitErrorKind::InvalidOutput,
+                "The .git file could not be read.",
+            )
+        })?;
         let value = contents
             .trim()
             .strip_prefix("gitdir:")
@@ -85,9 +94,8 @@ fn from_git_marker(root: &Path) -> GitResult<DiscoveredRepository> {
             root.join(path)
         }
     };
-    let git_dir = canonical(git_dir);
-    let common_dir = std::fs::read_to_string(git_dir.join("commondir"))
-        .ok()
+    let git_dir = repo_fs::canonical(git_dir);
+    let common_dir = repo_fs::read_to_string(&git_dir.join("commondir"))
         .map(|value| {
             let path = PathBuf::from(value.trim());
             if path.is_absolute() {
@@ -96,7 +104,7 @@ fn from_git_marker(root: &Path) -> GitResult<DiscoveredRepository> {
                 git_dir.join(path)
             }
         })
-        .map(canonical)
+        .map(repo_fs::canonical)
         .unwrap_or_else(|| git_dir.clone());
     Ok(DiscoveredRepository {
         worktree_root: root.to_path_buf(),
@@ -104,6 +112,15 @@ fn from_git_marker(root: &Path) -> GitResult<DiscoveredRepository> {
         common_dir,
         bare: false,
     })
+}
+
+/// [`discover_one`], except that an environment that cannot answer (disconnected, no `git`
+/// there) finds nothing instead of failing the scan of the local repositories too.
+fn discover_in(runner: &GitCommandRunner, path: &Path) -> GitResult<Option<DiscoveredRepository>> {
+    match discover_one(runner, path) {
+        Err(_) if remote::is_remote(path) => Ok(None),
+        result => result,
+    }
 }
 
 pub fn discover_one(
@@ -134,34 +151,13 @@ pub fn discover_one(
     if lines.len() < 4 {
         return Ok(None);
     }
+    // Git prints the environment's own paths; the model spells them as environment paths.
+    let spell = |line: &str| repo_fs::spell(path, line);
     Ok(Some(DiscoveredRepository {
-        worktree_root: canonical(PathBuf::from(&lines[0])),
-        git_dir: canonical(PathBuf::from(&lines[1])),
-        common_dir: canonical(PathBuf::from(&lines[2])),
+        worktree_root: spell(&lines[0]),
+        git_dir: spell(&lines[1]),
+        common_dir: spell(&lines[2]),
         bare: lines[3] == "true",
     }))
 }
 
-/// One spelling per repository, matching workspace folders (canonicalized
-/// when opened). Git prints `D:/dir` on Windows while `fs::canonicalize`
-/// yields `\\?\D:\dir`; mixing them gives the fast and detailed scans
-/// different repository ids.
-fn canonical(path: PathBuf) -> PathBuf {
-    std::fs::canonicalize(&path).unwrap_or(path)
-}
-
-fn direct_children(root: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(root)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            entry
-                .file_type()
-                .ok()
-                .filter(|kind| kind.is_dir())
-                .map(|_| entry.path())
-                .filter(|path| path.join(".git").exists())
-        })
-        .collect()
-}

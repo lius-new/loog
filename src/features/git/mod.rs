@@ -9,6 +9,7 @@ pub mod diff_selection;
 pub(crate) mod diff_selection_tests;
 pub mod diff_text;
 pub mod error;
+pub mod location;
 pub mod model;
 pub mod operation;
 pub mod parser;

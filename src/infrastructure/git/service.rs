@@ -175,9 +175,15 @@ impl GitService {
         let mut repositories = BTreeMap::new();
         for repository in discovered {
             let id = repository_id(&repository.worktree_root);
-            let snapshot = match mode {
-                RefreshMode::Fast => self.backend.status_fast(&repository, id, generation)?,
-                RefreshMode::Detailed => self.backend.status(&repository, id, generation)?,
+            let status = match mode {
+                RefreshMode::Fast => self.backend.status_fast(&repository, id, generation),
+                RefreshMode::Detailed => self.backend.status(&repository, id, generation),
+            };
+            let snapshot = match status {
+                Ok(snapshot) => snapshot,
+                // An environment repository that cannot be read leaves the others be.
+                Err(_) if super::remote::is_remote(&repository.worktree_root) => continue,
+                Err(error) => return Err(error),
             };
             repositories.insert(id, snapshot);
         }
@@ -519,7 +525,17 @@ impl GitService {
 }
 
 pub(crate) fn read_untracked(path: &Path) -> GitResult<DiffContent> {
-    let bytes = std::fs::read(path)?;
+    use crate::features::git::error::GitErrorKind;
+    let limit = crate::infrastructure::document_filesystem::MAX_EDITABLE_FILE_BYTES as usize;
+    let bytes = match super::repo_fs::read(path, limit) {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => {
+            return Err(GitError::new(GitErrorKind::Io, "The file no longer exists."));
+        }
+        // Too large to show is shown as binary, as it always was.
+        Err(error) if error.kind == GitErrorKind::Unsupported => return Ok(binary_content()),
+        Err(error) => return Err(error),
+    };
     Ok(
         match crate::features::encoding::decode(
             &bytes,

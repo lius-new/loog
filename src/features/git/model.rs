@@ -58,9 +58,27 @@ pub struct GitModel {
     /// was chosen: the choice holds until that file changes.
     pinned_repository: Option<(PathBuf, Option<PathBuf>)>,
     cloning: bool,
+    /// Worktrees of repositories in environments that Source Control scans. A local
+    /// worktree is added to the workspace instead; an environment has no folder to add
+    /// it to, so it is kept here.
+    environment_worktrees: Vec<PathBuf>,
 }
 
 impl GitModel {
+    pub fn environment_worktrees(&self) -> &[PathBuf] {
+        &self.environment_worktrees
+    }
+
+    pub fn add_environment_worktree(&mut self, path: PathBuf) {
+        if !self.environment_worktrees.contains(&path) {
+            self.environment_worktrees.push(path);
+        }
+    }
+
+    pub fn forget_environment_worktree(&mut self, path: &Path) {
+        self.environment_worktrees.retain(|kept| kept != path);
+    }
+
     // --- history ----------------------------------------------------------
 
     pub fn history(&self) -> Option<&GitHistory> {

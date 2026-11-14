@@ -4,7 +4,7 @@ use crate::domain::document::FileMeta;
 use crate::domain::identity::{PaneId, ViewId};
 use crate::features::git::diff_document::DiffDocument;
 use crate::features::git::{DiffContent, DiffRequest, DiffTarget, GitResult, PollTarget};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 impl Workspace {
     pub fn open_diff(&mut self, diff: DiffDocument) -> ViewId {
@@ -124,9 +124,29 @@ impl Workspace {
     }
 
     fn insert_prepared_diff(&mut self, pane: PaneId, diff: Arc<DiffDocument>) -> ViewId {
-        let mut meta = FileMeta::from_path(diff.repository_root.join(&diff.path));
+        let mut meta = match diff.resource() {
+            loog_workspace_api::ResourceRef::Local { path } => FileMeta::from_path(path),
+            resource => FileMeta::provided(resource, diff.title()),
+        };
         meta.name = diff.title();
         self.core.insert_diff(pane, meta, diff)
+    }
+
+    /// The paths of the files with unsaved edits as the Git model knows them.
+    pub fn dirty_git_paths(&self) -> Vec<PathBuf> {
+        self.dirty_file_ids()
+            .into_iter()
+            .filter_map(|id| self.documents.get(&id))
+            .filter_map(|document| crate::features::git::location::git_path(&document.meta.resource))
+            .collect()
+    }
+
+    /// The path of the active file as the Git model knows it, local or in an environment.
+    pub fn active_git_path(&self) -> Option<PathBuf> {
+        if self.active_page().is_some() {
+            return None;
+        }
+        crate::features::git::location::git_path(&self.active_meta()?.resource)
     }
 
     pub fn git_poll_target(&self) -> PollTarget {
@@ -146,7 +166,7 @@ impl Workspace {
         diffs.sort();
         diffs.dedup();
         PollTarget {
-            active_path: self.active_path().map(Path::to_path_buf),
+            active_path: self.active_git_path(),
             diffs,
             pinned_repository: None,
         }

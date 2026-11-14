@@ -139,7 +139,7 @@ fn open(
         return;
     };
     let app = state.get();
-    let roots = app.explorer.model.roots().to_vec();
+    let roots = super::git_poll::scan_roots(&app);
     let active = (app.workspace.active_pane(), app.workspace.active());
     let mut sequence = 0;
     state.update(|app| sequence = app.git.model.begin_diff_open(request.clone()));
@@ -189,7 +189,7 @@ fn open(
                 let mut completion = None;
                 worker_state.update(|app| {
                     if !app.git.model.finish_diff_open(sequence)
-                        || app.explorer.model.roots() != roots
+                        || super::git_poll::scan_roots(app) != roots
                         || (app.workspace.active_pane(), app.workspace.active()) != active
                     {
                         return;

@@ -27,6 +27,7 @@ pub(crate) mod palette;
 #[cfg(test)]
 mod phase0_baseline;
 mod presentation;
+mod environment_git;
 mod resource_bytes;
 pub(crate) mod resource_edit;
 mod resource_link;

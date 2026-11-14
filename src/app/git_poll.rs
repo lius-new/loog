@@ -20,6 +20,34 @@ pub(crate) struct GitScanNotification {
     pub result: GitResult<GitStoreSnapshot>,
 }
 
+/// The folders Source Control scans: the workspace folders, then each provided root that
+/// may run processes, spelled as environment paths (see `features::git::location`). A
+/// root without that ability is not scanned, since Git cannot run there.
+pub(crate) fn scan_roots(app: &AppState) -> Vec<PathBuf> {
+    let mut roots = app.explorer.model.roots().to_vec();
+    for root in &app.explorer.resources.roots {
+        let descriptor = &root.descriptor;
+        if !descriptor
+            .capabilities
+            .contains(&loog_workspace_api::Capability::Process)
+        {
+            continue;
+        }
+        if let loog_workspace_api::ResourceRef::Provided { environment, path } = &descriptor.resource {
+            let path = crate::features::git::location::path_for(environment, path.as_str());
+            if !roots.contains(&path) {
+                roots.push(path);
+            }
+        }
+    }
+    for path in app.git.model.environment_worktrees() {
+        if !roots.contains(path) {
+            roots.push(path.clone());
+        }
+    }
+    roots
+}
+
 /// What the poller should scan now: the active file, open diffs, and the
 /// repository chosen in Source Control while the active file is unchanged.
 pub(crate) fn poll_target(app: &AppState) -> PollTarget {
@@ -82,9 +110,8 @@ pub(crate) fn history_file(app: &AppState, store: &GitStoreSnapshot) -> Option<P
     }
     let root = &store.active()?.worktree_root;
     app.workspace
-        .active_path()
+        .active_git_path()
         .filter(|path| path.starts_with(root))
-        .map(std::path::Path::to_path_buf)
 }
 
 /// Start polling `roots`; dropping the handle stops it.
@@ -145,7 +172,7 @@ pub(crate) fn apply_scan(
     target: &PollTarget,
     result: GitResult<GitStoreSnapshot>,
 ) -> (bool, bool) {
-    if app.explorer.model.roots() != roots || poll_target(app) != *target {
+    if scan_roots(app) != roots || poll_target(app) != *target {
         crate::infrastructure::ui_dispatch::retire(result);
         return (false, false);
     }
@@ -209,6 +236,34 @@ mod tests {
         }
         assert_eq!(store.generation, 0);
         assert!(store.last_error.is_none());
+    }
+
+    #[test]
+    fn scan_roots_add_the_provided_roots_that_may_run_processes_as_environment_paths() {
+        use loog_workspace_api::{Capability, EnvironmentKey, PresentedRoot, ResourceRef};
+        let environment = EnvironmentKey::new("fixture", "scan-roots").unwrap();
+        let root = |scope: u64, name: &str, capabilities: Vec<Capability>| PresentedRoot {
+            scope,
+            resource: ResourceRef::provided(environment.clone(), format!("/srv/{name}")).unwrap(),
+            name: name.into(),
+            capabilities,
+            badge: None,
+        };
+        let mut app = AppState::new();
+        app.explorer
+            .model
+            .restore(vec![PathBuf::from("local")], Vec::new());
+        app.explorer.resources.sync(vec![
+            root(1, "trusted", vec![Capability::FilesRead, Capability::Process]),
+            root(2, "untrusted", vec![Capability::FilesRead]),
+        ]);
+        let expected = crate::features::git::location::path_for(&environment, "/srv/trusted");
+        assert_eq!(scan_roots(&app), [PathBuf::from("local"), expected.clone()]);
+        // A worktree Source Control was told about is scanned too, once.
+        app.git.model.add_environment_worktree(expected.clone());
+        let other = crate::features::git::location::path_for(&environment, "/srv/wt");
+        app.git.model.add_environment_worktree(other.clone());
+        assert_eq!(scan_roots(&app), [PathBuf::from("local"), expected, other]);
     }
 
     #[test]

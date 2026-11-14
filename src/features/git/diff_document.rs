@@ -460,8 +460,17 @@ impl DiffDocument {
         }
     }
 
+    /// The file this document compares: a provided resource for a repository in an
+    /// environment, else the local file.
     pub fn resource(&self) -> loog_workspace_api::ResourceRef {
-        loog_workspace_api::ResourceRef::local(self.repository_root.join(&self.path))
+        let path = self.repository_root.join(&self.path);
+        match super::location::resolve(&path) {
+            Some((environment, provider_path)) => {
+                loog_workspace_api::ResourceRef::provided(environment, provider_path)
+                    .unwrap_or_else(|_| loog_workspace_api::ResourceRef::local(path))
+            }
+            None => loog_workspace_api::ResourceRef::local(path),
+        }
     }
 
     pub fn path_label(&self) -> String {
@@ -697,6 +706,20 @@ fn line_number(value: usize) -> Option<usize> {
 mod tests {
     use super::*;
     use crate::features::git::diff::parse_unified;
+
+    #[test]
+    fn a_diff_in_an_environment_repository_names_the_provided_file() {
+        use loog_workspace_api::{EnvironmentKey, ResourceRef};
+        let environment = EnvironmentKey::new("fixture", "diff-resource").unwrap();
+        let root = super::super::location::path_for(&environment, "/srv/app");
+        let document = DiffDocument::added(root, PathBuf::from("src/a.rs"), DiffTarget::IndexToWorktree, "x");
+        assert_eq!(
+            document.resource(),
+            ResourceRef::provided(environment, "/srv/app/src/a.rs").unwrap()
+        );
+        let local = DiffDocument::added(PathBuf::from("repo"), PathBuf::from("a.rs"), DiffTarget::IndexToWorktree, "x");
+        assert!(local.resource().local_path().is_some());
+    }
 
     #[test]
     fn change_blocks_are_numbered_like_zero_context_hunks() {

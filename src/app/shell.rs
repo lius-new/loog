@@ -337,6 +337,8 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         changed
     });
     let s = state.get();
+    let environment_git_state = state.clone();
+    cx.use_effect((), move || super::environment_git::install(environment_git_state));
     let editing_key = s
         .workspace
         .documents
@@ -380,6 +382,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     );
     let editor_layout = crate::app::workspace_commands::saved_app_editor_layout(&s);
     let git_roots = s.explorer.model.roots().to_vec();
+    let git_scan_roots = super::git_poll::scan_roots(&s);
     let git_target = super::git_poll::poll_target(&s);
     // Keep the history of the active repository's HEAD while it is shown.
     let history_key = super::git_poll::history_key(&s, &git_store.get());
@@ -450,8 +453,8 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         poll_target.set_target(git_target);
         || {}
     });
-    cx.use_effect(git_roots.clone(), move || {
-        let handle = super::git_poll::start(git_roots, git_poll, move |notification| {
+    cx.use_effect(git_scan_roots.clone(), move || {
+        let handle = super::git_poll::start(git_scan_roots, git_poll, move |notification| {
             scan_notifications.send(notification)
         });
         move || drop(handle)

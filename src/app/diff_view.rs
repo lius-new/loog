@@ -39,9 +39,10 @@ pub fn binding(state: &AppContext) -> Binding {
 }
 pub fn run(state: &AppContext, c: Command) -> bool {
     if let Command::OpenResource(resource) = c {
-        return resource
-            .local_path()
-            .is_some_and(|path| run(state, Command::Open(path.to_path_buf())));
+        if let Some(path) = resource.local_path() {
+            return run(state, Command::Open(path.to_path_buf()));
+        }
+        return super::environment_git::open_file(state, resource);
     }
     if let Command::Open(path) = c {
         let loader = state.services().and_then(|runtime| runtime.file_loader());
