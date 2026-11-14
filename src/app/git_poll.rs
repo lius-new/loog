@@ -28,7 +28,9 @@ pub(crate) fn scan_roots(app: &AppState) -> Vec<PathBuf> {
     let mut roots = app.explorer.model.roots().to_vec();
     for root in &app.explorer.resources.roots {
         let descriptor = &root.descriptor;
-        if let loog_workspace_api::ResourceRef::Provided { environment, path } = &descriptor.resource {
+        if let loog_workspace_api::ResourceRef::Provided { environment, path } =
+            &descriptor.resource
+        {
             let path = crate::features::git::location::path_for(environment, path.as_str());
             if !roots.contains(&path) {
                 roots.push(path);
@@ -249,7 +251,11 @@ mod tests {
             .model
             .restore(vec![PathBuf::from("local")], Vec::new());
         app.explorer.resources.sync(vec![
-            root(1, "trusted", vec![Capability::FilesRead, Capability::Process]),
+            root(
+                1,
+                "trusted",
+                vec![Capability::FilesRead, Capability::Process],
+            ),
             root(2, "untrusted", vec![Capability::FilesRead]),
         ]);
         let expected = crate::features::git::location::path_for(&environment, "/srv/trusted");

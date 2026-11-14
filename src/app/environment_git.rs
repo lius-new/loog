@@ -238,10 +238,16 @@ pub(crate) fn open_file(context: &AppContext, resource: ResourceRef) -> bool {
     let ResourceRef::Provided { environment, path } = resource else {
         return false;
     };
-    let scope = context.get().explorer.resources.roots.iter().find_map(|root| {
-        (root.descriptor.resource.environment() == Some(&environment))
-            .then_some(root.descriptor.scope)
-    });
+    let scope = context
+        .get()
+        .explorer
+        .resources
+        .roots
+        .iter()
+        .find_map(|root| {
+            (root.descriptor.resource.environment() == Some(&environment))
+                .then_some(root.descriptor.scope)
+        });
     let (Some(scope), Some(host)) = (
         scope,
         context.services().and_then(|runtime| runtime.extensions()),
@@ -254,7 +260,8 @@ pub(crate) fn open_file(context: &AppContext, resource: ResourceRef) -> bool {
         Operation::Stat { path },
         Box::new(move |app, result| match result {
             Ok(Answer::Info { file }) => {
-                if let Some(application) = state.services().and_then(|runtime| runtime.application())
+                if let Some(application) =
+                    state.services().and_then(|runtime| runtime.application())
                 {
                     let next = state.clone();
                     application.post(move || super::resources::open(&next, scope, file));
@@ -270,7 +277,11 @@ pub(crate) fn open_file(context: &AppContext, resource: ResourceRef) -> bool {
 /// The text copied for an environment path: the environment's own absolute path, or the
 /// path relative to the connected root that holds it. `None` when `path` is not an
 /// environment path, or is outside every connected root when a relative one is asked.
-pub(crate) fn copy_text(context: &AppContext, path: &std::path::Path, relative: bool) -> Option<String> {
+pub(crate) fn copy_text(
+    context: &AppContext,
+    path: &std::path::Path,
+    relative: bool,
+) -> Option<String> {
     let (environment, provider) = crate::features::git::location::resolve(path)?;
     if !relative {
         return Some(provider);
@@ -285,13 +296,22 @@ pub(crate) fn copy_text(context: &AppContext, path: &std::path::Path, relative: 
             ResourceRef::Provided {
                 environment: root_environment,
                 path: root_path,
-            } if *root_environment == environment => Some(root_path.as_str().trim_end_matches('/').to_owned()),
+            } if *root_environment == environment => {
+                Some(root_path.as_str().trim_end_matches('/').to_owned())
+            }
             _ => None,
         })
         .filter_map(|root| {
             let rest = provider.strip_prefix(&root)?;
-            (rest.is_empty() || rest.starts_with('/')).then(|| rest.trim_start_matches('/').to_owned())
+            (rest.is_empty() || rest.starts_with('/'))
+                .then(|| rest.trim_start_matches('/').to_owned())
         })
-        .map(|rest| if rest.is_empty() { ".".to_owned() } else { rest })
+        .map(|rest| {
+            if rest.is_empty() {
+                ".".to_owned()
+            } else {
+                rest
+            }
+        })
         .next()
 }

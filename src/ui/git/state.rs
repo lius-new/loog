@@ -257,4 +257,3 @@ pub struct GitPanelState {
     pub model: GitModel,
     pub ui: GitUiState,
 }
-

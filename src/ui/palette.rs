@@ -255,7 +255,11 @@ fn item_row(rect: UiRect, item: &Item, state: &Binding) -> Element {
             );
             row = row.child(crate::ui::tabs::icon(
                 UiId::owned(format!("palette.arrow.{index}")),
-                if open { "chevron-down" } else { "chevron-right" },
+                if open {
+                    "chevron-down"
+                } else {
+                    "chevron-right"
+                },
                 arrow,
                 palette.text_dim,
             ));
@@ -271,11 +275,17 @@ fn item_row(rect: UiRect, item: &Item, state: &Binding) -> Element {
     if let Some(kind) = item.icon {
         use crate::features::palette::RowIcon;
         let key = match kind {
-            RowIcon::Folder if item.expanded == Some(true) => crate::ui::file_icons::FOLDER_OPEN_ICON,
+            RowIcon::Folder if item.expanded == Some(true) => {
+                crate::ui::file_icons::FOLDER_OPEN_ICON
+            }
             RowIcon::Folder => crate::ui::file_icons::FOLDER_ICON,
             RowIcon::File => crate::ui::file_icons::icon_for_file(&item.title),
         };
-        let color = if item.dim { palette.text_faint } else { palette.text_muted };
+        let color = if item.dim {
+            palette.text_faint
+        } else {
+            palette.text_muted
+        };
         row = row.child(crate::ui::tabs::icon(
             UiId::owned(format!("palette.icon.{index}")),
             key,
@@ -308,7 +318,12 @@ fn item_row(rect: UiRect, item: &Item, state: &Binding) -> Element {
     let middle = (rect.top + rect.bottom) / 2.0;
     let mut right = rect.right - PAD_X;
     if item.hovered && item.action.is_some() {
-        let mark = UiRect::new(right - ACTION, middle - ACTION / 2.0, right, middle + ACTION / 2.0);
+        let mark = UiRect::new(
+            right - ACTION,
+            middle - ACTION / 2.0,
+            right,
+            middle + ACTION / 2.0,
+        );
         let act = state.clone();
         row = row.child(
             panel(mark, VisualStyle::default())
@@ -514,7 +529,11 @@ pub fn render(
             .child(text(
                 rect,
                 tag.clone(),
-                centered(mix(palette.text_bright, palette.accent, 0.4), theme::SMALL, 400),
+                centered(
+                    mix(palette.text_bright, palette.accent, 0.4),
+                    theme::SMALL,
+                    400,
+                ),
             )),
         );
         field_left = rect.right + 6.0;

@@ -873,13 +873,22 @@ fn badge_fit(badge: &str) -> (String, f32) {
 /// A small chip with the root's badge, after its name and never past `right`.
 fn badge_chip(left: f32, y: f32, right: f32, badge: &str) -> Element {
     let (label, width) = badge_fit(badge);
-    let chip = UiRect::new(left, y + 3.0, (left + width).min(right.max(left)), y + ROW_H - 3.0);
+    let chip = UiRect::new(
+        left,
+        y + 3.0,
+        (left + width).min(right.max(left)),
+        y + ROW_H - 3.0,
+    );
     let colors = theme::c();
     clip(chip, 0.0, 0.0).child(
         panel(
             UiRect::new(left, chip.top, left + width, chip.bottom),
-            VisualStyle::filled(crate::ui::highlight_menu::mix(colors.surface, colors.accent, 0.22))
-                .radius(3.0),
+            VisualStyle::filled(crate::ui::highlight_menu::mix(
+                colors.surface,
+                colors.accent,
+                0.22,
+            ))
+            .radius(3.0),
         )
         .child(text(
             UiRect::new(left, chip.top, left + width, chip.bottom),
@@ -1241,9 +1250,11 @@ mod tests {
     fn only_a_root_with_a_badge_gets_one_and_it_widens_the_content() {
         use loog_workspace_api::{Capability, EnvironmentKey, PresentedRoot, ResourceRef};
         let mut panel = ExplorerPanelState::default();
-        let resource =
-            ResourceRef::provided(EnvironmentKey::new("fixture", "tree").unwrap(), "opaque:root")
-                .unwrap();
+        let resource = ResourceRef::provided(
+            EnvironmentKey::new("fixture", "tree").unwrap(),
+            "opaque:root",
+        )
+        .unwrap();
         // A root keeps the descriptor it was presented with, so each case has its own scope.
         let root = |scope: u64, badge: Option<&str>| PresentedRoot {
             scope,

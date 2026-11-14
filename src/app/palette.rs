@@ -210,7 +210,11 @@ impl PaletteState {
         self.hovered = None;
         self.query = self.input.text().to_owned();
         self.selected = selected;
-        self.top = if down { (top + STEP).min(last) } else { top.saturating_sub(STEP) };
+        self.top = if down {
+            (top + STEP).min(last)
+        } else {
+            top.saturating_sub(STEP)
+        };
     }
 
     pub fn close(&mut self) {
@@ -232,9 +236,9 @@ impl PaletteState {
 
     /// Whether the open session takes text with no rows beside it.
     fn takes_text(&self) -> bool {
-        self.session.as_ref().is_some_and(|session| {
-            matches!(session.mode, SessionMode::Text | SessionMode::Secret)
-        })
+        self.session
+            .as_ref()
+            .is_some_and(|session| matches!(session.mode, SessionMode::Text | SessionMode::Secret))
     }
 
     /// Select the row of an extension's session with this id and scroll to it, when it is there.
@@ -242,9 +246,9 @@ impl PaletteState {
     fn select_row(&mut self, id: Option<&str>, keep_scroll: bool) {
         let Some(id) = id else { return };
         let hits = self.hits();
-        let Some(position) = hits.iter().position(|hit| {
-            matches!(&self.entries[hit.index].target, Target::Choice(meta) if meta.id == id)
-        }) else {
+        let Some(position) = hits.iter().position(
+            |hit| matches!(&self.entries[hit.index].target, Target::Choice(meta) if meta.id == id),
+        ) else {
             return;
         };
         self.hovered = None;
@@ -259,7 +263,10 @@ impl PaletteState {
 
     /// What the user typed into a browsing session since the extension last heard of it.
     fn take_typed(&mut self) -> Option<Answer> {
-        let session = self.session.as_ref().filter(|session| session.mode == SessionMode::Browse)?;
+        let session = self
+            .session
+            .as_ref()
+            .filter(|session| session.mode == SessionMode::Browse)?;
         if self.input.text() == self.reported {
             return None;
         }
@@ -429,7 +436,13 @@ pub fn apply_commands(
                 if entries.is_empty() {
                     published.remove(owner);
                 } else {
-                    published.insert(owner.to_owned(), Published { generation, entries });
+                    published.insert(
+                        owner.to_owned(),
+                        Published {
+                            generation,
+                            entries,
+                        },
+                    );
                 }
             }
             PaletteCommand::Open { session, view } => {
@@ -542,10 +555,7 @@ fn send(state: &AppContext, answers: Vec<Answer>) {
     if answers.is_empty() {
         return;
     }
-    let Some(host) = state
-        .services()
-        .and_then(|runtime| runtime.extensions())
-    else {
+    let Some(host) = state.services().and_then(|runtime| runtime.extensions()) else {
         return;
     };
     for answer in answers {
@@ -600,8 +610,15 @@ pub fn complete(state: &AppContext) -> bool {
         let hits = app.palette.hits();
         let (selected, _) = app.palette.view();
         if app.palette.browsing() {
-            let active = (!app.palette.inactive).then(|| hits.get(selected)).flatten();
-            answer = browse_answer(app, active, loog_extension_host::PaletteTrigger::Enter, true);
+            let active = (!app.palette.inactive)
+                .then(|| hits.get(selected))
+                .flatten();
+            answer = browse_answer(
+                app,
+                active,
+                loog_extension_host::PaletteTrigger::Enter,
+                true,
+            );
         } else if let Some(hit) = hits.get(selected) {
             let title = app.palette.entries[hit.index].title.clone();
             app.palette.input.set_text(title);
@@ -648,7 +665,11 @@ fn browse_answer(
 pub fn confirm(env: &KeyEnv) -> bool {
     // With no row active Enter answers with the field alone.
     let position = read(&env.state, |app| {
-        if app.palette.inactive { usize::MAX } else { app.palette.view().0 }
+        if app.palette.inactive {
+            usize::MAX
+        } else {
+            app.palette.view().0
+        }
     });
     run(env, position)
 }
@@ -794,9 +815,8 @@ fn frame(app: &AppState) -> Frame {
         .unwrap_or_default();
     let placeholder = palette.placeholder.clone();
     let input_empty = palette.input.text().is_empty();
-    let nothing_to_list = palette.session.is_some()
-        && hits.is_empty()
-        && palette.input.text().trim().is_empty();
+    let nothing_to_list =
+        palette.session.is_some() && hits.is_empty() && palette.input.text().trim().is_empty();
     if palette.takes_text() || nothing_to_list {
         // The field is the whole answer, or the session has no rows yet: there is
         // nothing to count or list.
@@ -911,9 +931,7 @@ pub fn binding(state: &AppContext, env: KeyEnv) -> Binding {
                 writer.update(|app| app.palette.close());
                 flush_ended(&writer);
             }
-            Command::Scroll(down) => {
-                writer.update(|app| app.palette.scroll_list(down))
-            }
+            Command::Scroll(down) => writer.update(|app| app.palette.scroll_list(down)),
             Command::Hover(position) => {
                 writer.try_update(|app| {
                     let palette = &mut app.palette;
@@ -1079,7 +1097,14 @@ mod tests {
             .filter(|line| matches!(line, Line::Header(_)))
             .count();
         assert!(!hits.is_empty());
-        assert_eq!(headers, if categories.len() > 1 { categories.len() } else { 0 });
+        assert_eq!(
+            headers,
+            if categories.len() > 1 {
+                categories.len()
+            } else {
+                0
+            }
+        );
     }
 
     fn choice(id: &str, title: &str, group: &str) -> loog_extension_host::PaletteChoice {
@@ -1151,7 +1176,11 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(shown, ["Row 30"], "the selected row is within the visible rows");
+        assert_eq!(
+            shown,
+            ["Row 30"],
+            "the selected row is within the visible rows"
+        );
     }
 
     #[test]
@@ -1162,11 +1191,20 @@ mod tests {
             .map(|index| choice(&format!("row{index}"), &format!("Row {index}"), "TREE"))
             .collect();
         view.selected = Some("row2".into());
-        apply_commands(&mut app, "acme.tool", 1, vec![PaletteCommand::Open { session: 3, view }]);
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Open { session: 3, view }],
+        );
         for _ in 0..4 {
             app.palette.scroll_list(true);
         }
-        assert_eq!(app.palette.view().0, 2, "the active row did not move with the wheel");
+        assert_eq!(
+            app.palette.view().0,
+            2,
+            "the active row did not move with the wheel"
+        );
         let top = app.palette.top;
         assert!(top > 0, "the list scrolled");
         let titles = |app: &AppState| -> Vec<String> {
@@ -1179,14 +1217,26 @@ mod tests {
                 })
                 .collect()
         };
-        assert_ne!(titles(&app).first().map(String::as_str), Some("Row 0"), "and is not snapped back");
+        assert_ne!(
+            titles(&app).first().map(String::as_str),
+            Some("Row 0"),
+            "and is not snapped back"
+        );
         // The extension redrawing the same rows does not undo it either.
         let mut again = browse_view("/");
         again.choices = (0..40)
             .map(|index| choice(&format!("row{index}"), &format!("Row {index}"), "TREE"))
             .collect();
         again.text = None;
-        apply_commands(&mut app, "acme.tool", 1, vec![PaletteCommand::Update { session: 3, view: again }]);
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Update {
+                session: 3,
+                view: again,
+            }],
+        );
         assert_eq!(app.palette.top, top);
         for _ in 0..40 {
             app.palette.scroll_list(false);
@@ -1206,7 +1256,12 @@ mod tests {
         let mut app = AppState::new();
         let mut view = browse_view("");
         view.text = None;
-        apply_commands(&mut app, "acme.tool", 1, vec![PaletteCommand::Open { session: 3, view }]);
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Open { session: 3, view }],
+        );
         assert_eq!(selected_rows(&app), 0, "opening activates nothing");
         // The keys' first step in lands on the first row.
         app.palette.move_selection(1);
@@ -1217,15 +1272,29 @@ mod tests {
         app.palette.take_typed();
         let mut view = browse_view("/");
         view.text = None;
-        apply_commands(&mut app, "acme.tool", 1, vec![PaletteCommand::Update { session: 3, view }]);
-        assert_eq!(selected_rows(&app), 0, "a path that names no row activates none");
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Update { session: 3, view }],
+        );
+        assert_eq!(
+            selected_rows(&app),
+            0,
+            "a path that names no row activates none"
+        );
         // A row the extension names is active.
         app.palette.input.set_text("/home");
         app.palette.take_typed();
         let mut view = browse_view("/");
         view.text = None;
         view.selected = Some("/home".into());
-        apply_commands(&mut app, "acme.tool", 1, vec![PaletteCommand::Update { session: 3, view }]);
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            1,
+            vec![PaletteCommand::Update { session: 3, view }],
+        );
         assert_eq!(selected_rows(&app), 1);
         assert_eq!(app.palette.view().0, 1);
     }
@@ -1237,7 +1306,10 @@ mod tests {
             &mut app,
             "acme.tool",
             1,
-            vec![PaletteCommand::Open { session: 3, view: browse_view("/home/") }],
+            vec![PaletteCommand::Open {
+                session: 3,
+                view: browse_view("/home/"),
+            }],
         );
         assert_eq!(app.palette.input.text(), "/home/");
         // What is typed is a path, not a filter: every row stays, in the extension's order.
@@ -1268,9 +1340,15 @@ mod tests {
             &mut app,
             "acme.tool",
             1,
-            vec![PaletteCommand::Open { session: 3, view: browse_view("/home/") }],
+            vec![PaletteCommand::Open {
+                session: 3,
+                view: browse_view("/home/"),
+            }],
         );
-        assert!(app.palette.take_typed().is_none(), "the preset text is not typing");
+        assert!(
+            app.palette.take_typed().is_none(),
+            "the preset text is not typing"
+        );
         app.palette.input.set_text("/home/li");
         let answer = app.palette.take_typed().expect("typing is reported");
         assert!(matches!(
@@ -1284,11 +1362,17 @@ mod tests {
             1,
             vec![PaletteCommand::Update {
                 session: 3,
-                view: PaletteView { text: Some("/home/liu/".into()), ..browse_view("") },
+                view: PaletteView {
+                    text: Some("/home/liu/".into()),
+                    ..browse_view("")
+                },
             }],
         );
         assert_eq!(app.palette.input.text(), "/home/liu/");
-        assert!(app.palette.take_typed().is_none(), "an update by the extension is not echoed");
+        assert!(
+            app.palette.take_typed().is_none(),
+            "an update by the extension is not echoed"
+        );
     }
 
     #[test]
@@ -1298,11 +1382,20 @@ mod tests {
             &mut app,
             "acme.tool",
             1,
-            vec![PaletteCommand::Open { session: 3, view: browse_view("/home/") }],
+            vec![PaletteCommand::Open {
+                session: 3,
+                view: browse_view("/home/"),
+            }],
         );
         let hits = app.palette.hits();
         let enter = loog_extension_host::PaletteTrigger::Enter;
-        let answer = browse_answer(&app, hits.get(1), loog_extension_host::PaletteTrigger::Action, false).unwrap();
+        let answer = browse_answer(
+            &app,
+            hits.get(1),
+            loog_extension_host::PaletteTrigger::Action,
+            false,
+        )
+        .unwrap();
         assert!(matches!(
             answer.event,
             loog_extension_host::PaletteEvent::Accepted(ref accepted)
@@ -1319,7 +1412,10 @@ mod tests {
         // Tab needs a row to complete.
         assert!(browse_answer(&app, None, enter, true).is_none());
         let answer = browse_answer(&app, hits.get(2), enter, true).unwrap();
-        assert!(matches!(answer.event, loog_extension_host::PaletteEvent::Complete(_)));
+        assert!(matches!(
+            answer.event,
+            loog_extension_host::PaletteEvent::Complete(_)
+        ));
     }
 
     #[test]
@@ -1329,7 +1425,10 @@ mod tests {
             &mut app,
             "acme.tool",
             1,
-            vec![PaletteCommand::Open { session: 3, view: browse_view("/") }],
+            vec![PaletteCommand::Open {
+                session: 3,
+                view: browse_view("/"),
+            }],
         );
         app.palette.hovered = Some(1);
         let shown = |app: &AppState| {
@@ -1498,7 +1597,12 @@ mod tests {
             &listed[0].target,
             Target::ExtensionEntry { owner, generation: 3, id } if owner == "acme.tool" && id == "a"
         ));
-        apply_commands(&mut app, "acme.tool", 3, vec![PaletteCommand::Entries(vec![])]);
+        apply_commands(
+            &mut app,
+            "acme.tool",
+            3,
+            vec![PaletteCommand::Entries(vec![])],
+        );
         assert!(published_entries(&app.palette.published).is_empty());
     }
 }

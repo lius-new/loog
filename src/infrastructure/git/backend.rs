@@ -1499,7 +1499,11 @@ impl GitBackend for CliGitBackend {
             ));
         }
         // A destination in an environment is cloned from its folder, by name, there.
-        let (folder, destination) = match (remote::is_remote(target), target.parent(), target.file_name()) {
+        let (folder, destination) = match (
+            remote::is_remote(target),
+            target.parent(),
+            target.file_name(),
+        ) {
             (true, Some(parent), Some(name)) => (Some(parent.to_path_buf()), name.to_owned()),
             _ => (None, target.as_os_str().to_owned()),
         };
@@ -1747,8 +1751,8 @@ fn parse_worktrees(repository: &Path, input: &[u8]) -> GitResult<Vec<WorktreeInf
 }
 
 fn repository_features(repository: &DiscoveredRepository) -> RepositoryFeatures {
-    let attributes =
-        repo_fs::read_to_string(&repository.worktree_root.join(".gitattributes")).unwrap_or_default();
+    let attributes = repo_fs::read_to_string(&repository.worktree_root.join(".gitattributes"))
+        .unwrap_or_default();
     RepositoryFeatures {
         submodules: repo_fs::is_file(&repository.worktree_root.join(".gitmodules")),
         lfs: attributes.lines().any(|line| line.contains("filter=lfs")),

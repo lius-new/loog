@@ -193,24 +193,30 @@ pub fn discover_one(
     }))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn posix_paths_are_normalized_without_touching_a_disk() {
-        assert_eq!(normalize_posix("/home/lius/loom/src/../.git"), "/home/lius/loom/.git");
+        assert_eq!(
+            normalize_posix("/home/lius/loom/src/../.git"),
+            "/home/lius/loom/.git"
+        );
         assert_eq!(normalize_posix("/a//b/./c"), "/a/b/c");
         assert_eq!(normalize_posix("/../x"), "/x");
     }
 
     #[test]
     fn a_relative_common_dir_is_made_absolute_where_git_ran() {
-        let environment = loog_workspace_api::EnvironmentKey::new("fixture", "absolute-from").unwrap();
+        let environment =
+            loog_workspace_api::EnvironmentKey::new("fixture", "absolute-from").unwrap();
         let place = crate::features::git::location::path_for(&environment, "/home/lius/loom/src");
         assert_eq!(absolute_from(&place, "../.git"), "/home/lius/loom/.git");
-        assert_eq!(absolute_from(&place, "/already/absolute"), "/already/absolute");
+        assert_eq!(
+            absolute_from(&place, "/already/absolute"),
+            "/already/absolute"
+        );
         // A local directory joins natively.
         let local = Path::new("repo").join("src");
         assert_eq!(

@@ -575,7 +575,11 @@ mod tests {
         let widest = measure("Remove Folder From Workspace");
         assert!(menu_content_width() >= widest);
         // No entry of any menu is wider, so no menu can need more than the shared width.
-        for entry in DIRECTORY_ENTRIES.iter().chain(FILE_ENTRIES).chain(BATCH_ENTRIES) {
+        for entry in DIRECTORY_ENTRIES
+            .iter()
+            .chain(FILE_ENTRIES)
+            .chain(BATCH_ENTRIES)
+        {
             if let Entry::Item { label, .. } = entry {
                 assert!(measure(label) <= menu_content_width());
             }

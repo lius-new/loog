@@ -235,8 +235,14 @@ fn a_badge_is_short_plain_text_and_is_kept_with_the_environment() {
     };
     let mut router = Router::new(RouterLimits::default());
     let id = register(&mut router, "one", Some("web-01".into())).unwrap();
-    assert_eq!(router.environment(id).unwrap().badge.as_deref(), Some("web-01"));
-    assert!(register(&mut router, "two", None).is_ok(), "a badge is optional");
+    assert_eq!(
+        router.environment(id).unwrap().badge.as_deref(),
+        Some("web-01")
+    );
+    assert!(
+        register(&mut router, "two", None).is_ok(),
+        "a badge is optional"
+    );
     for bad in [
         String::new(),
         "x".repeat(MAX_BADGE_BYTES + 1),

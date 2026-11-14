@@ -137,7 +137,9 @@ impl Workspace {
         self.dirty_file_ids()
             .into_iter()
             .filter_map(|id| self.documents.get(&id))
-            .filter_map(|document| crate::features::git::location::git_path(&document.meta.resource))
+            .filter_map(|document| {
+                crate::features::git::location::git_path(&document.meta.resource)
+            })
             .collect()
     }
 
@@ -154,9 +156,7 @@ impl Workspace {
             .diffs
             .values()
             // A commit's diff never changes, so it is not refreshed.
-            .filter_map(|document| {
-                Some(&document.content).filter(|diff| diff.revision.is_none())
-            })
+            .filter_map(|document| Some(&document.content).filter(|diff| diff.revision.is_none()))
             .map(|diff| DiffRequest {
                 repository_root: diff.repository_root.clone(),
                 path: diff.path.clone(),

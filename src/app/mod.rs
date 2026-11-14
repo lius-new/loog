@@ -11,6 +11,7 @@ pub(crate) mod editor_vim;
 #[cfg(test)]
 mod editor_vim_integration_tests;
 pub(crate) mod encoding;
+mod environment_git;
 pub(crate) mod explorer;
 pub(crate) mod explorer_view;
 pub(crate) mod extensions;
@@ -27,7 +28,6 @@ pub(crate) mod palette;
 #[cfg(test)]
 mod phase0_baseline;
 mod presentation;
-mod environment_git;
 mod resource_bytes;
 pub(crate) mod resource_edit;
 mod resource_link;

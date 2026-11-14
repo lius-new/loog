@@ -121,10 +121,9 @@ impl Inner {
                 inner.palette_event(
                     &id,
                     generation,
-                    loog_extension_host::PaletteEvent::File(loog_extension_host::PaletteFilePicked {
-                        request,
-                        path,
-                    }),
+                    loog_extension_host::PaletteEvent::File(
+                        loog_extension_host::PaletteFilePicked { request, path },
+                    ),
                 );
             }
         });

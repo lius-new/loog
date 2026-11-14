@@ -65,7 +65,11 @@ fn view_valid(view: &View) -> Result<(), String> {
     if !optional(&view.note, MAX_NOTE) {
         return Err("a palette note is one short line".into());
     }
-    if view.text.as_ref().is_some_and(|text| text.len() > MAX_FIELD_TEXT || text.contains(['\0', '\n', '\r'])) {
+    if view
+        .text
+        .as_ref()
+        .is_some_and(|text| text.len() > MAX_FIELD_TEXT || text.contains(['\0', '\n', '\r']))
+    {
         return Err("palette text is one line within its budget".into());
     }
     if !optional(&view.selected, MAX_TEXT) {
@@ -85,7 +89,10 @@ impl Palette {
 
     pub fn open(&mut self, view: View) -> Result<u64, String> {
         view_valid(&view)?;
-        let session = self.next.checked_add(1).ok_or("palette sessions exhausted")?;
+        let session = self
+            .next
+            .checked_add(1)
+            .ok_or("palette sessions exhausted")?;
         self.push(Command::Open { session, view })?;
         self.next = session;
         self.open = Some(session);
@@ -126,7 +133,10 @@ impl Palette {
         if title.len() > MAX_TEXT || title.contains(['\0', '\n', '\r']) {
             return Err("a file dialog title is one short line".into());
         }
-        let request = self.next.checked_add(1).ok_or("palette requests exhausted")?;
+        let request = self
+            .next
+            .checked_add(1)
+            .ok_or("palette requests exhausted")?;
         self.push(Command::PickFile { request, title })?;
         self.next = request;
         Ok(request)
@@ -155,7 +165,9 @@ impl Palette {
         }
         let too_long = match &event {
             Event::Input(input) => input.text.len() > MAX_FIELD_TEXT,
-            Event::Accepted(accepted) | Event::Complete(accepted) => accepted.text.len() > MAX_FIELD_TEXT,
+            Event::Accepted(accepted) | Event::Complete(accepted) => {
+                accepted.text.len() > MAX_FIELD_TEXT
+            }
             _ => false,
         };
         if too_long {
@@ -251,19 +263,33 @@ mod tests {
     fn a_burst_of_typing_keeps_only_the_newest_text_and_an_answer_ends_the_run() {
         let mut palette = Palette::default();
         let session = palette.open(view()).unwrap();
-        let typed = |text: &str| Event::Input(Input { session, text: text.into() });
+        let typed = |text: &str| {
+            Event::Input(Input {
+                session,
+                text: text.into(),
+            })
+        };
         for text in ["/", "/h", "/ho"] {
             palette.deliver(typed(text)).unwrap();
         }
         palette
-            .deliver(Event::Accepted(Accepted { session, choice: None, text: "/ho".into(), trigger: Trigger::Enter }))
+            .deliver(Event::Accepted(Accepted {
+                session,
+                choice: None,
+                text: "/ho".into(),
+                trigger: Trigger::Enter,
+            }))
             .unwrap();
         palette.deliver(typed("/hom")).unwrap();
         let events = palette.poll();
         assert_eq!(events.len(), 3);
         assert!(matches!(&events[0], Event::Input(input) if input.text == "/ho"));
         assert!(matches!(&events[2], Event::Input(input) if input.text == "/hom"));
-        assert!(palette.deliver(typed(&"x".repeat(MAX_FIELD_TEXT + 1))).is_err());
+        assert!(
+            palette
+                .deliver(typed(&"x".repeat(MAX_FIELD_TEXT + 1)))
+                .is_err()
+        );
     }
 
     #[test]
@@ -285,10 +311,14 @@ mod tests {
         let mut good = view();
         good.mode = Mode::Browse;
         good.text = Some("/home/liu/".into());
-        good.choices = (0..MAX_CHOICES).map(|index| row(&index.to_string())).collect();
+        good.choices = (0..MAX_CHOICES)
+            .map(|index| row(&index.to_string()))
+            .collect();
         palette.open(good).unwrap();
         let mut many = view();
-        many.choices = (0..=MAX_CHOICES).map(|index| row(&index.to_string())).collect();
+        many.choices = (0..=MAX_CHOICES)
+            .map(|index| row(&index.to_string()))
+            .collect();
         assert!(palette.open(many).is_err());
     }
 

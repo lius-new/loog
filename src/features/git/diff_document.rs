@@ -712,12 +712,22 @@ mod tests {
         use loog_workspace_api::{EnvironmentKey, ResourceRef};
         let environment = EnvironmentKey::new("fixture", "diff-resource").unwrap();
         let root = super::super::location::path_for(&environment, "/srv/app");
-        let document = DiffDocument::added(root, PathBuf::from("src/a.rs"), DiffTarget::IndexToWorktree, "x");
+        let document = DiffDocument::added(
+            root,
+            PathBuf::from("src/a.rs"),
+            DiffTarget::IndexToWorktree,
+            "x",
+        );
         assert_eq!(
             document.resource(),
             ResourceRef::provided(environment, "/srv/app/src/a.rs").unwrap()
         );
-        let local = DiffDocument::added(PathBuf::from("repo"), PathBuf::from("a.rs"), DiffTarget::IndexToWorktree, "x");
+        let local = DiffDocument::added(
+            PathBuf::from("repo"),
+            PathBuf::from("a.rs"),
+            DiffTarget::IndexToWorktree,
+            "x",
+        );
         assert!(local.resource().local_path().is_some());
     }
 

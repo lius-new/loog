@@ -320,7 +320,10 @@ mod tests {
         let provided = ResourceRef::provided(environment.clone(), "/srv/app/a.rs").unwrap();
         let path = git_path(&provided).unwrap();
         assert_eq!(path, path_for(&environment, "/srv/app/a.rs"));
-        assert_eq!(resolve(&path), Some((environment, "/srv/app/a.rs".to_owned())));
+        assert_eq!(
+            resolve(&path),
+            Some((environment, "/srv/app/a.rs".to_owned()))
+        );
     }
 
     #[test]

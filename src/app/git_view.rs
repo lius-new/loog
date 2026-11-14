@@ -20,14 +20,11 @@ pub(crate) fn binding(state: &AppContext, store: &State<GitStoreSnapshot>) -> Bi
                 resizing: app.source_control.resizing,
                 resizable: app.layout.application_layout.is_none(),
                 terminal_focused: app.terminal.ui.terminal_focused,
-                active_diff: app
-                    .workspace
-                    .active_diff()
-                    .map(|d| DiffRequest {
-                        repository_root: d.repository_root.clone(),
-                        path: d.path.clone(),
-                        target: d.target,
-                    }),
+                active_diff: app.workspace.active_diff().map(|d| DiffRequest {
+                    repository_root: d.repository_root.clone(),
+                    path: d.path.clone(),
+                    target: d.target,
+                }),
                 active_diff_focus: app.workspace.active_diff_focus().cloned(),
                 active_file: app.workspace.active_git_path(),
             }
@@ -331,7 +328,9 @@ pub(crate) fn run(state: &AppContext, store: &State<GitStoreSnapshot>, command: 
                 match super::environment_git::copy_text(state, &path, relative) {
                     Some(text) => match clipboard.write_text(&text) {
                         Ok(()) => state.update(|app| app.show_success("Copied path.")),
-                        Err(error) => state.update(move |app| app.show_error(format!("Clipboard: {error}"))),
+                        Err(error) => {
+                            state.update(move |app| app.show_error(format!("Clipboard: {error}")))
+                        }
                     },
                     None => state.update(|app| app.show_toast("Path is outside the workspace.")),
                 }

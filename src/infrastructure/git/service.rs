@@ -535,7 +535,10 @@ pub(crate) fn read_untracked(path: &Path) -> GitResult<DiffContent> {
     let bytes = match super::repo_fs::read(path, limit) {
         Ok(Some(bytes)) => bytes,
         Ok(None) => {
-            return Err(GitError::new(GitErrorKind::Io, "The file no longer exists."));
+            return Err(GitError::new(
+                GitErrorKind::Io,
+                "The file no longer exists.",
+            ));
         }
         // Too large to show is shown as binary, as it always was.
         Err(error) if error.kind == GitErrorKind::Unsupported => return Ok(binary_content()),

@@ -178,9 +178,12 @@ pub(crate) fn snapshot(
         })
         .unwrap_or_default()
         .into();
-    let changes = document
-        .as_ref()
-        .and_then(|doc| git.line_changes.get(&crate::features::git::location::git_path(&doc.meta.resource)?));
+    let changes = document.as_ref().and_then(|doc| {
+        git.line_changes
+            .get(&crate::features::git::location::git_path(
+                &doc.meta.resource,
+            )?)
+    });
     let line_changes = changes
         .map(|changes| {
             changes
@@ -203,7 +206,11 @@ pub(crate) fn snapshot(
     let conflicts = document
         .as_ref()
         .and_then(|doc| {
-            let regions = git.conflicts.get(&crate::features::git::location::git_path(&doc.meta.resource)?)?;
+            let regions = git
+                .conflicts
+                .get(&crate::features::git::location::git_path(
+                    &doc.meta.resource,
+                )?)?;
             let saved = app.workspace.documents.get(&doc.stamp.document)?;
             let found = if saved.is_dirty() {
                 crate::features::git::conflict::shifted(

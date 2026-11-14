@@ -473,6 +473,11 @@
       "migrated_in": "R6.3",
       "from": "cloning_repository"
     },
+    "environment_worktrees": {
+      "owner": "features/git/model",
+      "migrated_in": "Git for environment repositories",
+      "reason": "Worktrees of environment repositories that Source Control scans, which have no workspace folder to be added to"
+    },
     "hovered": {
       "owner": "ui/git/state",
       "migrated_in": "R6.3",

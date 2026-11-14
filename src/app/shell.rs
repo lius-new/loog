@@ -338,7 +338,9 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     });
     let s = state.get();
     let environment_git_state = state.clone();
-    cx.use_effect((), move || super::environment_git::install(environment_git_state));
+    cx.use_effect((), move || {
+        super::environment_git::install(environment_git_state)
+    });
     let editing_key = s
         .workspace
         .documents
