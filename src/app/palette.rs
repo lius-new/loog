@@ -91,6 +91,9 @@ pub struct PaletteState {
     pub hovered: Option<usize>,
     /// The text the extension of a browsing session was last told, or set itself.
     pub reported: String,
+    /// No row is active: a browsing session starts so, and typing a path puts it back,
+    /// until the keys, the pointer or the extension choose a row.
+    pub inactive: bool,
 }
 
 /// What the list draws, top to bottom.
@@ -122,7 +125,8 @@ impl PaletteState {
 
     /// Selection and scroll as they apply to the text now in the field.
     fn view(&self) -> (usize, usize) {
-        if self.query == self.input.text() {
+        // What is typed in a browsing session is a path, not a filter: the rows stay put.
+        if self.query == self.input.text() || self.browsing() {
             (self.selected, self.top)
         } else {
             (0, 0)
@@ -166,7 +170,7 @@ impl PaletteState {
             self.hovered = None;
         }
         let hits = self.hits();
-        let (selected, top) = self.view();
+        let (mut selected, top) = self.view();
         self.query = self.input.text().to_owned();
         if hits.is_empty() {
             self.selected = 0;
@@ -174,6 +178,18 @@ impl PaletteState {
             return;
         }
         let count = hits.len() as isize;
+        if delta == 0 && (self.inactive || self.browsing()) {
+            // A redraw of rows the person may have scrolled: nothing is brought into view,
+            // the position only stays inside the list.
+            self.selected = self.selected.min(hits.len() - 1);
+            self.top = top.min(self.lines(&hits).len().saturating_sub(VISIBLE_ROWS));
+            return;
+        }
+        if self.inactive {
+            // The first step in lands on the first or last row.
+            self.inactive = false;
+            selected = if delta == 1 { count as usize - 1 } else { 0 };
+        }
         // One step wraps around the ends; a page stops at them.
         self.selected = if delta.abs() == 1 {
             (selected as isize + delta).rem_euclid(count) as usize
@@ -182,6 +198,19 @@ impl PaletteState {
         };
         let lines = self.lines(&hits);
         self.top = window(&lines, self.selected, top);
+    }
+
+    /// The wheel moves the list under the pointer, `lines` at a time. The active row stays
+    /// the one it was, in view or not.
+    pub fn scroll_list(&mut self, down: bool) {
+        const STEP: usize = 3;
+        let hits = self.hits();
+        let (selected, top) = self.view();
+        let last = self.lines(&hits).len().saturating_sub(VISIBLE_ROWS);
+        self.hovered = None;
+        self.query = self.input.text().to_owned();
+        self.selected = selected;
+        self.top = if down { (top + STEP).min(last) } else { top.saturating_sub(STEP) };
     }
 
     pub fn close(&mut self) {
@@ -193,6 +222,7 @@ impl PaletteState {
         self.query.clear();
         self.entries = Arc::default();
         self.hovered = None;
+        self.inactive = false;
         self.reported.clear();
         // Closing is an answer in itself: the extension is told it was cancelled.
         if let Some(session) = self.session.take() {
@@ -208,7 +238,8 @@ impl PaletteState {
     }
 
     /// Select the row of an extension's session with this id and scroll to it, when it is there.
-    fn select_row(&mut self, id: Option<&str>) {
+    /// The list moves only as far as needed when `keep_scroll`, else the row lands from the top.
+    fn select_row(&mut self, id: Option<&str>, keep_scroll: bool) {
         let Some(id) = id else { return };
         let hits = self.hits();
         let Some(position) = hits.iter().position(|hit| {
@@ -217,11 +248,13 @@ impl PaletteState {
             return;
         };
         self.hovered = None;
+        self.inactive = false;
         self.query = self.input.text().to_owned();
         self.selected = position;
         let lines = self.lines(&hits);
-        // Start from the top so the row lands in view rather than keeping an old scroll.
-        self.top = window(&lines, position, 0);
+        // Unless asked to keep it, start from the top so the row lands in view rather
+        // than keeping an old scroll.
+        self.top = window(&lines, position, if keep_scroll { self.top } else { 0 });
     }
 
     /// What the user typed into a browsing session since the extension last heard of it.
@@ -231,6 +264,8 @@ impl PaletteState {
             return None;
         }
         self.reported = self.input.text().to_owned();
+        // A path being typed chooses no row; the extension may name one that matches it.
+        self.inactive = true;
         Some(Answer {
             owner: session.owner.clone(),
             generation: session.generation,
@@ -412,7 +447,9 @@ pub fn apply_commands(
                     palette.reported = text;
                 }
                 palette.visible = true;
-                palette.select_row(view.selected.as_deref());
+                // A browsing session starts with no row active unless the extension names one.
+                palette.inactive = view.mode == PaletteMode::Browse;
+                palette.select_row(view.selected.as_deref(), false);
             }
             PaletteCommand::Update { session, view } => {
                 let palette = &mut app.palette;
@@ -432,7 +469,14 @@ pub fn apply_commands(
                     palette.input.clear();
                     palette.input.masked = next.mode == SessionMode::Secret;
                 }
+                let was_browsing = palette.browsing();
                 palette.session = Some(next);
+                // Entering a browsing step starts with no row active; other steps always have one.
+                if !palette.browsing() {
+                    palette.inactive = false;
+                } else if !was_browsing {
+                    palette.inactive = true;
+                }
                 palette.entries = Arc::new(choice_entries(&view));
                 palette.placeholder = view.placeholder;
                 if let Some(text) = view.text {
@@ -440,7 +484,7 @@ pub fn apply_commands(
                     palette.reported = text;
                 }
                 palette.move_selection(0);
-                palette.select_row(view.selected.as_deref());
+                palette.select_row(view.selected.as_deref(), true);
             }
             PaletteCommand::Close { session } => {
                 let palette = &mut app.palette;
@@ -556,7 +600,8 @@ pub fn complete(state: &AppContext) -> bool {
         let hits = app.palette.hits();
         let (selected, _) = app.palette.view();
         if app.palette.browsing() {
-            answer = browse_answer(app, hits.get(selected), loog_extension_host::PaletteTrigger::Enter, true);
+            let active = (!app.palette.inactive).then(|| hits.get(selected)).flatten();
+            answer = browse_answer(app, active, loog_extension_host::PaletteTrigger::Enter, true);
         } else if let Some(hit) = hits.get(selected) {
             let title = app.palette.entries[hit.index].title.clone();
             app.palette.input.set_text(title);
@@ -601,7 +646,10 @@ fn browse_answer(
 
 /// Run the selected command.
 pub fn confirm(env: &KeyEnv) -> bool {
-    let position = read(&env.state, |app| app.palette.view().0);
+    // With no row active Enter answers with the field alone.
+    let position = read(&env.state, |app| {
+        if app.palette.inactive { usize::MAX } else { app.palette.view().0 }
+    });
     run(env, position)
 }
 
@@ -774,7 +822,10 @@ fn frame(app: &AppState) -> Frame {
         };
     }
     let lines = palette.lines(&hits);
-    let top = window(&lines, selected, top);
+    let inactive = palette.inactive;
+    // The list stays where the keys, the wheel or the extension put it: bringing the active
+    // row into view is done when it changes, not on every draw, or the wheel would be undone.
+    let top = top.min(lines.len().saturating_sub(VISIBLE_ROWS));
     let keymap = bindings::current();
     let rows = lines
         .iter()
@@ -807,7 +858,7 @@ fn frame(app: &AppState) -> Frame {
                     description: entry.description.clone(),
                     keys,
                     positions: hit.positions.clone(),
-                    selected: *position == selected,
+                    selected: !inactive && *position == selected,
                     extension: matches!(
                         entry.target,
                         Target::Extension(_) | Target::ExtensionEntry { .. } | Target::Choice(_)
@@ -825,7 +876,11 @@ fn frame(app: &AppState) -> Frame {
         .collect();
     Frame {
         rows,
-        position: format!("{} / {}", selected + 1, hits.len()),
+        position: if inactive {
+            hits.len().to_string()
+        } else {
+            format!("{} / {}", selected + 1, hits.len())
+        },
         empty: None,
         placeholder,
         tags,
@@ -857,7 +912,7 @@ pub fn binding(state: &AppContext, env: KeyEnv) -> Binding {
                 flush_ended(&writer);
             }
             Command::Scroll(down) => {
-                writer.update(|app| app.palette.move_selection(if down { 1 } else { -1 }))
+                writer.update(|app| app.palette.scroll_list(down))
             }
             Command::Hover(position) => {
                 writer.try_update(|app| {
@@ -867,10 +922,11 @@ pub fn binding(state: &AppContext, env: KeyEnv) -> Binding {
                     }
                     let moved = palette.hovered != Some(position);
                     palette.hovered = Some(position);
-                    if palette.view().0 == position {
+                    if palette.view().0 == position && !palette.inactive {
                         return moved;
                     }
                     let (_, top) = palette.view();
+                    palette.inactive = false;
                     palette.query = palette.input.text().to_owned();
                     palette.selected = position;
                     palette.top = top;
@@ -1096,6 +1152,82 @@ mod tests {
             })
             .collect();
         assert_eq!(shown, ["Row 30"], "the selected row is within the visible rows");
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_list_and_leaves_the_active_row_and_a_redraw_alone() {
+        let mut app = AppState::new();
+        let mut view = browse_view("/");
+        view.choices = (0..40)
+            .map(|index| choice(&format!("row{index}"), &format!("Row {index}"), "TREE"))
+            .collect();
+        view.selected = Some("row2".into());
+        apply_commands(&mut app, "acme.tool", 1, vec![PaletteCommand::Open { session: 3, view }]);
+        for _ in 0..4 {
+            app.palette.scroll_list(true);
+        }
+        assert_eq!(app.palette.view().0, 2, "the active row did not move with the wheel");
+        let top = app.palette.top;
+        assert!(top > 0, "the list scrolled");
+        let titles = |app: &AppState| -> Vec<String> {
+            frame(app)
+                .rows
+                .into_iter()
+                .filter_map(|row| match row {
+                    Row::Item(item) => Some(item.title),
+                    Row::Header(_) => None,
+                })
+                .collect()
+        };
+        assert_ne!(titles(&app).first().map(String::as_str), Some("Row 0"), "and is not snapped back");
+        // The extension redrawing the same rows does not undo it either.
+        let mut again = browse_view("/");
+        again.choices = (0..40)
+            .map(|index| choice(&format!("row{index}"), &format!("Row {index}"), "TREE"))
+            .collect();
+        again.text = None;
+        apply_commands(&mut app, "acme.tool", 1, vec![PaletteCommand::Update { session: 3, view: again }]);
+        assert_eq!(app.palette.top, top);
+        for _ in 0..40 {
+            app.palette.scroll_list(false);
+        }
+        assert_eq!(app.palette.top, 0);
+    }
+
+    #[test]
+    fn a_browsing_session_has_no_active_row_until_one_is_chosen_or_named() {
+        let selected_rows = |app: &AppState| {
+            frame(app)
+                .rows
+                .into_iter()
+                .filter(|row| matches!(row, Row::Item(item) if item.selected))
+                .count()
+        };
+        let mut app = AppState::new();
+        let mut view = browse_view("");
+        view.text = None;
+        apply_commands(&mut app, "acme.tool", 1, vec![PaletteCommand::Open { session: 3, view }]);
+        assert_eq!(selected_rows(&app), 0, "opening activates nothing");
+        // The keys' first step in lands on the first row.
+        app.palette.move_selection(1);
+        assert_eq!(selected_rows(&app), 1);
+        assert_eq!(app.palette.view().0, 0);
+        // Typing puts it back, and a redraw that names no row leaves it so.
+        app.palette.input.set_text("/nothing");
+        app.palette.take_typed();
+        let mut view = browse_view("/");
+        view.text = None;
+        apply_commands(&mut app, "acme.tool", 1, vec![PaletteCommand::Update { session: 3, view }]);
+        assert_eq!(selected_rows(&app), 0, "a path that names no row activates none");
+        // A row the extension names is active.
+        app.palette.input.set_text("/home");
+        app.palette.take_typed();
+        let mut view = browse_view("/");
+        view.text = None;
+        view.selected = Some("/home".into());
+        apply_commands(&mut app, "acme.tool", 1, vec![PaletteCommand::Update { session: 3, view }]);
+        assert_eq!(selected_rows(&app), 1);
+        assert_eq!(app.palette.view().0, 1);
     }
 
     #[test]
