@@ -227,6 +227,19 @@ pub(crate) mod fake {
         pub commands: Mutex<Vec<Vec<String>>>,
     }
 
+    /// The spelling Git prints for a directory. The fake takes its root off Git's output as
+    /// text, so a root spelled differently (a symlinked `/var` on macOS, an 8.3 short name
+    /// such as `RUNNER~1` in a Windows temp directory) would never match and the
+    /// environment's paths would come back with the whole local path in front.
+    pub fn real_path(path: &Path) -> PathBuf {
+        let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let text = real.to_string_lossy();
+        match text.strip_prefix(r"\\?\") {
+            Some(plain) => PathBuf::from(plain),
+            None => real,
+        }
+    }
+
     impl LocalBacked {
         fn dir(&self, path: &str) -> PathBuf {
             let mut dir = self.root.clone();
@@ -387,7 +400,7 @@ pub(crate) mod tests {
         let serial = fake::SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
         let (local, backend) = super::super::backend::tests::repository()?;
         let fake = Arc::new(fake::LocalBacked {
-            root: local.parent()?.to_path_buf(),
+            root: fake::real_path(local.parent()?),
             commands: Default::default(),
         });
         install(fake.clone());
