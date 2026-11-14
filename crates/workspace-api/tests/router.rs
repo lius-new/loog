@@ -75,6 +75,7 @@ fn unregistering_one_environment_revokes_its_requests_without_retiring_the_provi
                 name: "Other".into(),
                 platform: "test".into(),
                 capabilities: vec![Capability::FilesRead],
+                badge: None,
             },
         )
         .unwrap();
@@ -217,6 +218,34 @@ fn execution_revocation_and_boundary_changes_preserve_file_subscriptions() {
             .is_ok()
     );
 }
+#[test]
+fn a_badge_is_short_plain_text_and_is_kept_with_the_environment() {
+    let provider = owner("example.provider", 1);
+    let register = |router: &mut Router, name: &str, badge: Option<String>| {
+        router.register(
+            provider.clone(),
+            EnvironmentDescriptor {
+                key: EnvironmentKey::new(&provider.id, name).unwrap(),
+                name: "Test".into(),
+                platform: "test".into(),
+                capabilities: vec![Capability::FilesRead],
+                badge,
+            },
+        )
+    };
+    let mut router = Router::new(RouterLimits::default());
+    let id = register(&mut router, "one", Some("web-01".into())).unwrap();
+    assert_eq!(router.environment(id).unwrap().badge.as_deref(), Some("web-01"));
+    assert!(register(&mut router, "two", None).is_ok(), "a badge is optional");
+    for bad in [
+        String::new(),
+        "x".repeat(MAX_BADGE_BYTES + 1),
+        "a\nb".into(),
+    ] {
+        assert!(register(&mut router, "bad", Some(bad)).is_err());
+    }
+}
+
 fn fixture(limits: RouterLimits) -> (Router, Owner, Owner, Owner, ScopeId) {
     let mut router = Router::new(limits);
     let provider = owner("example.provider", 1);
@@ -237,6 +266,7 @@ fn fixture(limits: RouterLimits) -> (Router, Owner, Owner, Owner, ScopeId) {
                 name: "Test".into(),
                 platform: "test".into(),
                 capabilities: caps.clone(),
+                badge: None,
             },
         )
         .unwrap();

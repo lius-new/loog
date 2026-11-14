@@ -309,6 +309,7 @@ mod tests {
                 resource: resource.clone(),
                 name: "Development".into(),
                 capabilities: vec![Capability::FilesRead, Capability::Terminal],
+                badge: None,
             }]);
         sync(&mut app, &trust, |_| false);
         assert_eq!(question(&app), Some(resource.clone()));

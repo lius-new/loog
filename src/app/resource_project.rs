@@ -625,6 +625,7 @@ mod tests {
                     resource,
                     name: "Project".into(),
                     capabilities: vec![],
+                    badge: None,
                 })
                 .collect(),
         );

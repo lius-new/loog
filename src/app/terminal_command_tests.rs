@@ -142,6 +142,7 @@ fn empty_terminal_panel_uses_the_active_resource_and_never_falls_back_locally_wh
             resource: root.clone(),
             name: "Example".into(),
             capabilities: vec![Capability::Terminal],
+            badge: None,
         }]);
     });
     let initial = tabs.get().active_id().unwrap();

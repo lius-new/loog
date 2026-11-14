@@ -2049,6 +2049,7 @@ mod lifetime_tests {
             .unwrap(),
             name: "New session".into(),
             capabilities: vec![],
+            badge: None,
         };
         ui.state.update(|app| {
             app.explorer.resources.sync(vec![root.clone()]);

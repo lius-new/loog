@@ -704,6 +704,7 @@ mod tests {
             .unwrap(),
             name: environment.into(),
             capabilities: vec![Capability::FilesRead, Capability::Process],
+            badge: None,
         };
         let (first, second) = (root(1, "first"), root(2, "second"));
         let mut app = AppState::new();

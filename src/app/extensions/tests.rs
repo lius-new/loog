@@ -270,6 +270,7 @@ fn native_resource_consumers_require_owned_presented_scopes_and_stop_with_the_pr
                         api::Capability::FilesWrite,
                         api::Capability::Process,
                     ],
+                    badge: None,
                 },
             },
         )
@@ -538,6 +539,7 @@ fn workspace_consumers_discover_bounded_pages_and_require_package_grants_and_roo
                         api::Capability::FilesWrite,
                         api::Capability::Process,
                     ],
+                    badge: None,
                 },
             },
         )

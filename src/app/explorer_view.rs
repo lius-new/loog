@@ -542,6 +542,7 @@ mod tests {
             resource,
             name: "workspace".into(),
             capabilities: vec![Capability::FilesRead, Capability::FilesWrite],
+            badge: None,
         }]);
         let target = crate::features::resource_tree::Target {
             scope: 7,

@@ -43,6 +43,10 @@ const STATUS_RIGHT_PAD: f32 = 8.0;
 const STATUS_WIDTH: f32 = 17.0;
 const STATUS_GAP: f32 = 5.0;
 const FILE_RIGHT_PAD: f32 = STATUS_RIGHT_PAD + STATUS_WIDTH + STATUS_GAP;
+/// A root's badge chip: the space before it, its side padding and its widest size.
+const BADGE_GAP: f32 = 4.0;
+const BADGE_PAD_X: f32 = 6.0;
+const BADGE_MAX_W: f32 = 120.0;
 
 type Access = StateAccess<ExplorerPanelState>;
 
@@ -740,6 +744,13 @@ fn dir_row(
             name,
             label_color,
         ));
+    let row = match entry.badge.as_deref() {
+        Some(badge) => {
+            let left = indent + TREE_LABEL_OFFSET + tree_label_width(name) + BADGE_GAP;
+            row.child(badge_chip(left, y, text_right, badge))
+        }
+        None => row,
+    };
     if sticky {
         // Sticky rows are outside the scrolling tree's clip. Keep their names
         // and icons inside the drawer when horizontal scrolling moves them left.
@@ -842,6 +853,40 @@ fn tree_label(viewport: UiRect, name: &str, color: Color) -> Element {
 
 fn tree_label_width(name: &str) -> f32 {
     crate::ui::tabs::measure(name, theme::UI_SIZE, 400) + TREE_TEXT_PAD
+}
+
+/// The badge's text and the width of its chip: the whole text when it fits, else cut short
+/// with an ellipsis so one long machine name cannot take the row.
+fn badge_fit(badge: &str) -> (String, f32) {
+    let width = |text: &str| crate::ui::tabs::measure(text, theme::SMALL, 400);
+    let room = BADGE_MAX_W - 2.0 * BADGE_PAD_X;
+    if width(badge) <= room {
+        return (badge.to_owned(), width(badge) + 2.0 * BADGE_PAD_X);
+    }
+    let mut cut: String = badge.to_owned();
+    while !cut.is_empty() && width(&format!("{cut}…")) > room {
+        cut.pop();
+    }
+    (format!("{cut}…"), BADGE_MAX_W)
+}
+
+/// A small chip with the root's badge, after its name and never past `right`.
+fn badge_chip(left: f32, y: f32, right: f32, badge: &str) -> Element {
+    let (label, width) = badge_fit(badge);
+    let chip = UiRect::new(left, y + 3.0, (left + width).min(right.max(left)), y + ROW_H - 3.0);
+    let colors = theme::c();
+    clip(chip, 0.0, 0.0).child(
+        panel(
+            UiRect::new(left, chip.top, left + width, chip.bottom),
+            VisualStyle::filled(crate::ui::highlight_menu::mix(colors.surface, colors.accent, 0.22))
+                .radius(3.0),
+        )
+        .child(text(
+            UiRect::new(left, chip.top, left + width, chip.bottom),
+            label,
+            crate::ui::highlight_menu::centered(colors.accent, theme::SMALL, 400),
+        )),
+    )
 }
 
 /// Collects every root and its descendants into one scrollable list, returning
@@ -970,7 +1015,11 @@ fn extend_content_right(
     if !visited.insert(entry.key.clone()) {
         return;
     }
-    *right = right.max(row_content_right(left, depth, &entry.name, entry.directory));
+    let mut row_right = row_content_right(left, depth, &entry.name, entry.directory);
+    if let Some(badge) = entry.badge.as_deref() {
+        row_right += BADGE_GAP + badge_fit(badge).1;
+    }
+    *right = right.max(row_right);
     if entry.directory && entry.expanded(s) {
         for child in entry.children(s, depth) {
             extend_content_right(&child, depth + 1, s, left, right, visited);
@@ -1176,6 +1225,41 @@ mod tests {
 
     fn target(row: usize, covered: usize) -> ExplorerReveal {
         ExplorerReveal { row, covered }
+    }
+
+    #[test]
+    fn a_short_badge_is_kept_whole_and_a_long_one_is_cut_to_the_widest_chip() {
+        let (short, width) = badge_fit("web-01");
+        assert_eq!(short, "web-01");
+        assert!(width < BADGE_MAX_W);
+        let (long, width) = badge_fit("hkg20-20260326100823aada56-and-more-and-more");
+        assert!(long.ends_with('…') && long.chars().count() < 40);
+        assert_eq!(width, BADGE_MAX_W);
+    }
+
+    #[test]
+    fn only_a_root_with_a_badge_gets_one_and_it_widens_the_content() {
+        use loog_workspace_api::{Capability, EnvironmentKey, PresentedRoot, ResourceRef};
+        let mut panel = ExplorerPanelState::default();
+        let resource =
+            ResourceRef::provided(EnvironmentKey::new("fixture", "tree").unwrap(), "opaque:root")
+                .unwrap();
+        // A root keeps the descriptor it was presented with, so each case has its own scope.
+        let root = |scope: u64, badge: Option<&str>| PresentedRoot {
+            scope,
+            resource: resource.clone(),
+            name: "app".into(),
+            capabilities: vec![Capability::FilesRead],
+            badge: badge.map(str::to_owned),
+        };
+        panel.resources.sync(vec![root(7, Some("web-01"))]);
+        let with = source::roots(&panel);
+        assert_eq!(with[0].badge.as_deref(), Some("web-01"));
+        panel.resources.sync(vec![root(8, None)]);
+        let without = source::roots(&panel);
+        assert_eq!(without[0].badge, None);
+        let width = |entries: &[Entry]| tree_content_right(&entries[0], &panel, 0.0);
+        assert!(width(&with) > width(&without));
     }
 
     #[test]

@@ -701,6 +701,7 @@ impl ExtensionService {
                     },
                     name: descriptor.name.clone(),
                     capabilities: descriptor.capabilities.clone(),
+                    badge: descriptor.badge.clone(),
                 };
                 // Presenting files does not authorize executing workspace code.
                 let caps = root

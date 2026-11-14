@@ -146,6 +146,11 @@ impl Router {
             || descriptor.name.contains('\0')
             || descriptor.platform.len() > 128
             || descriptor.platform.contains('\0')
+            || descriptor.badge.as_deref().is_some_and(|badge| {
+                badge.is_empty()
+                    || badge.len() > crate::operation::MAX_BADGE_BYTES
+                    || badge.chars().any(char::is_control)
+            })
             || descriptor.capabilities.len() > 6
             || descriptor
                 .capabilities

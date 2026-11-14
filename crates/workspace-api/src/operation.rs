@@ -19,7 +19,14 @@ pub struct EnvironmentDescriptor {
     pub name: String,
     pub platform: String,
     pub capabilities: Vec<Capability>,
+    /// A short note the provider wants shown beside the roots of this environment, such as
+    /// the machine they are on. At most [`MAX_BADGE_BYTES`] bytes of plain text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
 }
+
+/// The longest badge an environment can carry.
+pub const MAX_BADGE_BYTES: usize = 64;
 
 /// An explicitly presented native root. Paths remain provider-owned tokens.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -29,6 +36,9 @@ pub struct PresentedRoot {
     pub resource: crate::ResourceRef,
     pub name: String,
     pub capabilities: Vec<Capability>,
+    /// The environment's badge, shown beside the root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

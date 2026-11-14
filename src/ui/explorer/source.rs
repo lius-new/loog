@@ -20,6 +20,8 @@ pub(super) struct Entry {
     pub name: String,
     pub directory: bool,
     pub resource: Option<ResourceRef>,
+    /// A note the provider put beside this root; only a root carries one.
+    pub badge: Option<String>,
     origin: Origin,
 }
 
@@ -30,6 +32,7 @@ impl Entry {
             name,
             directory,
             resource: Some(ResourceRef::local(path.clone())),
+            badge: None,
             origin: Origin::Local(path),
         }
     }
@@ -48,6 +51,11 @@ impl Entry {
             name: target.name.clone(),
             directory: target.kind == FileKind::Directory,
             resource: Some(resource),
+            badge: if target.parent.is_none() {
+                root.descriptor.badge.clone()
+            } else {
+                None
+            },
             origin: Origin::Provided(target, file),
         }
     }
@@ -58,6 +66,7 @@ impl Entry {
             name,
             directory: false,
             resource: None,
+            badge: None,
             origin: Origin::Action(command),
         }
     }
