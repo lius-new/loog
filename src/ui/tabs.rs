@@ -21,9 +21,9 @@ use crate::ui::tab_layout::{self, TabLayoutInput, TabLayoutResult};
 use crate::ui::theme;
 
 /// Horizontal padding inside each tab pill (px-3 in the mockup).
-pub(super) const PAD: f32 = 12.0;
+pub(super) const PAD: f32 = 14.0;
 /// Gap between badge, name and close icon (gap-2 in the mockup).
-pub(super) const GAP: f32 = 6.0;
+pub(super) const GAP: f32 = 8.0;
 /// Adjacent tabs meet without a gap.
 pub(super) const TAB_GAP: f32 = 0.0;
 /// Extra right margin inside text rects so the last glyph is not clipped.
@@ -277,9 +277,9 @@ fn tab_badge(app: &Frame<'_>, id: ViewId, meta: &FileMeta) -> TabBadge {
 
 pub(crate) fn tab_name_style(active: bool, preview: bool) -> TextStyle {
     let style = if active {
-        theme::mono(theme::c().text_bright, theme::UI_SIZE)
+        theme::sans(theme::c().text_bright, theme::UI_SIZE)
     } else {
-        theme::mono(theme::c().text_muted, theme::UI_SIZE)
+        theme::sans(theme::c().text_muted, theme::UI_SIZE)
     };
     if preview { style.italic() } else { style }
 }
@@ -326,7 +326,7 @@ pub(crate) fn natural_tab_widths(app: &Frame<'_>, pane: PaneId) -> Vec<f32> {
             };
             let fixed_width = PAD + badge.width() + GAP + GAP + state_slot + CLOSE_ICON + PAD;
             let label = labels.get(id).map(String::as_str).unwrap_or(&meta.name);
-            Some(fixed_width + measure(label, theme::UI_SIZE, 400) + TEXT_MARGIN)
+            Some(fixed_width + measure_sans(label, theme::UI_SIZE, 400) + TEXT_MARGIN)
         })
         .collect();
     if let Some(pending) = app.editor.pending_file.as_ref().filter(|p| p.pane == pane) {
@@ -336,7 +336,7 @@ pub(crate) fn natural_tab_widths(app: &Frame<'_>, pane: PaneId) -> Vec<f32> {
                 + BADGE_ICON
                 + GAP * 2.0
                 + CLOSE_ICON
-                + measure(&meta.name, theme::UI_SIZE, 400)
+                + measure_sans(&meta.name, theme::UI_SIZE, 400)
                 + TEXT_MARGIN)
                 .clamp(EDITOR_MIN_TAB_W, MAX_TAB_W),
         );
@@ -700,7 +700,7 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
         let display_name = if Some(id) == active {
             label
         } else {
-            ellipsize(
+            ellipsize_sans(
                 &label,
                 (name_slot_w - TEXT_MARGIN).max(0.0),
                 theme::UI_SIZE,
@@ -810,6 +810,21 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
         }
 
         tab_layer = tab_layer.child(tab_el);
+        // Tabs are divided by a 1px edge on their right side, snapped to
+        // physical pixels so fractional tab widths never blur it.
+        let (right, top, bottom) = (pill.right, pill.top, pill.bottom);
+        tab_layer = tab_layer.child(Element::new(move |cx| {
+            let scale = cx.context.scale();
+            let edge = scale.physical_value(right) - scale.physical_length(1.0);
+            let line = scale.logical_rect(lgui::core::PhysicalRect::new(
+                edge,
+                scale.physical_value(top),
+                edge + scale.physical_length(1.0),
+                scale.physical_value(bottom),
+            ));
+            UiElement::panel(cx.id, line, VisualStyle::filled(theme::c().border))
+                .hit_rect(UiRect::new(0.0, 0.0, 0.0, 0.0))
+        }));
     }
 
     // The target tab reserves its icon slot immediately; only that icon changes
@@ -846,7 +861,7 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
                 theme::c().text_muted,
             )
         };
-        let name = ellipsize(
+        let name = ellipsize_sans(
             &meta.name,
             (pill.width() - PAD * 2.0 - BADGE_ICON - GAP * 2.0 - CLOSE_ICON).max(0.0),
             theme::UI_SIZE,
@@ -866,7 +881,7 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
                         pill.bottom,
                     ),
                     name,
-                    theme::mono(theme::c().text_muted, theme::UI_SIZE),
+                    theme::sans(theme::c().text_muted, theme::UI_SIZE),
                 ))
                 .child(
                     panel(
@@ -1034,12 +1049,14 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
         let scroll_x = layout.scroll_x;
         bar = bar.child(Element::new(move |cx| {
             let no_hit = UiRect::new(0.0, 0.0, 0.0, 0.0);
-            let underline = UiRect::new(
-                active.left,
-                (active.bottom - 2.0).max(active.top),
-                active.right,
-                active.bottom,
-            );
+            let scale = cx.context.scale();
+            let top = scale.physical_value(active.top);
+            let underline = scale.logical_rect(lgui::core::PhysicalRect::new(
+                scale.physical_value(active.left),
+                top,
+                scale.physical_value(active.right),
+                top + scale.physical_length(2.0),
+            ));
             let underline_id = cx.auto_id();
             UiElement::clip(cx.id, tab_viewport, -scroll_x, 0.0)
                 .hit_rect(no_hit)
