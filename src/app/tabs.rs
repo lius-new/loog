@@ -591,7 +591,7 @@ mod tests {
             assert_eq!(
                 pixel(
                     scale.physical_value(20.0),
-                    scale.physical_ui_value(strip.bottom).floor() as i32 - 1
+                    scale.physical_ui_value(strip.top).ceil() as i32
                 ),
                 &[
                     (accent & 255) as u8,
@@ -599,7 +599,7 @@ mod tests {
                     ((accent >> 16) & 255) as u8,
                     255
                 ],
-                "active tab underline must remain visible at scale={factor}",
+                "active tab accent line must remain visible at scale={factor}",
             );
         }
     }
@@ -825,12 +825,12 @@ mod tests {
         let mut session = UiSession::new();
         session.render_view(&view, viewport, UiScale::ONE);
         // Active and inactive tabs show the same hand as the terminal tabs,
-        // including along the active tab's underline.
+        // including along the active tab's accent line.
         for (x, y) in [
             (20.0, strip.top + 10.0),
             (60.0, strip.top + 10.0),
             (200.0, strip.top + 10.0),
-            (60.0, strip.bottom - 1.5),
+            (60.0, strip.top + 1.0),
         ] {
             assert_eq!(
                 session.tree().cursor_at(Point::new(x, y)),
