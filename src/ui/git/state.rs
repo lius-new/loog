@@ -256,14 +256,5 @@ impl GitUiState {
 pub struct GitPanelState {
     pub model: GitModel,
     pub ui: GitUiState,
-    pub resources: ResourceState,
 }
 
-#[derive(Clone, Default)]
-pub struct ResourceState {
-    pub paused: bool,
-    pub chooser: bool,
-    pub model: crate::features::git::resources::Model,
-    pub messages: std::collections::BTreeMap<loog_workspace_api::ResourceRef, InputState>,
-    pub scroll: f32,
-}

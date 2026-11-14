@@ -10,8 +10,6 @@ mod independent_provider;
 mod multiple_environments;
 #[path = "resource_node_acceptance.rs"]
 mod node_language;
-#[path = "resource_git_acceptance.rs"]
-mod resource_git;
 #[path = "resource_image_acceptance.rs"]
 mod resource_image;
 #[path = "resource_markdown_acceptance.rs"]
@@ -222,7 +220,6 @@ fn native_resource_editor_real_provider_open_save_conflict_and_disconnect() {
     let scope = root.scope;
     native_terminal(&ui, &host, &root);
     resource_process::run(&ui, &host, &root);
-    resource_git::run(&ui, &host, &root);
     resource_options::run(&ui, &host, &root);
     resource_project::run(&ui, &host, &root);
     resource_image::run(&ui, &host, &root);

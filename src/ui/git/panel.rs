@@ -256,43 +256,15 @@ pub fn render(
     commit_id: UiId,
     filter_focus: UiFocusHandle,
 ) -> Element {
-    let app = state.get();
-    if app.resources.model.entries.is_empty() && app.resources.model.offline.is_none() {
-        return render_local(
-            rect,
-            state,
-            store,
-            editor_focus,
-            commit_focus,
-            commit_id,
-            filter_focus,
-        );
-    }
-    let body = UiRect::new(
-        rect.left,
-        (rect.top + super::resources::SELECTOR_H).min(rect.bottom),
-        rect.right,
-        rect.bottom,
-    );
-    let content = if app.resources.model.selected.is_some() || app.resources.model.offline.is_some()
-    {
-        super::resources::render(body, state.clone(), commit_focus, commit_id).child(
-            git_resize_handle(rect, state.clone(), state.frame().resizing),
-        )
-    } else {
-        render_local(
-            body,
-            state.clone(),
-            store,
-            editor_focus,
-            commit_focus,
-            commit_id,
-            filter_focus,
-        )
-    };
-    panel(rect, VisualStyle::default())
-        .child(content)
-        .child(super::resources::selector(rect, state))
+    render_local(
+        rect,
+        state,
+        store,
+        editor_focus,
+        commit_focus,
+        commit_id,
+        filter_focus,
+    )
 }
 
 fn render_local(

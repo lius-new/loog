@@ -40,10 +40,6 @@ pub fn parse_unified(input: &str) -> GitResult<UnifiedDiff> {
     parse_unified_with(input, |value| Ok(super::parser::bytes_to_path(value)))
 }
 
-pub fn parse_resource_diff(input: &str) -> GitResult<UnifiedDiff<super::path::GitPath>> {
-    parse_unified_with(input, super::path::GitPath::from_git)
-}
-
 fn parse_unified_with<P: Default>(
     input: &str,
     mut path: impl FnMut(&[u8]) -> GitResult<P>,
@@ -256,20 +252,12 @@ fn parse_range(value: Option<&str>, prefix: char) -> GitResult<(usize, usize)> {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn resource_diff_decodes_quoted_names_without_client_path_rules() {
-        let input = "diff --git ignored\n--- \"a/src/中文\\\\name\\t.txt\"\n+++ \"b/src/中文\\134name\\011.txt\"\n@@ -1 +1 @@\n-old\n+new\n";
-        let diff = super::parse_resource_diff(input).unwrap();
-        let file = &diff.files[0];
-        assert_eq!(file.old_path, file.new_path);
-        let path = file.new_path.as_ref().unwrap();
-        assert_eq!(path.components().count(), 2);
-        assert_eq!(path.to_str(), Some("src/中文\\name\t.txt"));
-        assert!(super::parse_resource_diff("--- \"a/bad\\xname\"\n").is_err());
-        assert!(super::parse_resource_diff("--- a/../outside\n").is_err());
-        assert_eq!(super::unquote_name("\"a/\\377\"").unwrap(), b"a/\xff");
-    }
     use super::*;
+
+    #[test]
+    fn quoted_names_decode_octal_escapes_to_raw_bytes() {
+        assert_eq!(unquote_name("\"a/\\377\"").unwrap(), b"a/\xff");
+    }
 
     #[test]
     fn parses_file_and_hunk_ranges() {

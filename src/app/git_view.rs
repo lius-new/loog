@@ -23,7 +23,6 @@ pub(crate) fn binding(state: &AppContext, store: &State<GitStoreSnapshot>) -> Bi
                 active_diff: app
                     .workspace
                     .active_diff()
-                    .filter(|d| d.provided.is_none())
                     .map(|d| DiffRequest {
                         repository_root: d.repository_root.clone(),
                         path: d.path.clone(),
@@ -41,37 +40,7 @@ pub(crate) fn binding(state: &AppContext, store: &State<GitStoreSnapshot>) -> Bi
 }
 
 pub(crate) fn run(state: &AppContext, store: &State<GitStoreSnapshot>, command: Command) -> bool {
-    let app = state.get();
-    if (app.git.resources.model.selected.is_some() || app.git.resources.model.offline.is_some())
-        && matches!(
-            &command,
-            Command::CommitAndPush
-                | Command::CommitAll
-                | Command::Sync
-                | Command::UndoLastCommit
-                | Command::StashAll
-                | Command::ApplyStash { .. }
-                | Command::RequestDropStash { .. }
-                | Command::RequestAbort
-                | Command::ContinueOperation
-                | Command::StagePaths { .. }
-                | Command::StageConflicted { .. }
-                | Command::UnstagePaths { .. }
-                | Command::RequestDiscard { .. }
-                | Command::ResolveConflict { .. }
-                | Command::FetchBranches
-        )
-    {
-        state.update(|app| {
-            app.show_error("This Git operation is unavailable in the selected environment.")
-        });
-        return false;
-    }
     match command {
-        Command::Resource(command) => {
-            super::resource_git_tasks::run(state, command);
-            true
-        }
         Command::ClosePeek => {
             state.update(|app| app.editor.editor_hunk_peek = None);
             true

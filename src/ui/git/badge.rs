@@ -59,55 +59,6 @@ pub fn attach(
     store: Snapshot,
     diff_loading: bool,
 ) -> Element {
-    let app = state.get();
-    if let Some((_, name)) = &app.resources.model.offline {
-        let (badge, _) = badge_element(
-            rect,
-            left,
-            vec![(
-                0.0,
-                BadgePiece::Text {
-                    label: format!("{name} · Offline"),
-                    style: theme::sans(theme::c().text_muted, theme::SMALL),
-                },
-            )],
-            false,
-        );
-        return bar.child(badge);
-    }
-    if let Some(entry) = app
-        .resources
-        .model
-        .selected
-        .and_then(|scope| app.resources.model.entries.get(&scope))
-    {
-        let branch =
-            entry
-                .repository
-                .as_ref()
-                .map_or(String::new(), |repository| match &repository.head {
-                    crate::features::git::HeadState::Branch(name)
-                    | crate::features::git::HeadState::Unborn(name) => name.clone(),
-                    crate::features::git::HeadState::Detached(oid) => oid.chars().take(8).collect(),
-                });
-        let pieces = vec![(
-            0.0,
-            BadgePiece::Text {
-                label: format!("{}  {branch}", entry.root.name),
-                style: theme::sans(theme::c().text_muted, theme::SMALL),
-            },
-        )];
-        let (badge, _) = badge_element(rect, left, pieces, false);
-        return bar.child(
-            badge
-                .event_policy(EventPolicy::INTERACTIVE)
-                .semantics(Semantics::new(SemanticRole::Button).name("Show Source Control"))
-                .cursor(CursorIcon::Pointer)
-                .on_click(move || {
-                    state.dispatch(Command::ShowSourceControl);
-                }),
-        );
-    }
     let git = store.get();
     let picker_open = state.get().ui.branch_picker.is_some();
 

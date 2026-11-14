@@ -217,7 +217,6 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             window_geometry::handle_focus_change(event.focused);
             // A background window does not poll; regaining focus rescans.
             window_focus_git_poll.set_paused(!event.focused);
-            window_focus_state.update(|app| app.git.resources.paused = !event.focused);
             if let Some(images) = window_focus_state
                 .services()
                 .and_then(|runtime| runtime.images())
@@ -338,25 +337,6 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         changed
     });
     let s = state.get();
-    let resource_git_state = state.clone();
-    cx.use_effect((), move || {
-        super::resource_git_tasks::start(resource_git_state)
-    });
-    let resource_git_state = state.clone();
-    let resource_git_key = (
-        s.explorer
-            .resources
-            .roots
-            .iter()
-            .map(|root| root.descriptor.clone())
-            .collect::<Vec<_>>(),
-        s.workspace.active_meta().map(|meta| meta.resource.clone()),
-        s.source_control.visible,
-    );
-    cx.use_effect(resource_git_key, move || {
-        super::resource_git_tasks::tick(&resource_git_state);
-        || {}
-    });
     let editing_key = s
         .workspace
         .documents

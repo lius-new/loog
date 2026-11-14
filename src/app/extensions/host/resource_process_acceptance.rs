@@ -1,6 +1,6 @@
 use super::*;
 use crate::app::resource_process;
-use loog_workspace_api::{FailureKind, ResourceRef};
+use loog_workspace_api::FailureKind;
 
 pub(super) fn worker<T: Send + 'static>(
     ui: &SavingUi,
@@ -84,29 +84,6 @@ pub(super) fn run(ui: &SavingUi, host: &ExtensionHost, root: &loog_workspace_api
     })
     .unwrap_err();
     assert_eq!(error.kind, FailureKind::UnknownOutcome);
-
-    // A scoped executor must never run a same-spelling path in another environment.
-    let runner = crate::app::resource_git::runner(ui.state.clone(), scope, root.resource.clone());
-    let ResourceRef::Provided { path, .. } = &root.resource else {
-        panic!("root")
-    };
-    let foreign = ResourceRef::provided(
-        loog_workspace_api::EnvironmentKey::new("fixture", "other").unwrap(),
-        path.as_str(),
-    )
-    .unwrap();
-    let error = worker(ui, move || {
-        runner.run(
-            crate::infrastructure::git::command::GitCommand::new()
-                .cwd(foreign)
-                .arg("status"),
-        )
-    })
-    .unwrap_err();
-    assert_eq!(
-        error.kind,
-        crate::features::git::error::GitErrorKind::PermissionDenied
-    );
 
     ui.runtime
         .trust()

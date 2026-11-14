@@ -14,7 +14,6 @@ pub enum GitRuntimeSource {
     Managed,
     System,
     Custom,
-    RemoteEnvironment,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]

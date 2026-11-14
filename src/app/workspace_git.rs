@@ -7,42 +7,14 @@ use crate::features::git::{DiffContent, DiffRequest, DiffTarget, GitResult, Poll
 use std::path::Path;
 use std::sync::Arc;
 impl Workspace {
-    pub(super) fn refresh_resource_diff(
-        &mut self,
-        view: ViewId,
-        previous: &Arc<DiffDocument>,
-        next: Arc<DiffDocument>,
-    ) -> bool {
-        let Some(document) = self
-            .core
-            .diffs
-            .values_mut()
-            .find(|document| document.view == view && Arc::ptr_eq(&document.content, previous))
-        else {
-            return false;
-        };
-        if document.content.provided.is_none()
-            || !document.content.same_view(&next)
-            || document.content == next
-        {
-            return false;
-        }
-        crate::infrastructure::ui_dispatch::retire(std::mem::replace(&mut document.content, next));
-        true
-    }
     pub fn open_diff(&mut self, diff: DiffDocument) -> ViewId {
         self.open_prepared_diff(Arc::new(diff))
     }
 
     pub fn open_prepared_file_changes(&mut self, diff: Arc<DiffDocument>) -> ViewId {
-        if diff.provided.is_some() {
-            return self.open_prepared_diff(diff);
-        }
         if let Some((_, document)) = self.core.diffs.iter_mut().find(|(_, document)| {
             let current = &document.content;
-            current.provided.is_none()
-                && diff.provided.is_none()
-                && current.repository_root == diff.repository_root
+            current.repository_root == diff.repository_root
                 && current.sections.is_none()
                 && current.revision.is_none()
         }) {
@@ -152,10 +124,7 @@ impl Workspace {
     }
 
     fn insert_prepared_diff(&mut self, pane: PaneId, diff: Arc<DiffDocument>) -> ViewId {
-        let mut meta = match diff.resource() {
-            loog_workspace_api::ResourceRef::Local { path } => FileMeta::from_path(path),
-            resource => FileMeta::provided(resource, diff.title()),
-        };
+        let mut meta = FileMeta::from_path(diff.repository_root.join(&diff.path));
         meta.name = diff.title();
         self.core.insert_diff(pane, meta, diff)
     }
@@ -166,8 +135,7 @@ impl Workspace {
             .values()
             // A commit's diff never changes, so it is not refreshed.
             .filter_map(|document| {
-                Some(&document.content)
-                    .filter(|diff| diff.revision.is_none() && diff.provided.is_none())
+                Some(&document.content).filter(|diff| diff.revision.is_none())
             })
             .map(|diff| DiffRequest {
                 repository_root: diff.repository_root.clone(),
@@ -192,9 +160,6 @@ impl Workspace {
         let core = &mut self.core;
         for document in core.diffs.values_mut() {
             let current = &document.content;
-            if current.provided.is_some() {
-                continue;
-            }
             let request = DiffRequest {
                 repository_root: current.repository_root.clone(),
                 path: current.path.clone(),
@@ -260,9 +225,6 @@ impl Workspace {
         let core = &mut self.core;
         for document in core.diffs.values_mut() {
             let current = &document.content;
-            if current.provided.is_some() {
-                continue;
-            }
             let request = DiffRequest {
                 repository_root: current.repository_root.clone(),
                 path: current.path.clone(),

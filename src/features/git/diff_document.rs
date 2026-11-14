@@ -36,12 +36,6 @@ pub struct SplitDiffRow {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiffDocument {
-    /// COMPAT(local-git-diff-location): Local history and patch commands retain
-    /// their native path fields until they use resource identities. Provided
-    /// comparisons leave those fields empty and use this identity exclusively;
-    /// remove the dual representation when local consumers migrate. No removal
-    /// version is scheduled.
-    pub provided: Option<ResourceDiffIdentity>,
     pub repository_root: PathBuf,
     pub path: PathBuf,
     pub target: DiffTarget,
@@ -59,13 +53,6 @@ pub struct DiffDocument {
     /// Identity of a progressive overview read. Completed documents have none.
     pub loading: Option<u64>,
     metrics: DiffMetrics,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ResourceDiffIdentity {
-    pub repository: loog_workspace_api::ResourceRef,
-    pub path: super::path::GitPath,
-    pub file: loog_workspace_api::ResourceRef,
 }
 
 /// Diff row height at the default 12px code size.
@@ -313,18 +300,6 @@ impl DiffDocument {
         Self::from_payload(repository_root, path, target, diff)
     }
 
-    pub fn from_resource(
-        identity: ResourceDiffIdentity,
-        target: DiffTarget,
-        diff: UnifiedDiff<super::path::GitPath>,
-    ) -> Self {
-        let mut document = Self::from_payload(PathBuf::new(), PathBuf::new(), target, diff);
-        document.provided = Some(identity);
-        // Decoded text cannot be applied as a raw Git patch.
-        document.blocks.clear();
-        document
-    }
-
     fn from_payload<P>(
         repository_root: PathBuf,
         path: PathBuf,
@@ -419,7 +394,6 @@ impl DiffDocument {
             Vec::new()
         };
         Self {
-            provided: None,
             repository_root,
             path,
             target,
@@ -449,11 +423,8 @@ impl DiffDocument {
 
     /// Whether `other` shows the same file, side and commit.
     pub fn same_view(&self, other: &Self) -> bool {
-        (match (&self.provided, &other.provided) {
-            (Some(a), Some(b)) => a == b && self.target == other.target,
-            (None, None) => self.matches(&other.repository_root, &other.path, other.target),
-            _ => false,
-        }) && self.revision == other.revision
+        self.matches(&other.repository_root, &other.path, other.target)
+            && self.revision == other.revision
     }
 
     pub fn added(
@@ -475,7 +446,6 @@ impl DiffDocument {
         let split_rows = build_split_rows(&rows);
         let metrics = DiffMetrics::new(&rows, &split_rows);
         Self {
-            provided: None,
             repository_root,
             path,
             target,
@@ -491,31 +461,14 @@ impl DiffDocument {
     }
 
     pub fn resource(&self) -> loog_workspace_api::ResourceRef {
-        self.provided.as_ref().map_or_else(
-            || loog_workspace_api::ResourceRef::local(self.repository_root.join(&self.path)),
-            |identity| identity.file.clone(),
-        )
+        loog_workspace_api::ResourceRef::local(self.repository_root.join(&self.path))
     }
 
     pub fn path_label(&self) -> String {
-        self.provided.as_ref().map_or_else(
-            || self.path.display().to_string(),
-            |identity| identity.path.display().to_string(),
-        )
+        self.path.display().to_string()
     }
 
     pub fn title(&self) -> String {
-        if let Some(identity) = &self.provided {
-            return format!(
-                "{} ({})",
-                identity
-                    .path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy(),
-                self.source_label()
-            );
-        }
         if self.sections.is_some() {
             let repository = self
                 .repository_root
@@ -548,10 +501,7 @@ impl DiffDocument {
     }
 
     pub fn matches(&self, repository_root: &Path, path: &Path, target: DiffTarget) -> bool {
-        self.provided.is_none()
-            && self.repository_root == repository_root
-            && self.path == path
-            && self.target == target
+        self.repository_root == repository_root && self.path == path && self.target == target
     }
 
     pub fn additions(&self) -> usize {
@@ -747,37 +697,6 @@ fn line_number(value: usize) -> Option<usize> {
 mod tests {
     use super::*;
     use crate::features::git::diff::parse_unified;
-
-    #[test]
-    fn resource_diff_identity_does_not_alias_other_environments_or_native_paths() {
-        use loog_workspace_api::{EnvironmentKey, ResourceRef};
-        let document = |instance| {
-            let environment = EnvironmentKey::new("fixture", instance).unwrap();
-            DiffDocument::from_resource(
-                ResourceDiffIdentity {
-                    repository: ResourceRef::provided(environment.clone(), "/repo").unwrap(),
-                    path: super::super::path::GitPath::from_git("中文\\file[1].txt".as_bytes())
-                        .unwrap(),
-                    file: ResourceRef::provided(environment, "/repo/中文\\file[1].txt").unwrap(),
-                },
-                DiffTarget::IndexToWorktree,
-                UnifiedDiff::default(),
-            )
-        };
-        let first = document("first");
-        assert!(first.same_view(&document("first")));
-        assert!(!first.same_view(&document("second")));
-        assert!(!first.same_view(&DiffDocument::added(
-            PathBuf::new(),
-            PathBuf::new(),
-            DiffTarget::IndexToWorktree,
-            ""
-        )));
-        assert!(!first.matches(Path::new(""), Path::new(""), DiffTarget::IndexToWorktree));
-        assert_eq!(first.path_label(), "中文\\file[1].txt");
-        assert!(first.resource().local_path().is_none());
-        assert!(first.blocks.is_empty());
-    }
 
     #[test]
     fn change_blocks_are_numbered_like_zero_context_hunks() {

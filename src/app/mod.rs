@@ -29,8 +29,6 @@ mod phase0_baseline;
 mod presentation;
 mod resource_bytes;
 pub(crate) mod resource_edit;
-mod resource_git;
-mod resource_git_tasks;
 mod resource_link;
 mod resource_options;
 mod resource_process;

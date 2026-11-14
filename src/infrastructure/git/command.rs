@@ -111,13 +111,6 @@ pub struct GitOutput {
     pub stderr: Vec<u8>,
 }
 
-/// Execution is injected independently of Git command construction and parsing.
-/// An environment executor receives the complete resource identity and never
-/// obtains a client filesystem path by string conversion.
-pub trait GitExecutor: std::fmt::Debug + Send + Sync {
-    fn run(&self, command: GitCommand, cancellation: &CancellationToken) -> GitResult<GitOutput>;
-}
-
 impl GitOutput {
     pub fn stdout_text(&self) -> GitResult<String> {
         String::from_utf8(self.stdout.clone()).map_err(|error| {
@@ -130,22 +123,11 @@ impl GitOutput {
 #[derive(Clone, Debug)]
 pub struct GitCommandRunner {
     runtime: GitRuntime,
-    executor: Option<Arc<dyn GitExecutor>>,
 }
 
 impl GitCommandRunner {
     pub fn new(runtime: GitRuntime) -> Self {
-        Self {
-            runtime,
-            executor: None,
-        }
-    }
-
-    pub fn with_executor(runtime: GitRuntime, executor: Arc<dyn GitExecutor>) -> Self {
-        Self {
-            runtime,
-            executor: Some(executor),
-        }
+        Self { runtime }
     }
 
     pub fn git_runtime(&self) -> &GitRuntime {
@@ -166,9 +148,6 @@ impl GitCommandRunner {
                 GitErrorKind::Cancelled,
                 "Git operation was cancelled.",
             ));
-        }
-        if let Some(executor) = &self.executor {
-            return executor.run(command, cancellation);
         }
         let mut process = Command::new(&self.runtime.executable);
         if let Some(cwd) = &command.cwd {
@@ -343,50 +322,4 @@ fn os_str_bytes(value: &OsStr) -> Cow<'_, [u8]> {
 #[cfg(not(unix))]
 fn os_str_bytes(value: &OsStr) -> Cow<'_, [u8]> {
     Cow::Owned(value.to_string_lossy().as_bytes().to_vec())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::features::git::types::GitRuntimeSource;
-    #[derive(Debug)]
-    struct Recording(std::sync::Mutex<Vec<ResourceRef>>);
-    impl GitExecutor for Recording {
-        fn run(&self, command: GitCommand, _: &CancellationToken) -> GitResult<GitOutput> {
-            self.0.lock().unwrap().push(command.cwd.unwrap());
-            Ok(GitOutput {
-                code: Some(0),
-                stdout: command.stdin,
-                stderr: Vec::new(),
-            })
-        }
-    }
-    #[test]
-    fn injected_execution_retains_environment_identity_and_never_uses_local_runtime() {
-        let executor = Arc::new(Recording(std::sync::Mutex::new(Vec::new())));
-        let runtime = GitRuntime {
-            executable: "must-not-run".into(),
-            root: PathBuf::new(),
-            source: GitRuntimeSource::RemoteEnvironment,
-            version: Default::default(),
-            capabilities: Default::default(),
-        };
-        let runner = GitCommandRunner::with_executor(runtime, executor.clone());
-        for instance in ["first", "second"] {
-            let key = loog_workspace_api::EnvironmentKey::new("fixture", instance).unwrap();
-            let root = ResourceRef::provided(key, "opaque:root\\中文").unwrap();
-            let output = runner
-                .run(
-                    GitCommand::new()
-                        .cwd(root)
-                        .arg("status")
-                        .stdin([0, 255, 10]),
-                )
-                .unwrap();
-            assert_eq!(output.stdout, [0, 255, 10]);
-        }
-        let roots = executor.0.lock().unwrap();
-        assert_eq!(roots.len(), 2);
-        assert_ne!(roots[0], roots[1]);
-    }
 }

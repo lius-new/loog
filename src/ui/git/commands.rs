@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub enum Command {
-    Resource(crate::features::git::resources::Intent),
     ClosePeek,
     NavigatePeek {
         pane: crate::domain::pane_layout::PaneId,

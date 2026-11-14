@@ -35,15 +35,7 @@ pub fn facts(app: &AppState) -> ContextFacts {
         confirm: app.git.ui.confirm.is_some(),
         branch: app.git.ui.branch_picker.is_some(),
         palette: app.palette.visible,
-        commit: app.git.ui.commit_input.focused
-            || app
-                .git
-                .resources
-                .model
-                .selected
-                .and_then(|scope| app.git.resources.model.entries.get(&scope))
-                .and_then(|entry| app.git.resources.messages.get(&entry.root.resource))
-                .is_some_and(|input| input.focused),
+        commit: app.git.ui.commit_input.focused,
         search: app.drawer.visible
             && app.drawer.mode == crate::ui::drawer::DrawerMode::Search
             && (app.search.ui.query.focused

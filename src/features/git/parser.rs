@@ -20,11 +20,6 @@ pub fn parse_porcelain_v2(input: &[u8]) -> GitResult<ParsedStatus> {
     parse_status_with(input, |bytes| Ok(bytes_to_path(bytes)))
 }
 
-pub fn parse_resource_status(input: &[u8]) -> GitResult<ParsedStatus<super::path::GitPath>> {
-    resource_budget(input)?;
-    parse_status_with(input, super::path::GitPath::from_git)
-}
-
 fn parse_status_with<P: Ord + Default>(
     input: &[u8],
     mut path: impl FnMut(&[u8]) -> GitResult<P>,
@@ -125,21 +120,6 @@ fn parse_status_with<P: Ord + Default>(
 /// the statistics belong to the new path shown by porcelain status.
 pub fn parse_numstat(input: &[u8]) -> GitResult<BTreeMap<PathBuf, DiffStat>> {
     parse_numstat_with(input, |bytes| Ok(bytes_to_path(bytes)))
-}
-
-pub fn parse_resource_numstat(input: &[u8]) -> GitResult<BTreeMap<super::path::GitPath, DiffStat>> {
-    resource_budget(input)?;
-    parse_numstat_with(input, super::path::GitPath::from_git)
-}
-
-fn resource_budget(input: &[u8]) -> GitResult<()> {
-    if input.len() > 16 * 1024 * 1024 || input.iter().filter(|byte| **byte == 0).count() > 100_000 {
-        return Err(GitError::new(
-            GitErrorKind::Unsupported,
-            "Git status exceeds its 16 MiB / 100,000 record budget",
-        ));
-    }
-    Ok(())
 }
 
 fn parse_numstat_with<P: Ord>(
@@ -345,33 +325,6 @@ pub fn parse_branches(input: &[u8]) -> GitResult<Vec<BranchInfo>> {
 mod tests {
     use super::*;
     use std::path::Path;
-
-    #[test]
-    fn resource_status_preserves_git_names_and_rejects_escaping_entries() {
-        use super::super::path::GitPath;
-        let input = "# branch.head main\0? src/中文\\name.txt\0! generated/\0";
-        let status = parse_resource_status(input.as_bytes()).unwrap();
-        let path = GitPath::from_git("src/中文\\name.txt".as_bytes()).unwrap();
-        assert_eq!(status.files[&path].worktree, ChangeKind::Untracked);
-        assert_eq!(path.components().count(), 2);
-        assert!(
-            status
-                .ignored
-                .contains(&GitPath::from_git(b"generated").unwrap())
-        );
-        assert!(parse_resource_status(b"? ../escape\0").is_err());
-        let stats = parse_resource_numstat("3\t2\tsrc/中文\\name.txt\0".as_bytes()).unwrap();
-        assert_eq!(stats[&path].additions, 3);
-        let removed =
-            parse_resource_status(b"1 D. N... 100644 000000 000000 a b keep.txt\0? keep.txt\0")
-                .unwrap();
-        let state = &removed.files[&GitPath::from_git(b"keep.txt").unwrap()];
-        assert_eq!(
-            (state.index, state.worktree),
-            (ChangeKind::Deleted, ChangeKind::Untracked)
-        );
-        assert!(parse_resource_status(&vec![0; 100_001]).is_err());
-    }
 
     #[test]
     fn branches_skip_remote_head_symrefs() {

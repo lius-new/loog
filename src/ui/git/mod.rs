@@ -13,7 +13,6 @@ pub(crate) mod history_graph;
 pub mod hunk_peek;
 pub mod menu;
 pub mod panel;
-mod resources;
 pub mod stash_switch;
 pub mod state;
 pub(crate) mod tag_card;
