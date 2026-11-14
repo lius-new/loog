@@ -745,7 +745,7 @@ pub(crate) fn commit_input(
             style: InputStyle {
                 text: theme::sans(theme::c().text, 12.0),
                 placeholder: theme::sans(theme::c().text_ghost, 12.0),
-                caret: theme::c().text_faint,
+                caret: theme::c().text,
                 selection: theme::c().accent,
             },
             on_submit: None,

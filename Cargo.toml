@@ -60,7 +60,7 @@ loog-editor-core = { path = "crates/editor-core", features = ["diagnostics"] }
 
 [dependencies.lgui]
 git = "https://github.com/lius-new/lgui.git"
-rev = "a4b53744978eaf11906924e30c9a30e32ead9ec7"
+rev = "bf003948713122b0fe5709cdc0598390e07db794"
 default-features = false
 features = ["renderer-skia-software", "widgets", "dialogs", "clipboard"]
 
