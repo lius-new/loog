@@ -63,6 +63,7 @@ pub fn run(state: &AppContext, c: Command) -> bool {
             app.workspace
                 .set_scroll(pane, (x - dx).clamp(0.0, mx), (y - dy).clamp(0.0, my));
         }
+        Command::Zoom(steps) => app.zoom_editor_steps(steps),
         Command::Activate(pane) => {
             app.editor.diff_change_focus = None;
             app.workspace.activate_pane(pane);
@@ -280,10 +281,13 @@ fn selection_geometry(
 ) -> Option<(Geometry, Option<ChangesLayout>)> {
     let document = app.workspace.diff(pane)?;
     let split = app.git.ui.split_diff;
-    let layout = document
-        .sections
-        .as_ref()
-        .map(|_| document.changes_layout(split, &app.workspace.collapsed_diffs(pane)));
+    let layout = document.sections.as_ref().map(|_| {
+        document.changes_layout(
+            split,
+            &app.workspace.collapsed_diffs(pane),
+            crate::ui::diff_editor::heading_rows(),
+        )
+    });
     let (scroll_x, scroll_y) = app.workspace.scroll(pane);
     let geometry = Geometry {
         body,
@@ -422,6 +426,7 @@ pub(crate) fn drag_scrollbars(app: &mut AppState, rect: UiRect, x: f32, y: f32) 
             .changes_layout(
                 split,
                 &app.workspace.collapsed_diffs(app.workspace.active_pane()),
+                crate::ui::diff_editor::heading_rows(),
             )
             .row_count
     } else if split {
@@ -491,6 +496,27 @@ mod tests {
     };
     use lgui::prelude::State;
     use std::path::PathBuf;
+
+    #[test]
+    fn diff_views_zoom_with_the_editor_font_shortcuts() {
+        use crate::features::git::diff::parse_unified;
+        let document = DiffDocument::from_unified(
+            "repo".into(),
+            "a.txt".into(),
+            DiffTarget::IndexToWorktree,
+            parse_unified(
+                "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n start\n-old\n+new\n",
+            )
+            .unwrap(),
+        );
+        let mut app = AppState::new();
+        app.workspace.open_diff(document);
+        app.editor.focused = true;
+        assert_eq!(app.main_surface(), crate::app::state::MainSurface::Diff);
+        let before = app.preferences.values().editor_font.size;
+        app.apply(Action::IncreaseFontSize);
+        assert_eq!(app.preferences.values().editor_font.size, before + 1);
+    }
     fn render(
         pane: PaneId,
         rect: UiRect,
@@ -797,7 +823,11 @@ mod tests {
                 let app = state.get();
                 let collapsed = app.workspace.collapsed_diffs(app.workspace.active_pane());
                 let document = app.workspace.active_diff().unwrap();
-                let layout = document.changes_layout(split, &collapsed);
+                let layout = document.changes_layout(
+                    split,
+                    &collapsed,
+                    crate::ui::diff_editor::heading_rows(),
+                );
                 let item = layout
                     .sections
                     .iter()

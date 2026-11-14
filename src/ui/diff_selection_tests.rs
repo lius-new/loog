@@ -17,7 +17,11 @@ fn pointer_positions_resolve_to_files_rows_and_characters() {
         scroll_x: 0.0,
         scroll_y: 0.0,
     };
-    let layout = document.changes_layout(false, &Default::default());
+    let layout = document.changes_layout(
+        false,
+        &Default::default(),
+        crate::ui::diff_editor::heading_rows(),
+    );
     let text_left = code_left(body, false) + theme::CODE_PAD;
     let row_y = |row: usize| body.top + (row as f32 + 0.5) * row_h();
     let first_body = layout.sections[0].body_top;

@@ -25,6 +25,8 @@ pub(crate) const NUMBER_W: f32 = 44.0;
 const MARKER_W: f32 = 20.0;
 const BUTTON_H: f32 = 22.0;
 const BUTTON_GAP: f32 = 4.0;
+/// Height a file heading aims for, whatever the font size.
+const HEADING_H: f32 = 40.0;
 
 /// Height of one diff row; rows grow with the editor font size.
 pub(crate) fn row_h() -> f32 {
@@ -55,7 +57,7 @@ pub fn render(
     let overview = document
         .sections
         .as_ref()
-        .map(|_| document.changes_layout(split, &collapsed));
+        .map(|_| document.changes_layout(split, &collapsed, heading_rows()));
     let starts = overview.as_ref().map_or_else(
         || document.change_starts(split),
         |layout| layout.starts.clone(),
@@ -116,6 +118,14 @@ pub fn render(
     })
     .event_policy(EventPolicy::INTERACTIVE)
     .on_wheel(move |cx, delta| {
+        if crate::ui::wheel_zoom::is_zoom(delta) {
+            let steps = crate::ui::wheel_zoom::steps(delta);
+            if steps != 0 {
+                wheel_state.run(Command::Zoom(steps));
+            }
+            cx.stop_propagation();
+            return;
+        }
         let (step_x, step_y) = match delta.unit {
             WheelUnit::Lines => (delta.x * row_h() * 3.0, delta.y * row_h() * 3.0),
             WheelUnit::Pixels => (delta.x, delta.y),
@@ -734,7 +744,13 @@ fn block_buttons(
 /// Height of a file heading in the all-files view, which stays pinned at the top
 /// while its file's rows scroll beneath it.
 pub(crate) fn file_heading_h() -> f32 {
-    row_h() * 2.0
+    heading_rows() as f32 * row_h()
+}
+
+/// A file heading is a fixed-size control, so it spans however many rows come
+/// closest to `HEADING_H` instead of growing with the font.
+pub(crate) fn heading_rows() -> usize {
+    ((HEADING_H / row_h()).round() as usize).max(1)
 }
 
 fn render_changes(
@@ -783,15 +799,15 @@ fn render_changes(
         let (changes_w, file_w) = if compact { (66.0, 44.0) } else { (100.0, 76.0) };
         let file_rect = UiRect::new(
             rect.right - SCROLLBAR_SIZE - file_w - 8.0,
-            top + 9.0,
+            top + (file_heading_h() - 22.0) / 2.0,
             rect.right - SCROLLBAR_SIZE - 8.0,
-            top + 31.0,
+            top + (file_heading_h() + 22.0) / 2.0,
         );
         let action_rect = UiRect::new(
             file_rect.left - BUTTON_GAP - changes_w,
-            top + 9.0,
+            top + (file_heading_h() - 22.0) / 2.0,
             file_rect.left - BUTTON_GAP,
-            top + 31.0,
+            top + (file_heading_h() + 22.0) / 2.0,
         );
         let stats_right = action_rect.left - 10.0;
         let stats_w = if rect.width() < 460.0 { 0.0 } else { 96.0 };
@@ -838,9 +854,9 @@ fn render_changes(
                 UiId::owned(format!("changes-chevron-{}", item.index)),
                 theme::icon_rect(UiRect::new(
                     rect.left + 8.0,
-                    top + 12.0,
+                    top + (file_heading_h() - 16.0) / 2.0,
                     rect.left + 24.0,
-                    top + 28.0,
+                    top + (file_heading_h() + 16.0) / 2.0,
                 )),
                 if collapsed {
                     "chevron-right"
