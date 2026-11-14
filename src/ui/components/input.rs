@@ -260,6 +260,9 @@ pub fn render_portable<T: Clone + Send + 'static>(
             .label(label)
             .multiline(multiline)
             .placeholder(placeholder)
+            .placeholder_style(style.placeholder)
+            .caret_color(style.caret)
+            .selection_color(style.selection)
             .clipboard(clipboard)
             .style(VisualStyle::default(), style.text);
         cx.compile(
