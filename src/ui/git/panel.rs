@@ -342,7 +342,9 @@ fn render_local(
             .cloned()
             .collect::<Vec<_>>();
         let rows = change_rows(&files, app.ui.tree_view, &|path| {
-            app.ui.change_collapsed.contains(&(filter, path.to_path_buf()))
+            app.ui
+                .change_collapsed
+                .contains(&(filter, path.to_path_buf()))
         })
         .into_iter()
         .map(|row| match row {
@@ -364,7 +366,7 @@ fn render_local(
                 depth,
             },
         })
-            .collect::<Vec<_>>();
+        .collect::<Vec<_>>();
         (title, filter, files, rows)
     });
     let section_height = |filter: u8, rows: usize| {
@@ -1446,9 +1448,7 @@ pub(crate) fn folder_row(
     })
     .key(format!("git-{key}-{filter}"))
     .event_policy(EventPolicy::INTERACTIVE)
-    .semantics(
-        Semantics::new(SemanticRole::Button).name(format!("{label} folder")),
-    )
+    .semantics(Semantics::new(SemanticRole::Button).name(format!("{label} folder")))
     .cursor(CursorIcon::Pointer)
     .on_click(move || {
         let toggle_key = toggle_key.clone();

@@ -2261,11 +2261,14 @@ mod tests {
         let (mut session, view, state, tabs, viewport) = strip_harness(1400.0, 4);
         let ids = [1_u64, 2, 3, 4];
         let baseline = tab_rects(&session, &ids);
-        // Short names all get the minimum width, a gap apart, equal selecting areas.
+        // Short names all get the same width, a gap apart, equal selecting areas.
+        // The width itself follows the platform's font.
+        let pitch = baseline[1].left - baseline[0].left;
+        assert!(pitch >= 100.0 + TAB_STRIP_GAP - 0.01);
         assert!(
             baseline
                 .windows(2)
-                .all(|w| (w[1].left - w[0].left - (100.0 + TAB_STRIP_GAP)).abs() < 0.01)
+                .all(|w| (w[1].left - w[0].left - pitch).abs() < 0.01)
         );
         assert!(
             baseline
@@ -2338,10 +2341,12 @@ mod tests {
         // Four short names fit at the minimum width: no scrolling and no list.
         let (session, _, _, _, _) = strip_harness(1400.0, 4);
         let rects = tab_rects(&session, &[1, 2, 3, 4]);
+        let pitch = rects[1].left - rects[0].left;
+        assert!(pitch >= 100.0 + TAB_STRIP_GAP - 0.01);
         assert!(
             rects
                 .windows(2)
-                .all(|w| (w[1].left - w[0].left - (100.0 + TAB_STRIP_GAP)).abs() < 0.01)
+                .all(|w| (w[1].left - w[0].left - pitch).abs() < 0.01)
         );
         assert!(
             named_try(&session, "All terminals").is_none(),

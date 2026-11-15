@@ -3006,8 +3006,7 @@ mod panel_action_tests {
         );
         // A folded folder keeps its row and file count but hides what is below.
         assert_eq!(
-            describe(change_rows(&files, true, &|path| path
-                == std::path::Path::new("src"))),
+            describe(change_rows(&files, true, &|path| path == std::path::Path::new("src"))),
             [
                 "  v docs/x/y/ 1",
                 "    docs/x/y/z.md",
