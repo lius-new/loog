@@ -1,7 +1,7 @@
 //! Source Control drawer.
 
 use crate::features::highlighting::HighlightId;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use lgui::core::{
     CursorIcon, EventPolicy, PointerButton, SemanticRole, Semantics, UiElement, UiEventContext,
@@ -26,6 +26,8 @@ pub(crate) const PROMPT_H: f32 = 196.0;
 /// The composer while an operation is unfinished: a title and one button.
 pub(crate) const OPERATION_PROMPT_H: f32 = 84.0;
 pub(crate) const CHANGE_ROW_H: f32 = 24.0;
+/// How far each folder level of a grouped change section is indented.
+const TREE_INDENT: f32 = 14.0;
 pub(crate) const SECTION_H: f32 = 26.0;
 pub(crate) const ROW_H: f32 = 20.0;
 
@@ -339,15 +341,29 @@ fn render_local(
             })
             .cloned()
             .collect::<Vec<_>>();
-        let rows = change_rows(&files, app.ui.tree_view)
-            .into_iter()
-            .map(|row| match row {
-                ChangeRow::Folder { path, files } => OwnedChangeRow::Folder { path, files },
-                ChangeRow::File { path, nested } => OwnedChangeRow::File {
-                    path: path.clone(),
-                    nested,
-                },
-            })
+        let rows = change_rows(&files, app.ui.tree_view, &|path| {
+            app.ui.change_collapsed.contains(&(filter, path.to_path_buf()))
+        })
+        .into_iter()
+        .map(|row| match row {
+            ChangeRow::Folder {
+                path,
+                label,
+                depth,
+                expanded,
+                files,
+            } => OwnedChangeRow::Folder {
+                path,
+                label,
+                depth,
+                expanded,
+                files,
+            },
+            ChangeRow::File { path, depth } => OwnedChangeRow::File {
+                path: path.clone(),
+                depth,
+            },
+        })
             .collect::<Vec<_>>();
         (title, filter, files, rows)
     });
@@ -422,7 +438,13 @@ fn render_local(
             let row_y = rows_top + index as f32 * CHANGE_ROW_H;
             let row_rect = UiRect::new(rect.left, row_y, content_rect.right, row_y + CHANGE_ROW_H);
             match &rows[index] {
-                OwnedChangeRow::Folder { path, files } => {
+                OwnedChangeRow::Folder {
+                    path,
+                    label,
+                    depth,
+                    expanded,
+                    files,
+                } => {
                     let hover = GitHover::Folder(filter, path.clone());
                     let hovered = app.ui.hover.as_ref() == Some(&hover);
                     hover_targets.push((row_rect, hover));
@@ -430,13 +452,16 @@ fn render_local(
                         row_rect,
                         filter,
                         path,
+                        label,
+                        *depth,
+                        *expanded,
                         files.clone(),
                         hovered,
                         &state,
                         &store,
                     ));
                 }
-                OwnedChangeRow::File { path, nested } => {
+                OwnedChangeRow::File { path, depth } => {
                     let file_state = repository.files.get(path).cloned().unwrap_or_default();
                     let hover = GitHover::File(filter, path.clone());
                     let hovered = app.ui.hover.as_ref() == Some(&hover);
@@ -457,7 +482,7 @@ fn render_local(
                     content.push(file_row(
                         row_rect,
                         path.clone(),
-                        *nested,
+                        *depth,
                         file_state.clone(),
                         filter,
                         target,
@@ -1249,54 +1274,118 @@ pub(crate) fn repository_name(root: &std::path::Path) -> String {
 /// A row of a change section.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum OwnedChangeRow {
-    Folder { path: PathBuf, files: Vec<PathBuf> },
-    File { path: PathBuf, nested: bool },
+    Folder {
+        path: PathBuf,
+        label: String,
+        depth: usize,
+        expanded: bool,
+        files: Vec<PathBuf>,
+    },
+    File {
+        path: PathBuf,
+        depth: usize,
+    },
 }
 
 pub(crate) enum ChangeRow<'a> {
-    /// A folder and the section's files directly in it.
-    Folder { path: PathBuf, files: Vec<PathBuf> },
-    /// A file; `nested` when listed under its folder row.
-    File { path: &'a PathBuf, nested: bool },
+    /// A folder, with every section file below it. A chain of folders that
+    /// each hold only one folder joins into one row, as in `src/ui/git`;
+    /// `path` is the innermost folder.
+    Folder {
+        path: PathBuf,
+        label: String,
+        depth: usize,
+        expanded: bool,
+        files: Vec<PathBuf>,
+    },
+    /// A file, `depth` folders below the repository root.
+    File { path: &'a PathBuf, depth: usize },
 }
 
-/// `files` as rows: as given, or grouped under one row per folder (files
-/// at the repository root first, without a folder row).
-pub(crate) fn change_rows(files: &[PathBuf], grouped: bool) -> Vec<ChangeRow<'_>> {
+#[derive(Default)]
+struct ChangeDir<'a> {
+    dirs: std::collections::BTreeMap<String, ChangeDir<'a>>,
+    files: Vec<&'a PathBuf>,
+    all: Vec<PathBuf>,
+}
+
+impl<'a> ChangeDir<'a> {
+    fn insert(&mut self, folders: &[String], path: &'a PathBuf) {
+        self.all.push(path.clone());
+        match folders {
+            [] => self.files.push(path),
+            [first, rest @ ..] => self
+                .dirs
+                .entry(first.clone())
+                .or_default()
+                .insert(rest, path),
+        }
+    }
+
+    fn flatten(
+        &self,
+        prefix: &Path,
+        depth: usize,
+        collapsed: &dyn Fn(&Path) -> bool,
+        rows: &mut Vec<ChangeRow<'a>>,
+    ) {
+        for (name, child) in &self.dirs {
+            let (mut label, mut path, mut node) = (name.clone(), prefix.join(name), child);
+            while node.files.is_empty() && node.dirs.len() == 1 {
+                let (next, inner) = node.dirs.iter().next().expect("one folder");
+                label = format!("{label}/{next}");
+                path = path.join(next);
+                node = inner;
+            }
+            let expanded = !collapsed(&path);
+            rows.push(ChangeRow::Folder {
+                path: path.clone(),
+                label,
+                depth,
+                expanded,
+                files: node.all.clone(),
+            });
+            if expanded {
+                node.flatten(&path, depth + 1, collapsed, rows);
+            }
+        }
+        rows.extend(
+            self.files
+                .iter()
+                .map(|&path| ChangeRow::File { path, depth }),
+        );
+    }
+}
+
+/// `files` as rows: as given, or as a folder tree, folders before files,
+/// without the rows of folders `collapsed` reports as folded shut.
+pub(crate) fn change_rows<'a>(
+    files: &'a [PathBuf],
+    grouped: bool,
+    collapsed: &dyn Fn(&Path) -> bool,
+) -> Vec<ChangeRow<'a>> {
     if !grouped {
         return files
             .iter()
-            .map(|path| ChangeRow::File {
-                path,
-                nested: false,
-            })
+            .map(|path| ChangeRow::File { path, depth: 0 })
             .collect();
     }
-    let mut folders = std::collections::BTreeMap::<PathBuf, Vec<&PathBuf>>::new();
-    let mut rows = Vec::new();
+    let mut root = ChangeDir::default();
     for path in files {
-        match path
+        let folders = path
             .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            Some(parent) => folders.entry(parent.to_path_buf()).or_default().push(path),
-            None => rows.push(ChangeRow::File {
-                path,
-                nested: false,
-            }),
-        }
+            .map(|parent| {
+                parent
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        root.insert(&folders, path);
     }
-    for (folder, paths) in folders {
-        rows.push(ChangeRow::Folder {
-            path: folder,
-            files: paths.iter().map(|path| (*path).clone()).collect(),
-        });
-        rows.extend(
-            paths
-                .into_iter()
-                .map(|path| ChangeRow::File { path, nested: true }),
-        );
-    }
+    let mut rows = Vec::new();
+    // Start one level in, so the tree reads as the section header's children.
+    root.flatten(Path::new(""), 1, collapsed, &mut rows);
     rows
 }
 
@@ -1331,42 +1420,68 @@ pub(crate) fn folder_row(
     rect: UiRect,
     filter: u8,
     path: &std::path::Path,
+    label: &str,
+    depth: usize,
+    expanded: bool,
     files: Vec<PathBuf>,
     hovered: bool,
     state: &Binding,
     store: &Snapshot,
 ) -> Element {
-    let label = path.display().to_string();
-    let key = format!("folder-{}", label);
-    let mut row = panel(
-        rect,
-        if hovered {
-            VisualStyle::filled(theme::c().surface)
-        } else {
-            VisualStyle::default()
-        },
-    )
+    let key = format!("folder-{}", path.display());
+    let left = rect.left + depth as f32 * TREE_INDENT;
+    let toggle = state.clone();
+    let toggle_key = (filter, path.to_path_buf());
+    let mut row = Element::new(move |cx| {
+        UiElement::panel(
+            cx.id,
+            rect,
+            if hovered {
+                VisualStyle::filled(theme::c().surface)
+            } else {
+                VisualStyle::default()
+            },
+        )
+        .children(cx.children)
+    })
     .key(format!("git-{key}-{filter}"))
+    .event_policy(EventPolicy::INTERACTIVE)
+    .semantics(
+        Semantics::new(SemanticRole::Button).name(format!("{label} folder")),
+    )
+    .cursor(CursorIcon::Pointer)
+    .on_click(move || {
+        let toggle_key = toggle_key.clone();
+        toggle.update(move |app| {
+            if !app.ui.change_collapsed.remove(&toggle_key) {
+                app.ui.change_collapsed.insert(toggle_key);
+            }
+        });
+    })
     .child(crate::ui::drawer::drawer_icon(
-        "git-folder-row-icon",
-        "folder",
-        UiRect::new(
-            rect.left + 11.0,
-            rect.top + (rect.height() - 12.0) / 2.0,
-            rect.left + 23.0,
-            rect.top + (rect.height() + 12.0) / 2.0,
-        ),
-        theme::c().text_ghost,
+        UiId::owned(format!("git-{key}-{filter}-chevron")),
+        if expanded {
+            "chevron-down"
+        } else {
+            "chevron-right"
+        },
+        theme::icon_rect(UiRect::new(
+            left + 8.0,
+            rect.top + 4.0,
+            left + 20.0,
+            rect.bottom - 4.0,
+        )),
+        theme::c().text_faint,
     ))
     .child(
         clip(
-            UiRect::new(rect.left + 30.0, rect.top, rect.right - 52.0, rect.bottom),
+            UiRect::new(left + 24.0, rect.top, rect.right - 52.0, rect.bottom),
             0.0,
             0.0,
         )
         .child(text(
-            UiRect::new(rect.left + 30.0, rect.top, rect.left + 2000.0, rect.bottom),
-            label,
+            UiRect::new(left + 24.0, rect.top, left + 2000.0, rect.bottom),
+            label.to_owned(),
             theme::mono(theme::c().text_muted, theme::SMALL),
         )),
     );
@@ -2405,8 +2520,8 @@ pub(crate) fn row_buttons(
 pub(crate) fn file_row(
     rect: UiRect,
     path: PathBuf,
-    // Listed under its folder row: indented, by file name.
-    nested: bool,
+    // Folders above it in a grouped section: indented, by file name.
+    depth: usize,
     file_state: FileState,
     section: u8,
     target: DiffTarget,
@@ -2450,7 +2565,7 @@ pub(crate) fn file_row(
     } else {
         32.0
     };
-    let indent = if nested { 14.0 } else { 0.0 };
+    let indent = depth as f32 * TREE_INDENT;
     let name_left = rect.left + 58.0 + indent;
     let name_viewport = UiRect::new(name_left, rect.top, rect.right - trailing_w, rect.bottom);
     let row_key = format!("git-file-{target:?}-{}", path.display());
@@ -2530,7 +2645,7 @@ pub(crate) fn file_row(
         name_viewport,
         &path,
         // Grouped rows sit under their folder row already.
-        !nested,
+        depth == 0,
         side_kind,
     ));
     let stage_state = state.clone();

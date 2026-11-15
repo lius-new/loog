@@ -97,6 +97,8 @@ pub struct GitUiState {
     pub collapsed_sections: HashSet<u8>,
     /// Group change sections by folder.
     pub tree_view: bool,
+    /// Folders folded shut in a grouped change section, by section and path.
+    pub change_collapsed: HashSet<(u8, PathBuf)>,
     /// Show diffs side by side.
     pub split_diff: bool,
     /// Highlight corresponding changes when interacting with a split diff.
@@ -176,6 +178,7 @@ impl Default for GitUiState {
             .into_iter()
             .collect(),
             tree_view: false,
+            change_collapsed: HashSet::new(),
             split_diff: false,
             diff_change_highlight: true,
             inline_blame: false,
