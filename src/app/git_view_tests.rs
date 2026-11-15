@@ -506,7 +506,7 @@ mod panel_virtualization_tests {
                     root = root.child(file_row(
                         UiRect::new(0.0, top, width, top + CHANGE_ROW_H),
                         path.into(),
-                        nested,
+                        usize::from(nested),
                         file.clone(),
                         *section,
                         if *section == STAGED {
@@ -2831,7 +2831,7 @@ mod panel_action_tests {
                     .child(file_row(
                         UiRect::new(600.0, 0.0, 900.0, ROW_H),
                         "src/a.rs".into(),
-                        false,
+                        0,
                         FileState::default(),
                         section,
                         target,
@@ -2960,30 +2960,59 @@ mod panel_action_tests {
     }
 
     #[test]
-    fn grouping_lists_root_files_then_each_folder_with_its_files() {
-        let files = ["README.md", "src/a.rs", "src/ui/b.rs", "src/c.rs"].map(PathBuf::from);
+    fn grouping_lists_a_folder_tree_with_folders_before_files() {
+        let files = [
+            "README.md",
+            "src/a.rs",
+            "src/ui/b.rs",
+            "src/c.rs",
+            "docs/x/y/z.md",
+        ]
+        .map(PathBuf::from);
         let describe = |rows: Vec<ChangeRow>| {
             rows.into_iter()
                 .map(|row| match row {
-                    ChangeRow::Folder { path, files } => {
-                        format!("[{}] {}", path.display(), files.len())
-                    }
-                    ChangeRow::File { path, nested } => {
-                        format!("{}{}", if nested { "  " } else { "" }, path.display())
+                    ChangeRow::Folder {
+                        label,
+                        depth,
+                        expanded,
+                        files,
+                        ..
+                    } => format!(
+                        "{}{} {label}/ {}",
+                        "  ".repeat(depth),
+                        if expanded { 'v' } else { '>' },
+                        files.len()
+                    ),
+                    ChangeRow::File { path, depth } => {
+                        format!("{}{}", "  ".repeat(depth), path.display())
                     }
                 })
                 .collect::<Vec<_>>()
         };
-        assert_eq!(describe(change_rows(&files, false)).len(), 4);
+        assert_eq!(describe(change_rows(&files, false, &|_| false)).len(), 5);
         assert_eq!(
-            describe(change_rows(&files, true)),
+            describe(change_rows(&files, true, &|_| false)),
             [
-                "README.md",
-                "[src] 2",
-                "  src/a.rs",
-                "  src/c.rs",
-                "[src/ui] 1",
-                "  src/ui/b.rs"
+                "  v docs/x/y/ 1",
+                "    docs/x/y/z.md",
+                "  v src/ 3",
+                "    v ui/ 1",
+                "      src/ui/b.rs",
+                "    src/a.rs",
+                "    src/c.rs",
+                "  README.md"
+            ]
+        );
+        // A folded folder keeps its row and file count but hides what is below.
+        assert_eq!(
+            describe(change_rows(&files, true, &|path| path
+                == std::path::Path::new("src"))),
+            [
+                "  v docs/x/y/ 1",
+                "    docs/x/y/z.md",
+                "  > src/ 3",
+                "  README.md"
             ]
         );
     }
