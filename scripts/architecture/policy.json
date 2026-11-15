@@ -701,6 +701,11 @@
       "migrated_in": "R6.3",
       "from": "git_tree_view"
     },
+    "change_collapsed": {
+      "owner": "ui/git/state",
+      "migrated_in": "Git change tree",
+      "reason": "Folders folded shut in a grouped change section"
+    },
     "split_diff": {
       "owner": "ui/git/state",
       "migrated_in": "R6.3",
