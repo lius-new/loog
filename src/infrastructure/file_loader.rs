@@ -23,6 +23,7 @@ impl Lease {
 #[derive(Clone)]
 pub struct Worker<R: Request> {
     current: Arc<AtomicU64>,
+    start: Arc<super::deferred_start::DeferredStart>,
     sequence: Arc<AtomicU64>,
     work: mpsc::Sender<Option<R>>,
     timer: mpsc::Sender<Option<R>>,
@@ -38,67 +39,71 @@ impl<R: Request> Worker<R> {
         let (work, receiver) = mpsc::channel::<Option<R>>();
         let (timer, delays) = mpsc::channel::<Option<R>>();
         let worker_current = current.clone();
-        std::thread::Builder::new()
-            .name("loog-file-loader".into())
-            .spawn(move || {
-                while let Ok(Some(mut request)) = receiver.recv() {
-                    // Coalesce a burst before doing any more disk/index work.
-                    for next in receiver.try_iter() {
-                        let Some(next) = next else {
-                            return;
-                        };
-                        request = next;
-                    }
-                    if worker_current.load(Ordering::Acquire) != request.generation() {
-                        continue;
-                    }
-                    let prepared = prepare(&request);
-                    if worker_current.load(Ordering::Acquire) != request.generation() {
-                        drop(prepared);
-                        continue;
-                    }
-                    completed(
-                        request.generation(),
-                        prepared,
-                        Lease {
-                            current: Arc::downgrade(&worker_current),
-                        },
-                    );
-                }
-            })
-            .expect("could not start file loader");
         let timer_current = current.clone();
-        std::thread::Builder::new()
-            .name("loog-file-loading-delay".into())
-            .spawn(move || {
-                while let Ok(Some(mut request)) = delays.recv() {
-                    let mut wait = delay.saturating_sub(request.elapsed());
-                    loop {
-                        match delays.recv_timeout(wait) {
-                            Ok(Some(next)) => {
-                                request = next;
-                                wait = delay.saturating_sub(request.elapsed());
-                            }
-                            Ok(None) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
-                            Err(mpsc::RecvTimeoutError::Timeout) => {
-                                if timer_current.load(Ordering::Acquire) != request.generation() {
+        let start = Arc::new(super::deferred_start::DeferredStart::new(move || {
+            std::thread::Builder::new()
+                .name("loog-file-loader".into())
+                .spawn(move || {
+                    while let Ok(Some(mut request)) = receiver.recv() {
+                        // Coalesce a burst before doing any more disk/index work.
+                        for next in receiver.try_iter() {
+                            let Some(next) = next else {
+                                return;
+                            };
+                            request = next;
+                        }
+                        if worker_current.load(Ordering::Acquire) != request.generation() {
+                            continue;
+                        }
+                        let prepared = prepare(&request);
+                        if worker_current.load(Ordering::Acquire) != request.generation() {
+                            drop(prepared);
+                            continue;
+                        }
+                        completed(
+                            request.generation(),
+                            prepared,
+                            Lease {
+                                current: Arc::downgrade(&worker_current),
+                            },
+                        );
+                    }
+                })
+                .expect("could not start file loader");
+            std::thread::Builder::new()
+                .name("loog-file-loading-delay".into())
+                .spawn(move || {
+                    while let Ok(Some(mut request)) = delays.recv() {
+                        let mut wait = delay.saturating_sub(request.elapsed());
+                        loop {
+                            match delays.recv_timeout(wait) {
+                                Ok(Some(next)) => {
+                                    request = next;
+                                    wait = delay.saturating_sub(request.elapsed());
+                                }
+                                Ok(None) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                                Err(mpsc::RecvTimeoutError::Timeout) => {
+                                    if timer_current.load(Ordering::Acquire) != request.generation()
+                                    {
+                                        break;
+                                    }
+                                    let generation = request.generation();
+                                    indicator(
+                                        generation,
+                                        Lease {
+                                            current: Arc::downgrade(&timer_current),
+                                        },
+                                    );
                                     break;
                                 }
-                                let generation = request.generation();
-                                indicator(
-                                    generation,
-                                    Lease {
-                                        current: Arc::downgrade(&timer_current),
-                                    },
-                                );
-                                break;
                             }
                         }
                     }
-                }
-            })
-            .expect("could not start loading delay");
+                })
+                .expect("could not start loading delay");
+        }));
         Self {
+            start,
             current,
             sequence: Arc::new(AtomicU64::new(0)),
             work,
@@ -107,6 +112,7 @@ impl<R: Request> Worker<R> {
     }
     pub fn shutdown(&self) {
         self.current.store(0, Ordering::Release);
+        self.start.cancel();
         let _ = self.work.send(None);
         let _ = self.timer.send(None);
     }
@@ -119,9 +125,11 @@ impl<R: Request> Worker<R> {
         self.current.store(0, Ordering::Release);
     }
     pub fn send_work(&self, request: R) -> bool {
+        self.start.start();
         self.work.send(Some(request)).is_ok()
     }
     pub fn send_timer(&self, request: R) {
+        self.start.start();
         let _ = self.timer.send(Some(request));
     }
 }

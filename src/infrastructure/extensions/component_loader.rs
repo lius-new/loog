@@ -188,7 +188,7 @@ mod tests {
         let mut worker = Worker {
             workspace_wake: None,
             stopped: stopped.clone(),
-            runtime,
+            runtime: Some(runtime),
             replies: jobs.clone(),
             loader: Some(loader),
             loading: HashMap::new(),

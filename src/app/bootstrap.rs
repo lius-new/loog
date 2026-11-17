@@ -193,8 +193,21 @@ fn native_window_options() -> Result<WinitWindowOptions, Box<dyn std::error::Err
     {
         // Match the embedded multi-size executable icon exactly. Winit's runtime
         // RGBA-to-HICON conversion renders differently from the PE icon resource.
-        let options = WinitWindowOptions::new().window_icon(icon_from_ico_frame(16)?);
-        return Ok(options.taskbar_icon(icon_from_ico_frame(32)?));
+        // These pixels are decoded from the same ICO frames by build.rs.
+        let small = WinitWindowIcon::from_rgba(
+            include_bytes!(concat!(env!("OUT_DIR"), "/app-icon-16.rgba")).to_vec(),
+            16,
+            16,
+        )?;
+        let large = WinitWindowIcon::from_rgba(
+            include_bytes!(concat!(env!("OUT_DIR"), "/app-icon-32.rgba")).to_vec(),
+            32,
+            32,
+        )?;
+        let options = WinitWindowOptions::new().window_icon(small);
+        // File drops are handled through WM_DROPFILES by infrastructure::file_drop.
+        // Avoid creating an OLE drop target only to revoke it after startup.
+        return Ok(options.taskbar_icon(large).drag_and_drop(false));
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -209,61 +222,4 @@ fn native_window_options() -> Result<WinitWindowOptions, Box<dyn std::error::Err
         let window_icon = WinitWindowIcon::from_rgba(window_pixels.into_raw(), 32, 32)?;
         Ok(WinitWindowOptions::new().window_icon(window_icon))
     }
-}
-
-#[cfg(target_os = "windows")]
-fn icon_from_ico_frame(size: u32) -> Result<WinitWindowIcon, Box<dyn std::error::Error>> {
-    let ico = include_bytes!("../../icons/app.ico");
-    let entry_count = u16::from_le_bytes([ico[4], ico[5]]) as usize;
-
-    for index in 0..entry_count {
-        let entry = 6 + index * 16;
-        if entry + 16 > ico.len() {
-            break;
-        }
-        let width = if ico[entry] == 0 {
-            256
-        } else {
-            u32::from(ico[entry])
-        };
-        let height = if ico[entry + 1] == 0 {
-            256
-        } else {
-            u32::from(ico[entry + 1])
-        };
-        if width != size || height != size {
-            continue;
-        }
-
-        let image_length = u32::from_le_bytes([
-            ico[entry + 8],
-            ico[entry + 9],
-            ico[entry + 10],
-            ico[entry + 11],
-        ]) as usize;
-        let image_offset = u32::from_le_bytes([
-            ico[entry + 12],
-            ico[entry + 13],
-            ico[entry + 14],
-            ico[entry + 15],
-        ]) as usize;
-        let image_end = image_offset
-            .checked_add(image_length)
-            .filter(|end| *end <= ico.len())
-            .ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid ICO frame")
-            })?;
-        let pixels = image::load_from_memory_with_format(
-            &ico[image_offset..image_end],
-            image::ImageFormat::Png,
-        )?
-        .into_rgba8();
-        return Ok(WinitWindowIcon::from_rgba(pixels.into_raw(), size, size)?);
-    }
-
-    Err(std::io::Error::new(
-        std::io::ErrorKind::NotFound,
-        format!("Missing {size}x{size} PNG frame in icons/app.ico"),
-    )
-    .into())
 }

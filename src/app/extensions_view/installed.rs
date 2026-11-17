@@ -117,15 +117,19 @@ fn entry(package: &Package) -> Entry {
             .collect(),
     );
     let state = package.lifecycle.state();
-    let warning = (!package.resources.rejected.is_empty()).then(|| Notice {
+    let icon = package.icon.as_ref().map(|icon| icon.image());
+    let mut rejected = package
+        .resources
+        .rejected
+        .iter()
+        .map(|(id, error)| format!("{id}: {error}"))
+        .collect::<Vec<_>>();
+    if let Some(Err(error)) = icon {
+        rejected.push(format!("icon: {error}"));
+    }
+    let warning = (!rejected.is_empty()).then(|| Notice {
         title: "Some resources could not load".to_owned(),
-        body: package
-            .resources
-            .rejected
-            .iter()
-            .map(|(id, error)| format!("{id}: {error}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
+        body: rejected.join("\n"),
     });
     Entry {
         id: m.id.clone(),
@@ -140,10 +144,12 @@ fn entry(package: &Package) -> Entry {
             "extension-theme"
         },
         tint: 0x38bdf8,
-        icon_image: package.icon.as_ref().map(|image| IconImage {
-            identity: image.identity,
-            bytes: image.frames[0].bytes.clone(),
-        }),
+        icon_image: icon
+            .and_then(|result| result.as_ref().ok())
+            .map(|image| IconImage {
+                identity: image.identity,
+                bytes: image.frames[0].bytes.clone(),
+            }),
         categories: m.categories.clone(),
         readme: Vec::new(),
         readme_document: package
