@@ -14,12 +14,7 @@ default-members = [".", "crates/editor-core"]
 exclude = ["vendor/vt100", "vendor/tree-sitter", ".tmp/lgui"]
 resolver = "3"
 
-[patch."https://github.com/lius-new/lgui.git"]
-lgui-platform-winit = { path = "vendor/lgui-platform-winit" }
-lgui-render-skia = { path = "vendor/lgui-render-skia" }
-
 [patch.crates-io]
-winit = { path = "vendor/winit" }
 vt100 = { path = "vendor/vt100" }
 tree-sitter = { path = "vendor/tree-sitter" }
 
@@ -65,7 +60,7 @@ loog-editor-core = { path = "crates/editor-core", features = ["diagnostics"] }
 
 [dependencies.lgui]
 git = "https://github.com/lius-new/lgui.git"
-rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5"
+rev = "a669cd31fb20437c41268496ad4bf127beb3444d"
 default-features = false
 features = ["renderer-skia-software", "widgets", "dialogs", "clipboard"]
 

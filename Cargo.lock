@@ -2158,7 +2158,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 [[package]]
 name = "lgui"
 version = "0.2.2"
-source = "git+https://github.com/lius-new/lgui.git?rev=fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5#fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5"
+source = "git+https://github.com/lius-new/lgui.git?rev=a669cd31fb20437c41268496ad4bf127beb3444d#a669cd31fb20437c41268496ad4bf127beb3444d"
 dependencies = [
  "lgui-assets",
  "lgui-core",
@@ -2173,7 +2173,7 @@ dependencies = [
 [[package]]
 name = "lgui-assets"
 version = "0.2.2"
-source = "git+https://github.com/lius-new/lgui.git?rev=fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5#fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5"
+source = "git+https://github.com/lius-new/lgui.git?rev=a669cd31fb20437c41268496ad4bf127beb3444d#a669cd31fb20437c41268496ad4bf127beb3444d"
 dependencies = [
  "icondata",
  "image",
@@ -2184,7 +2184,7 @@ dependencies = [
 [[package]]
 name = "lgui-core"
 version = "0.2.2"
-source = "git+https://github.com/lius-new/lgui.git?rev=fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5#fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5"
+source = "git+https://github.com/lius-new/lgui.git?rev=a669cd31fb20437c41268496ad4bf127beb3444d#a669cd31fb20437c41268496ad4bf127beb3444d"
 dependencies = [
  "image",
  "keyboard-types",
@@ -2195,7 +2195,7 @@ dependencies = [
 [[package]]
 name = "lgui-platform-win32"
 version = "0.2.2"
-source = "git+https://github.com/lius-new/lgui.git?rev=fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5#fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5"
+source = "git+https://github.com/lius-new/lgui.git?rev=a669cd31fb20437c41268496ad4bf127beb3444d#a669cd31fb20437c41268496ad4bf127beb3444d"
 dependencies = [
  "image",
  "lgui-assets",
@@ -2211,6 +2211,7 @@ dependencies = [
 [[package]]
 name = "lgui-platform-winit"
 version = "0.2.2"
+source = "git+https://github.com/lius-new/lgui.git?rev=a669cd31fb20437c41268496ad4bf127beb3444d#a669cd31fb20437c41268496ad4bf127beb3444d"
 dependencies = [
  "bytemuck",
  "lgui-assets",
@@ -2227,7 +2228,7 @@ dependencies = [
 [[package]]
 name = "lgui-render-api"
 version = "0.2.2"
-source = "git+https://github.com/lius-new/lgui.git?rev=fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5#fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5"
+source = "git+https://github.com/lius-new/lgui.git?rev=a669cd31fb20437c41268496ad4bf127beb3444d#a669cd31fb20437c41268496ad4bf127beb3444d"
 dependencies = [
  "lgui-core",
 ]
@@ -2235,6 +2236,7 @@ dependencies = [
 [[package]]
 name = "lgui-render-skia"
 version = "0.2.2"
+source = "git+https://github.com/lius-new/lgui.git?rev=a669cd31fb20437c41268496ad4bf127beb3444d#a669cd31fb20437c41268496ad4bf127beb3444d"
 dependencies = [
  "lgui-assets",
  "lgui-core",
@@ -2248,7 +2250,7 @@ dependencies = [
 [[package]]
 name = "lgui-services"
 version = "0.2.2"
-source = "git+https://github.com/lius-new/lgui.git?rev=fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5#fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5"
+source = "git+https://github.com/lius-new/lgui.git?rev=a669cd31fb20437c41268496ad4bf127beb3444d#a669cd31fb20437c41268496ad4bf127beb3444d"
 dependencies = [
  "arboard",
  "lgui-core",
@@ -2258,7 +2260,7 @@ dependencies = [
 [[package]]
 name = "lgui-widgets"
 version = "0.2.2"
-source = "git+https://github.com/lius-new/lgui.git?rev=fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5#fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5"
+source = "git+https://github.com/lius-new/lgui.git?rev=a669cd31fb20437c41268496ad4bf127beb3444d#a669cd31fb20437c41268496ad4bf127beb3444d"
 dependencies = [
  "lgui-core",
  "unicode-segmentation",
@@ -5591,6 +5593,8 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 [[package]]
 name = "winit"
 version = "0.30.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6755fa58a9f8350bd1e472d4c3fcc25f824ec358933bba33306d0b63df5978d"
 dependencies = [
  "ahash",
  "android-activity",

@@ -1,8 +1,0 @@
-Source: crates.io winit 0.30.13 (upstream LICENSE retained).
-
-Only src/platform_impl/windows/window.rs differs from the published crate:
-initial taskbar AddTab is unnecessary for WS_EX_APPWINDOW top-level windows.
-Skip the redundant Shell COM initialization. Explicit skip requests, owned/child
-windows, later taskbar changes, fullscreen marking, input and IME are unchanged.
-
-Windows contract: https://learn.microsoft.com/en-us/windows/win32/shell/taskbar
