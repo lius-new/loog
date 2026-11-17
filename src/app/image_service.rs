@@ -18,6 +18,7 @@ pub struct ImageService {
     pending: Arc<Mutex<HashMap<FileId, (DocumentStamp, u32)>>>,
     queued: Arc<Mutex<HashMap<FileId, Request>>>,
     send: mpsc::Sender<Option<FileId>>,
+    start: crate::infrastructure::deferred_start::DeferredStart,
     alive: Arc<AtomicBool>,
     gif: crate::app::gif_playback::Playback,
     paused: AtomicBool,
@@ -35,84 +36,89 @@ impl ImageService {
         let worker_queue = queued.clone();
         let ready_state = state.clone();
         let ready_app = application.clone();
-        let spawned = std::thread::Builder::new()
-            .name("loog-svg-preview".into())
-            .spawn(move || {
-                while let Ok(Some(id)) = receive.recv() {
-                    if !worker_alive.load(Ordering::Acquire) {
-                        break;
-                    }
-                    let Some(request) = worker_queue.lock().unwrap().remove(&id) else {
-                        continue;
-                    };
-                    if worker_pending.lock().unwrap().get(&request.stamp.document)
-                        != Some(&(request.stamp, request.density))
-                    {
-                        continue;
-                    }
-                    let outcome = crate::infrastructure::image_filesystem::svg(
-                        &request.source,
-                        request.density as f32 / 100.0,
-                    )
-                    .map(Arc::new);
-                    let state = ready_state.clone();
-                    let alive = worker_alive.clone();
-                    let pending = worker_pending.clone();
-                    ready_app.post(move || {
-                        if !alive.load(Ordering::Acquire)
-                            || pending.lock().unwrap().get(&request.stamp.document)
-                                != Some(&(request.stamp, request.density))
-                        {
-                            return;
+        let start_alive = alive.clone();
+        let start = crate::infrastructure::deferred_start::DeferredStart::new(move || {
+            let spawned = std::thread::Builder::new()
+                .name("loog-svg-preview".into())
+                .spawn(move || {
+                    while let Ok(Some(id)) = receive.recv() {
+                        if !worker_alive.load(Ordering::Acquire) {
+                            break;
                         }
-                        state.try_update(|app| {
-                            let Some(doc) =
-                                app.workspace.documents.get(&request.stamp.document).filter(
-                                    |doc| {
+                        let Some(request) = worker_queue.lock().unwrap().remove(&id) else {
+                            continue;
+                        };
+                        if worker_pending.lock().unwrap().get(&request.stamp.document)
+                            != Some(&(request.stamp, request.density))
+                        {
+                            continue;
+                        }
+                        let outcome = crate::infrastructure::image_filesystem::svg(
+                            &request.source,
+                            request.density as f32 / 100.0,
+                        )
+                        .map(Arc::new);
+                        let state = ready_state.clone();
+                        let alive = worker_alive.clone();
+                        let pending = worker_pending.clone();
+                        ready_app.post(move || {
+                            if !alive.load(Ordering::Acquire)
+                                || pending.lock().unwrap().get(&request.stamp.document)
+                                    != Some(&(request.stamp, request.density))
+                            {
+                                return;
+                            }
+                            state.try_update(|app| {
+                                let Some(doc) = app
+                                    .workspace
+                                    .documents
+                                    .get(&request.stamp.document)
+                                    .filter(|doc| {
                                         doc.is_text()
                                             && doc.stamp(request.stamp.document) == request.stamp
+                                    })
+                                else {
+                                    return false;
+                                };
+                                if !crate::domain::media::is_svg(doc.meta.language_hint()) {
+                                    return false;
+                                }
+                                let previous = app
+                                    .editor
+                                    .images
+                                    .svg
+                                    .get(&request.stamp.document)
+                                    .filter(|p| p.stamp.incarnation == request.stamp.incarnation)
+                                    .and_then(|p| p.image.clone());
+                                let (image, error) = match outcome {
+                                    Ok(image) => (Some(image), None),
+                                    Err(error) => (previous, Some(error)),
+                                };
+                                app.editor.images.svg.insert(
+                                    request.stamp.document,
+                                    crate::app::image_preview::SvgPreview {
+                                        stamp: request.stamp,
+                                        density: request.density,
+                                        image,
+                                        error,
                                     },
-                                )
-                            else {
-                                return false;
-                            };
-                            if !crate::domain::media::is_svg(doc.meta.language_hint()) {
-                                return false;
-                            }
-                            let previous = app
-                                .editor
-                                .images
-                                .svg
-                                .get(&request.stamp.document)
-                                .filter(|p| p.stamp.incarnation == request.stamp.incarnation)
-                                .and_then(|p| p.image.clone());
-                            let (image, error) = match outcome {
-                                Ok(image) => (Some(image), None),
-                                Err(error) => (previous, Some(error)),
-                            };
-                            app.editor.images.svg.insert(
-                                request.stamp.document,
-                                crate::app::image_preview::SvgPreview {
-                                    stamp: request.stamp,
-                                    density: request.density,
-                                    image,
-                                    error,
-                                },
-                            );
-                            true
+                                );
+                                true
+                            });
                         });
-                    });
-                }
-            });
-        if spawned.is_err() {
-            alive.store(false, Ordering::Release);
-        }
+                    }
+                });
+            if spawned.is_err() {
+                start_alive.store(false, Ordering::Release);
+            }
+        });
         let gif = crate::app::gif_playback::Playback::new(state.clone(), application.clone());
         let loading = super::image_loading::Loading::new(state.clone(), application);
         Self {
             pending,
             queued,
             send,
+            start,
             alive,
             gif,
             paused: AtomicBool::new(false),
@@ -168,6 +174,7 @@ impl ImageService {
                 },
             )
             .is_none();
+        self.start.start();
         if !self.alive.load(Ordering::Acquire) || (enqueued && self.send.send(Some(id)).is_err()) {
             self.queued.lock().unwrap().remove(&id);
             self.state.update(|app| {
@@ -204,6 +211,7 @@ impl ImageService {
     }
     pub fn shutdown(&self) {
         self.alive.store(false, Ordering::Release);
+        self.start.cancel();
         self.loading.shutdown();
         self.gif.shutdown();
         let _ = self.send.send(None);

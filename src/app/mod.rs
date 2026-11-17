@@ -165,3 +165,6 @@ pub(crate) mod highlight_inspect;
 pub(crate) mod multicursor;
 
 pub(crate) mod layout_visibility;
+
+#[cfg(test)]
+mod software_render_tests;

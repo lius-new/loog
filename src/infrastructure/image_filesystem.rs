@@ -215,9 +215,8 @@ pub fn decode(bytes: &[u8]) -> Result<Image, String> {
 pub fn svg(source: &str, density: f32) -> Result<Image, String> {
     static OPTIONS: std::sync::OnceLock<resvg::usvg::Options<'static>> = std::sync::OnceLock::new();
     let options = OPTIONS.get_or_init(|| {
-        let mut options = resvg::usvg::Options::default();
+        let mut options = super::svg_options::new();
         options.image_href_resolver.resolve_string = Box::new(|_, _| None);
-        options.fontdb_mut().load_system_fonts();
         options
     });
     let tree = resvg::usvg::Tree::from_str(source, options).map_err(|e| e.to_string())?;

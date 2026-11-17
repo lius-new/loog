@@ -1,0 +1,70 @@
+[package]
+name = "lgui-platform-winit"
+version = "0.2.2"
+edition = "2024"
+publish = ["crates-io"]
+description = "Winit desktop backend for LGUI"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/lius-new/lgui"
+homepage = "https://github.com/lius-new/lgui"
+documentation = "https://docs.rs/lgui-platform-winit"
+keywords = ["gui", "desktop", "winit", "windowing"]
+categories = ["gui"]
+
+[features]
+default = ["renderer-skia-gl"]
+accessibility = ["dep:accesskit", "dep:accesskit_winit", "lgui-core/accessibility"]
+clipboard = ["lgui-services/clipboard"]
+diagnostics = ["dep:lgui-diagnostics"]
+dialogs = ["lgui-services/dialogs"]
+images = ["dep:lgui-assets", "lgui-assets/backend-winit"]
+multi-window = []
+notifications = ["lgui-services/notifications"]
+open-url = ["lgui-services/open-url"]
+persistent-cache = ["lgui-core/persistent-cache", "lgui-assets?/persistent-cache"]
+store = ["dep:lgui-store"]
+notifications-win32 = ["notifications", "dep:lgui-platform-win32", "lgui-platform-win32/backend-winit", "lgui-platform-win32/notifications-win32"]
+renderer-skia = ["dep:lgui-render-skia", "dep:skia-safe", "images"]
+renderer-skia-gl = ["renderer-skia", "dep:glutin", "lgui-render-skia/renderer-skia-gl"]
+renderer-skia-vulkan = ["renderer-skia", "dep:ash", "dep:ash-window", "lgui-render-skia/renderer-skia-vulkan"]
+renderer-skia-metal = ["renderer-skia", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-core-foundation", "dep:objc2-metal", "dep:objc2-quartz-core", "lgui-render-skia/renderer-skia-metal"]
+svg = ["images", "lgui-assets/svg"]
+tray-win32 = ["dep:lgui-platform-win32", "lgui-services/tray", "lgui-platform-win32/backend-winit", "lgui-platform-win32/tray-win32"]
+
+[dependencies]
+bytemuck = "1"
+accesskit = { version = "0.24", optional = true }
+accesskit_winit = { version = "0.33", optional = true, default-features = false, features = ["accesskit_unix", "async-io", "rwh_06"] }
+ash = { version = "0.38", optional = true, default-features = false, features = ["loaded", "std"] }
+ash-window = { version = "0.13", optional = true }
+glutin = { version = "0.32", optional = true }
+lgui-assets = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5", optional = true, default-features = false }
+lgui-core = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5", default-features = false }
+lgui-diagnostics = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5", optional = true }
+lgui-render-api = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5" }
+lgui-render-skia = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5", optional = true, default-features = false }
+lgui-services = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5", default-features = false }
+lgui-store = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5", optional = true }
+raw-window-handle = "0.6"
+skia-safe = { version = "=0.99.0", optional = true, default-features = false, features = ["binary-cache", "embed-icudtl", "gl", "jpeg", "pdf", "svg", "textlayout"] }
+softbuffer = { version = "0.4.8", default-features = false, features = ["x11", "x11-dlopen", "wayland", "wayland-dlopen"] }
+winit = "0.30.12"
+
+[dev-dependencies]
+lgui-core = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5", default-features = false, features = ["test-support"] }
+
+[target.'cfg(windows)'.dependencies]
+lgui-platform-win32 = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5", optional = true, default-features = false }
+skia-safe = { version = "=0.99.0", optional = true, default-features = false, features = ["d3d", "vulkan"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+skia-safe = { version = "=0.99.0", optional = true, default-features = false, features = ["all-linux", "vulkan"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6.3", optional = true, default-features = false }
+objc2-app-kit = { version = "0.3.2", optional = true, default-features = false, features = ["objc2-quartz-core", "NSView", "NSResponder"] }
+objc2-core-foundation = { version = "0.3.2", optional = true, default-features = false }
+objc2-metal = { version = "0.3.2", optional = true, default-features = false, features = ["MTLCommandBuffer", "MTLCommandQueue", "MTLDevice", "MTLDrawable", "MTLPixelFormat"] }
+objc2-quartz-core = { version = "0.3.2", optional = true, default-features = false, features = ["objc2-core-foundation", "objc2-metal", "CAMetalLayer"] }
+skia-safe = { version = "=0.99.0", optional = true, default-features = false, features = ["metal"] }

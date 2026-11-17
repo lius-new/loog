@@ -218,15 +218,10 @@ impl Worker {
             budget,
             completed: Arc::new(completed),
         });
-        let task = shared.clone();
-        let thread = thread::Builder::new()
-            .name("loog-markdown-parse".into())
-            .spawn(move || run(task))
-            .expect("could not start Markdown parser");
         Self {
             owner: Arc::new(Owner {
                 shared,
-                thread: Mutex::new(Some(thread)),
+                thread: Mutex::new(None),
             }),
         }
     }
@@ -345,6 +340,18 @@ impl Worker {
             .pending
             .make_contiguous()
             .sort_by_key(|job| !job.active);
+        if !queue.pending.is_empty() {
+            let mut thread = self.owner.thread.lock().unwrap();
+            if thread.is_none() {
+                let task = shared.clone();
+                *thread = Some(
+                    thread::Builder::new()
+                        .name("loog-markdown-parse".into())
+                        .spawn(move || run(task))
+                        .expect("could not start Markdown parser"),
+                );
+            }
+        }
         drop(queue);
         shared.wake.notify_one();
         if !retired.is_empty() || !discarded.is_empty() {

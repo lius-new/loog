@@ -23,14 +23,15 @@ mod windows {
     use std::{cell::RefCell, collections::HashMap, os::windows::ffi::OsStringExt, rc::Rc};
     use windows_sys::Win32::{
         Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
-        System::{Ole::RevokeDragDrop, Threading::GetCurrentThreadId},
+        System::Threading::GetCurrentThreadId,
         UI::{
             Shell::{
-                DefSubclassProc, DragAcceptFiles, DragFinish, DragQueryFileW, DragQueryPoint,
-                RemoveWindowSubclass, SetWindowSubclass,
+                DefSubclassProc, DragFinish, DragQueryFileW, DragQueryPoint, RemoveWindowSubclass,
+                SetWindowSubclass,
             },
             WindowsAndMessaging::{
-                EnumThreadWindows, GetClientRect, GetWindowTextW, WM_DROPFILES, WM_NCDESTROY,
+                EnumThreadWindows, GWL_EXSTYLE, GetClientRect, GetWindowLongPtrW, GetWindowTextW,
+                SetWindowLongPtrW, WM_DROPFILES, WM_NCDESTROY, WS_EX_ACCEPTFILES,
             },
         },
     };
@@ -41,6 +42,19 @@ mod windows {
     }
     const SUBCLASS: usize = 0x4c4f4f4d;
 
+    // WS_EX_ACCEPTFILES opts into WM_DROPFILES without initializing Shell32.
+    // Shell32's decoding functions are loaded only when an actual drop arrives.
+    unsafe fn accept_files(hwnd: HWND, accept: bool) {
+        let style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+        let flag = WS_EX_ACCEPTFILES as isize;
+        let updated = if accept { style | flag } else { style & !flag };
+        if updated != style {
+            unsafe {
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, updated);
+            }
+        }
+    }
+
     pub struct Subscription(HWND);
 
     impl Drop for Subscription {
@@ -50,7 +64,7 @@ mod windows {
             if removed.is_some() {
                 // Installed and removed by the window's UI thread.
                 unsafe {
-                    DragAcceptFiles(self.0, 0);
+                    accept_files(self.0, false);
                     RemoveWindowSubclass(self.0, Some(window_proc), SUBCLASS);
                 }
             }
@@ -86,10 +100,9 @@ mod windows {
                         }),
                     )
                 });
-                // Winit's OLE target consumes drops before WM_DROPFILES. Use the
-                // shell's file-drop fallback, which also supplies the exact point.
-                RevokeDragDrop(hwnd);
-                DragAcceptFiles(hwnd, 1);
+                // Bootstrap disables Winit's OLE target before window creation.
+                // Shell file drops supply the exact point used for pane selection.
+                accept_files(hwnd, true);
             }
         }
         Subscription(hwnd)

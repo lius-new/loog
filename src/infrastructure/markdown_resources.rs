@@ -121,11 +121,7 @@ fn is_svg(bytes: &[u8]) -> bool {
 /// External resources are never read, and sizes stay within the decode budget.
 fn rasterize_svg(bytes: &[u8], local: Option<FileStamp>) -> Result<LoadedImage, String> {
     static OPTIONS: std::sync::OnceLock<resvg::usvg::Options<'static>> = std::sync::OnceLock::new();
-    let options = OPTIONS.get_or_init(|| {
-        let mut options = resvg::usvg::Options::default();
-        options.fontdb_mut().load_system_fonts();
-        options
-    });
+    let options = OPTIONS.get_or_init(super::svg_options::new);
     let tree = resvg::usvg::Tree::from_data(bytes, options).map_err(|error| error.to_string())?;
     let size = tree.size();
     let (width, height) = (size.width().ceil(), size.height().ceil());

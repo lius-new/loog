@@ -1,0 +1,42 @@
+[package]
+name = "lgui-render-skia"
+version = "0.2.2"
+edition = "2024"
+publish = ["crates-io"]
+description = "Skia renderer for LGUI"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/lius-new/lgui"
+homepage = "https://github.com/lius-new/lgui"
+documentation = "https://docs.rs/lgui-render-skia"
+keywords = ["gui", "rendering", "skia", "graphics"]
+categories = ["gui", "rendering"]
+
+[features]
+default = []
+renderer-skia-gl = []
+renderer-skia-vulkan = ["dep:ash"]
+renderer-skia-metal = []
+
+[dependencies]
+ash = { version = "0.38", optional = true, default-features = false, features = ["loaded", "std"] }
+lgui-assets = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5", default-features = false, features = ["renderer-skia", "svg"] }
+lgui-core = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5", default-features = false, features = ["raster-effects"] }
+lgui-render-api = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5" }
+skia-safe = { version = "=0.99.0", default-features = false, features = ["binary-cache", "embed-icudtl", "gl", "jpeg", "pdf", "svg", "textlayout"] }
+unicode-bidi = "0.3"
+unicode-segmentation = "1.12"
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+lgui-render-api = { version = "0.2.2", git = "https://github.com/lius-new/lgui.git", rev = "fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5", features = ["test-support"] }
+
+[target.'cfg(windows)'.dependencies]
+skia-safe = { version = "=0.99.0", default-features = false, features = ["d3d", "vulkan"] }
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+skia-safe = { version = "=0.99.0", default-features = false, features = ["all-linux", "vulkan"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+skia-safe = { version = "=0.99.0", default-features = false, features = ["metal"] }

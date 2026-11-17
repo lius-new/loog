@@ -118,10 +118,24 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         loading_state
             .update(|app| app.editor.syntax_revision = app.editor.syntax_revision.wrapping_add(1));
         super::extensions::start(&loading_state, &loading_application, &loading_runtime);
+        // Startup builds catalogs and the first retained scene, leaving allocator
+        // scratch blocks behind. Release only those unused blocks off the UI thread.
+        #[cfg(windows)]
+        let startup_heap = super::ui_timer::background_after(
+            loading_application.clone(),
+            Duration::from_millis(500),
+            |_| {
+                crate::infrastructure::heap_memory::release_startup_scratch();
+                None::<()>
+            },
+            |_| {},
+        );
         let loader =
             crate::app::file_loading::FileLoader::new(loading_state.clone(), loading_application);
         loading_runtime.install_file_loader(loader);
         move || {
+            #[cfg(windows)]
+            drop(startup_heap);
             restore.shutdown();
             loading_runtime.clear_file_loader();
             loading_runtime.clear_extensions();

@@ -1,0 +1,9 @@
+Source: https://github.com/lius-new/lgui
+Revision: fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5
+
+Expose draw_into_bgra for opaque caller-owned pixel buffers, sharing the same
+Skia painting and text settings as the retained offscreen implementation.
+Manifest dependencies use the original fixed git revision. Licenses retained.
+
+Reuse each thread's system font manager and empty-asset font collection for
+measurement, painting and SVG icons, retaining custom font asset behavior.

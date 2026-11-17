@@ -1,0 +1,11 @@
+Source: https://github.com/lius-new/lgui
+Revision: fcde9fb7f331baf94f2bb4d76f2b3f42c9f8aef5
+
+Local patch: expose a Windows-only drag_and_drop option in WinitWindowOptions.
+The default retains Winit behavior. Applications which own their native file-drop
+handler may disable Winit's redundant OLE target before window creation.
+
+The manifest uses the original fixed git dependencies. Original licenses are retained.
+
+renderer.rs also draws into the retained Windows softbuffer DIB, with buffer-age
+validation and the required zero high byte. Other platforms keep their presenter.
