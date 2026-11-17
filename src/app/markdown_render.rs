@@ -89,6 +89,7 @@ pub enum Status {
 }
 #[derive(Default)]
 struct Queue {
+    started: bool,
     wanted: HashMap<Consumer, RequestKey>,
     pending: VecDeque<Request>,
     ready: HashMap<Consumer, Status>,
@@ -128,11 +129,6 @@ impl RenderWorker {
             #[cfg(test)]
             before_image_load: Mutex::default(),
         });
-        let worker = shared.clone();
-        thread::Builder::new()
-            .name("loog-markdown-layout".into())
-            .spawn(move || run(worker))
-            .expect("Markdown layout worker");
         Self { shared }
     }
     #[cfg(test)]
@@ -144,6 +140,9 @@ impl RenderWorker {
             return Status::Failed("Markdown service stopped".into());
         }
         let mut queue = self.shared.queue.lock().unwrap();
+        if !self.shared.alive.load(Ordering::Acquire) {
+            return Status::Failed("Markdown service stopped".into());
+        }
         if queue.wanted.get(&request.view) == Some(&request.key) {
             return compatible_status(queue.ready.get(&request.view), &request.key);
         }
@@ -155,6 +154,16 @@ impl RenderWorker {
         queue.last.insert(request.view, request.clone());
         let previous = compatible_status(queue.ready.get(&request.view), &request.key);
         queue.pending.push_back(request);
+        // Start under the queue lock so concurrent consumers share one worker.
+        // Empty windows need neither its native font cache nor its layout budget.
+        if !queue.started {
+            let worker = self.shared.clone();
+            thread::Builder::new()
+                .name("loog-markdown-layout".into())
+                .spawn(move || run(worker))
+                .expect("Markdown layout worker");
+            queue.started = true;
+        }
         drop(queue);
         self.shared.wake.notify_one();
         previous
@@ -252,6 +261,9 @@ fn current(shared: &Shared, request: &Request) -> bool {
         && shared.queue.lock().unwrap().wanted.get(&request.view) == Some(&request.key)
 }
 fn run(shared: Arc<Shared>) {
+    if !shared.alive.load(Ordering::Acquire) {
+        return;
+    }
     // Reserve the bounded native paragraph cache conservatively. Skia's temporary
     // allocator is measured separately from the retained Rust/result ledger.
     let native = shared.budget.reserve(CacheKind::Layout, 16 * 1024 * 1024);

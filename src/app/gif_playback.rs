@@ -44,6 +44,7 @@ pub struct Playback {
     desired: Arc<Mutex<Vec<Request>>>,
     last: Mutex<Vec<(FileId, u64, u64)>>,
     wake: mpsc::Sender<()>,
+    start: crate::infrastructure::deferred_start::DeferredStart,
     alive: Arc<AtomicBool>,
 }
 impl Playback {
@@ -55,139 +56,141 @@ impl Playback {
         let worker_alive = alive.clone();
         let ready = Arc::new(Mutex::new(HashMap::<FileId, GifPreview>::new()));
         let posted = Arc::new(AtomicBool::new(false));
-        let _ = std::thread::Builder::new()
-            .name("loog-gif-playback".into())
-            .spawn(move || {
-                let publish = |request: &Request, frame: Frame, error: Option<String>| {
-                    ready.lock().unwrap().insert(
-                        request.document,
-                        GifPreview {
-                            incarnation: request.incarnation,
-                            identity: request.image.identity,
-                            frame,
-                            error,
-                        },
-                    );
-                    if posted.swap(true, Ordering::AcqRel) {
-                        return;
-                    }
-                    let ready = ready.clone();
-                    let posted = posted.clone();
-                    let alive = worker_alive.clone();
-                    let state = state.clone();
-                    application.post(move || {
-                        let updates = {
-                            let mut ready = ready.lock().unwrap();
-                            let updates = std::mem::take(&mut *ready);
-                            posted.store(false, Ordering::Release);
-                            updates
-                        };
-                        if !alive.load(Ordering::Acquire) {
+        let start = crate::infrastructure::deferred_start::DeferredStart::new(move || {
+            let _ = std::thread::Builder::new()
+                .name("loog-gif-playback".into())
+                .spawn(move || {
+                    let publish = |request: &Request, frame: Frame, error: Option<String>| {
+                        ready.lock().unwrap().insert(
+                            request.document,
+                            GifPreview {
+                                incarnation: request.incarnation,
+                                identity: request.image.identity,
+                                frame,
+                                error,
+                            },
+                        );
+                        if posted.swap(true, Ordering::AcqRel) {
                             return;
                         }
-                        state.try_update(|app| {
-                            let mut changed = false;
-                            for (id, preview) in updates {
-                                let matches = app.workspace.documents.get(&id).is_some_and(|doc| {
-                                    doc.incarnation == preview.incarnation
-                                        && doc.open_error.is_none()
-                                        && doc
-                                            .image
-                                            .as_ref()
-                                            .is_some_and(|image| image.identity == preview.identity)
-                                });
-                                if matches {
-                                    app.editor.images.gif.insert(id, preview);
-                                    changed = true;
+                        let ready = ready.clone();
+                        let posted = posted.clone();
+                        let alive = worker_alive.clone();
+                        let state = state.clone();
+                        application.post(move || {
+                            let updates = {
+                                let mut ready = ready.lock().unwrap();
+                                let updates = std::mem::take(&mut *ready);
+                                posted.store(false, Ordering::Release);
+                                updates
+                            };
+                            if !alive.load(Ordering::Acquire) {
+                                return;
+                            }
+                            state.try_update(|app| {
+                                let mut changed = false;
+                                for (id, preview) in updates {
+                                    let matches =
+                                        app.workspace.documents.get(&id).is_some_and(|doc| {
+                                            doc.incarnation == preview.incarnation
+                                                && doc.open_error.is_none()
+                                                && doc.image.as_ref().is_some_and(|image| {
+                                                    image.identity == preview.identity
+                                                })
+                                        });
+                                    if matches {
+                                        app.editor.images.gif.insert(id, preview);
+                                        changed = true;
+                                    }
+                                }
+                                changed
+                            });
+                        });
+                    };
+                    let mut playing = HashMap::<FileId, Playing>::new();
+                    let mut failed = HashMap::<FileId, (u64, u64)>::new();
+                    loop {
+                        if !worker_alive.load(Ordering::Acquire) {
+                            break;
+                        }
+                        let requests = worker_desired.lock().unwrap().clone();
+                        let contains = |id: &FileId, incarnation: u64, identity: u64| {
+                            requests.iter().any(|r| {
+                                r.document == *id
+                                    && r.incarnation == incarnation
+                                    && r.image.identity == identity
+                            })
+                        };
+                        playing.retain(|id, p| {
+                            contains(id, p.request.incarnation, p.request.image.identity)
+                        });
+                        failed.retain(|id, (incarnation, identity)| {
+                            contains(id, *incarnation, *identity)
+                        });
+                        for request in requests {
+                            if playing.contains_key(&request.document)
+                                || failed.contains_key(&request.document)
+                            {
+                                continue;
+                            }
+                            match Playing::new(request.clone()) {
+                                Ok(player) => {
+                                    playing.insert(request.document, player);
+                                }
+                                Err(error) => {
+                                    publish(&request, request.image.frames[0].clone(), Some(error));
+                                    failed.insert(
+                                        request.document,
+                                        (request.incarnation, request.image.identity),
+                                    );
                                 }
                             }
-                            changed
-                        });
-                    });
-                };
-                let mut playing = HashMap::<FileId, Playing>::new();
-                let mut failed = HashMap::<FileId, (u64, u64)>::new();
-                loop {
-                    if !worker_alive.load(Ordering::Acquire) {
-                        break;
-                    }
-                    let requests = worker_desired.lock().unwrap().clone();
-                    let contains = |id: &FileId, incarnation: u64, identity: u64| {
-                        requests.iter().any(|r| {
-                            r.document == *id
-                                && r.incarnation == incarnation
-                                && r.image.identity == identity
-                        })
-                    };
-                    playing.retain(|id, p| {
-                        contains(id, p.request.incarnation, p.request.image.identity)
-                    });
-                    failed.retain(|id, (incarnation, identity)| {
-                        contains(id, *incarnation, *identity)
-                    });
-                    for request in requests {
-                        if playing.contains_key(&request.document)
-                            || failed.contains_key(&request.document)
-                        {
-                            continue;
                         }
-                        match Playing::new(request.clone()) {
-                            Ok(player) => {
-                                playing.insert(request.document, player);
+                        let now = Instant::now();
+                        let mut broken = Vec::new();
+                        for (id, player) in &mut playing {
+                            if player.deadline > now {
+                                continue;
                             }
-                            Err(error) => {
-                                publish(&request, request.image.frames[0].clone(), Some(error));
+                            let current = player.next.clone();
+                            publish(&player.request, current.clone(), None);
+                            player.deadline += Duration::from_millis(current.duration_ms);
+                            match player.decoder.next_frame() {
+                                Ok(next) => {
+                                    player.next = next;
+                                }
+                                Err(error) => {
+                                    publish(&player.request, current, Some(error));
+                                    broken.push(*id);
+                                }
+                            }
+                        }
+                        for id in broken {
+                            if let Some(player) = playing.remove(&id) {
                                 failed.insert(
-                                    request.document,
-                                    (request.incarnation, request.image.identity),
+                                    id,
+                                    (player.request.incarnation, player.request.image.identity),
                                 );
                             }
                         }
-                    }
-                    let now = Instant::now();
-                    let mut broken = Vec::new();
-                    for (id, player) in &mut playing {
-                        if player.deadline > now {
-                            continue;
+                        let deadline = playing.values().map(|player| player.deadline).min();
+                        let event = match deadline {
+                            Some(deadline) => receive
+                                .recv_timeout(deadline.saturating_duration_since(Instant::now())),
+                            None => receive
+                                .recv()
+                                .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+                        };
+                        if matches!(event, Err(mpsc::RecvTimeoutError::Disconnected)) {
+                            break;
                         }
-                        let current = player.next.clone();
-                        publish(&player.request, current.clone(), None);
-                        player.deadline += Duration::from_millis(current.duration_ms);
-                        match player.decoder.next_frame() {
-                            Ok(next) => {
-                                player.next = next;
-                            }
-                            Err(error) => {
-                                publish(&player.request, current, Some(error));
-                                broken.push(*id);
-                            }
-                        }
+                        // Collapse visibility updates while a frame was being decoded.
+                        while receive.try_recv().is_ok() {}
                     }
-                    for id in broken {
-                        if let Some(player) = playing.remove(&id) {
-                            failed.insert(
-                                id,
-                                (player.request.incarnation, player.request.image.identity),
-                            );
-                        }
-                    }
-                    let deadline = playing.values().map(|player| player.deadline).min();
-                    let event = match deadline {
-                        Some(deadline) => {
-                            receive.recv_timeout(deadline.saturating_duration_since(Instant::now()))
-                        }
-                        None => receive
-                            .recv()
-                            .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
-                    };
-                    if matches!(event, Err(mpsc::RecvTimeoutError::Disconnected)) {
-                        break;
-                    }
-                    // Collapse visibility updates while a frame was being decoded.
-                    while receive.try_recv().is_ok() {}
-                }
-            });
+                });
+        });
         Self {
+            start,
             desired,
             last: Mutex::new(Vec::new()),
             wake,
@@ -242,11 +245,15 @@ impl Playback {
             return;
         }
         *last = key;
+        if !desired.is_empty() {
+            self.start.start();
+        }
         *self.desired.lock().unwrap() = desired;
         let _ = self.wake.send(());
     }
     pub fn shutdown(&self) {
         self.alive.store(false, Ordering::Release);
+        self.start.cancel();
         self.desired.lock().unwrap().clear();
         let _ = self.wake.send(());
     }

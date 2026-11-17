@@ -365,20 +365,10 @@ impl Executor {
         let thread = std::thread::Builder::new()
             .name("loog-extensions".to_owned())
             .spawn(move || {
-                #[cfg(test)]
-                let runtime = match std::env::var("LOOG_MIGRATION_AOT_PUBLIC_KEY") {
-                    Ok(key) => Runtime::with_aot_authorities(vec![("benchmark-only".into(), key)]),
-                    Err(_) => Runtime::new(),
-                };
-                #[cfg(not(test))]
-                let runtime = Runtime::new();
-                let Ok(runtime) = runtime else {
-                    return;
-                };
                 Worker {
                     workspace_wake: None,
                     stopped: worker_stopped,
-                    runtime: Arc::new(runtime),
+                    runtime: None,
                     replies,
                     loader: None,
                     loading: HashMap::new(),
@@ -479,7 +469,8 @@ pub type UiEvents = Arc<Mutex<Vec<loog_extension_host::UiEvent>>>;
 struct Worker {
     workspace_wake: Option<std::time::Instant>,
     stopped: Arc<std::sync::atomic::AtomicBool>,
-    runtime: Arc<Runtime>,
+    // Resource-only packages and workspace timers do not need a Wasm runtime.
+    runtime: Option<Arc<Runtime>>,
     replies: Sender<Job>,
     loader: Option<component_loader::Loader>,
     loading: HashMap<String, (u64, Arc<std::sync::atomic::AtomicBool>)>,
@@ -1006,6 +997,22 @@ impl Worker {
         }
     }
 
+    fn ensure_runtime(&mut self) -> Result<Arc<Runtime>, ExtensionError> {
+        if let Some(runtime) = &self.runtime {
+            return Ok(runtime.clone());
+        }
+        #[cfg(test)]
+        let runtime = match std::env::var("LOOG_MIGRATION_AOT_PUBLIC_KEY") {
+            Ok(key) => Runtime::with_aot_authorities(vec![("benchmark-only".into(), key)]),
+            Err(_) => Runtime::new(),
+        };
+        #[cfg(not(test))]
+        let runtime = Runtime::new();
+        let runtime = Arc::new(runtime?);
+        self.runtime = Some(runtime.clone());
+        Ok(runtime)
+    }
+
     fn load(&mut self, request: component_loader::Request) {
         // A reload replaces the old instance first, so its callbacks cannot act on the new one.
         let id = request.id.clone();
@@ -1013,11 +1020,15 @@ impl Worker {
         self.cancel_load(&id);
         self.instances.remove(&id);
         if self.loader.is_none() {
-            match component_loader::Loader::new(
-                self.runtime.clone(),
-                self.replies.clone(),
-                self.stopped.clone(),
-            ) {
+            let runtime = match self.ensure_runtime() {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    self.load_failed(id, generation, error);
+                    return;
+                }
+            };
+            match component_loader::Loader::new(runtime, self.replies.clone(), self.stopped.clone())
+            {
                 Ok(loader) => self.loader = Some(loader),
                 Err(message) => {
                     self.load_failed(
@@ -1064,6 +1075,8 @@ impl Worker {
         let result = completed.code.and_then(|loaded| {
             let source = loaded.source;
             self.runtime
+                .as_ref()
+                .expect("a component load initializes the runtime")
                 .instantiate(&loaded.component, request.limits)
                 .map(|instance| (instance, source, loaded.aot_rejection))
         });

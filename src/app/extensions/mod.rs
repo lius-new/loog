@@ -541,7 +541,7 @@ pub(crate) type PackageSnippets = (String, crate::features::extensions::snippets
 
 pub struct Package {
     pub manifest: Manifest,
-    pub icon: Option<std::sync::Arc<crate::domain::media::Image>>,
+    pub icon: Option<std::sync::Arc<crate::infrastructure::extensions::icon::Icon>>,
     pub readme: Option<crate::features::markdown::content::Markup>,
     pub changelog: Option<crate::features::markdown::content::Markup>,
     pub resources: Accepted,
@@ -941,7 +941,7 @@ impl ExtensionService {
         }
         let (mut resources, themes, snippets) = accept_resources(dir, &manifest);
         let icon = manifest.icon.as_deref().and_then(|path| {
-            match crate::infrastructure::extensions::icon::load(dir, path) {
+            match crate::infrastructure::extensions::icon::prepare(dir, path) {
                 Ok(image) => Some(std::sync::Arc::new(image)),
                 Err(error) => {
                     resources.rejected.push(("icon".to_owned(), error));

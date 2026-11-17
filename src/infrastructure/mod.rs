@@ -44,3 +44,9 @@ pub(crate) mod image_filesystem;
 pub mod markdown_resources;
 
 pub(crate) mod editorconfig;
+
+pub(crate) mod svg_options;
+
+pub(crate) mod deferred_start;
+
+pub(crate) mod heap_memory;
