@@ -6247,3 +6247,245 @@ fn official_aot_authority_matches_the_publication_registry_key() {
         crate::infrastructure::extensions::registry::KEYS
     );
 }
+
+fn retained_fixture(name: &str, activation: serde_json::Value) -> Fixture {
+    let mut manifest: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+    manifest["capabilities"] = serde_json::json!(["events"]);
+    manifest["activation"] = activation;
+    manifest["contributes"] = serde_json::json!({});
+    let mut f = fixture_with(name, "", 0..0, &manifest.to_string());
+    f.app = AppState::new();
+    // The kept rows live beside the storage folder: keep each test's own.
+    let dir = std::env::temp_dir().join(format!("loog-retained-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    f.service.set_storage_dir(dir.join("storage"));
+    f
+}
+
+fn kept_entry(id: &str) -> loog_extension_host::PaletteEntry {
+    loog_extension_host::PaletteEntry {
+        id: id.into(),
+        title: format!("Title {id}"),
+        detail: None,
+        category: "Saved".into(),
+    }
+}
+
+fn kept_ids(f: &mut Fixture) -> Vec<String> {
+    f.service
+        .retained_rows()
+        .into_iter()
+        .flat_map(|(_, rows)| rows.into_iter().map(|row| row.id))
+        .collect()
+}
+
+#[test]
+fn kept_palette_rows_follow_what_is_installed_enabled_and_at_the_version_that_gave_them() {
+    let mut f = retained_fixture(
+        "retained-follow",
+        serde_json::json!([{"kind":"palette-entry"}]),
+    );
+    f.service
+        .keep_retained("example.tools", vec![kept_entry("a"), kept_entry("b")]);
+    assert_eq!(kept_ids(&mut f), ["a", "b"]);
+
+    // What is shown is worked out from the current state, not from events.
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .disabled = true;
+    assert!(
+        kept_ids(&mut f).is_empty(),
+        "a disabled extension shows nothing"
+    );
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .disabled = false;
+    assert_eq!(
+        kept_ids(&mut f),
+        ["a", "b"],
+        "and shows it again when enabled"
+    );
+
+    let kept = f
+        .service
+        .retained
+        .by_owner
+        .get_mut("example.tools")
+        .unwrap();
+    kept.version = "9.9.9".into();
+    assert!(
+        kept_ids(&mut f).is_empty(),
+        "rows of another version are not shown"
+    );
+    f.service
+        .retained
+        .by_owner
+        .get_mut("example.tools")
+        .unwrap()
+        .version = "0.1.0".into();
+
+    // A running extension shows the rows it publishes itself.
+    let package = f.service.packages.get_mut("example.tools").unwrap();
+    let _ = package.lifecycle.activating();
+    let _ = package.lifecycle.active();
+    assert!(kept_ids(&mut f).is_empty());
+    let package = f.service.packages.get_mut("example.tools").unwrap();
+    package.lifecycle =
+        crate::features::extensions::lifecycle::Lifecycle::after(package.lifecycle.generation());
+
+    // They survive a restart: read back from disk, exactly as given.
+    f.service.retained = Default::default();
+    assert_eq!(kept_ids(&mut f), ["a", "b"]);
+    f.service.packages.remove("example.tools");
+    f.service.retained = Default::default();
+    assert!(
+        kept_ids(&mut f).is_empty(),
+        "nothing is shown for what is not installed"
+    );
+}
+
+#[test]
+fn an_empty_list_forgets_and_an_undeclared_extension_keeps_nothing() {
+    let mut f = retained_fixture(
+        "retained-forget",
+        serde_json::json!([{"kind":"palette-entry"}]),
+    );
+    f.service
+        .keep_retained("example.tools", vec![kept_entry("a")]);
+    f.service.keep_retained("example.tools", Vec::new());
+    assert!(kept_ids(&mut f).is_empty());
+    f.service.retained = Default::default();
+    assert!(kept_ids(&mut f).is_empty(), "the file is gone too");
+
+    let mut f = retained_fixture(
+        "retained-undeclared",
+        serde_json::json!([{"kind":"event","name":"workspace.restore"}]),
+    );
+    f.service
+        .keep_retained("example.tools", vec![kept_entry("a")]);
+    assert!(
+        kept_ids(&mut f).is_empty(),
+        "without the palette-entry activation the rows are not used"
+    );
+    f.service.retained = Default::default();
+    assert!(kept_ids(&mut f).is_empty(), "and nothing was written");
+}
+
+#[test]
+fn choosing_a_kept_row_starts_the_extension_and_hands_it_the_id_once_it_has_started() {
+    let mut f = retained_fixture(
+        "retained-choose",
+        serde_json::json!([{"kind":"palette-entry"}]),
+    );
+    f.service.keep_retained(
+        "example.tools",
+        (0..=MAX_PENDING_TEST)
+            .map(|n| kept_entry(&format!("r{n}")))
+            .collect(),
+    );
+    let effects = f.service.choose_retained_entry("example.tools", "r0");
+    assert!(matches!(&effects[..], [Effect::Submit(Job::Load { .. })]));
+    assert!(
+        f.service
+            .choose_retained_entry("example.tools", "r0")
+            .is_empty(),
+        "the same row is not queued twice, and the extension is asked to start once"
+    );
+    assert!(
+        f.service
+            .choose_retained_entry("example.tools", "r1")
+            .is_empty()
+    );
+    assert_eq!(
+        f.service.pending_palette_entries["example.tools"],
+        ["r0", "r1"]
+    );
+
+    let generation = f.service.packages["example.tools"].lifecycle.generation();
+    let effects = f.service.loaded("example.tools", generation, Ok(()));
+    let handed: Vec<&str> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Submit(Job::PaletteEvent {
+                id,
+                generation: given,
+                event: loog_extension_host::PaletteEvent::Entry(entry),
+            }) if id == "example.tools" && *given == generation => Some(entry.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        handed,
+        ["r0", "r1"],
+        "in the order they were chosen, after the start"
+    );
+    assert!(f.service.pending_palette_entries.is_empty());
+
+    // Running now: the id goes straight to it.
+    let effects = f.service.choose_retained_entry("example.tools", "r2");
+    assert!(matches!(
+        &effects[..],
+        [Effect::Submit(Job::PaletteEvent {
+            event: loog_extension_host::PaletteEvent::Entry(entry), ..
+        })] if entry == "r2"
+    ));
+}
+
+const MAX_PENDING_TEST: usize = 8;
+
+#[test]
+fn a_row_that_is_not_kept_or_not_usable_is_refused_and_the_rows_waiting_are_bounded() {
+    let mut f = retained_fixture(
+        "retained-refuse",
+        serde_json::json!([{"kind":"palette-entry"}]),
+    );
+    f.service.keep_retained(
+        "example.tools",
+        (0..=MAX_PENDING_TEST)
+            .map(|n| kept_entry(&format!("r{n}")))
+            .collect(),
+    );
+    let refused = |effects: &[Effect]| matches!(effects, [Effect::Error(_)]);
+    assert!(refused(
+        &f.service.choose_retained_entry("example.tools", "unknown")
+    ));
+    assert!(refused(
+        &f.service.choose_retained_entry("example.other", "r0")
+    ));
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .disabled = true;
+    assert!(refused(
+        &f.service.choose_retained_entry("example.tools", "r0")
+    ));
+    f.service
+        .packages
+        .get_mut("example.tools")
+        .unwrap()
+        .disabled = false;
+
+    let _ = f.service.choose_retained_entry("example.tools", "r0");
+    for n in 1..MAX_PENDING_TEST {
+        assert!(
+            f.service
+                .choose_retained_entry("example.tools", &format!("r{n}"))
+                .is_empty()
+        );
+    }
+    assert!(
+        refused(
+            &f.service
+                .choose_retained_entry("example.tools", &format!("r{MAX_PENDING_TEST}"))
+        ),
+        "too many rows waiting for it to start"
+    );
+    // A start that does not happen leaves nothing waiting.
+    let _ = f.service.clear_sources("example.tools");
+    assert!(f.service.pending_palette_entries.is_empty());
+}

@@ -117,9 +117,18 @@ pub struct NetworkDecl {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Activation {
-    Command { id: String },
-    Document { selector: Selector },
-    Event { name: String },
+    Command {
+        id: String,
+    },
+    Document {
+        selector: Selector,
+    },
+    Event {
+        name: String,
+    },
+    /// The user chose a command-palette row the extension asked the application to keep
+    /// (`loog:palette/retained`) while it was not running.
+    PaletteEntry,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -727,6 +736,7 @@ impl Manifest {
                         return Err(ManifestError::UnknownEvent(name.clone()));
                     }
                 }
+                Activation::PaletteEntry => {}
             }
         }
         Ok(())

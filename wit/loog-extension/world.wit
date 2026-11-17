@@ -707,4 +707,5 @@ world extension-workspace {
     import loog:workspace/session@0.1.0;
     import loog:workspace/tools@0.1.0;
     import loog:palette/picker@0.1.0;
+    import loog:palette/retained@0.1.0;
 }

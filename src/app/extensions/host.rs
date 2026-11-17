@@ -1222,6 +1222,24 @@ impl ExtensionHost {
         });
     }
 
+    /// The palette rows kept for extensions that are not running.
+    pub(crate) fn retained_rows(&self) -> Vec<(String, Vec<loog_extension_host::PaletteEntry>)> {
+        self.inner.service.lock().unwrap().retained_rows()
+    }
+
+    /// A kept palette row was chosen: start its extension and hand it the row's id.
+    pub(crate) fn choose_retained_entry(&self, context: &AppContext, owner: &str, entry: &str) {
+        context.update(|app| {
+            let effects = self
+                .inner
+                .service
+                .lock()
+                .unwrap()
+                .choose_retained_entry(owner, entry);
+            self.inner.apply(app, effects);
+        });
+    }
+
     /// Read the user and project setting files again and tell running
     /// extensions which values changed. Project values only count in a trusted
     /// folder. Files are read when asked for (start, reload), not watched.
