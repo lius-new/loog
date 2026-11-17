@@ -123,6 +123,7 @@ export function allowed(file, dependency) {
   if(file.startsWith('src/features/git/'))return ['features','domain'].includes(root)||(file==='src/features/git/diff_text.rs'&&root==='similar');
   if(file==='src/infrastructure/extensions/registry.rs'&&['base64','ring','serde'].includes(root))return true;
   if(file==='src/infrastructure/extensions/state.rs'&&root==='serde')return true;
+  if(file==='src/infrastructure/extensions/retained.rs'&&root==='serde')return true;
   if(file.startsWith('src/infrastructure/extensions/'))return ['infrastructure','features','domain','loog_extension_api','loog_extension_host','std::fs','std::thread','std::process','std::os','ignore','globset','ureq','serde_json'].filter(x=>x!=='serde_json'||file.endsWith('ports.rs')).includes(root)||(file==='src/infrastructure/extensions/trust_store.rs'&&root==='std::process')||(file==='src/infrastructure/extensions/http.rs'&&root==='std::net');
   if(file==='src/features/palette.rs'&&root==='serde_json')return true;
   if(file.startsWith('src/features/extensions/'))return ['features','domain','serde','serde_json'].includes(root);

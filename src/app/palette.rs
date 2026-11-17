@@ -342,17 +342,47 @@ pub fn open(state: &AppContext) {
         .and_then(|runtime| runtime.extensions())
         .map(|host| host.commands())
         .unwrap_or_default();
+    let retained = state
+        .services()
+        .and_then(|runtime| runtime.extensions())
+        .map(|host| host.retained_rows())
+        .unwrap_or_default();
     state.update(move |app| {
         app.close_overlays_for_palette();
         let restore_terminal = app.terminal.ui.terminal_focused;
         let palette = &mut app.palette;
         palette.close();
-        let published = published_entries(&palette.published);
+        let mut published = published_entries(&palette.published);
+        published.extend(retained_entries(&retained, &palette.published));
         palette.entries = Arc::new(palette::catalog_with(&extension_commands, published));
         palette.placeholder = "Search commands".to_owned();
         palette.restore_terminal = restore_terminal;
         palette.visible = true;
     });
+}
+
+/// The rows kept for extensions that are not running. An extension that is publishing rows of
+/// its own is running, and its rows are the ones shown.
+fn retained_entries(
+    retained: &[(String, Vec<loog_extension_host::PaletteEntry>)],
+    published: &BTreeMap<String, Published>,
+) -> Vec<Entry> {
+    retained
+        .iter()
+        .filter(|(owner, _)| !published.contains_key(owner))
+        .flat_map(|(owner, entries)| {
+            entries.iter().map(move |entry| Entry {
+                id: format!("{owner}:{}", entry.id),
+                title: entry.title.clone(),
+                category: entry.category.clone(),
+                description: entry.detail.clone().unwrap_or_default(),
+                target: Target::RetainedEntry {
+                    owner: owner.clone(),
+                    id: entry.id.clone(),
+                },
+            })
+        })
+        .collect()
 }
 
 /// The rows extensions added to the command list, in owner order.
@@ -445,6 +475,9 @@ pub fn apply_commands(
                     );
                 }
             }
+            // Kept for later by the extension service, which knows the package's version; a
+            // request to keep rows never reaches the palette.
+            PaletteCommand::Retain(_) => {}
             PaletteCommand::Open { session, view } => {
                 app.close_overlays_for_palette();
                 let restore_terminal = app.terminal.ui.terminal_focused;
@@ -770,6 +803,17 @@ pub fn run_with(
                 event: loog_extension_host::PaletteEvent::Entry(id),
             }],
         ),
+        // The extension is not running: starting it and handing it the id is the host's job.
+        Target::RetainedEntry { owner, id } => match env
+            .state
+            .services()
+            .and_then(|runtime| runtime.extensions())
+        {
+            Some(host) => host.choose_retained_entry(&env.state, &owner, &id),
+            None => env
+                .state
+                .update(|app| app.show_error("Extensions are not available")),
+        },
         // A choice only means something to the session it belongs to.
         Target::Choice(_) => {}
         Target::Extension(id) => match env
@@ -865,6 +909,7 @@ fn frame(app: &AppState) -> Frame {
                     Target::Extension(_)
                     | Target::Theme(_)
                     | Target::ExtensionEntry { .. }
+                    | Target::RetainedEntry { .. }
                     | Target::Choice(_) => Vec::new(),
                 };
                 let meta = match &entry.target {
@@ -881,7 +926,10 @@ fn frame(app: &AppState) -> Frame {
                     selected: !inactive && *position == selected,
                     extension: matches!(
                         entry.target,
-                        Target::Extension(_) | Target::ExtensionEntry { .. } | Target::Choice(_)
+                        Target::Extension(_)
+                            | Target::ExtensionEntry { .. }
+                            | Target::RetainedEntry { .. }
+                            | Target::Choice(_)
                     ),
                     trailing: meta.and_then(|meta| meta.trailing.clone()),
                     depth: meta.map_or(0, |meta| meta.depth),
@@ -1604,5 +1652,43 @@ mod tests {
             vec![PaletteCommand::Entries(vec![])],
         );
         assert!(published_entries(&app.palette.published).is_empty());
+    }
+    #[test]
+    fn kept_rows_are_listed_for_stopped_extensions_and_give_way_to_the_rows_a_running_one_publishes()
+     {
+        let kept = |id: &str| loog_extension_host::PaletteEntry {
+            id: id.into(),
+            title: format!("Open {id}"),
+            detail: Some("detail".into()),
+            category: "Saved".into(),
+        };
+        let retained = vec![
+            ("acme.live".to_owned(), vec![kept("old")]),
+            ("acme.stopped".to_owned(), vec![kept("a"), kept("b")]),
+        ];
+        let mut app = AppState::new();
+        apply_commands(
+            &mut app,
+            "acme.live",
+            5,
+            vec![PaletteCommand::Entries(vec![kept("fresh")])],
+        );
+        let listed = retained_entries(&retained, &app.palette.published);
+        assert_eq!(listed.len(), 2, "the running extension is not listed twice");
+        assert!(listed.iter().all(|entry| matches!(
+            &entry.target,
+            Target::RetainedEntry { owner, .. } if owner == "acme.stopped"
+        )));
+        assert_eq!(listed[0].id, "acme.stopped:a");
+        assert_eq!(listed[1].title, "Open b");
+        assert_eq!(listed[1].description, "detail");
+        // Asking to keep rows is the service's business: the palette lists nothing for it.
+        apply_commands(
+            &mut app,
+            "acme.stopped",
+            1,
+            vec![PaletteCommand::Retain(vec![kept("x")])],
+        );
+        assert!(!app.palette.published.contains_key("acme.stopped"));
     }
 }

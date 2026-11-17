@@ -18,11 +18,24 @@ const MAX_COMMANDS: usize = 64;
 /// One request to the application, in the order the guest made it.
 #[derive(Clone, Debug)]
 pub enum Command {
-    Open { session: u64, view: View },
-    Update { session: u64, view: View },
-    Close { session: u64 },
+    Open {
+        session: u64,
+        view: View,
+    },
+    Update {
+        session: u64,
+        view: View,
+    },
+    Close {
+        session: u64,
+    },
     Entries(Vec<Entry>),
-    PickFile { request: u64, title: String },
+    /// Rows the extension asks the application to keep while it is not running.
+    Retain(Vec<Entry>),
+    PickFile {
+        request: u64,
+        title: String,
+    },
 }
 
 #[derive(Default)]
@@ -115,7 +128,7 @@ impl Palette {
         self.push(Command::Close { session })
     }
 
-    pub fn publish_entries(&mut self, entries: Vec<Entry>) -> Result<(), String> {
+    fn check_entries(entries: &[Entry]) -> Result<(), String> {
         if entries.len() > MAX_ENTRIES
             || !entries.iter().all(|entry| {
                 line(&entry.id, MAX_TEXT)
@@ -126,7 +139,19 @@ impl Palette {
         {
             return Err("palette entries exceed their budget".into());
         }
+        Ok(())
+    }
+
+    pub fn publish_entries(&mut self, entries: Vec<Entry>) -> Result<(), String> {
+        Self::check_entries(&entries)?;
         self.push(Command::Entries(entries))
+    }
+
+    /// Ask the application to keep these rows for when the extension is not running. They
+    /// are bounded like published rows; the application stores them as they are given.
+    pub fn retain_entries(&mut self, entries: Vec<Entry>) -> Result<(), String> {
+        Self::check_entries(&entries)?;
+        self.push(Command::Retain(entries))
     }
 
     pub fn pick_file(&mut self, title: String) -> Result<u64, String> {
@@ -345,6 +370,40 @@ mod tests {
         palette
             .publish_entries((0..MAX_ENTRIES).map(entry).collect())
             .unwrap();
+    }
+
+    #[test]
+    fn retained_entries_have_the_limits_of_published_ones_and_are_reported_in_order() {
+        let mut palette = Palette::default();
+        let entry = |id: &str| Entry {
+            id: id.into(),
+            title: "t".into(),
+            detail: Some("d".into()),
+            category: "c".into(),
+        };
+        assert!(
+            palette
+                .retain_entries((0..=MAX_ENTRIES).map(|n| entry(&n.to_string())).collect())
+                .is_err()
+        );
+        assert!(
+            palette.retain_entries(vec![entry("two\nlines")]).is_err(),
+            "an id is one line"
+        );
+        assert!(palette.retain_entries(vec![entry("")]).is_err());
+        assert!(
+            palette.take().is_empty(),
+            "a refused list leaves nothing queued"
+        );
+        palette.publish_entries(vec![entry("live")]).unwrap();
+        palette.retain_entries(vec![entry("kept")]).unwrap();
+        palette.retain_entries(vec![]).unwrap();
+        let commands = palette.take();
+        assert!(matches!(&commands[..], [
+            Command::Entries(live),
+            Command::Retain(kept),
+            Command::Retain(none),
+        ] if live[0].id == "live" && kept[0].id == "kept" && none.is_empty()));
     }
 
     #[test]

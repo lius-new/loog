@@ -141,3 +141,23 @@ interface picker {
     /// Called from guest dispatch. The executor schedules a round when events arrive.
     poll: func() -> list<event>;
 }
+
+/// Rows an extension asks the application to keep for it while it is not running.
+///
+/// An extension that does not start with the application cannot publish its rows
+/// before anything runs. It hands the application the rows to show instead; the
+/// application stores them as given, shows them while the extension is installed,
+/// enabled and not running, and starts the extension when one is chosen. The
+/// extension, not the application, decides what is kept and when it changes.
+///
+/// A kept row can be out of date: the extension answers `picker.event.entry` with
+/// the row's id after it has started, and must check that the id still means
+/// something. The application never interprets a title, an id or a category.
+interface retained {
+    use picker.{entry};
+
+    /// Replace the rows kept for this extension. At most 64, with the same limits as
+    /// `picker.publish-entries`. An empty list forgets them. The manifest must declare
+    /// the `palette-entry` activation, or the rows are not used.
+    retain: func(entries: list<entry>) -> result<_, string>;
+}

@@ -20,6 +20,13 @@ pub enum Target {
         generation: u64,
         id: String,
     },
+    /// An entry an extension asked the application to keep while it is not running. Choosing it
+    /// starts the extension, which is then handed the id, unchanged, as it is for
+    /// `ExtensionEntry`.
+    RetainedEntry {
+        owner: String,
+        id: String,
+    },
     /// A choice of the session an extension has open in the palette.
     Choice(Box<ChoiceMeta>),
 }

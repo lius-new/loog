@@ -633,6 +633,14 @@ impl bindings::loog::palette::picker::Host for HostState {
     }
 }
 
+impl bindings::loog::palette::retained::Host for HostState {
+    fn retain(&mut self, entries: Vec<PaletteEntry>) -> Result<(), String> {
+        self.unrestricted("keeping palette entries")
+            .map_err(|error| error.message)?;
+        self.palette.retain_entries(entries)
+    }
+}
+
 impl bindings::loog::service::findings::Host for HostState {
     fn publish(
         &mut self,
@@ -1252,6 +1260,7 @@ pub const KNOWN_IMPORTS: &[&str] = &[
     "loog:workspace/session@0.1.0",
     "loog:workspace/tools@0.1.0",
     "loog:palette/picker@0.1.0",
+    "loog:palette/retained@0.1.0",
 ];
 
 /// Length of one epoch tick.

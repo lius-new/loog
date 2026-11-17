@@ -261,7 +261,40 @@ of a secret and the keys. An extension supplies words and opaque ids.
 
 The application MUST NOT branch on an extension, a tag, an id or a group name.
 The activation event `application.start` wakes an extension once when the
-application starts, so rows it publishes exist before any command runs.
+application starts, so rows it publishes exist before any command runs. An
+extension that should not run until it is used keeps its rows with
+`loog:palette/retained@0.1.0` instead.
+
+### Retained rows
+
+`loog:palette/retained@0.1.0` is a separate interface, so the original picker ABI is
+unchanged. `retain(entries)` hands the application the rows to show while the
+extension is not running (at most 64, the same limits as `publish-entries`; an
+empty list forgets them). The extension decides what is kept and when it changes;
+the application does not merge, expire or interpret anything.
+
+- The rows are stored as given, one small file per extension in the application's
+  data, together with the version of the package that gave them.
+- They are shown only while the extension is installed, enabled, declares the
+  `palette-entry` activation in its manifest, is at that version and is not
+  running. This is worked out each time the palette opens from the current state;
+  nothing listens for an extension being removed, disabled or updated. A running
+  extension shows the rows it publishes with `publish-entries` instead. Files of
+  extensions that are no longer installed are removed when the palette first needs
+  them; shown rows never depend on that.
+- Choosing one starts the extension and, once it has started, answers
+  `event.entry` with the row's id, exactly as for a published row. Rows chosen
+  while it is starting wait, in order, up to eight; a start that fails drops them
+  with the usual error.
+- A kept row can be out of date. The extension checks the id it is handed and
+  ignores one it no longer knows. It publishes its current rows when it starts,
+  which replace the kept ones.
+- An extension that does not declare `palette-entry` is not woken from the
+  palette, and its kept rows are not used.
+
+The application stores and shows the rows and starts the extension; it MUST NOT
+choose which rows are kept or read their words. `{ "kind": "palette-entry" }` is
+the manifest activation that allows it.
 
 ## Verification and development
 

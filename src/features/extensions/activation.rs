@@ -13,6 +13,8 @@ pub enum Trigger {
         language: String,
     },
     Event(String),
+    /// A palette row the extension asked the application to keep was chosen.
+    PaletteEntry,
 }
 
 /// Whether `trigger` is a declared reason to wake `manifest`'s behaviour.
@@ -27,6 +29,7 @@ pub fn matches(manifest: &Manifest, trigger: &Trigger) -> bool {
                     selector.languages.contains(language)
                 }
                 (Activation::Event { name }, Trigger::Event(fired)) => name == fired,
+                (Activation::PaletteEntry, Trigger::PaletteEntry) => true,
                 _ => false,
             })
 }
@@ -112,7 +115,8 @@ mod tests {
                 "activation": [
                     { "kind": "command", "id": "example.lang.run" },
                     { "kind": "document", "selector": { "languages": ["rust"] } },
-                    { "kind": "event", "name": "document.save" }
+                    { "kind": "event", "name": "document.save" },
+                    { "kind": "palette-entry" }
                 ],
                 "contributes": { "commands": [{ "id": "example.lang.run", "title": "Run" }] }
             }"#,
@@ -139,6 +143,25 @@ mod tests {
         ));
         assert!(matches(&m, &Trigger::Event("document.save".into())));
         assert!(!matches(&m, &Trigger::Event("document.open".into())));
+        assert!(matches(&m, &Trigger::PaletteEntry));
+    }
+
+    #[test]
+    fn a_palette_row_wakes_only_an_extension_that_declared_it() {
+        let declared = manifest();
+        let undeclared = Manifest::parse(
+            r#"{
+                "schema": 1, "id": "example.other", "version": "0.1.0",
+                "api": "loog:extension@0.1.0", "component": "x.wasm",
+                "activation": [{ "kind": "event", "name": "document.save" }]
+            }"#,
+        )
+        .unwrap();
+        assert!(matches(&declared, &Trigger::PaletteEntry));
+        assert!(!matches(&undeclared, &Trigger::PaletteEntry));
+        let resource_only =
+            Manifest::parse(r#"{ "schema": 1, "id": "acme.night", "version": "1.0.0" }"#).unwrap();
+        assert!(!matches(&resource_only, &Trigger::PaletteEntry));
     }
 
     #[test]

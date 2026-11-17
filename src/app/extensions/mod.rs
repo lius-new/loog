@@ -41,6 +41,7 @@ mod language;
 mod processes;
 mod resource_documents;
 mod resource_providers;
+mod retained;
 mod save;
 mod ui;
 mod watches;
@@ -582,6 +583,11 @@ pub struct ExtensionService {
     workspace_bookmarks: Vec<loog_workspace_api::session::ResourceBookmark>,
     workspace_bookmarks_dirty: bool,
     pending_workspace_restores: HashMap<String, Vec<loog_workspace_api::session::ResourceBookmark>>,
+    /// What the extensions asked to keep for the palette (`loog:palette/retained`), by id; read from
+    /// disk the first time the palette needs it.
+    retained: retained::Kept,
+    /// Palette rows chosen while an extension was starting, handed over once it has.
+    pending_palette_entries: HashMap<String, Vec<String>>,
     workspace_router: loog_workspace_api::Router,
     workspace_roots: Vec<loog_workspace_api::PresentedRoot>,
     /// Only consumers that requested discovery receive grant-change notices.
@@ -747,6 +753,8 @@ impl ExtensionService {
             workspace_bookmarks: Vec::new(),
             workspace_bookmarks_dirty: false,
             pending_workspace_restores: HashMap::new(),
+            retained: Default::default(),
+            pending_palette_entries: HashMap::new(),
             workspace_router: Default::default(),
             workspace_roots: Vec::new(),
             workspace_consumers: Default::default(),
@@ -1603,18 +1611,32 @@ impl ExtensionService {
                 generation,
                 commands,
             } => {
-                if self
+                if !self
                     .packages
                     .get(&id)
                     .is_some_and(|package| package.lifecycle.accepts(generation))
                 {
+                    return vec![];
+                }
+                // Rows to keep are stored here, where the package's version is known; the
+                // palette only ever sees the rest. The last request of a round is the one kept.
+                let (retain, commands): (Vec<_>, Vec<_>) =
+                    commands.into_iter().partition(|command| {
+                        matches!(command, loog_extension_host::PaletteCommand::Retain(_))
+                    });
+                if let Some(loog_extension_host::PaletteCommand::Retain(entries)) =
+                    retain.into_iter().next_back()
+                {
+                    self.keep_retained(&id, entries);
+                }
+                if commands.is_empty() {
+                    vec![]
+                } else {
                     vec![Effect::Palette {
                         id,
                         generation,
                         commands,
                     }]
-                } else {
-                    vec![]
                 }
             }
             Event::Findings {
@@ -1799,6 +1821,7 @@ impl ExtensionService {
                 {
                     effects.extend(self.workspace_restore_job(id, generation, bookmark));
                 }
+                effects.extend(self.palette_entries_after_start(id, generation));
                 // Provider requests that waited for the start keep the deadline they
                 // were given; one that already ran out is answered as too late.
                 let ready: Vec<u64> = self
@@ -2298,6 +2321,7 @@ impl ExtensionService {
     /// Withdraw what an extension published; its provider calls are void.
     fn clear_sources(&mut self, extension: &str) -> Vec<Effect> {
         self.pending_workspace_restores.remove(extension);
+        self.pending_palette_entries.remove(extension);
         self.retire_workspaces(extension);
         if let Some(package) = self.packages.get_mut(extension) {
             package.document_views.clear();

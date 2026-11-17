@@ -21,6 +21,7 @@ pub mod ports;
 pub mod processes;
 #[allow(dead_code)]
 pub mod registry;
+pub mod retained;
 pub mod tasks;
 pub mod trust_store;
 pub mod watches;
