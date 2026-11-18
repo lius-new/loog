@@ -568,7 +568,8 @@ pub struct Package {
     pending: PendingTriggers,
     pub logs: Vec<(u8, String)>,
     pub last_error: Option<String>,
-    component: Vec<u8>,
+    /// Where the WebAssembly component is on disk. Not held in memory until it activates.
+    component: Option<ComponentFile>,
     code_source: Option<loog_extension_host::CodeSource>,
 }
 
@@ -733,14 +734,113 @@ fn fingerprint(edit: &AcceptedEdit) -> u64 {
 }
 
 fn digest(bytes: &[u8]) -> String {
+    digest_text(ring::digest::digest(&ring::digest::SHA256, bytes).as_ref())
+}
+
+fn digest_text(hash: &[u8]) -> String {
     use std::fmt::Write;
-    let hash = ring::digest::digest(&ring::digest::SHA256, bytes);
-    hash.as_ref()
-        .iter()
-        .fold(String::from("sha256:"), |mut out, byte| {
-            let _ = write!(out, "{byte:02x}");
-            out
+    hash.iter().fold(String::from("sha256:"), |mut out, byte| {
+        let _ = write!(out, "{byte:02x}");
+        out
+    })
+}
+
+/// A package's component file and the SHA-256 it had when the package was read.
+#[derive(Clone, Debug)]
+pub(crate) struct ComponentFile {
+    path: PathBuf,
+    sha256: Vec<u8>,
+}
+
+impl ComponentFile {
+    /// Hash `path` in chunks, feeding the same bytes to `whole`, without keeping them.
+    fn hash(path: PathBuf, whole: &mut ring::digest::Context) -> std::io::Result<Self> {
+        use std::io::Read;
+        let mut file = std::fs::File::open(&path)?;
+        let mut own = ring::digest::Context::new(&ring::digest::SHA256);
+        let mut chunk = vec![0u8; 64 * 1024];
+        loop {
+            let read = file.read(&mut chunk)?;
+            if read == 0 {
+                break;
+            }
+            own.update(&chunk[..read]);
+            whole.update(&chunk[..read]);
+        }
+        Ok(Self {
+            path,
+            sha256: own.finish().as_ref().to_vec(),
         })
+    }
+}
+
+impl ComponentFile {
+    /// Reads the component now, refusing a file that is no longer the one the package was
+    /// trusted as.
+    fn read(&self) -> Result<Vec<u8>, String> {
+        let bytes = std::fs::read(&self.path).map_err(|error| error.to_string())?;
+        if ring::digest::digest(&ring::digest::SHA256, &bytes).as_ref() != self.sha256.as_slice() {
+            return Err("the component changed on disk since the package was read".to_owned());
+        }
+        Ok(bytes)
+    }
+}
+
+impl Package {
+    /// The component bytes, read now. Empty when there is none, or when the file is gone or no
+    /// longer the one the package was trusted as; loading empty bytes then fails visibly.
+    fn read_component(&self) -> Vec<u8> {
+        let Some(file) = &self.component else {
+            return Vec::new();
+        };
+        file.read().unwrap_or_else(|error| {
+            eprintln!("{}: {error}", file.path.display());
+            Vec::new()
+        })
+    }
+}
+
+#[cfg(test)]
+mod component_file_tests {
+    use super::*;
+
+    fn temporary(name: &str) -> PathBuf {
+        let directory =
+            std::env::temp_dir().join(format!("loog-component-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        directory
+    }
+
+    #[test]
+    fn streamed_identity_matches_hashing_the_whole_package_in_memory() {
+        let directory = temporary("identity");
+        let component: Vec<u8> = (0..200_000u32).map(|n| (n % 251) as u8).collect();
+        std::fs::write(directory.join("extension.wasm"), &component).unwrap();
+        let source = "{\"id\":\"demo\"}";
+        let mut whole = ring::digest::Context::new(&ring::digest::SHA256);
+        whole.update(source.as_bytes());
+        let file = ComponentFile::hash(directory.join("extension.wasm"), &mut whole).unwrap();
+        assert_eq!(
+            digest_text(whole.finish().as_ref()),
+            digest(&[source.as_bytes(), &component].concat())
+        );
+        assert_eq!(file.read().unwrap(), component);
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn a_changed_or_missing_component_is_refused() {
+        let directory = temporary("tamper");
+        let path = directory.join("extension.wasm");
+        std::fs::write(&path, b"original").unwrap();
+        let mut whole = ring::digest::Context::new(&ring::digest::SHA256);
+        let file = ComponentFile::hash(path.clone(), &mut whole).unwrap();
+        std::fs::write(&path, b"replaced").unwrap();
+        assert!(file.read().is_err(), "a swapped file must not load");
+        std::fs::remove_file(&path).unwrap();
+        assert!(file.read().is_err(), "a missing file must not load");
+        let _ = std::fs::remove_dir_all(&directory);
+    }
 }
 
 impl ExtensionService {
@@ -903,17 +1003,26 @@ impl ExtensionService {
         self.packages.values()
     }
 
-    fn read_package(dir: &Path) -> Result<(Manifest, Vec<u8>, PackageIdentity), String> {
+    fn read_package(
+        dir: &Path,
+    ) -> Result<(Manifest, Option<ComponentFile>, PackageIdentity), String> {
         let source = std::fs::read_to_string(dir.join("manifest.json"))
             .map_err(|e| format!("manifest.json: {e}"))?;
         let manifest = Manifest::parse(&source).map_err(|e| e.to_string())?;
+        // The identity covers the manifest and the component, but the component is only
+        // streamed through the hash here: its bytes are read again when the package activates.
+        let mut whole = ring::digest::Context::new(&ring::digest::SHA256);
+        whole.update(source.as_bytes());
         let component = match &manifest.component {
-            Some(path) => std::fs::read(dir.join(path)).map_err(|e| format!("{path}: {e}"))?,
-            None => Vec::new(),
+            Some(path) => Some(
+                ComponentFile::hash(dir.join(path), &mut whole)
+                    .map_err(|e| format!("{path}: {e}"))?,
+            ),
+            None => None,
         };
         let identity = PackageIdentity {
             id: manifest.id.clone(),
-            digest: digest(&[source.as_bytes(), &component].concat()),
+            digest: digest_text(whole.finish().as_ref()),
         };
         Ok((manifest, component, identity))
     }
@@ -927,7 +1036,7 @@ impl ExtensionService {
     fn replace_package(
         &mut self,
         dir: &Path,
-        (manifest, component, identity): (Manifest, Vec<u8>, PackageIdentity),
+        (manifest, component, identity): (Manifest, Option<ComponentFile>, PackageIdentity),
     ) -> String {
         let id = manifest.id.clone();
         let disabled = self.packages.get(&id).is_some_and(|old| old.disabled);
@@ -1363,7 +1472,7 @@ impl ExtensionService {
                 vec![Effect::Submit(Job::Load {
                     id: owner,
                     generation,
-                    component: package.component.clone(),
+                    component: package.read_component(),
                     package_dir: package.dir.clone(),
                     version: package.manifest.version.clone(),
                     cache: self.cache.clone(),
@@ -2067,7 +2176,7 @@ impl ExtensionService {
             effects.push(Effect::Submit(Job::Load {
                 id,
                 generation,
-                component: package.component.clone(),
+                component: package.read_component(),
                 package_dir: package.dir.clone(),
                 version: package.manifest.version.clone(),
                 cache: self.cache.clone(),
@@ -2286,7 +2395,7 @@ impl ExtensionService {
                         effects.push(Effect::Submit(Job::Load {
                             id: name.clone(),
                             generation,
-                            component: package.component.clone(),
+                            component: package.read_component(),
                             package_dir: package.dir.clone(),
                             version: package.manifest.version.clone(),
                             cache: self.cache.clone(),
@@ -2977,7 +3086,7 @@ impl ExtensionService {
                 load = Some(Job::Load {
                     id: owner.to_owned(),
                     generation,
-                    component: package.component.clone(),
+                    component: package.read_component(),
                     package_dir: package.dir.clone(),
                     version: package.manifest.version.clone(),
                     cache: self.cache.clone(),

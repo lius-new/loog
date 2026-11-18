@@ -475,13 +475,25 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         });
         move || drop(handle)
     });
+    // The first run only sees what was just restored from disk; writing it back would start
+    // the writer threads for nothing. Later changes are persisted as before.
+    let layout_restored = cx
+        .state_with(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)))
+        .get();
     cx.use_effect(editor_layout.clone(), move || {
-        workspace_persistence::queue_editor_layout(editor_layout);
+        if !layout_restored.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            workspace_persistence::queue_editor_layout(editor_layout);
+        }
         || {}
     });
     let resource_roots = s.explorer.resources.bookmarks.clone();
+    let roots_restored = cx
+        .state_with(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)))
+        .get();
     cx.use_effect(resource_roots.clone(), move || {
-        workspace_persistence::queue_resource_roots(resource_roots);
+        if !roots_restored.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            workspace_persistence::queue_resource_roots(resource_roots);
+        }
         || {}
     });
     let document_state = state.clone();

@@ -309,7 +309,7 @@ impl ExtensionService {
                 Ok(vec![Effect::Submit(Job::Load {
                     id,
                     generation,
-                    component: package.component.clone(),
+                    component: package.read_component(),
                     package_dir: package.dir.clone(),
                     version: package.manifest.version.clone(),
                     cache: self.cache.clone(),
