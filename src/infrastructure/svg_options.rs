@@ -65,14 +65,15 @@ mod tests {
             fontdb: system_fonts(),
             ..Default::default()
         };
-        // Hosts without any installed font draw no glyphs; equivalence still holds.
+        // Installed fonts need not match the requested/default families (for example,
+        // Linux without Arial or Times New Roman). Compare against eager rendering
+        // even when both produce no glyphs.
         let has_fonts = !system_fonts().is_empty();
         for source in [
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="160" height="40"><text x="2" y="26" font-family="sans-serif" font-size="18">Hello 中文</text></svg>"#,
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="160" height="40"><text x="2" y="26" font-family="missing-font" font-size="18">Fallback 0689</text></svg>"#,
         ] {
             let actual = render(source, &lazy);
-            assert!(!has_fonts || actual.iter().any(|byte| *byte != 0));
             assert_eq!(actual, render(source, &eager));
         }
         // Without fonts the database stays empty, so discovery may repeat.
