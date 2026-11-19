@@ -71,7 +71,8 @@ pub fn render(rect: UiRect, state: HomeBinding, surface_id: UiId) -> Element {
             .children(cx.children)
     })
     .event_policy(EventPolicy::INTERACTIVE)
-    .on_event_capture(UiEventKind::PointerMove, move |_cx, _payload| {
+    // Bubble phase, not capture: see the welcome page.
+    .on_event(UiEventKind::PointerMove, move |_cx, _payload| {
         clear_hover.run(HomeCommand::Hover(None));
     });
     home = crate::ui::track_main_surface_focus(home, state.clone());
@@ -158,7 +159,8 @@ fn action_row(
         .event_policy(EventPolicy::INTERACTIVE)
         .semantics(Semantics::new(SemanticRole::Button).name(action.label()))
         .cursor(CursorIcon::Pointer)
-        .on_pointer_move(move |_cx, _pointer| {
+        .on_pointer_move(move |cx, _pointer| {
+            cx.stop_propagation();
             hover_state.run(HomeCommand::Hover(Some(index)));
         })
         .on_click(move || {
