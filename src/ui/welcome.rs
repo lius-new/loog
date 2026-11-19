@@ -52,7 +52,10 @@ pub fn render(
             .children(cx.children)
     })
     .event_policy(EventPolicy::INTERACTIVE)
-    .on_event_capture(UiEventKind::PointerMove, move |_cx, _payload| {
+    // Bubble phase, not capture: a row stops the event, so only pointer moves over the empty
+    // page clear the hover. A capture handler also ran for every move over a row and flipped the
+    // hover to none and back, which re-rendered the page on each pointer move.
+    .on_event(UiEventKind::PointerMove, move |_cx, _payload| {
         clear_hover.run(HomeCommand::Hover(None));
     });
     welcome = crate::ui::track_main_surface_focus(welcome, state.clone());
@@ -209,7 +212,8 @@ fn action_row(
     surface
         .event_policy(EventPolicy::INTERACTIVE)
         .cursor(CursorIcon::Pointer)
-        .on_pointer_move(move |_cx, _pointer| {
+        .on_pointer_move(move |cx, _pointer| {
+            cx.stop_propagation();
             hover_state.run(HomeCommand::Hover(Some(index)));
         })
         .on_click(move || match action {
@@ -273,7 +277,8 @@ fn recent_workspace_card(
     surface
         .event_policy(EventPolicy::INTERACTIVE)
         .cursor(CursorIcon::Pointer)
-        .on_pointer_move(move |_cx, _pointer| {
+        .on_pointer_move(move |cx, _pointer| {
+            cx.stop_propagation();
             hover_state.run(HomeCommand::Hover(Some(hover_index)));
         })
         .on_click(move || {
