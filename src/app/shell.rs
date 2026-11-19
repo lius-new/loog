@@ -1418,18 +1418,29 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     });
 
     // ---- Compose chrome (back-to-front) -------------------------------
-    root = root.child(super::chrome::title(
-        titlebar_rect,
-        state.clone(),
-        crate::ui::git::badge::attach(
-            group(titlebar_rect),
-            titlebar_rect,
-            titlebar_rect.left + 8.0,
-            super::git_view::binding(&state, &git_store),
-            git_store.clone().into(),
-            s.git.model.diff_loading().is_some(),
-        ),
-    ));
+    // The title bar is its own component: a hover or other local change elsewhere re-renders
+    // only that component and reuses this output. An application state change dirties this
+    // component and forces it to render again.
+    root = root.child({
+        let (state, git_store) = (state.clone(), git_store.clone());
+        component(
+            (titlebar_rect, s.git.model.diff_loading().is_some()),
+            move |_cx, &(titlebar_rect, diff_loading)| {
+                super::chrome::title(
+                    titlebar_rect,
+                    state.clone(),
+                    crate::ui::git::badge::attach(
+                        group(titlebar_rect),
+                        titlebar_rect,
+                        titlebar_rect.left + 8.0,
+                        super::git_view::binding(&state, &git_store),
+                        git_store.clone().into(),
+                        diff_loading,
+                    ),
+                )
+            },
+        )
+    });
 
     for (&(pane, strip), &(_, body)) in strips.iter().zip(bodies.iter()) {
         // Only the focused pane's surface carries the focusable id, so
@@ -1516,12 +1527,12 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             }
         });
         // The surface's fractional top edge must not paint over the tab border.
-        root = root.child(super::tabs::render(
-            pane,
-            strip,
-            state.clone(),
-            editor_focus.clone(),
-        ));
+        root = root.child({
+            let (state, editor_focus) = (state.clone(), editor_focus.clone());
+            component((pane, strip), move |_cx, &(pane, strip)| {
+                super::tabs::render(pane, strip, state.clone(), editor_focus.clone())
+            })
+        });
     }
     if editor_visible {
         for sash in s.workspace.layout().sashes(editor_area.into()) {
@@ -1599,16 +1610,26 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                 code_rect,
             ));
         } else {
-            root = root.child(super::explorer_view::render(
-                explorer_rect,
-                &state,
-                &git_store,
-                &explorer_services,
-                crate::ui::explorer::commands::EditInput {
-                    id: explorer_create_input_id.clone(),
-                    focus: explorer_create_input_focus.clone(),
-                },
-            ));
+            root = root.child({
+                let (state, git_store, services) =
+                    (state.clone(), git_store.clone(), explorer_services.clone());
+                let (input_id, input_focus) = (
+                    explorer_create_input_id.clone(),
+                    explorer_create_input_focus.clone(),
+                );
+                component(explorer_rect, move |_cx, &explorer_rect| {
+                    super::explorer_view::render(
+                        explorer_rect,
+                        &state,
+                        &git_store,
+                        &services,
+                        crate::ui::explorer::commands::EditInput {
+                            id: input_id.clone(),
+                            focus: input_focus.clone(),
+                        },
+                    )
+                })
+            });
         }
     }
 
@@ -1665,7 +1686,12 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         root = root.child(layout_map::render_divider(divider.clone(), state.clone()));
     }
 
-    root = root.child(super::chrome::status(statusbar_rect, state.clone()));
+    root = root.child({
+        let state = state.clone();
+        component(statusbar_rect, move |_cx, &statusbar_rect| {
+            super::chrome::status(statusbar_rect, state.clone())
+        })
+    });
 
     if s.explorer.ui.menu.is_none()
         && s.editor.tabs.tab_context_menu.is_none()
