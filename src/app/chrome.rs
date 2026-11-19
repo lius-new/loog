@@ -127,12 +127,29 @@ pub fn home_binding(
     )
 }
 pub fn welcome(rect: UiRect, state: AppContext, id: UiId, editor: UiFocusHandle) -> Element {
-    crate::ui::welcome::render(
-        rect,
-        home_binding(&state, false, editor.clone(), None, None),
-        id,
-        editor,
-    )
+    // The page is its own component and keeps hover as local state, so moving
+    // over a row re-renders only this page instead of the whole application.
+    let recents = state.get().explorer.model.recents().to_vec();
+    lgui::prelude::component((rect, id, recents), move |cx, (rect, id, recents)| {
+        let hover = cx.state(None::<usize>);
+        let app = home_binding(&state, false, editor.clone(), None, None);
+        let (reader, runner, recents) = (hover.clone(), hover, recents.clone());
+        let binding = HomeBinding::new(
+            move || HomeFrame {
+                paths: recents.clone(),
+                hover: reader.get(),
+            },
+            move |command| match command {
+                HomeCommand::Hover(value) => runner.try_update(|current| {
+                    let changed = *current != value;
+                    *current = value;
+                    changed
+                }),
+                other => app.run(other),
+            },
+        );
+        crate::ui::welcome::render(*rect, binding, id.clone(), editor.clone())
+    })
 }
 pub fn workspace_home(
     rect: UiRect,
