@@ -1,4 +1,4 @@
-//! Paths passed on the command line: `Loog.exe <path>...`, the `loog` shell
+//! Paths passed on the command line: `Loog.exe [--trust] <path>...`, the `loog` shell
 //! command and the installer's "Open with Loog" Explorer entries.
 //!
 //! `main` records them once; the initial app state consumes them after the
@@ -9,10 +9,22 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 static LAUNCH_PATHS: OnceLock<Mutex<Vec<PathBuf>>> = OnceLock::new();
+static TRUSTED_PATHS: OnceLock<Vec<PathBuf>> = OnceLock::new();
 
 /// Record the process arguments (without the program name).
 pub fn init(args: impl IntoIterator<Item = OsString>) {
-    let _ = LAUNCH_PATHS.set(Mutex::new(parse(args)));
+    let launch = parse(args);
+    let _ = TRUSTED_PATHS.set(if launch.trust {
+        launch.paths.clone()
+    } else {
+        Vec::new()
+    });
+    let _ = LAUNCH_PATHS.set(Mutex::new(launch.paths));
+}
+
+/// The paths the user asked to trust with `--trust`; empty without that flag.
+pub fn trusted_paths() -> Vec<PathBuf> {
+    TRUSTED_PATHS.get().cloned().unwrap_or_default()
 }
 
 /// The recorded paths, handed out once so a remounted root component never
@@ -29,10 +41,20 @@ pub fn take_paths() -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
-/// Every argument is a path, except `--option` style flags, which are
-/// reserved and ignored. A bare `--` ends flag handling.
-fn parse(args: impl IntoIterator<Item = OsString>) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
+struct Launch {
+    paths: Vec<PathBuf>,
+    /// `--trust`: the folders named on the command line are trusted, as if the
+    /// trust question had been answered yes.
+    trust: bool,
+}
+
+/// Every argument is a path, except `--option` style flags: `--trust` is
+/// understood, any other is reserved and ignored. A bare `--` ends flag handling.
+fn parse(args: impl IntoIterator<Item = OsString>) -> Launch {
+    let mut launch = Launch {
+        paths: Vec::new(),
+        trust: false,
+    };
     let mut flags_done = false;
     for arg in args {
         if !flags_done {
@@ -40,15 +62,19 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Vec<PathBuf> {
                 flags_done = true;
                 continue;
             }
+            if arg == "--trust" {
+                launch.trust = true;
+                continue;
+            }
             if arg.to_string_lossy().starts_with("--") {
                 continue;
             }
         }
         if !arg.is_empty() {
-            paths.push(PathBuf::from(arg));
+            launch.paths.push(PathBuf::from(arg));
         }
     }
-    paths
+    launch
 }
 
 #[cfg(test)]
@@ -61,17 +87,32 @@ mod tests {
 
     #[test]
     fn arguments_are_paths_and_long_flags_are_ignored() {
+        let launch = parse(args(&["src", "--new-window", "README.md", ""]));
         assert_eq!(
-            parse(args(&["src", "--new-window", "README.md", ""])),
+            launch.paths,
             vec![PathBuf::from("src"), PathBuf::from("README.md")]
         );
+        assert!(!launch.trust);
     }
 
     #[test]
     fn double_dash_allows_paths_that_look_like_flags() {
+        let launch = parse(args(&["--", "--weird-name", "--trust", "file.rs"]));
         assert_eq!(
-            parse(args(&["--", "--weird-name", "file.rs"])),
-            vec![PathBuf::from("--weird-name"), PathBuf::from("file.rs")]
+            launch.paths,
+            vec![
+                PathBuf::from("--weird-name"),
+                PathBuf::from("--trust"),
+                PathBuf::from("file.rs")
+            ]
         );
+        assert!(!launch.trust);
+    }
+
+    #[test]
+    fn trust_flag_marks_the_launch_and_is_not_a_path() {
+        let launch = parse(args(&["--trust", "project"]));
+        assert_eq!(launch.paths, vec![PathBuf::from("project")]);
+        assert!(launch.trust);
     }
 }
