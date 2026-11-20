@@ -149,7 +149,6 @@ fn removing_a_workspace_folder_keeps_disk_documents_and_clears_tree_state() {
             .model
             .set_expanded(&path.to_string_lossy(), true);
     }
-    app.explorer.ui.hovered_path = Some(open_file.to_string_lossy().into_owned());
     app.explorer
         .model
         .begin_create(child.clone(), ExplorerCreateKind::File);
@@ -179,7 +178,6 @@ fn removing_a_workspace_folder_keeps_disk_documents_and_clears_tree_state() {
             .is_some()
     );
     assert!(app.explorer.model.is_expanded(&kept.to_string_lossy()));
-    assert!(app.explorer.ui.hovered_path.is_none());
     assert!(app.explorer.model.create_request().is_none());
     assert_eq!(app.workspace.active_path(), Some(open_file.as_path()));
 }

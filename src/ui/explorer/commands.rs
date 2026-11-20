@@ -129,6 +129,7 @@ pub struct Frame<'a> {
     /// Whether the drawer edge shows a resize handle.
     pub resizable: bool,
     pub decorate: &'a dyn Fn(&Path) -> Decoration,
+    pub hover: &'a super::state::RowHover,
 }
 
 /// Focus and identity of the inline create/rename input.

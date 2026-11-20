@@ -30,6 +30,7 @@ pub(crate) struct Services {
     pub application: ApplicationContext,
     pub editor_focus: UiFocusHandle,
     pub terminal_tabs: crate::app::terminal_binding::TerminalStore,
+    pub hover: crate::ui::explorer::state::RowHover,
 }
 
 fn projection(state: &AppContext) -> StateAccess<ExplorerPanelState> {
@@ -101,6 +102,7 @@ pub(crate) fn render(
         resizing: app.drawer.resizing,
         resizable: app.layout.application_layout.is_none(),
         decorate: &decorate,
+        hover: &services.hover,
     };
     let header = drawer_header(
         UiRect::new(
@@ -984,6 +986,7 @@ mod tests {
                 application: context.clone(),
                 editor_focus: cx.focus_handle(UiId::new("editor")),
                 terminal_tabs: tabs,
+                hover: cx.signal(None),
             };
             let drawer = render(
                 UiRect::new(500.0, 0.0, 800.0, 600.0),

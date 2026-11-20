@@ -21,7 +21,7 @@ use lgui::prelude::{Color, Element, TextAlign, UiRect, VisualStyle, panel, text}
 
 use super::commands::{Command, Commands, Decoration, EditInput, Frame, GitTone};
 use super::source::{self, Entry};
-use super::state::{ExplorerPanelState, ExplorerReveal};
+use super::state::{ExplorerPanelState, ExplorerReveal, RowHover};
 use crate::features::explorer::ExplorerCreateKind;
 use crate::ui::components::input::{self, AccessInputOptions, InputBinding, InputStyle};
 use crate::ui::components::scrollbar;
@@ -164,15 +164,11 @@ pub fn render(
     // Rows and the resize handle are drawn later and sit above it, so they win
     // hit-testing and this only receives events on empty space.
     let menu_commands = commands.clone();
-    let clear_hover = state.clone();
+    let clear_hover = frame.hover.clone();
     let capture = panel(content_rect, VisualStyle::default())
         .event_policy(EventPolicy::INTERACTIVE)
         .on_event_capture(UiEventKind::PointerMove, move |_cx, _payload| {
-            clear_hover.try_update(|panel| {
-                let changed = panel.ui.hovered_path.is_some();
-                panel.ui.hovered_path = None;
-                changed
-            });
+            clear_hover.set(None);
         })
         .on_pointer_down_with_button(move |_cx, p, button| {
             if button == PointerButton::Right {
@@ -656,18 +652,28 @@ fn tree_label_color(decoration: Decoration, default: Color) -> Color {
 
 /// Hover tracking shared by directory and file rows.
 fn track_hover(
-    state: &Access,
+    hover: &RowHover,
     key: &str,
 ) -> impl Fn(&mut lgui::core::UiEventContext, lgui::core::PointerData) + Send + Sync + 'static {
-    let state = state.clone();
+    let hover = hover.clone();
     let key = key.to_string();
-    move |_cx, _pointer| {
-        let key = key.clone();
-        state.try_update(move |panel| {
-            let changed = panel.ui.hovered_path.as_deref() != Some(key.as_str());
-            panel.ui.hovered_path = Some(key);
-            changed
-        });
+    move |_cx, _pointer| hover.set(Some(key.clone()))
+}
+
+/// Keeps a row's fill following the hover without re-rendering. ixed is a fill that wins over
+/// the hover, such as the selection.
+fn follow_hover(row: Element, hover: &RowHover, key: &str, fixed: Option<Color>) -> Element {
+    let key = key.to_string();
+    row.bind(hover, move |hovered, node| {
+        node.style = row_fill(fixed, hovered.as_deref() == Some(key.as_str()));
+    })
+}
+
+fn row_fill(fixed: Option<Color>, hovered: bool) -> VisualStyle {
+    match fixed {
+        Some(color) => VisualStyle::filled(color),
+        None if hovered => VisualStyle::filled(theme::c().surface),
+        None => VisualStyle::default(),
     }
 }
 
@@ -714,7 +720,8 @@ fn dir_row(
 
     let mut row = panel(row_rect, style).event_policy(EventPolicy::INTERACTIVE);
     if !sticky {
-        row = row.on_pointer_move(track_hover(tree.state, key));
+        row = follow_hover(row, tree.frame.hover, key, None)
+            .on_pointer_move(track_hover(tree.frame.hover, key));
     }
 
     let commands = tree.commands.clone();
@@ -769,20 +776,18 @@ fn file_row(tree: &TreeContext<'_>, entry: &Entry, indent: f32, y: f32) -> Eleme
     let icon = crate::ui::file_icons::icon_for_file(name);
     let decoration = entry.decoration(tree.frame);
     let label_color = tree_label_color(decoration, theme::c().text_muted);
-    let row_style = if entry.selected(tree.panel, tree.frame) {
-        VisualStyle::filled(theme::c().active_line)
-    } else if tree.panel.ui.hovered_path.as_deref() == Some(key) {
-        VisualStyle::filled(theme::c().surface)
-    } else {
-        VisualStyle::default()
-    };
+    let fixed = entry
+        .selected(tree.panel, tree.frame)
+        .then(|| theme::c().active_line);
+    let hovered = tree.frame.hover.get().as_deref() == Some(key.as_str());
+    let row_style = row_fill(fixed, hovered);
     let commands = tree.commands.clone();
     let pressed = entry.clone();
     let released = entry.clone();
     let release_commands = tree.commands.clone();
-    panel(row_rect, row_style)
+    follow_hover(panel(row_rect, row_style), tree.frame.hover, key, fixed)
         .event_policy(EventPolicy::INTERACTIVE)
-        .on_pointer_move(track_hover(tree.state, key))
+        .on_pointer_move(track_hover(tree.frame.hover, key))
         .on_pointer_down_with_button(move |cx, pointer, button| {
             if let Some(command) = pressed.press((pointer.point.x, pointer.point.y), button) {
                 commands.dispatch(command);
@@ -970,7 +975,7 @@ fn build_tree(
                 0.0,
                 expanded,
                 false,
-                tree.panel.ui.hovered_path.as_deref() == Some(entry.key.as_str()),
+                tree.frame.hover.get().as_deref() == Some(entry.key.as_str()),
                 tree_label_color(entry.decoration(tree.frame), theme::c().text_soft),
             ));
         } else {

@@ -45,6 +45,8 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let git_store = cx.state_with(GitStoreSnapshot::default);
     // Never updated through `State`, so map changes never re-render the app.
     let layout_map_store = cx.state_with(layout_map::MapStore::default).get();
+    // The tree row under the pointer: a signal, so moving between rows re-renders nothing.
+    let explorer_hover = cx.signal(None::<String>);
     let git_poll_control = runtime.git_poll_control();
     let terminal_tabs = cx.state_with(|| terminal_effects::restored(workspace_persistence::load()));
     let terminal_tabs = terminal_effects::bind(terminal_tabs, &runtime, &state);
@@ -1184,16 +1186,16 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     // Track the whole drawer at the root so moving into sibling regions or
     // overlays hides its scrollbar immediately.
     let st_hover = state.clone();
+    let st_hover_row = explorer_hover.clone();
     root = root.on_event_capture(UiEventKind::PointerMove, move |_ctx, payload| {
         if let UiEventPayload::PointerMove { pointer } = payload {
             let hovered = show_drawer && explorer_rect.contains(pointer.point);
+            if !hovered {
+                st_hover_row.set(None);
+            }
             st_hover.try_update(move |app| {
-                let changed = app.explorer.ui.hovered != hovered
-                    || (!hovered && app.explorer.ui.hovered_path.is_some());
+                let changed = app.explorer.ui.hovered != hovered;
                 app.explorer.ui.hovered = hovered;
-                if !hovered {
-                    app.explorer.ui.hovered_path = None;
-                }
                 changed
             });
         }
@@ -1591,6 +1593,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         application: application_context.clone(),
         editor_focus: editor_focus.clone(),
         terminal_tabs: terminal_tabs.clone(),
+        hover: explorer_hover.clone(),
     };
     if show_drawer {
         if s.drawer.mode == crate::ui::drawer::DrawerMode::Search {
