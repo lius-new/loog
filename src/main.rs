@@ -26,6 +26,14 @@ mod features;
 mod infrastructure;
 mod model;
 mod ui;
+#[cfg(feature = "pool-alloc")]
+mod pool_alloc;
+
+/// Opt-in (--features pool-alloc): serves small allocations from a size-class pool, which keeps
+/// memory lower than the system heap when blocks of many sizes are allocated and freed.
+#[cfg(feature = "pool-alloc")]
+#[global_allocator]
+static ALLOCATOR: pool_alloc::PoolAlloc = pool_alloc::PoolAlloc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     app::run()

@@ -134,3 +134,7 @@ version = "0.261"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+[features]
+# Serve small allocations from a size-class pool instead of the system heap (Windows).
+pool-alloc = []
