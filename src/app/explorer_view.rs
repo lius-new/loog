@@ -834,14 +834,7 @@ mod tests {
                 .explorer
                 .model
                 .listings()
-                .map(|(key, entries)| {
-                    key.capacity()
-                        + entries.capacity() * std::mem::size_of::<DirEntry>()
-                        + entries
-                            .iter()
-                            .map(|entry| entry.name.capacity())
-                            .sum::<usize>()
-                })
+                .map(|(key, entries)| key.len() + entries.heap_bytes())
                 .sum::<usize>();
             println!(
                 "EXPLORER_MEMORY {}",
@@ -1226,7 +1219,7 @@ mod tests {
                             false,
                         )
                     })
-                    .collect::<Vec<_>>()
+                    .collect::<crate::features::explorer::Listing>()
                     .into(),
             );
         }

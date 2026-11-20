@@ -137,13 +137,13 @@ fn removing_a_workspace_folder_keeps_disk_documents_and_clears_tree_state() {
     );
     app.explorer
         .model
-        .insert_listing(removed.to_string_lossy().into_owned(), Vec::new().into());
+        .insert_listing(removed.to_string_lossy().into_owned(), crate::features::explorer::Listing::default().into());
     app.explorer
         .model
-        .insert_listing(child.to_string_lossy().into_owned(), Vec::new().into());
+        .insert_listing(child.to_string_lossy().into_owned(), crate::features::explorer::Listing::default().into());
     app.explorer
         .model
-        .insert_listing(kept.to_string_lossy().into_owned(), Vec::new().into());
+        .insert_listing(kept.to_string_lossy().into_owned(), crate::features::explorer::Listing::default().into());
     for path in [&removed, &child, &kept] {
         app.explorer
             .model
@@ -303,7 +303,7 @@ fn renamed_directory_retargets_tabs_and_rebuilds_tree_state() {
     app.explorer.model.restore(vec![root], Vec::new());
     app.explorer
         .model
-        .insert_listing(old_path.to_string_lossy().into_owned(), Vec::new().into());
+        .insert_listing(old_path.to_string_lossy().into_owned(), crate::features::explorer::Listing::default().into());
     app.explorer
         .model
         .set_expanded(&old_path.to_string_lossy(), true);
@@ -428,7 +428,7 @@ fn renaming_keeps_unicode_names_open_tabs_and_listings_in_step() {
     assert!(app.explorer.ui.create_error.is_none());
     let names = app.explorer.model.listing(&key(&root)).unwrap();
     assert_eq!(names.len(), 1);
-    assert_eq!(names[0].name, "新名 🙂.rs");
+    assert_eq!(names.get(0).unwrap().name, "新名 🙂.rs");
     let _ = fs::remove_dir_all(root);
 }
 

@@ -43,8 +43,8 @@ pub(crate) fn apply_batch(app: &mut AppState, batch: &FileChangeBatch) -> bool {
 
 type PreparedDirectory = (
     String,
-    Arc<Vec<crate::features::explorer::DirEntry>>,
-    Option<Arc<Vec<crate::features::explorer::DirEntry>>>,
+    Arc<crate::features::explorer::Listing>,
+    Option<Arc<crate::features::explorer::Listing>>,
 );
 
 pub(crate) struct PreparedFileBatch {
@@ -86,7 +86,7 @@ pub(crate) fn prepare_batch(app: &AppState, batch: &FileChangeBatch) -> Prepared
         .listings()
         .filter_map(|(key, previous)| {
             let next = working.listing(key);
-            (next != Some(previous)).then(|| (key.clone(), previous.clone(), next.cloned()))
+            (next != Some(previous)).then(|| (key.to_owned(), previous.clone(), next.cloned()))
         })
         .collect();
     let editing = if batch.requires_full_rescan
@@ -609,7 +609,7 @@ mod tests {
             .listing(&key(directory))
             .unwrap()
             .iter()
-            .map(|entry| entry.name.clone())
+            .map(|entry| entry.name.to_owned())
             .collect()
     }
 
