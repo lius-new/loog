@@ -19,6 +19,7 @@ pub enum HomeCommand {
 pub struct HomeBinding {
     read: Arc<dyn Fn() -> HomeFrame + Send + Sync>,
     run: Arc<dyn Fn(HomeCommand) -> bool + Send + Sync>,
+    hover_signal: Option<lgui::core::Signal<Option<usize>>>,
 }
 impl HomeBinding {
     pub fn new(
@@ -28,7 +29,16 @@ impl HomeBinding {
         Self {
             read: Arc::new(read),
             run: Arc::new(run),
+            hover_signal: None,
         }
+    }
+    /// Lets the page repaint hovered rows in place instead of re-rendering.
+    pub fn with_hover_signal(mut self, signal: lgui::core::Signal<Option<usize>>) -> Self {
+        self.hover_signal = Some(signal);
+        self
+    }
+    pub fn hover_signal(&self) -> Option<&lgui::core::Signal<Option<usize>>> {
+        self.hover_signal.as_ref()
     }
     pub fn frame(&self) -> HomeFrame {
         (self.read)()
