@@ -1,6 +1,7 @@
 //! Welcome canvas shown when no project or document is open.
 
 use lgui::core::{
+    Color, Signal, TextStyle, UiNode,
     CursorIcon, EventPolicy, SemanticRole, Semantics, UiElement, UiEventKind, UiFocusHandle, UiId,
     clip,
 };
@@ -40,11 +41,18 @@ pub fn render(
     editor_focus: UiFocusHandle,
 ) -> Element {
     let snapshot = state.frame();
+    let snapshot_hover = snapshot.hover;
     let page_w = (rect.width() - PAGE_PAD_X * 2.0).clamp(0.0, MAX_PAGE_W);
     let page_left = rect.left + (rect.width() - page_w) / 2.0;
     let page_right = page_left + page_w;
     let page_top = rect.top + if rect.height() >= 420.0 { 42.0 } else { 24.0 };
 
+    let hover_signal = state.hover_signal().cloned();
+    let hover_of = move |index: usize| Hover {
+        signal: hover_signal.clone(),
+        index,
+        hovered: snapshot_hover == Some(index),
+    };
     let clear_hover = state.clone();
     let mut welcome = Element::new(move |cx| {
         UiElement::panel(surface_id, rect, VisualStyle::filled(theme::c().bg))
@@ -123,7 +131,7 @@ pub fn render(
             index,
             action,
             label,
-            snapshot.hover == Some(index),
+            hover_of(index),
             state.clone(),
             editor_focus.clone(),
         ));
@@ -164,8 +172,7 @@ pub fn render(
             welcome = welcome.child(recent_workspace_card(
                 card,
                 path,
-                hover_index,
-                snapshot.hover == Some(hover_index),
+                hover_of(hover_index),
                 state.clone(),
             ));
             card_top += WORKSPACE_CARD_H + WORKSPACE_CARD_GAP;
@@ -198,15 +205,12 @@ fn action_row(
     index: usize,
     action: StartAction,
     label: &'static str,
-    hovered: bool,
+    hover: Hover,
     state: HomeBinding,
     editor_focus: UiFocusHandle,
 ) -> Element {
-    let surface = if hovered {
-        theme::bordered(rect, theme::c().surface, theme::c().border, 4.0, 1.0)
-    } else {
-        panel(rect, VisualStyle::default().radius(4.0))
-    };
+    let colors = theme::c();
+    let surface = hover_surface(rect, 4.0, &hover, (None, None), (colors.border, colors.surface));
     let hover_state = state.clone();
     let click_state = state.clone();
     surface
@@ -226,18 +230,91 @@ fn action_row(
                 click_state.run(HomeCommand::OpenFolder);
             }
         })
-        .child(text(
+        .child(hover_text(
             UiRect::new(rect.left + 12.0, rect.top, rect.right - 12.0, rect.bottom),
             label,
-            theme::sans(
-                if hovered {
-                    theme::c().text_bright
-                } else {
-                    theme::c().text_soft
-                },
-                theme::UI_SIZE,
-            ),
+            |color| theme::sans(color, theme::UI_SIZE),
+            colors.text_soft,
+            colors.text_bright,
+            &hover,
         ))
+}
+
+/// One row's hover state: it follows `signal` in place when there is one, so moving over rows
+/// repaints the rows involved instead of re-rendering the page.
+#[derive(Clone)]
+struct Hover {
+    signal: Option<Signal<Option<usize>>>,
+    index: usize,
+    hovered: bool,
+}
+
+impl Hover {
+    fn bind(
+        &self,
+        element: Element,
+        patch: impl Fn(bool, &mut UiNode) + Send + Sync + 'static,
+    ) -> Element {
+        let Some(signal) = &self.signal else {
+            return element;
+        };
+        let index = self.index;
+        element.bind(signal, move |hover, node| patch(*hover == Some(index), node))
+    }
+}
+
+fn fill_style(fill: Option<Color>, radius: f32) -> VisualStyle {
+    match fill {
+        Some(color) => VisualStyle::filled(color).radius(radius),
+        None => VisualStyle::default().radius(radius),
+    }
+}
+
+/// A bordered row surface whose border and fill follow the hover, with a constant node structure.
+fn hover_surface(
+    rect: UiRect,
+    radius: f32,
+    hover: &Hover,
+    idle: (Option<Color>, Option<Color>),
+    hot: (Color, Color),
+) -> Element {
+    let (outer_idle, inner_idle) = idle;
+    let pick = move |hovered: bool, hot: Color, idle: Option<Color>| {
+        if hovered { Some(hot) } else { idle }
+    };
+    let outer = hover.bind(
+        panel(rect, fill_style(pick(hover.hovered, hot.0, outer_idle), radius)),
+        move |hovered, node| node.style = fill_style(pick(hovered, hot.0, outer_idle), radius),
+    );
+    let inner_radius = (radius - 1.0).max(0.0);
+    let inner_rect = UiRect::new(rect.left + 1.0, rect.top + 1.0, rect.right - 1.0, rect.bottom - 1.0);
+    let inner = hover.bind(
+        panel(
+            inner_rect,
+            fill_style(pick(hover.hovered, hot.1, inner_idle), inner_radius),
+        ),
+        move |hovered, node| {
+            node.style = fill_style(pick(hovered, hot.1, inner_idle), inner_radius)
+        },
+    );
+    outer.child(inner)
+}
+
+/// Text whose colour follows the hover.
+fn hover_text(
+    rect: UiRect,
+    value: impl Into<std::borrow::Cow<'static, str>>,
+    style: impl Fn(Color) -> TextStyle + Send + Sync + 'static,
+    idle: Color,
+    hot: Color,
+    hover: &Hover,
+) -> Element {
+    let initial = style(if hover.hovered { hot } else { idle });
+    hover.bind(text(rect, value, initial).into(), move |hovered, node| {
+        if let Some(text_style) = node.text_style.as_mut() {
+            text_style.color = if hovered { hot } else { idle };
+        }
+    })
 }
 
 fn empty_recent_card(rect: UiRect) -> Element {
@@ -251,8 +328,7 @@ fn empty_recent_card(rect: UiRect) -> Element {
 fn recent_workspace_card(
     rect: UiRect,
     path: &std::path::Path,
-    hover_index: usize,
-    hovered: bool,
+    hover: Hover,
     state: HomeBinding,
 ) -> Element {
     let name = path
@@ -266,13 +342,17 @@ fn recent_workspace_card(
         theme::SMALL,
         400,
     );
-    let surface = if hovered {
-        theme::bordered(rect, theme::c().surface, theme::c().border, 5.0, 1.0)
-    } else {
-        theme::bordered(rect, theme::c().bg, theme::c().border, 5.0, 1.0)
-    };
+    let colors = theme::c();
+    let surface = hover_surface(
+        rect,
+        5.0,
+        &hover,
+        (Some(colors.border), Some(colors.bg)),
+        (colors.border, colors.surface),
+    );
     let hover_state = state.clone();
     let click_state = state;
+    let hover_index = hover.index;
     let workspace_path = path.to_path_buf();
     surface
         .event_policy(EventPolicy::INTERACTIVE)
@@ -284,7 +364,7 @@ fn recent_workspace_card(
         .on_click(move || {
             click_state.run(HomeCommand::OpenRecent(workspace_path.clone()));
         })
-        .child(text(
+        .child(hover_text(
             UiRect::new(
                 rect.left + 12.0,
                 rect.top + 8.0,
@@ -292,14 +372,10 @@ fn recent_workspace_card(
                 rect.top + 28.0,
             ),
             name,
-            theme::sans_semibold(
-                if hovered {
-                    theme::c().text_bright
-                } else {
-                    theme::c().text
-                },
-                theme::UI_SIZE,
-            ),
+            |color| theme::sans_semibold(color, theme::UI_SIZE),
+            colors.text,
+            colors.text_bright,
+            &hover,
         ))
         .child(text(
             UiRect::new(

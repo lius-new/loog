@@ -131,9 +131,11 @@ pub fn welcome(rect: UiRect, state: AppContext, id: UiId, editor: UiFocusHandle)
     // over a row re-renders only this page instead of the whole application.
     let recents = state.get().explorer.model.recents().to_vec();
     lgui::prelude::component((rect, id, recents), move |cx, (rect, id, recents)| {
-        let hover = cx.state(None::<usize>);
+        // A signal, not state: moving over a row repaints that row in place instead of
+        // re-rendering the page.
+        let hover = cx.signal(None::<usize>);
         let app = home_binding(&state, false, editor.clone(), None, None);
-        let (reader, runner, recents) = (hover.clone(), hover, recents.clone());
+        let (reader, runner, recents) = (hover.clone(), hover.clone(), recents.clone());
         let binding = HomeBinding::new(
             move || HomeFrame {
                 paths: recents.clone(),
@@ -147,7 +149,8 @@ pub fn welcome(rect: UiRect, state: AppContext, id: UiId, editor: UiFocusHandle)
                 }),
                 other => app.run(other),
             },
-        );
+        )
+        .with_hover_signal(hover);
         crate::ui::welcome::render(*rect, binding, id.clone(), editor.clone())
     })
 }
