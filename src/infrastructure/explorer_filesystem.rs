@@ -4,34 +4,27 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::features::explorer::ports::{DirectoryPort, FileOpsPort};
-use crate::features::explorer::tree::sort_entries;
-use crate::features::explorer::{DirEntry, ExplorerTargetKind};
+use crate::features::explorer::{ExplorerTargetKind, Listing};
 
 pub(crate) struct ExplorerFilesystem;
 
 /// Read one directory listing from disk.
-pub(crate) fn read_directory(directory: &Path) -> Arc<Vec<DirEntry>> {
+pub(crate) fn read_directory(directory: &Path) -> Arc<Listing> {
     ExplorerFilesystem.read_directory(directory)
 }
 
 impl DirectoryPort for ExplorerFilesystem {
-    fn read_directory(&self, directory: &Path) -> Arc<Vec<DirEntry>> {
-        let parent: Arc<Path> = Arc::from(directory);
-        let mut entries = match fs::read_dir(directory) {
-            Ok(iter) => iter
-                .flatten()
-                .map(|entry| {
-                    DirEntry::new(
-                        &parent,
-                        entry.file_name().to_string_lossy().into_owned(),
-                        entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false),
-                    )
-                })
-                .collect::<Vec<_>>(),
-            Err(_) => Vec::new(),
-        };
-        sort_entries(&mut entries);
-        Arc::new(entries)
+    fn read_directory(&self, directory: &Path) -> Arc<Listing> {
+        let parent: Arc<str> = Arc::from(directory.to_string_lossy().as_ref());
+        // Names go straight into the listing's one buffer, with no String per entry.
+        let entries = fs::read_dir(directory).into_iter().flatten().flatten().map(|entry| {
+            let name = entry.file_name();
+            (
+                name.to_string_lossy().into_owned(),
+                entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false),
+            )
+        });
+        Arc::new(Listing::sorted(parent, entries))
     }
 
     fn is_dir(&self, path: &Path) -> bool {
@@ -242,7 +235,7 @@ mod tests {
         assert_eq!(
             entries
                 .iter()
-                .map(|entry| entry.name.as_str())
+                .map(|entry| entry.name)
                 .collect::<Vec<_>>(),
             ["z-dir", "a.txt"]
         );

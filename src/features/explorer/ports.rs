@@ -1,12 +1,12 @@
 //! Explorer receives disk and shell access through these injected interfaces.
-use super::{DirEntry, ExplorerTargetKind};
+use super::{ExplorerTargetKind, Listing};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub trait DirectoryPort {
     /// One directory's entries sorted by `tree::sort_entries`; an unreadable
     /// directory lists as empty.
-    fn read_directory(&self, directory: &Path) -> Arc<Vec<DirEntry>>;
+    fn read_directory(&self, directory: &Path) -> Arc<Listing>;
     fn is_dir(&self, path: &Path) -> bool;
     fn exists(&self, path: &Path) -> bool;
     /// Canonical form of `path`, or `None` when it cannot be resolved.

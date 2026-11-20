@@ -8,7 +8,7 @@ use super::model::{ExplorerModel, Reveal};
 use super::ports::DirectoryPort;
 use super::roots::{self, MAX_RECENT_FOLDERS};
 use super::tree::{self, TreeCache};
-use super::{DirEntry, ExplorerCreateKind, ExplorerTargetKind};
+use super::{ExplorerCreateKind, ExplorerTargetKind, Listing};
 
 /// Directories mapped to their child names; a trailing `/` marks a folder.
 #[derive(Default)]
@@ -32,20 +32,15 @@ impl MemoryDirectories {
 }
 
 impl DirectoryPort for MemoryDirectories {
-    fn read_directory(&self, directory: &Path) -> Arc<Vec<DirEntry>> {
-        let parent: Arc<Path> = Arc::from(directory);
-        let mut entries = self
+    fn read_directory(&self, directory: &Path) -> Arc<Listing> {
+        let parent: Arc<str> = Arc::from(directory.to_string_lossy().as_ref());
+        let entries = self
             .directories
             .get(directory)
             .into_iter()
             .flatten()
-            .map(|child| {
-                let name = child.trim_end_matches('/');
-                DirEntry::new(&parent, name.to_owned(), child.ends_with('/'))
-            })
-            .collect::<Vec<_>>();
-        tree::sort_entries(&mut entries);
-        Arc::new(entries)
+            .map(|child| (child.trim_end_matches('/'), child.ends_with('/')));
+        Arc::new(Listing::sorted(parent, entries))
     }
 
     fn is_dir(&self, path: &Path) -> bool {
@@ -79,7 +74,7 @@ fn names(tree: &TreeCache, key: &str) -> Vec<String> {
     tree.listing(key)
         .unwrap()
         .iter()
-        .map(|entry| entry.name.clone())
+        .map(|entry| entry.name.to_owned())
         .collect()
 }
 
@@ -90,7 +85,7 @@ fn entries_sort_folders_before_files_then_by_name() {
     assert_eq!(
         entries
             .iter()
-            .map(|entry| entry.name.as_str())
+            .map(|entry| entry.name)
             .collect::<Vec<_>>(),
         ["c-dir", "z-dir", "a.txt", "b.txt"]
     );
@@ -366,7 +361,7 @@ fn refresh_is_deferred_during_inline_edit() {
     port = port.dir("root", &["later.txt"]);
     assert!(model.apply_pending_refresh(&port));
     assert!(!model.pending_refresh());
-    assert_eq!(model.listing("root").unwrap()[0].name, "later.txt");
+    assert_eq!(model.listing("root").unwrap().get(0).unwrap().name, "later.txt");
 }
 
 #[test]
@@ -448,7 +443,7 @@ fn rename_retargets_nested_roots_recents_and_expansion() {
     // Existing behavior: a nested root below the renamed folder keeps its
     // place but loses its loaded listing until expanded again.
     assert!(!model.is_expanded(&k("ws/new/inner")));
-    assert_eq!(model.listing(&k("ws")).unwrap()[0].name, "new");
+    assert_eq!(model.listing(&k("ws")).unwrap().get(0).unwrap().name, "new");
     assert!(model.rename_request().is_none());
 }
 
@@ -462,7 +457,7 @@ fn renaming_a_collapsed_file_does_not_expand_it() {
 
     assert!(!model.is_expanded("ws/b.rs"));
     assert!(model.listing("ws/b.rs").is_none());
-    assert_eq!(model.listing("ws").unwrap()[0].name, "b.rs");
+    assert_eq!(model.listing("ws").unwrap().get(0).unwrap().name, "b.rs");
 }
 
 #[test]
@@ -580,6 +575,6 @@ fn names_of(model: &ExplorerModel, key: &str) -> Vec<String> {
         .listing(key)
         .unwrap()
         .iter()
-        .map(|entry| entry.name.clone())
+        .map(|entry| entry.name.to_owned())
         .collect()
 }

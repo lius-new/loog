@@ -989,8 +989,32 @@ fn build_tree(
     }
     if entry.directory && expanded {
         let children_top = *y;
-        for child in entry.children(tree.panel, depth) {
-            build_tree(tree, &child, y, depth + 1, parent, index, elements, visited);
+        match entry.local_path().filter(|_| source::can_skip_rows(tree.panel)) {
+            Some(path) => {
+                // Only the rows near the viewport become entries. A sibling whose whole subtree
+                // lies above or below it just advances the layout cursor by its row count.
+                let listing = tree.panel.model.listing(&entry.key).cloned();
+                for child in listing.iter().flat_map(|children| children.iter()) {
+                    let child_path = path.join(&child.name);
+                    let rows = 1 + if child.is_dir {
+                        source::local_rows_below(tree.panel, &child_path.to_string_lossy())
+                    } else {
+                        0
+                    };
+                    let height = rows as f32 * ROW_H;
+                    if *y + height <= tree.visible.0 || *y >= tree.visible.1 {
+                        *y += height;
+                        continue;
+                    }
+                    let child = Entry::local(child_path, child.name.to_owned(), child.is_dir);
+                    build_tree(tree, &child, y, depth + 1, parent, index, elements, visited);
+                }
+            }
+            None => {
+                for child in entry.children(tree.panel, depth) {
+                    build_tree(tree, &child, y, depth + 1, parent, index, elements, visited);
+                }
+            }
         }
         if *y > children_top && tree.row_visible(children_top, *y - children_top) {
             let guide_x = indent + TREE_ICON_SIZE / 2.0;
@@ -1005,6 +1029,32 @@ fn build_tree(
 /// Right edge required by expanded tree rows. Reuse the tab strip's cached
 /// shaped widths so CJK and fallback glyphs contribute their actual advances.
 fn tree_content_right(entry: &Entry, s: &ExplorerPanelState, left: f32) -> f32 {
+    // Measuring every expanded row is slow in a large tree, and the answer only changes when a
+    // listing or an expansion does, so a local root's width is remembered per tree revision.
+    thread_local! {
+        static REMEMBERED: std::cell::RefCell<std::collections::HashMap<(String, u32, u32), (u64, f32)>> =
+            Default::default();
+    }
+    let remembered = entry
+        .local_path()
+        .map(|_| {
+            // The width of one letter stands in for the current font.
+            let font = crate::ui::tabs::measure("W", theme::UI_SIZE, 400).to_bits();
+            (entry.key.clone(), left.to_bits(), font)
+        })
+        .filter(|_| source::can_skip_rows(s));
+    let revision = s.model.revision();
+    if let Some(key) = &remembered
+        && let Some(width) = REMEMBERED.with(|cache| {
+            cache
+                .borrow()
+                .get(key)
+                .filter(|(cached, _)| *cached == revision)
+                .map(|(_, width)| *width)
+        })
+    {
+        return width;
+    }
     let mut right = left;
     extend_content_right(
         entry,
@@ -1014,6 +1064,9 @@ fn tree_content_right(entry: &Entry, s: &ExplorerPanelState, left: f32) -> f32 {
         &mut right,
         &mut std::collections::HashSet::new(),
     );
+    if let Some(key) = remembered {
+        REMEMBERED.with(|cache| cache.borrow_mut().insert(key, (revision, right)));
+    }
     right
 }
 
@@ -1448,20 +1501,24 @@ mod tests {
         state.model.set_expanded(nested_key, true);
         state.model.insert_listing(
             root_key.to_string(),
-            vec![DirEntry::new(
+            [DirEntry::new(
                 &std::sync::Arc::from(Path::new(root_key)),
                 "src".to_string(),
                 true,
             )]
+            .into_iter()
+            .collect::<crate::features::explorer::Listing>()
             .into(),
         );
         state.model.insert_listing(
             nested_key.to_string(),
-            vec![DirEntry::new(
+            [DirEntry::new(
                 &std::sync::Arc::from(Path::new(nested_key)),
                 long_name.to_string(),
                 false,
             )]
+            .into_iter()
+            .collect::<crate::features::explorer::Listing>()
             .into(),
         );
 

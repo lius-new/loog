@@ -8,34 +8,47 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::DirEntry;
+use super::Listing;
 use super::ports::DirectoryPort;
 
-pub type Listings = HashMap<String, Arc<Vec<DirEntry>>>;
+/// Keys are shared strings: copying the map (copy-on-write while a state snapshot is alive) then
+/// costs a pointer per key instead of a heap block per key.
+pub type Listings = HashMap<Arc<str>, Arc<Listing>>;
 
 /// Cache key of a directory.
 pub fn key(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Directories first, then by name.
-pub fn sort_entries(entries: &mut [DirEntry]) {
-    entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
-}
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct TreeCache {
-    listings: Listings,
-    expanded: HashSet<String>,
+    /// Shared and copy-on-write: reading the panel state clones this struct, which must not copy
+    /// every cached directory key.
+    listings: Arc<Listings>,
+    expanded: Arc<HashSet<Arc<str>>>,
+    /// Bumped on every change, so derived values can be cached per revision.
+    revision: u64,
 }
 
 impl TreeCache {
-    pub fn listing(&self, key: &str) -> Option<&Arc<Vec<DirEntry>>> {
+    pub fn listing(&self, key: &str) -> Option<&Arc<Listing>> {
         self.listings.get(key)
     }
 
-    pub fn listings(&self) -> impl Iterator<Item = (&String, &Arc<Vec<DirEntry>>)> {
-        self.listings.iter()
+    pub fn listings(&self) -> impl Iterator<Item = (&str, &Arc<Listing>)> {
+        self.listings.iter().map(|(key, listing)| (&**key, listing))
+    }
+
+    /// One shared allocation per directory key, whichever table asks first.
+    fn shared_key(&self, key: String) -> Arc<str> {
+        if let Some((shared, _)) = self.listings.get_key_value(key.as_str()) {
+            return Arc::clone(shared);
+        }
+        if let Some(shared) = self.expanded.get(key.as_str()) {
+            return Arc::clone(shared);
+        }
+        Arc::from(key)
     }
 
     pub fn is_loaded(&self, key: &str) -> bool {
@@ -47,52 +60,59 @@ impl TreeCache {
     }
 
     pub fn expand(&mut self, key: String) {
-        self.expanded.insert(key);
+        let key = self.shared_key(key);
+        self.expanded_mut().insert(key);
     }
 
     pub fn collapse(&mut self, key: &str) {
-        self.expanded.remove(key);
+        self.expanded_mut().remove(key);
     }
 
     /// Replace one listing, returning the previous one for retirement.
     pub fn insert_listing(
         &mut self,
         key: String,
-        entries: Arc<Vec<DirEntry>>,
-    ) -> Option<Arc<Vec<DirEntry>>> {
-        self.listings.insert(key, entries)
+        mut entries: Arc<Listing>,
+    ) -> Option<Arc<Listing>> {
+        let key = self.shared_key(key);
+        if let Some(listing) = Arc::get_mut(&mut entries) {
+            listing.set_parent(Arc::clone(&key));
+        }
+        self.listings_mut().insert(key, entries)
     }
 
     /// Forget a directory which no longer exists, collapsing it.
-    pub fn unload(&mut self, key: &str) -> Option<Arc<Vec<DirEntry>>> {
-        self.expanded.remove(key);
-        self.listings.remove(key)
+    pub fn unload(&mut self, key: &str) -> Option<Arc<Listing>> {
+        self.expanded_mut().remove(key);
+        self.listings_mut().remove(key)
     }
 
     /// Read `directory` and show it expanded.
     pub fn load_expanded(&mut self, port: &dyn DirectoryPort, directory: &Path) {
-        let key = key(directory);
-        self.listings
-            .insert(key.clone(), port.read_directory(directory));
-        self.expanded.insert(key);
+        let key = self.shared_key(key(directory));
+        let entries = read_shared(port, directory, &key);
+        self.listings_mut().insert(Arc::clone(&key), entries);
+        self.expanded_mut().insert(key);
     }
 
     /// Read `directory` without changing its expansion.
     pub fn load(&mut self, port: &dyn DirectoryPort, directory: &Path) {
-        self.listings
-            .insert(key(directory), port.read_directory(directory));
+        let key = self.shared_key(key(directory));
+        let entries = read_shared(port, directory, &key);
+        self.listings_mut().insert(key, entries);
     }
 
     /// Read `directory`, then every directory below it still marked expanded,
     /// so reopening a collapsed branch restores its nested expansion.
     pub fn load_with_expanded_below(&mut self, port: &dyn DirectoryPort, directory: &Path) {
-        let entries = port.read_directory(directory);
+        let shared = self.shared_key(key(directory));
+        let entries = read_shared(port, directory, &shared);
         let nested = entries
             .iter()
-            .filter(|entry| entry.is_dir && self.expanded.contains(&key(&entry.path())))
+            .filter(|entry| entry.is_dir && self.expanded.contains(key(&entry.path()).as_str()))
             .map(|entry| entry.path())
             .collect::<Vec<_>>();
-        self.listings.insert(key(directory), entries);
+        self.listings_mut().insert(shared, entries);
         for child in nested {
             self.load_with_expanded_below(port, &child);
         }
@@ -100,21 +120,21 @@ impl TreeCache {
 
     /// Drop the cached listings at or below `path`, keeping expansion state.
     pub fn unload_under(&mut self, path: &Path) {
-        self.listings
-            .retain(|cached, _| !Path::new(cached).starts_with(path));
+        self.listings_mut()
+            .retain(|cached, _| !Path::new(&**cached).starts_with(path));
     }
 
     /// Drop listings and expansion at or below `path`.
     pub fn remove_under(&mut self, path: &Path) {
-        self.listings
-            .retain(|cached, _| !Path::new(cached).starts_with(path));
-        self.expanded
-            .retain(|expanded| !Path::new(expanded).starts_with(path));
+        self.listings_mut()
+            .retain(|cached, _| !Path::new(&**cached).starts_with(path));
+        self.expanded_mut()
+            .retain(|expanded| !Path::new(&**expanded).starts_with(path));
     }
 
     pub fn clear(&mut self) {
-        self.listings.clear();
-        self.expanded.clear();
+        self.listings_mut().clear();
+        self.expanded_mut().clear();
     }
 
     /// Row index of `target` among the visible rows below `roots`, counting
@@ -127,7 +147,7 @@ impl TreeCache {
             }
             index += 1;
             let key = key(root);
-            if self.expanded.contains(&key)
+            if self.expanded.contains(key.as_str())
                 && let Some(found) = self.visible_descendant_index(&key, target, &mut index)
             {
                 return Some(found);
@@ -141,7 +161,7 @@ impl TreeCache {
         let mut out = Vec::new();
         for root in roots {
             let key = key(root);
-            if self.expanded.contains(&key) {
+            if self.expanded.contains(key.as_str()) {
                 self.collect_visible_files(&key, &mut out);
             }
         }
@@ -155,7 +175,7 @@ impl TreeCache {
         for entry in entries.iter() {
             if entry.is_dir {
                 let key = key(&entry.path());
-                if self.expanded.contains(&key) {
+                if self.expanded.contains(key.as_str()) {
                     self.collect_visible_files(&key, out);
                 }
             } else {
@@ -178,7 +198,7 @@ impl TreeCache {
             *index += 1;
             let key = key(&entry.path());
             if entry.is_dir
-                && self.expanded.contains(&key)
+                && self.expanded.contains(key.as_str())
                 && let Some(found) = self.visible_descendant_index(&key, target, index)
             {
                 return Some(found);
@@ -191,14 +211,19 @@ impl TreeCache {
     /// the cache changed.
     pub fn refresh_directory(&mut self, port: &dyn DirectoryPort, directory: &Path) -> bool {
         let key = key(directory);
-        let Some(current) = self.listings.get(&key) else {
+        let Some(current) = self.listings.get(key.as_str()) else {
             return false;
         };
         let entries = port.read_directory(directory);
         if current == &entries {
             return false;
         }
-        self.listings.insert(key, entries);
+        let shared = self.shared_key(key);
+        let mut entries = entries;
+        if let Some(listing) = Arc::get_mut(&mut entries) {
+            listing.set_parent(Arc::clone(&shared));
+        }
+        self.listings_mut().insert(shared, entries);
         true
     }
 
@@ -220,7 +245,7 @@ impl TreeCache {
     /// Refresh every loaded directory. Bounded by the cache rather than a
     /// recursive scan of the roots.
     pub fn refresh_all(&mut self, port: &dyn DirectoryPort, roots: &[PathBuf]) -> bool {
-        let directories = self.listings.keys().map(PathBuf::from).collect::<Vec<_>>();
+        let directories = self.listings.keys().map(|key| PathBuf::from(&**key)).collect::<Vec<_>>();
         self.refresh_directories(port, roots, directories)
     }
 
@@ -251,9 +276,50 @@ impl TreeCache {
         };
 
         let before_listings = self.listings.len();
-        self.listings.retain(|key, _| should_keep(Path::new(key)));
+        self.listings_mut().retain(|key, _| should_keep(Path::new(&**key)));
         let before_expanded = self.expanded.len();
-        self.expanded.retain(|key| should_keep(Path::new(key)));
+        self.expanded_mut().retain(|key| should_keep(Path::new(&**key)));
         before_listings != self.listings.len() || before_expanded != self.expanded.len()
     }
+}
+
+impl PartialEq for TreeCache {
+    fn eq(&self, other: &Self) -> bool {
+        self.listings == other.listings && self.expanded == other.expanded
+    }
+}
+
+impl TreeCache {
+    fn listings_mut(&mut self) -> &mut Listings {
+        self.revision = next_revision();
+        Arc::make_mut(&mut self.listings)
+    }
+
+    fn expanded_mut(&mut self) -> &mut HashSet<Arc<str>> {
+        self.revision = next_revision();
+        Arc::make_mut(&mut self.expanded)
+    }
+
+    /// Changes whenever a listing or an expansion changes.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+}
+
+/// Revisions are drawn from one counter, so two caches never share a revision with different
+/// contents.
+fn next_revision() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Reads a directory and points its listing at the shared cache key, so the key text is held
+/// once instead of once more inside every listing.
+fn read_shared(port: &dyn DirectoryPort, directory: &Path, key: &Arc<str>) -> Arc<Listing> {
+    let mut entries = port.read_directory(directory);
+    if let Some(listing) = Arc::get_mut(&mut entries) {
+        listing.set_parent(Arc::clone(key));
+    }
+    entries
 }

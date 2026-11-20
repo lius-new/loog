@@ -10,7 +10,7 @@ use std::sync::Arc;
 use super::ports::DirectoryPort;
 use super::tree::{self, TreeCache};
 use super::{
-    DirEntry, ExplorerCreateKind, ExplorerCreateRequest, ExplorerRenameRequest, ExplorerTargetKind,
+    Listing, ExplorerCreateKind, ExplorerCreateRequest, ExplorerRenameRequest, ExplorerTargetKind,
     roots,
 };
 
@@ -185,12 +185,17 @@ impl ExplorerModel {
 
     // --- directory listings --------------------------------------------
 
-    pub fn listing(&self, key: &str) -> Option<&Arc<Vec<DirEntry>>> {
+    pub fn listing(&self, key: &str) -> Option<&Arc<Listing>> {
         self.tree.listing(key)
     }
 
-    pub fn listings(&self) -> impl Iterator<Item = (&String, &Arc<Vec<DirEntry>>)> {
+    pub fn listings(&self) -> impl Iterator<Item = (&str, &Arc<Listing>)> {
         self.tree.listings()
+    }
+
+    /// Changes whenever a listing or an expansion changes.
+    pub fn revision(&self) -> u64 {
+        self.tree.revision()
     }
 
     pub fn is_expanded(&self, key: &str) -> bool {
@@ -228,13 +233,13 @@ impl ExplorerModel {
     pub fn insert_listing(
         &mut self,
         key: String,
-        entries: Arc<Vec<DirEntry>>,
-    ) -> Option<Arc<Vec<DirEntry>>> {
+        entries: Arc<Listing>,
+    ) -> Option<Arc<Listing>> {
         self.tree.insert_listing(key, entries)
     }
 
     /// Forget a directory which no longer exists, collapsing it.
-    pub fn unload(&mut self, key: &str) -> Option<Arc<Vec<DirEntry>>> {
+    pub fn unload(&mut self, key: &str) -> Option<Arc<Listing>> {
         self.tree.unload(key)
     }
 

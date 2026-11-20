@@ -92,7 +92,7 @@ impl Entry {
                     entries
                         .iter()
                         .map(|entry| {
-                            Self::local(path.join(&entry.name), entry.name.clone(), entry.is_dir)
+                            Self::local(path.join(&entry.name), entry.name.to_owned(), entry.is_dir)
                         })
                         .collect()
                 })
@@ -414,4 +414,138 @@ pub(super) fn deletion_name(panel: &ExplorerPanelState) -> Option<&str> {
         .as_ref()
         .filter(|edit| edit.kind == EditKind::Delete)
         .map(|edit| edit.target.name.as_str())
+}
+
+impl Entry {
+    /// The path of a local entry; `None` for entries a provider supplies.
+    pub fn local_path(&self) -> Option<&PathBuf> {
+        match &self.origin {
+            Origin::Local(path) => Some(path),
+            _ => None,
+        }
+    }
+}
+
+/// Whether rows outside the viewport can be skipped by counting them instead of building their
+/// entries. Not while an inline create or rename row is open (it changes row heights), and not
+/// when one root sits inside another (a row could then be reached twice).
+pub(super) fn can_skip_rows(panel: &ExplorerPanelState) -> bool {
+    if panel.model.create_request().is_some()
+        || panel.model.rename_request().is_some()
+        || panel.resources.edit.is_some()
+    {
+        return false;
+    }
+    let roots = panel.model.roots();
+    !roots
+        .iter()
+        .any(|a| roots.iter().any(|b| a != b && a.starts_with(b)))
+}
+
+/// Rows below an expanded local directory: its children and, for each expanded child directory,
+/// theirs. Counts straight from the cached listings without building any entry.
+pub(super) fn local_rows_below(panel: &ExplorerPanelState, key: &str) -> usize {
+    // Counts are remembered until a listing or an expansion changes, because every scroll step
+    // asks again for the same subtrees.
+    thread_local! {
+        static COUNTS: std::cell::RefCell<(u64, std::collections::HashMap<u64, usize>)> =
+            Default::default();
+    }
+    let revision = panel.model.revision();
+    // Keys are hashed: a collision would only miscount one subtree's rows by another's, and a
+    // 64-bit hash of paths from one tree makes that vanishingly unlikely.
+    let key_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut hasher);
+        hasher.finish()
+    };
+    let known = COUNTS.with(|counts| {
+        let mut counts = counts.borrow_mut();
+        if counts.0 != revision {
+            *counts = (revision, Default::default());
+        }
+        counts.1.get(&key_hash).copied()
+    });
+    if let Some(rows) = known {
+        return rows;
+    }
+    let rows = count_rows_below(panel, key);
+    COUNTS.with(|counts| {
+        let mut counts = counts.borrow_mut();
+        if counts.0 == revision {
+            counts.1.insert(key_hash, rows);
+        }
+    });
+    rows
+}
+
+fn count_rows_below(panel: &ExplorerPanelState, key: &str) -> usize {
+    if !panel.model.is_expanded(key) {
+        return 0;
+    }
+    let Some(listing) = panel.model.listing(key) else {
+        return 0;
+    };
+    let base = std::path::Path::new(key);
+    listing.iter().fold(0, |rows, child| {
+        rows + 1
+            + if child.is_dir {
+                local_rows_below(panel, &base.join(&child.name).to_string_lossy())
+            } else {
+                0
+            }
+    })
+}
+
+#[cfg(test)]
+mod skipping_tests {
+    use super::*;
+    use crate::features::explorer::DirEntry;
+    use std::path::Path;
+    use std::sync::Arc;
+
+    fn listing(parent: &Path, entries: &[(&str, bool)]) -> Arc<crate::features::explorer::Listing> {
+        let parent: Arc<Path> = Arc::from(parent);
+        Arc::new(
+            entries
+                .iter()
+                .map(|(name, dir)| DirEntry::new(&parent, (*name).to_owned(), *dir))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn rows_below_counts_expanded_directories_only() {
+        let root = PathBuf::from("proj");
+        let a = root.join("a");
+        let d = a.join("d");
+        let hidden = root.join("hidden");
+        let mut panel = ExplorerPanelState::default();
+        let model = &mut panel.model;
+        model.insert_listing(
+            root.to_string_lossy().into_owned(),
+            listing(&root, &[("a", true), ("b", false), ("hidden", true)]),
+        );
+        model.insert_listing(
+            a.to_string_lossy().into_owned(),
+            listing(&a, &[("c", false), ("d", true)]),
+        );
+        model.insert_listing(
+            d.to_string_lossy().into_owned(),
+            listing(&d, &[("e", false)]),
+        );
+        model.insert_listing(
+            hidden.to_string_lossy().into_owned(),
+            listing(&hidden, &[("x", false), ("y", false)]),
+        );
+        for path in [&root, &a, &d] {
+            model.set_expanded(&path.to_string_lossy(), true);
+        }
+
+        // a, c, d, e, b and the collapsed `hidden` folder itself; its children do not count.
+        assert_eq!(local_rows_below(&panel, &root.to_string_lossy()), 6);
+        assert_eq!(local_rows_below(&panel, &a.to_string_lossy()), 3);
+        assert_eq!(local_rows_below(&panel, &hidden.to_string_lossy()), 0);
+    }
 }
