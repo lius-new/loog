@@ -31,7 +31,9 @@ mod pool_alloc;
 
 /// Opt-in (--features pool-alloc): serves small allocations from a size-class pool, which keeps
 /// memory lower than the system heap when blocks of many sizes are allocated and freed.
-#[cfg(all(windows, feature = "pool-alloc"))]
+/// Not installed in test builds: the tests run many threads at once, and the pool's single lock
+/// would make them contend. Its own tests drive it directly.
+#[cfg(all(windows, feature = "pool-alloc", not(test)))]
 #[global_allocator]
 static ALLOCATOR: pool_alloc::PoolAlloc = pool_alloc::PoolAlloc;
 
