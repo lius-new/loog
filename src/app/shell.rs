@@ -97,6 +97,14 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             crate::infrastructure::language_packs::user_resource_directory("trust")
         {
             loading_runtime.trust().attach(directory.join("roots.json"));
+            // `Loog.exe --trust <folder>` answers the trust question for those folders.
+            for path in crate::infrastructure::launch::trusted_paths() {
+                if let Ok(root) = std::fs::canonicalize(&path)
+                    && root.is_dir()
+                {
+                    let _ = loading_runtime.trust().trust(&root);
+                }
+            }
         }
         loading_runtime
             .install_language_services(super::language_services::LanguageServices::new());
