@@ -85,8 +85,9 @@ pub(crate) fn prepare_batch(app: &AppState, batch: &FileChangeBatch) -> Prepared
         .model
         .listings()
         .filter_map(|(key, previous)| {
-            let next = working.listing(key);
-            (next != Some(previous)).then(|| (key.to_owned(), previous.clone(), next.cloned()))
+            let next = working.listing(&key);
+            let unchanged = next.as_ref().is_some_and(|next| previous.same_entries(next));
+            (!unchanged).then(|| (key.clone(), previous.to_listing(), next.map(|next| next.to_listing())))
         })
         .collect();
     let editing = if batch.requires_full_rescan
@@ -148,14 +149,13 @@ pub(crate) fn apply_prepared_batch(app: &mut AppState, batch: PreparedFileBatch)
                     .explorer
                     .model
                     .listing(key)
-                    .is_some_and(|current| Arc::ptr_eq(current, previous))
+                    .is_some_and(|current| current.same_as(previous))
                 {
-                    let old = if let Some(next) = next {
-                        app.explorer.model.insert_listing(key.clone(), next.clone())
+                    if let Some(next) = next {
+                        app.explorer.model.insert_listing(key.clone(), next.clone());
                     } else {
-                        app.explorer.model.unload(key)
-                    };
-                    crate::infrastructure::ui_dispatch::retire(old);
+                        app.explorer.model.unload(key);
+                    }
                     changed = true;
                 } else if app.explorer.model.listing(key).is_some() {
                     retry = true;

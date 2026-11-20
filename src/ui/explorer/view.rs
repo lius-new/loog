@@ -993,21 +993,22 @@ fn build_tree(
             Some(path) => {
                 // Only the rows near the viewport become entries. A sibling whose whole subtree
                 // lies above or below it just advances the layout cursor by its row count.
-                let listing = tree.panel.model.listing(&entry.key).cloned();
-                for child in listing.iter().flat_map(|children| children.iter()) {
-                    let child_path = path.join(&child.name);
-                    let rows = 1 + if child.is_dir {
-                        source::local_rows_below(tree.panel, &child_path.to_string_lossy())
-                    } else {
-                        0
-                    };
-                    let height = rows as f32 * ROW_H;
-                    if *y + height <= tree.visible.0 || *y >= tree.visible.1 {
-                        *y += height;
-                        continue;
+                if let Some(listing) = tree.panel.model.listing(&entry.key) {
+                    for child in listing.iter() {
+                        let rows = 1 + if child.is_dir {
+                            tree.panel.model.child_rows_below(&entry.key, child.name)
+                        } else {
+                            0
+                        };
+                        let height = rows as f32 * ROW_H;
+                        if *y + height <= tree.visible.0 || *y >= tree.visible.1 {
+                            *y += height;
+                            continue;
+                        }
+                        let child =
+                            Entry::local(path.join(child.name), child.name.to_owned(), child.is_dir);
+                        build_tree(tree, &child, y, depth + 1, parent, index, elements, visited);
                     }
-                    let child = Entry::local(child_path, child.name.to_owned(), child.is_dir);
-                    build_tree(tree, &child, y, depth + 1, parent, index, elements, visited);
                 }
             }
             None => {
@@ -1056,18 +1057,71 @@ fn tree_content_right(entry: &Entry, s: &ExplorerPanelState, left: f32) -> f32 {
         return width;
     }
     let mut right = left;
-    extend_content_right(
-        entry,
-        0,
-        s,
-        left,
-        &mut right,
-        &mut std::collections::HashSet::new(),
-    );
+    if entry.local_path().is_some() && entry.badge.is_none() {
+        right = local_content_right(entry, s, left);
+    } else {
+        extend_content_right(
+            entry,
+            0,
+            s,
+            left,
+            &mut right,
+            &mut std::collections::HashSet::new(),
+        );
+    }
     if let Some(key) = remembered {
         REMEMBERED.with(|cache| cache.borrow_mut().insert(key, (revision, right)));
     }
     right
+}
+
+/// The same answer as [extend_content_right] for a local root, without visiting every row: the
+/// cache remembers the widest directory name and widest file name of each listing, so only the
+/// expanded directories are walked and each name is measured once, when its listing is loaded.
+fn local_content_right(entry: &Entry, s: &ExplorerPanelState, left: f32) -> f32 {
+    let mut right = row_content_right(left, 0, &entry.name, entry.directory);
+    // One letter's width stands in for the current font.
+    let epoch = crate::ui::tabs::measure("W", theme::UI_SIZE, 400).to_bits();
+    if entry.directory && s.model.is_expanded(&entry.key) {
+        widen_to_listing(s, &entry.key, 0, left, epoch, &mut right);
+    }
+    right
+}
+
+fn widen_to_listing(
+    s: &ExplorerPanelState,
+    key: &str,
+    depth: usize,
+    left: f32,
+    epoch: u32,
+    right: &mut f32,
+) {
+    let widths = s.model.name_widths(key, epoch, |listing| {
+        let (mut widest_dir, mut widest_file) = (0.0f32, 0.0f32);
+        for entry in listing.iter() {
+            let width = crate::ui::tabs::measure_once(entry.name, theme::UI_SIZE, 400) + TREE_TEXT_PAD;
+            if entry.is_dir {
+                widest_dir = widest_dir.max(width);
+            } else {
+                widest_file = widest_file.max(width);
+            }
+        }
+        (widest_dir, widest_file)
+    });
+    let Some((widest_dir, widest_file)) = widths else {
+        return;
+    };
+    // The listing's rows sit one level below the directory.
+    let base = left + INDENT + (depth + 1) as f32 * INDENT + TREE_LABEL_OFFSET;
+    if widest_dir > 0.0 {
+        *right = right.max(base + widest_dir + DIRECTORY_RIGHT_PAD);
+    }
+    if widest_file > 0.0 {
+        *right = right.max(base + widest_file + FILE_RIGHT_PAD);
+    }
+    for child in s.model.expanded_children(key) {
+        widen_to_listing(s, &child, depth + 1, left, epoch, right);
+    }
 }
 
 /// Width measurement uses the same source adapter and expanded nodes as layout.
@@ -1547,5 +1601,74 @@ mod tests {
         assert_eq!(resized_sidebar_width(1_000.0, 750.0), 250.0);
         assert_eq!(resized_sidebar_width(1_000.0, 900.0), theme::SIDEBAR_MIN_W);
         assert_eq!(resized_sidebar_width(1_000.0, 500.0), theme::SIDEBAR_MAX_W);
+    }
+}
+
+#[cfg(test)]
+mod width_tests {
+    use super::*;
+    use crate::features::explorer::Listing;
+    use std::sync::Arc;
+
+    fn listing(parent: &str, entries: &[(&str, bool)]) -> Arc<Listing> {
+        Arc::new(Listing::ordered(
+            Arc::from(parent),
+            entries.iter().map(|(name, dir)| (*name, *dir)),
+        ))
+    }
+
+    #[test]
+    fn the_fast_width_matches_walking_every_row() {
+        let root = std::path::PathBuf::from("proj");
+        let key = |parts: &[&str]| {
+            parts
+                .iter()
+                .fold(root.clone(), |path, part| path.join(part))
+                .to_string_lossy()
+                .into_owned()
+        };
+        let mut panel = ExplorerPanelState::default();
+        let model = &mut panel.model;
+        model.insert_listing(
+            key(&[]),
+            listing(&key(&[]), &[("src", true), ("a-rather-long-file-name.rs", false), ("z", false)]),
+        );
+        model.insert_listing(
+            key(&["src"]),
+            listing(&key(&["src"]), &[("nested-directory-with-a-long-name", true), ("b.rs", false)]),
+        );
+        model.insert_listing(
+            key(&["src", "nested-directory-with-a-long-name"]),
+            listing(
+                &key(&["src", "nested-directory-with-a-long-name"]),
+                &[("deep-file-with-an-even-longer-name-than-the-rest.txt", false)],
+            ),
+        );
+        model.insert_listing(key(&["unopened"]), listing(&key(&["unopened"]), &[("never-counted.txt", false)]));
+        for path in [
+            key(&[]),
+            key(&["src"]),
+            key(&["src", "nested-directory-with-a-long-name"]),
+        ] {
+            model.set_expanded(&path, true);
+        }
+        let entry = Entry::local(root.clone(), "proj".to_owned(), true);
+
+        let mut walked = 0.0f32;
+        extend_content_right(
+            &entry,
+            0,
+            &panel,
+            12.0,
+            &mut walked,
+            &mut std::collections::HashSet::new(),
+        );
+        let fast = local_content_right(&entry, &panel, 12.0);
+        assert!((fast - walked).abs() < 0.01, "fast {fast} walked {walked}");
+        assert!(fast > 12.0);
+        // The widest name is the deepest one, so collapsing its directory narrows the result.
+        panel.model.set_expanded(&key(&["src", "nested-directory-with-a-long-name"]), false);
+        let narrower = local_content_right(&entry, &panel, 12.0);
+        assert!(narrower < fast);
     }
 }

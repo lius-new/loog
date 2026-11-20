@@ -185,12 +185,41 @@ impl ExplorerModel {
 
     // --- directory listings --------------------------------------------
 
-    pub fn listing(&self, key: &str) -> Option<&Arc<Listing>> {
+    pub fn listing<'a>(&'a self, key: &'a str) -> Option<super::ListingRef<'a>> {
         self.tree.listing(key)
     }
 
-    pub fn listings(&self) -> impl Iterator<Item = (&str, &Arc<Listing>)> {
+    pub fn listings(&self) -> impl Iterator<Item = (String, super::ListingRef<'_>)> {
         self.tree.listings()
+    }
+
+    /// See [TreeCache::name_widths].
+    pub fn name_widths(
+        &self,
+        key: &str,
+        epoch: u32,
+        measure: impl FnOnce(&super::ListingRef<'_>) -> (f32, f32),
+    ) -> Option<(f32, f32)> {
+        self.tree.name_widths(key, epoch, measure)
+    }
+
+    pub fn expanded_children(&self, key: &str) -> Vec<String> {
+        self.tree.expanded_children(key)
+    }
+
+    /// Bytes the cached listings hold on the heap.
+    pub fn heap_bytes(&self) -> usize {
+        self.tree.heap_bytes()
+    }
+
+    /// Rows below an expanded directory, remembered per revision.
+    pub fn rows_below(&self, key: &str) -> usize {
+        self.tree.rows_below(key)
+    }
+
+    /// Rows below one directory inside another, given the parent's key and the child's name.
+    pub fn child_rows_below(&self, parent: &str, name: &str) -> usize {
+        self.tree.child_rows_below(parent, name)
     }
 
     /// Changes whenever a listing or an expansion changes.
@@ -229,17 +258,13 @@ impl ExplorerModel {
         }
     }
 
-    /// Replace one listing, returning the previous one for retirement.
-    pub fn insert_listing(
-        &mut self,
-        key: String,
-        entries: Arc<Listing>,
-    ) -> Option<Arc<Listing>> {
+    /// Replace one listing.
+    pub fn insert_listing(&mut self, key: String, entries: Arc<Listing>) {
         self.tree.insert_listing(key, entries)
     }
 
     /// Forget a directory which no longer exists, collapsing it.
-    pub fn unload(&mut self, key: &str) -> Option<Arc<Listing>> {
+    pub fn unload(&mut self, key: &str) -> bool {
         self.tree.unload(key)
     }
 

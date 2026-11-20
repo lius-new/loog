@@ -78,7 +78,15 @@ pub struct EntryRef<'a> {
     parent: &'a str,
 }
 
-impl EntryRef<'_> {
+impl<'a> EntryRef<'a> {
+    pub(super) fn new(name: &'a str, is_dir: bool, parent: &'a str) -> Self {
+        Self {
+            name,
+            is_dir,
+            parent,
+        }
+    }
+
     pub fn path(&self) -> PathBuf {
         Path::new(self.parent).join(self.name)
     }
@@ -104,6 +112,25 @@ impl Listing {
                 .then_with(|| text[a.0 as usize..(a.1 & !DIRECTORY) as usize]
                     .cmp(&text[b.0 as usize..(b.1 & !DIRECTORY) as usize]))
         });
+        Self {
+            parent,
+            names: names.into_boxed_str(),
+            spans: spans.into_boxed_slice(),
+        }
+    }
+
+    /// Keeps the order the entries arrive in.
+    pub fn ordered<N: AsRef<str>>(
+        parent: Arc<str>,
+        entries: impl IntoIterator<Item = (N, bool)>,
+    ) -> Self {
+        let mut names = String::new();
+        let mut spans: Vec<(u32, u32)> = Vec::new();
+        for (name, is_dir) in entries {
+            let start = names.len() as u32;
+            names.push_str(name.as_ref());
+            spans.push((start, names.len() as u32 | if is_dir { DIRECTORY } else { 0 }));
+        }
         Self {
             parent,
             names: names.into_boxed_str(),

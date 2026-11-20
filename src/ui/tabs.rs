@@ -57,7 +57,7 @@ const RENDER_OVERSCAN: f32 = 240.0;
 
 /// Upper bound for cached text widths; ellipsis probing adds short-lived
 /// candidates, so the cache is reset rather than allowed to grow unbounded.
-const MEASURE_CACHE_LIMIT: usize = 8_192;
+const MEASURE_CACHE_LIMIT: usize = 1_024;
 
 thread_local! {
     /// Shaped text widths. The tab strip lays out every
@@ -79,6 +79,30 @@ struct MeasureCache {
 /// to a per-character estimate when no text system is installed.
 pub(crate) fn measure(s: &str, size: f32, weight: i32) -> f32 {
     measure_in(s, size, weight, true)
+}
+
+/// `measure` without remembering the answer: for text measured once, such as every name in a
+/// large tree, where remembering thousands of strings would cost more than it saves.
+pub(crate) fn measure_once(s: &str, size: f32, weight: i32) -> f32 {
+    let style = (size.to_bits(), weight, true);
+    let cached = MEASURE_CACHE.with(|cache| {
+        cache
+            .borrow()
+            .widths
+            .get(&style)
+            .and_then(|widths| widths.get(s))
+            .copied()
+    });
+    if let Some(width) = cached {
+        return width;
+    }
+    let bounds = UiRect::new(0.0, 0.0, 10_000.0, size);
+    let mut request = TextLayoutRequest::single_line(s, bounds, size, weight);
+    request.font_families = theme::MONO_FAMILIES;
+    match text::layout(&request) {
+        Some(layout) => layout.width,
+        None => crate::ui::components::text::fallback_width(s, size),
+    }
 }
 
 /// The width of `s` in the interface's proportional font, which is what
