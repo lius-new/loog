@@ -443,59 +443,11 @@ pub(super) fn can_skip_rows(panel: &ExplorerPanelState) -> bool {
 }
 
 /// Rows below an expanded local directory: its children and, for each expanded child directory,
-/// theirs. Counts straight from the cached listings without building any entry.
+/// theirs. The cache counts them from its listings without building any entry, and remembers the
+/// counts until a listing or an expansion changes.
+#[cfg(test)]
 pub(super) fn local_rows_below(panel: &ExplorerPanelState, key: &str) -> usize {
-    // Counts are remembered until a listing or an expansion changes, because every scroll step
-    // asks again for the same subtrees.
-    thread_local! {
-        static COUNTS: std::cell::RefCell<(u64, std::collections::HashMap<u64, usize>)> =
-            Default::default();
-    }
-    let revision = panel.model.revision();
-    // Keys are hashed: a collision would only miscount one subtree's rows by another's, and a
-    // 64-bit hash of paths from one tree makes that vanishingly unlikely.
-    let key_hash = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        key.hash(&mut hasher);
-        hasher.finish()
-    };
-    let known = COUNTS.with(|counts| {
-        let mut counts = counts.borrow_mut();
-        if counts.0 != revision {
-            *counts = (revision, Default::default());
-        }
-        counts.1.get(&key_hash).copied()
-    });
-    if let Some(rows) = known {
-        return rows;
-    }
-    let rows = count_rows_below(panel, key);
-    COUNTS.with(|counts| {
-        let mut counts = counts.borrow_mut();
-        if counts.0 == revision {
-            counts.1.insert(key_hash, rows);
-        }
-    });
-    rows
-}
-
-fn count_rows_below(panel: &ExplorerPanelState, key: &str) -> usize {
-    if !panel.model.is_expanded(key) {
-        return 0;
-    }
-    let Some(listing) = panel.model.listing(key) else {
-        return 0;
-    };
-    let base = std::path::Path::new(key);
-    listing.iter().fold(0, |rows, child| {
-        rows + 1
-            + if child.is_dir {
-                local_rows_below(panel, &base.join(&child.name).to_string_lossy())
-            } else {
-                0
-            }
-    })
+    panel.model.rows_below(key)
 }
 
 #[cfg(test)]

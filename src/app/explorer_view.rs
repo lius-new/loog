@@ -830,12 +830,7 @@ mod tests {
             let (working, private, heap_allocated, heap_committed) = process_memory();
             let (components, host) = lgui::backend::session_memory_usage(&h.session);
             let app = h.state.get();
-            let listing_bytes = app
-                .explorer
-                .model
-                .listings()
-                .map(|(key, entries)| key.len() + entries.heap_bytes())
-                .sum::<usize>();
+            let listing_bytes = app.explorer.model.heap_bytes();
             println!(
                 "EXPLORER_MEMORY {}",
                 serde_json::json!({

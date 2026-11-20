@@ -167,10 +167,10 @@ fn refresh_affected_reloads_parents_and_loaded_paths() {
 fn unchanged_refresh_keeps_listing_identity() {
     let port = MemoryDirectories::default().dir("root", &["a.txt"]);
     let mut tree = cache(&port, &["root"], &[]);
-    let before = tree.listing("root").unwrap().clone();
+    let before = tree.revision();
 
     assert!(!tree.refresh_all(&port, &[PathBuf::from("root")]));
-    assert!(Arc::ptr_eq(&before, tree.listing("root").unwrap()));
+    assert_eq!(before, tree.revision());
 }
 
 #[test]
@@ -437,7 +437,7 @@ fn rename_retargets_nested_roots_recents_and_expansion() {
     assert!(
         model
             .listings()
-            .all(|(key, _)| !Path::new(key).starts_with(p("ws/old")))
+            .all(|(key, _)| !Path::new(&key).starts_with(p("ws/old")))
     );
     assert!(model.is_expanded(&k("ws/new")));
     // Existing behavior: a nested root below the renamed folder keeps its

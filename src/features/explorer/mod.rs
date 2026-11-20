@@ -5,8 +5,10 @@ pub mod edit;
 pub mod model;
 pub mod ports;
 pub mod roots;
+mod store;
 pub mod tree;
 pub mod types;
+pub use self::tree::ListingRef;
 pub use self::types::*;
 
 #[cfg(test)]

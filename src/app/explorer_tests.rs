@@ -166,7 +166,7 @@ fn removing_a_workspace_folder_keeps_disk_documents_and_clears_tree_state() {
         app.explorer
             .model
             .listings()
-            .all(|(path, _)| !Path::new(path).starts_with(&removed))
+            .all(|(path, _)| !Path::new(&path).starts_with(&removed))
     );
     for path in [&removed, &child] {
         assert!(!app.explorer.model.is_expanded(&path.to_string_lossy()));
@@ -319,7 +319,7 @@ fn renamed_directory_retargets_tabs_and_rebuilds_tree_state() {
         app.explorer
             .model
             .listings()
-            .all(|(path, _)| !Path::new(path).starts_with(&old_path))
+            .all(|(path, _)| !Path::new(&path).starts_with(&old_path))
     );
     assert!(!app.explorer.model.is_expanded(&old_path.to_string_lossy()));
     assert!(app.explorer.model.is_expanded(&new_path.to_string_lossy()));
@@ -426,7 +426,8 @@ fn renaming_keeps_unicode_names_open_tabs_and_listings_in_step() {
     assert_eq!(app.workspace.active_path(), Some(renamed.as_path()));
     assert!(app.explorer.model.rename_request().is_none());
     assert!(app.explorer.ui.create_error.is_none());
-    let names = app.explorer.model.listing(&key(&root)).unwrap();
+    let root_key = key(&root);
+    let names = app.explorer.model.listing(&root_key).unwrap();
     assert_eq!(names.len(), 1);
     assert_eq!(names.get(0).unwrap().name, "新名 🙂.rs");
     let _ = fs::remove_dir_all(root);
