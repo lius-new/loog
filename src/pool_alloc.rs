@@ -2,19 +2,16 @@
 //!
 //! The system heap keeps a partly used bucket for every size it has ever served, so an
 //! application whose small allocations come in many different sizes (strings, vectors, nodes)
-//! holds far more committed memory than it uses. This allocator serves blocks of up to 1 KiB from
-//! 16 KiB pages of one reserved region, in 20 size classes, with no per-block header (Rust gives
-//! the size back on `dealloc`). A page is committed when a class needs one and decommitted as soon
-//! as it is empty. Everything else (larger blocks, over-aligned blocks, or an exhausted region)
-//! goes to the system allocator.
+//! holds far more committed memory than it uses. This allocator serves blocks of up to 16 KiB in
+//! 36 size classes, with no per-block header (Rust gives the size back on `dealloc`). Blocks of up
+//! to 512 bytes come from 4 KiB pages, larger ones from 16 KiB pages, each kind from its own
+//! reserved region. A page is committed when a class needs one and decommitted as soon as it is
+//! empty. Everything else (larger blocks, over-aligned blocks, or an exhausted region) goes to
+//! the system allocator.
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-const REGION_BYTES: usize = 256 << 20;
-const PAGE_SHIFT: usize = 14;
-const PAGE_BYTES: usize = 1 << PAGE_SHIFT;
-const PAGES: usize = REGION_BYTES / PAGE_BYTES;
 const MAX_SMALL: usize = 16384;
 const NONE: u32 = u32::MAX;
 
@@ -27,6 +24,17 @@ const CLASS_SIZES: [u32; CLASSES] = [
     1280, 1536, 1792, 2048, 2560, 3072, 3584, 4096, 5120, 6144, 7168, 8192, 10240, 12288, 14336,
     16384,
 ];
+
+/// The last class (512 bytes) served from the small pages.
+const LAST_SMALL_CLASS: usize = 15;
+/// From this class (4096 bytes) on, blocks are rare, so an empty page is returned at once instead
+/// of being kept in case the class needs it again.
+const FIRST_COLD_CLASS: usize = 27;
+
+const SMALL_SHIFT: u32 = 12;
+const SMALL_PAGES: usize = (64 << 20) >> SMALL_SHIFT;
+const BIG_SHIFT: u32 = 14;
+const BIG_PAGES: usize = (128 << 20) >> BIG_SHIFT;
 
 const MEM_COMMIT: u32 = 0x1000;
 const MEM_RESERVE: u32 = 0x2000;
@@ -54,7 +62,19 @@ struct PageInfo {
     prev: u32,
 }
 
-struct Pool {
+const EMPTY_PAGE: PageInfo = PageInfo {
+    class: 0,
+    in_partial: false,
+    live: 0,
+    bump: 0,
+    free_head: 0,
+    next: NONE,
+    prev: NONE,
+};
+
+/// One reserved region carved into equal pages.
+struct Space<const PAGES: usize> {
+    shift: u32,
     base: usize,
     /// The first page that has never been used.
     untouched: usize,
@@ -68,77 +88,33 @@ struct Pool {
     failed: bool,
 }
 
-pub struct PoolAlloc;
-
-static LOCK: AtomicBool = AtomicBool::new(false);
-static mut POOL: Pool = Pool {
-    base: 0,
-    untouched: 0,
-    free_pages: [0; PAGES],
-    free_page_count: 0,
-    pages: [PageInfo {
-        class: 0,
-        in_partial: false,
-        live: 0,
-        bump: 0,
-        free_head: 0,
-        next: NONE,
-        prev: NONE,
-    }; PAGES],
-    partial: [NONE; CLASSES],
-    partial_count: [0; CLASSES],
-    failed: false,
-};
-
-struct Guard;
-
-impl Guard {
-    fn lock() -> Guard {
-        let mut spins = 0u32;
-        while LOCK
-            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            // The critical sections are a few instructions, so a short spin nearly always wins;
-            // if the holder was descheduled, give the processor back instead of burning it.
-            spins += 1;
-            if spins < 64 {
-                std::hint::spin_loop();
-            } else {
-                std::thread::yield_now();
-            }
+impl<const PAGES: usize> Space<PAGES> {
+    const fn new(shift: u32) -> Self {
+        Self {
+            shift,
+            base: 0,
+            untouched: 0,
+            free_pages: [0; PAGES],
+            free_page_count: 0,
+            pages: [EMPTY_PAGE; PAGES],
+            partial: [NONE; CLASSES],
+            partial_count: [0; CLASSES],
+            failed: false,
         }
-        Guard
     }
-}
 
-impl Drop for Guard {
-    fn drop(&mut self) {
-        LOCK.store(false, Ordering::Release);
+    fn page_bytes(&self) -> usize {
+        1 << self.shift
     }
-}
 
-/// Size class of a block of `size` bytes (1 to 1024).
-fn class_of(size: usize) -> usize {
-    match size {
-        0..=128 => (size + 15) / 16 - 1,
-        129..=256 => 8 + (size - 129) / 32,
-        257..=512 => 12 + (size - 257) / 64,
-        513..=1024 => 16 + (size - 513) / 128,
-        _ => 20 + CLASS_SIZES[20..].partition_point(|&class| (class as usize) < size),
+    fn region_bytes(&self) -> usize {
+        PAGES << self.shift
     }
-}
 
-fn capacity(class: usize) -> usize {
-    PAGE_BYTES / CLASS_SIZES[class] as usize
-}
+    fn capacity(&self, class: usize) -> usize {
+        self.page_bytes() / CLASS_SIZES[class] as usize
+    }
 
-#[allow(static_mut_refs)]
-unsafe fn pool() -> &'static mut Pool {
-    unsafe { &mut POOL }
-}
-
-impl Pool {
     unsafe fn ensure_region(&mut self) -> bool {
         if self.base != 0 {
             return true;
@@ -146,7 +122,9 @@ impl Pool {
         if self.failed {
             return false;
         }
-        let base = unsafe { VirtualAlloc(std::ptr::null_mut(), REGION_BYTES, MEM_RESERVE, PAGE_NOACCESS) };
+        let base = unsafe {
+            VirtualAlloc(std::ptr::null_mut(), self.region_bytes(), MEM_RESERVE, PAGE_NOACCESS)
+        };
         if base.is_null() {
             self.failed = true;
             return false;
@@ -156,11 +134,11 @@ impl Pool {
     }
 
     fn page_address(&self, page: usize) -> usize {
-        self.base + (page << PAGE_SHIFT)
+        self.base + (page << self.shift)
     }
 
     fn contains(&self, address: usize) -> bool {
-        self.base != 0 && address >= self.base && address < self.base + REGION_BYTES
+        self.base != 0 && address >= self.base && address < self.base + self.region_bytes()
     }
 
     fn partial_insert(&mut self, page: usize) {
@@ -203,7 +181,9 @@ impl Pool {
             return None;
         };
         let address = self.page_address(page);
-        let committed = unsafe { VirtualAlloc(address as *mut c_void, PAGE_BYTES, MEM_COMMIT, PAGE_READWRITE) };
+        let committed = unsafe {
+            VirtualAlloc(address as *mut c_void, self.page_bytes(), MEM_COMMIT, PAGE_READWRITE)
+        };
         if committed.is_null() {
             self.free_pages[self.free_page_count] = page as u32;
             self.free_page_count += 1;
@@ -211,22 +191,16 @@ impl Pool {
         }
         self.pages[page] = PageInfo {
             class: class as u8,
-            in_partial: false,
-            live: 0,
-            bump: 0,
-            free_head: 0,
-            next: NONE,
-            prev: NONE,
+            ..EMPTY_PAGE
         };
         self.partial_insert(page);
         Some(page)
     }
 
-    unsafe fn alloc(&mut self, size: usize) -> *mut u8 {
+    unsafe fn alloc(&mut self, class: usize) -> *mut u8 {
         if !unsafe { self.ensure_region() } {
             return std::ptr::null_mut();
         }
-        let class = class_of(size);
         let mut page = self.partial[class];
         if page == NONE {
             match unsafe { self.new_page(class) } {
@@ -241,7 +215,7 @@ impl Pool {
             let info = &mut self.pages[page];
             if info.free_head != 0 {
                 index = (info.free_head - 1) as usize;
-                let address = self.base + (page << PAGE_SHIFT) + index * block;
+                let address = self.base + (page << self.shift) + index * block;
                 let next = unsafe { *(address as *const u16) };
                 self.pages[page].free_head = next;
             } else {
@@ -250,35 +224,133 @@ impl Pool {
             }
             self.pages[page].live += 1;
         }
-        let info = self.pages[page];
-        if info.live as usize == capacity(class) {
+        if self.pages[page].live as usize == self.capacity(class) {
             self.partial_remove(page);
         }
         (self.page_address(page) + index * block) as *mut u8
     }
 
     unsafe fn dealloc(&mut self, address: usize) {
-        let page = (address - self.base) >> PAGE_SHIFT;
+        let page = (address - self.base) >> self.shift;
         let class = self.pages[page].class as usize;
         let block = CLASS_SIZES[class] as usize;
         let index = (address - self.page_address(page)) / block;
-        let was_full = self.pages[page].live as usize == capacity(class);
+        let was_full = self.pages[page].live as usize == self.capacity(class);
         unsafe { *(address as *mut u16) = self.pages[page].free_head };
         self.pages[page].free_head = (index + 1) as u16;
         self.pages[page].live -= 1;
         if was_full {
             self.partial_insert(page);
         }
-        // Give an empty page back, unless it is the class's only page with room (that would make
-        // an alloc/free pair at the boundary commit and decommit it over and over).
-        if self.pages[page].live == 0 && self.partial_count[class] > 1 {
+        // Give an empty page back, unless it is the class's only page with room: that would make
+        // an alloc/free pair at the boundary commit and decommit it over and over. Classes of
+        // large blocks are used rarely, so they keep no spare page.
+        if self.pages[page].live == 0
+            && (self.partial_count[class] > 1 || class >= FIRST_COLD_CLASS)
+        {
             self.partial_remove(page);
             let address = self.page_address(page);
-            unsafe { VirtualFree(address as *mut c_void, PAGE_BYTES, MEM_DECOMMIT) };
+            unsafe { VirtualFree(address as *mut c_void, self.page_bytes(), MEM_DECOMMIT) };
             self.free_pages[self.free_page_count] = page as u32;
             self.free_page_count += 1;
         }
     }
+
+    /// Adds this space's committed pages, live bytes and per-class page counts to `into`.
+    fn add_stats(&self, into: &mut Stats) {
+        for page in 0..self.untouched {
+            // A page on the free-page stack is decommitted.
+            if self.free_pages[..self.free_page_count].contains(&(page as u32)) {
+                continue;
+            }
+            let info = self.pages[page];
+            into.pages += 1;
+            into.committed += self.page_bytes();
+            into.live += info.live as usize * CLASS_SIZES[info.class as usize] as usize;
+            into.class_pages[info.class as usize] += 1;
+            into.class_live[info.class as usize] += info.live as usize;
+        }
+    }
+}
+
+struct Stats {
+    pages: usize,
+    committed: usize,
+    live: usize,
+    class_pages: [usize; CLASSES],
+    class_live: [usize; CLASSES],
+}
+
+impl Stats {
+    fn new() -> Self {
+        Self {
+            pages: 0,
+            committed: 0,
+            live: 0,
+            class_pages: [0; CLASSES],
+            class_live: [0; CLASSES],
+        }
+    }
+}
+
+pub struct PoolAlloc;
+
+static LOCK: AtomicBool = AtomicBool::new(false);
+static mut SMALL: Space<SMALL_PAGES> = Space::new(SMALL_SHIFT);
+static mut BIG: Space<BIG_PAGES> = Space::new(BIG_SHIFT);
+
+struct Guard;
+
+impl Guard {
+    fn lock() -> Guard {
+        let mut spins = 0u32;
+        while LOCK
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            // The critical sections are a few instructions, so a short spin nearly always wins;
+            // if the holder was descheduled, give the processor back instead of burning it.
+            spins += 1;
+            if spins < 64 {
+                std::hint::spin_loop();
+            } else {
+                std::thread::yield_now();
+            }
+        }
+        Guard
+    }
+}
+
+impl Drop for Guard {
+    fn drop(&mut self) {
+        LOCK.store(false, Ordering::Release);
+    }
+}
+
+/// Size class of a block of `size` bytes (1 to 16384).
+fn class_of(size: usize) -> usize {
+    match size {
+        0..=128 => size.div_ceil(16) - 1,
+        129..=256 => 8 + (size - 129) / 32,
+        257..=512 => 12 + (size - 257) / 64,
+        513..=1024 => 16 + (size - 513) / 128,
+        _ => 20 + CLASS_SIZES[20..].partition_point(|&class| (class as usize) < size),
+    }
+}
+
+#[allow(static_mut_refs)]
+unsafe fn small_space() -> &'static mut Space<SMALL_PAGES> {
+    unsafe { &mut SMALL }
+}
+
+#[allow(static_mut_refs)]
+unsafe fn big_space() -> &'static mut Space<BIG_PAGES> {
+    unsafe { &mut BIG }
+}
+
+/// Whether `address` lies in either region.
+unsafe fn in_pool(address: usize) -> bool {
+    unsafe { small_space().contains(address) || big_space().contains(address) }
 }
 
 fn small(layout: &Layout) -> bool {
@@ -288,8 +360,13 @@ fn small(layout: &Layout) -> bool {
 unsafe impl GlobalAlloc for PoolAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if small(&layout) {
+            let class = class_of(layout.size());
             let _guard = Guard::lock();
-            let ptr = unsafe { pool().alloc(layout.size()) };
+            let ptr = if class <= LAST_SMALL_CLASS {
+                unsafe { small_space().alloc(class) }
+            } else {
+                unsafe { big_space().alloc(class) }
+            };
             if !ptr.is_null() {
                 return ptr;
             }
@@ -311,9 +388,15 @@ unsafe impl GlobalAlloc for PoolAlloc {
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         {
             let _guard = Guard::lock();
-            let pool = unsafe { pool() };
-            if pool.contains(ptr as usize) {
-                unsafe { pool.dealloc(ptr as usize) };
+            let address = ptr as usize;
+            let small_space = unsafe { small_space() };
+            if small_space.contains(address) {
+                unsafe { small_space.dealloc(address) };
+                return;
+            }
+            let big_space = unsafe { big_space() };
+            if big_space.contains(address) {
+                unsafe { big_space.dealloc(address) };
                 return;
             }
         }
@@ -321,11 +404,11 @@ unsafe impl GlobalAlloc for PoolAlloc {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        let in_pool = {
+        let pooled = {
             let _guard = Guard::lock();
-            unsafe { pool() }.contains(ptr as usize)
+            unsafe { in_pool(ptr as usize) }
         };
-        if in_pool {
+        if pooled {
             // Same size class: nothing to move.
             if new_size > 0 && new_size <= MAX_SMALL && class_of(new_size) == class_of(layout.size()) {
                 return ptr;
@@ -345,26 +428,22 @@ unsafe impl GlobalAlloc for PoolAlloc {
     }
 }
 
-/// (committed KB, live KB, committed pages, pages with room) of the pool, for memory tests.
+fn gather() -> Box<Stats> {
+    // Allocated before the lock is taken: allocating while holding it would wait on itself.
+    let mut stats = Box::new(Stats::new());
+    let _guard = Guard::lock();
+    unsafe {
+        small_space().add_stats(&mut stats);
+        big_space().add_stats(&mut stats);
+    }
+    stats
+}
+
+/// (committed KB, live KB, committed pages, pages per class) of the pool, for memory tests.
 #[allow(dead_code)]
 pub fn stats() -> (usize, usize, usize, [usize; CLASSES]) {
-    let _guard = Guard::lock();
-    let pool = unsafe { pool() };
-    let mut live = 0usize;
-    let mut committed_pages = 0usize;
-    let mut per_class = [0usize; CLASSES];
-    for page in 0..pool.untouched {
-        // A page on the free-page stack is decommitted.
-        let freed = pool.free_pages[..pool.free_page_count].contains(&(page as u32));
-        if freed {
-            continue;
-        }
-        committed_pages += 1;
-        let info = pool.pages[page];
-        live += info.live as usize * CLASS_SIZES[info.class as usize] as usize;
-        per_class[info.class as usize] += 1;
-    }
-    (committed_pages * PAGE_BYTES / 1024, live / 1024, committed_pages, per_class)
+    let stats = gather();
+    (stats.committed / 1024, stats.live / 1024, stats.pages, stats.class_pages)
 }
 
 #[cfg(test)]
@@ -412,7 +491,11 @@ mod tests {
             if live.len() > 50 && lcg(&mut state) % 2 == 0 {
                 let index = lcg(&mut state) as usize % live.len();
                 let (ptr, layout, seed) = live.swap_remove(index);
-                assert!(unsafe { check(ptr, layout.size(), seed) }, "block of {} was overwritten", layout.size());
+                assert!(
+                    unsafe { check(ptr, layout.size(), seed) },
+                    "block of {} was overwritten",
+                    layout.size()
+                );
                 unsafe { alloc.dealloc(ptr, layout) };
             }
         }
@@ -425,7 +508,7 @@ mod tests {
     #[test]
     fn realloc_preserves_contents_across_every_tier() {
         let alloc = PoolAlloc;
-        let sizes = [1usize, 8, 16, 17, 100, 1024, 1025, 3000, 16384, 16385, 40000, 5000, 200, 20, 1];
+        let sizes = [1usize, 8, 16, 17, 100, 512, 513, 1024, 1025, 3000, 16384, 16385, 40000, 5000, 200, 20, 1];
         let mut layout = Layout::from_size_align(sizes[0], 8).unwrap();
         let mut ptr = unsafe { alloc.alloc(layout) };
         let mut length = sizes[0];
@@ -445,7 +528,7 @@ mod tests {
     #[test]
     fn zeroed_blocks_are_zero_even_when_reusing_dirty_memory() {
         let alloc = PoolAlloc;
-        for size in [8usize, 64, 500, 1024, 4000, 16384, 30000] {
+        for size in [8usize, 64, 500, 512, 1024, 4000, 16384, 30000] {
             let layout = Layout::from_size_align(size, 8).unwrap();
             let dirty = unsafe { alloc.alloc(layout) };
             unsafe { std::ptr::write_bytes(dirty, 0xAB, size) };
@@ -465,7 +548,7 @@ mod tests {
                     let mut state = id + 1;
                     let mut live: Vec<(*mut u8, Layout, u8)> = Vec::new();
                     for round in 0..4000u64 {
-                        let size = 1 + lcg(&mut state) as usize % 3000;
+                        let size = 1 + lcg(&mut state) as usize % 6000;
                         let layout = Layout::from_size_align(size, 8).unwrap();
                         let ptr = unsafe { alloc.alloc(layout) };
                         let seed = (round as u8).wrapping_add(id as u8);
@@ -493,22 +576,41 @@ mod tests {
     #[test]
     fn freed_pages_are_reused_and_the_pool_does_not_grow_without_bound() {
         let alloc = PoolAlloc;
-        let layout = Layout::from_size_align(200, 8).unwrap();
-        // Each round takes about 26 pages. If freed pages were not reused, 50 rounds would add
-        // over a thousand; other tests share the pool, so allow generous noise.
-        let round = || {
-            let blocks: Vec<_> = (0..2000).map(|_| unsafe { alloc.alloc(layout) }).collect();
-            for block in blocks {
-                unsafe { alloc.dealloc(block, layout) };
-            }
-        };
-        round();
-        round();
-        let warm = stats().2;
-        for _ in 0..50 {
+        for size in [200usize, 700, 9000] {
+            let layout = Layout::from_size_align(size, 8).unwrap();
+            // If freed pages were not reused, 50 rounds would add thousands of pages; other
+            // tests share the pool, so allow generous noise.
+            let round = || {
+                let blocks: Vec<_> = (0..600).map(|_| unsafe { alloc.alloc(layout) }).collect();
+                for block in blocks {
+                    unsafe { alloc.dealloc(block, layout) };
+                }
+            };
             round();
+            round();
+            let warm = stats().2;
+            for _ in 0..50 {
+                round();
+            }
+            let after = stats().2;
+            assert!(after < warm + 400, "size {size}: pages grew from {warm} to {after}");
         }
-        let after = stats().2;
-        assert!(after < warm + 300, "pages grew from {warm} to {after}");
+    }
+
+    #[test]
+    fn rarely_used_large_classes_give_their_last_page_back() {
+        let alloc = PoolAlloc;
+        let layout = Layout::from_size_align(7000, 8).unwrap();
+        let class = class_of(7000);
+        assert!(class >= FIRST_COLD_CLASS);
+        // Two blocks fit in a page, so 64 blocks take 32 pages. Other tests share the pool, so the
+        // check is a large drop, not an exact count.
+        let blocks: Vec<_> = (0..64).map(|_| unsafe { alloc.alloc(layout) }).collect();
+        let during = stats().3[class];
+        for block in blocks {
+            unsafe { alloc.dealloc(block, layout) };
+        }
+        let after = stats().3[class];
+        assert!(during >= after + 20, "pages stayed committed ({during} then {after})");
     }
 }
