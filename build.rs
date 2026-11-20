@@ -1,5 +1,6 @@
 fn main() {
     println!("cargo:rerun-if-changed=icons/app.ico");
+    println!("cargo:rerun-if-changed=app.manifest");
     println!("cargo:rerun-if-changed=Cargo.toml");
     // Keep networking and Shell/COM services demand-loaded until their first use.
     // MSVC resolves these imports on their first call; no service is removed.
@@ -25,6 +26,7 @@ fn main() {
     #[cfg(target_os = "windows")]
     winresource::WindowsResource::new()
         .set_icon("icons/app.ico")
+        .set_manifest_file("app.manifest")
         .compile()
         .expect("embed the Loog application icon");
 }
