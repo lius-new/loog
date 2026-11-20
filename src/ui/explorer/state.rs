@@ -22,8 +22,7 @@ pub struct ExplorerUiState {
     pub reveal: Option<ExplorerReveal>,
     /// Pointer is over the file drawer (shows its scrollbars).
     pub hovered: bool,
-    /// Cache key of the tree row under the pointer.
-    pub hovered_path: Option<String>,
+
     /// Open context menu anchor in window coordinates.
     pub menu: Option<(f32, f32)>,
     /// Row the menu was opened on; `None` acts on the containing root.
@@ -85,3 +84,7 @@ pub struct ExplorerPanelState {
     pub resources: crate::features::resource_tree::Tree,
     pub ui: ExplorerUiState,
 }
+
+/// Cache key of the tree row under the pointer. A signal rather than application state, so
+/// moving between rows repaints the rows in place and re-renders nothing.
+pub type RowHover = lgui::core::Signal<Option<String>>;

@@ -514,7 +514,6 @@ fn apply_renamed_path_state(app: &mut AppState, old_path: &Path, new_path: &Path
         .explorer
         .model
         .apply_rename(&ExplorerFilesystem, old_path, new_path);
-    app.explorer.ui.hovered_path = None;
     app.explorer.ui.clear_edit();
     app.chrome.toast = None;
     if roots_changed {
@@ -559,7 +558,6 @@ pub(crate) fn reveal_item(state: &AppContext, target: &ExplorerContextTarget) {
 pub(crate) fn apply_deleted_path_state(app: &mut AppState, path: &Path) {
     app.workspace.close_paths_under(path);
     let folders_changed = app.explorer.model.apply_delete(&ExplorerFilesystem, path);
-    app.explorer.ui.hovered_path = None;
     app.explorer.ui.clear_edit();
     app.show_success("Moved item to Trash.");
     if folders_changed {
@@ -585,15 +583,6 @@ fn remove_folder_state(app: &mut AppState, root: &Path) -> bool {
     let Some(edit_cancelled) = app.explorer.model.remove_root(root) else {
         return false;
     };
-    if app
-        .explorer
-        .ui
-        .hovered_path
-        .as_deref()
-        .is_some_and(|path| Path::new(path).starts_with(root))
-    {
-        app.explorer.ui.hovered_path = None;
-    }
     if edit_cancelled {
         app.explorer.ui.clear_edit();
     }
