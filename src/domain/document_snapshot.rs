@@ -7,6 +7,8 @@ pub struct DocumentSnapshot {
     pub path: PathBuf,
     pub text: Arc<String>,
     pub version: u64,
+    /// For a document whose text stays in its file, where `text` is empty: its current text.
+    pub pieces: Option<loog_editor_core::text::PieceText>,
 }
 pub fn content_hash(contents: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();

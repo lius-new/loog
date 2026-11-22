@@ -2026,6 +2026,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
                     path: document.meta.resource.local_path()?.to_path_buf(),
                     text: document.buffer.text_snapshot(),
                     version: document.buffer.version(),
+                    pieces: document.buffer.file_pieces(),
                 })
             })
             .collect()

@@ -107,6 +107,7 @@ fn injected_source_prefers_dirty_snapshots_and_deduplicates_overlapping_roots() 
         path: "project/note.txt".into(),
         text: Arc::new("dirty needle 中文".into()),
         version: 3,
+        pieces: None,
     });
     let mut found = Results::default();
     service::run(&source, request, &AtomicBool::new(false), |next| {
@@ -310,6 +311,7 @@ fn navigation_intent_is_scoped_to_current_results_and_uses_unsaved_text() {
         path: file.path.local_path().unwrap().to_path_buf(),
         text: Arc::new("prefix\nold needle".into()),
         version: 4,
+        pieces: None,
     };
     let (text, range) = navigation::prepare(&source, &intent, Some(&buffer)).unwrap();
     assert_eq!(&text[range], "needle");
@@ -344,9 +346,45 @@ fn stale_line_navigation_requests_refresh_instead_of_selecting_unrelated_text() 
         path: intent.file.path.local_path().unwrap().to_path_buf(),
         text: Arc::new("unrelated needle".into()),
         version: 4,
+        pieces: None,
     };
     assert!(
         matches!(navigation::prepare(&source, &intent, Some(&buffer)),
         Err(navigation::OpenError::Changed(message)) if message.contains("File changed"))
     );
+}
+
+#[test]
+fn an_open_file_backed_document_is_searched_in_pieces_including_its_edits() {
+    use loog_editor_core::text::{FileText, PieceText};
+    let path = std::env::temp_dir().join(format!("loog-search-pieces-{}", std::process::id()));
+    std::fs::write(&path, "alpha\nneedle one\nomega\nneedle two").unwrap();
+    let mut pieces = PieceText::new(FileText::open(&path).unwrap());
+    pieces.replace(0..0, "needle zero\r\n");
+    let whole = pieces.text(0..pieces.len());
+    assert_eq!(whole, "needle zero\r\nalpha\nneedle one\nomega\nneedle two");
+
+    let source = MemorySource::default();
+    let mut request = request();
+    request.buffers.push(DocumentSnapshot {
+        path: "project/note.txt".into(),
+        text: Arc::new(String::new()),
+        version: 2,
+        pieces: Some(pieces),
+    });
+    let mut found = Results::default();
+    service::run(&source, request, &AtomicBool::new(false), |next| found = next).unwrap();
+    assert_eq!((found.matches, found.searched), (3, 1));
+    let file = &found.files[0];
+    let expected = Matcher::new(&spec("needle"))
+        .unwrap()
+        .matches(&whole, &AtomicBool::new(false), 10);
+    assert_eq!(
+        file.matches.iter().map(|m| (m.range.clone(), m.line)).collect::<Vec<_>>(),
+        expected.iter().map(|m| (m.range.clone(), m.line)).collect::<Vec<_>>()
+    );
+    assert_eq!(file.content_hash, hash(&whole));
+    // The open document stands in for the file on disk, which is not read.
+    assert!(source.reads.lock().unwrap().is_empty());
+    std::fs::remove_file(path).ok();
 }

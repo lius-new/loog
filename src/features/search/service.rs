@@ -1,6 +1,6 @@
 //! Bounded cancellable search; all disk operations are injected.
 use super::ports::SearchSourcePort;
-use super::{FileMatches, Matcher, Request, Results, hash};
+use super::{FileMatches, Matcher, Request, Results, hash, stream};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -63,47 +63,101 @@ pub fn run(
             if !seen.insert(path.clone()) {
                 continue;
             }
-            let text = if let Some(buffer) = buffers.get(&path) {
+            let remaining = MAX_MATCHES.saturating_sub(results.matches);
+            let open_buffer = buffers.get(&path);
+            if let Some(buffer) = open_buffer {
                 path = buffer.path.clone();
-                buffer.text.clone()
-            } else {
-                match source.read_text(&path) {
-                    Ok(text) => Arc::new(text),
-                    Err(error)
-                        if matches!(
-                            error.as_str(),
-                            "Binary file"
-                                | "Unsupported text encoding"
-                                | "File is larger than 4 MiB"
-                        ) =>
-                    {
-                        results.skipped += 1;
+            }
+            // A text too large to hold is read in pieces: an open document by its pieces, any
+            // other file by what `open_large` gives.
+            let streamed: Option<Result<stream::Found, String>> = match open_buffer {
+                Some(buffer) => buffer.pieces.as_ref().map(|pieces| {
+                    stream::search(&matcher, pieces, cancel, remaining + 1)
+                        .map_err(|error| error.to_string())
+                }),
+                None => match source.open_large(&path) {
+                    Ok(Some(large)) => Some(
+                        stream::search(&matcher, large.as_ref(), cancel, remaining + 1).map_err(
+                            |error| {
+                                if error.kind() != std::io::ErrorKind::InvalidData {
+                                    error.to_string()
+                                } else if error.to_string() == "Binary file" {
+                                    "Binary file".to_owned()
+                                } else {
+                                    "Unsupported text encoding".to_owned()
+                                }
+                            },
+                        ),
+                    ),
+                    Ok(None) => None,
+                    Err(error) => Some(Err(error)),
+                },
+            };
+            let (mut matches, content_hash) = if let Some(streamed) = streamed {
+                match streamed {
+                    Ok(found) => {
+                        results.searched += 1;
+                        (found.matches, found.content_hash)
+                    }
+                    Err(error) => {
                         match error.as_str() {
-                            "Binary file" => results.skipped_binary += 1,
-                            "Unsupported text encoding" => results.skipped_encoding += 1,
-                            _ => results.skipped_large += 1,
+                            "Binary file" => {
+                                results.skipped += 1;
+                                results.skipped_binary += 1;
+                            }
+                            "Unsupported text encoding" => {
+                                results.skipped += 1;
+                                results.skipped_encoding += 1;
+                            }
+                            _ => record_error(&mut results, error),
                         }
                         continue;
                     }
-                    Err(error) => {
-                        record_error(&mut results, error);
-                        continue;
-                    }
                 }
+            } else {
+                let text = if let Some(buffer) = open_buffer {
+                    buffer.text.clone()
+                } else {
+                    match source.read_text(&path) {
+                        Ok(text) => Arc::new(text),
+                        Err(error)
+                            if matches!(
+                                error.as_str(),
+                                "Binary file"
+                                    | "Unsupported text encoding"
+                                    | "File is larger than 4 MiB"
+                            ) =>
+                        {
+                            results.skipped += 1;
+                            match error.as_str() {
+                                "Binary file" => results.skipped_binary += 1,
+                                "Unsupported text encoding" => results.skipped_encoding += 1,
+                                _ => results.skipped_large += 1,
+                            }
+                            continue;
+                        }
+                        Err(error) => {
+                            record_error(&mut results, error);
+                            continue;
+                        }
+                    }
+                };
+                if text.len() > MAX_FILE_BYTES {
+                    results.skipped += 1;
+                    results.skipped_large += 1;
+                    continue;
+                }
+                if text.as_bytes().contains(&0) {
+                    results.skipped += 1;
+                    results.skipped_binary += 1;
+                    continue;
+                }
+                results.searched += 1;
+                (
+                    matcher.matches(&text, cancel, remaining + 1),
+                    hash(&text),
+                )
             };
-            if text.len() > MAX_FILE_BYTES {
-                results.skipped += 1;
-                results.skipped_large += 1;
-                continue;
-            }
-            if text.as_bytes().contains(&0) {
-                results.skipped += 1;
-                results.skipped_binary += 1;
-                continue;
-            }
-            results.searched += 1;
-            let remaining = MAX_MATCHES.saturating_sub(results.matches);
-            let mut matches = matcher.matches(&text, cancel, remaining + 1);
             if matches.len() > remaining {
                 results.limit_hit = true;
                 matches.truncate(remaining);
@@ -134,7 +188,7 @@ pub fn run(
                     root: root.clone().into(),
                     provider: None,
                     matches,
-                    content_hash: hash(&text),
+                    content_hash,
                 }));
             }
             if last_publish.elapsed() >= Duration::from_millis(60) {

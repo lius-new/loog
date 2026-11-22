@@ -17,6 +17,14 @@ pub trait SearchSourcePort: Send + Sync {
     fn normalize(&self, path: &Path) -> PathBuf;
     fn is_directory(&self, path: &Path) -> bool;
     fn read_text(&self, path: &Path) -> Result<String, String>;
+    /// A file too large to read whole, to be searched in pieces; `None` for any other file.
+    fn open_large(
+        &self,
+        _path: &Path,
+    ) -> Result<Option<Box<dyn super::stream::ByteSource + '_>>, String> {
+        Ok(None)
+    }
+
     fn walk(
         &self,
         root: &Path,

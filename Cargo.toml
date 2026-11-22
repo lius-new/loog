@@ -123,6 +123,18 @@ opt-level = 2
 [profile.dev.package.loog-editor-core]
 opt-level = 2
 
+# Searching a very large file runs the regex engine over gigabytes.
+[profile.dev.package.loog-text-core]
+opt-level = 2
+[profile.dev.package.regex]
+opt-level = 2
+[profile.dev.package.regex-automata]
+opt-level = 2
+[profile.dev.package.memchr]
+opt-level = 2
+[profile.dev.package.aho-corasick]
+opt-level = 2
+
 # GIF decompression, composition and pixel transfer must also keep up in dev builds.
 [profile.dev.package.image]
 opt-level = 2

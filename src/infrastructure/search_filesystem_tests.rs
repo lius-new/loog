@@ -136,6 +136,7 @@ fn unopened_nested_files_ignore_filters_and_buffer_override() {
         path: root.join("nested/a.rs"),
         text: Arc::new("needle 中文".into()),
         version: 1,
+        pieces: None,
     };
     let mut query = spec("needle");
     query.include = "*.rs".into();

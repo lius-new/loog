@@ -37,6 +37,8 @@ pub struct Match {
 
 pub struct Matcher {
     regex: Regex,
+    /// The query is plain text, so a text with no match anywhere has none on any line.
+    literal: bool,
     include: GlobSet,
     exclude: GlobSet,
     has_include: bool,
@@ -71,6 +73,7 @@ impl Matcher {
         let exclude = compile_globs(&spec.exclude)?;
         Ok(Self {
             regex,
+            literal: !spec.regex,
             include,
             exclude,
             has_include: !spec.include.trim().is_empty(),
@@ -90,6 +93,10 @@ impl Matcher {
 
     /// First version is line oriented; a regex cannot match across line breaks.
     pub fn matches(&self, text: &str, cancel: &AtomicBool, limit: usize) -> Vec<Match> {
+        // One search over the whole text rules out most texts without splitting them in lines.
+        if self.literal && !self.regex.is_match(text) {
+            return Vec::new();
+        }
         let mut matches = Vec::new();
         let mut offset = 0;
         for (line, with_break) in text.split_inclusive('\n').enumerate() {
@@ -227,9 +234,16 @@ fn preview(line: &str, found: Range<usize>, boundaries: &[usize]) -> (String, Ra
     (preview, highlight)
 }
 
+pub const HASH_SEED: u64 = 0xcbf29ce484222325;
+
 pub fn hash(text: &str) -> u64 {
+    hash_continue(HASH_SEED, text.as_bytes())
+}
+
+/// `hash` of a text given in pieces: start from `HASH_SEED` and feed the pieces in order.
+pub fn hash_continue(seed: u64, bytes: &[u8]) -> u64 {
     // FNV-1a is a version-independent navigation fingerprint, not authentication.
-    text.bytes().fold(0xcbf29ce484222325, |hash, byte| {
+    bytes.iter().fold(seed, |hash, &byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
     })
 }

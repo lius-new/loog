@@ -258,6 +258,14 @@ pub fn navigate(
                 &intent,
                 buffer.as_ref(),
             );
+            // A file too large to hold, not open yet, is opened in place: prepared here, off the
+            // UI thread, since reading its lines takes a moment.
+            let in_place = match (&opened, &buffer) {
+                (Ok(_), None) if crate::infrastructure::document_filesystem::is_too_large_to_load(&path) => {
+                    Some(crate::app::encoding::prepare(&path))
+                }
+                _ => None,
+            };
             application.post(move || {
                 let mut focused = false;
                 worker_state.try_update(|app| {
@@ -291,10 +299,24 @@ pub fn navigate(
                             } else {
                                 text.as_ref().clone()
                             };
-                            if permanent {
-                                app.workspace.open_path(path.clone(), contents);
+                            let mode = if permanent {
+                                crate::app::workspace::OpenMode::Permanent
                             } else {
-                                app.workspace.preview_path(path.clone(), contents);
+                                crate::app::workspace::OpenMode::Preview
+                            };
+                            match in_place {
+                                Some(Ok(prepared)) => {
+                                    app.workspace.open_prepared_text(prepared, mode);
+                                }
+                                Some(Err(error)) => {
+                                    app.workspace.open_failed(path.clone(), error, mode);
+                                }
+                                None if permanent => {
+                                    app.workspace.open_path(path.clone(), contents);
+                                }
+                                None => {
+                                    app.workspace.preview_path(path.clone(), contents);
+                                }
                             }
                             if let Some(mut editor) = app.workspace.active_editor_mut() {
                                 editor.select_range(range);

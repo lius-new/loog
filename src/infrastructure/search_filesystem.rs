@@ -21,6 +21,24 @@ impl SearchSourcePort for SearchFilesystem {
     fn read_text(&self, path: &Path) -> Result<String, String> {
         read_text(path)
     }
+    fn open_large(
+        &self,
+        path: &Path,
+    ) -> Result<Option<Box<dyn search::stream::ByteSource + '_>>, String> {
+        let big = std::fs::metadata(path)
+            .is_ok_and(|meta| meta.is_file() && meta.len() > MAX_FILE_BYTES as u64);
+        if !big {
+            return Ok(None);
+        }
+        match loog_editor_core::text::FileText::open(path) {
+            Ok(file) => Ok(Some(Box::new(file))),
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                Err("Unsupported text encoding".into())
+            }
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
     fn walk(
         &self,
         root: &Path,
