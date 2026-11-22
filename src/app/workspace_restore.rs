@@ -13,7 +13,29 @@ use super::workspace::PreparedTextFile;
 use crate::domain::identity::FileId;
 use lgui::ApplicationHandle;
 
+/// Read a file of the session as the editor opens it. A file over the load limit stays in
+/// its file, as when it is opened by hand, instead of failing for being too large; its
+/// encoding is always UTF-8, which opening it checks.
+fn prepare_restored(
+    path: &Path,
+    explicit: Option<crate::domain::encoding::TextFormat>,
+) -> Result<PreparedTextFile, String> {
+    if crate::domain::media::is_raster(path)
+        || crate::infrastructure::document_filesystem::is_too_large_to_load(path)
+    {
+        return crate::app::encoding::prepare(path);
+    }
+    let read = crate::infrastructure::document_filesystem::read_encoded(
+        path,
+        explicit,
+        crate::infrastructure::document_filesystem::MAX_EDITABLE_FILE_BYTES,
+    );
+    read.map(|(decoded, disk)| PreparedTextFile::with_encoding(path.to_path_buf(), decoded, disk))
+        .map_err(|e| format!("Could not restore {}: {e}", path.display()))
+}
+
 pub struct SessionRestore {
+
     alive: Arc<AtomicBool>,
     stop_delay: mpsc::Sender<()>,
     work: mpsc::Sender<Option<(FileId, PathBuf)>>,
@@ -36,23 +58,13 @@ impl SessionRestore {
                         saved.read_override
                     }
                 });
-            if crate::domain::media::is_raster(path) {
-                return crate::app::encoding::prepare(path);
-            }
-            let read = crate::infrastructure::document_filesystem::read_encoded(
-                path,
-                explicit,
-                crate::infrastructure::document_filesystem::MAX_EDITABLE_FILE_BYTES,
-            );
-            read.map(|(decoded, disk)| {
-                PreparedTextFile::with_encoding(path.to_path_buf(), decoded, disk)
-            })
-            .map_err(|e| format!("Could not restore {}: {e}", path.display()))
+            prepare_restored(path, explicit)
         })
     }
 
     fn with_prepare(
         state: AppContext,
+
         application: ApplicationHandle,
         mut prepare: impl FnMut(&Path) -> Result<PreparedTextFile, String> + Send + 'static,
     ) -> Self {
@@ -525,5 +537,30 @@ mod tests {
             );
         });
         assert!(!h.state.get().workspace.loading_indicator(id));
+    }
+
+    #[test]
+    fn a_file_over_the_load_limit_is_restored_in_place_not_refused() {
+        use crate::app::workspace::{OpenMode, Workspace};
+        use crate::infrastructure::document_filesystem::MAX_EDITABLE_FILE_BYTES;
+        let dir = std::env::temp_dir().join(format!("loog-restore-large-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let large = dir.join("large.txt");
+        let row = "one row of the file\n";
+        std::fs::write(&large, row.repeat(MAX_EDITABLE_FILE_BYTES as usize / row.len() + 1))
+            .unwrap();
+        let small = dir.join("small.txt");
+        std::fs::write(&small, "small\n").unwrap();
+
+        let mut workspace = Workspace::new();
+        let id = workspace.open_prepared_text(prepare_restored(&large, None).unwrap(), OpenMode::Permanent);
+        assert!(workspace.documents[&id].buffer.is_file_backed());
+        assert_eq!(workspace.active_editor().unwrap().line_text(1), "one row of the file");
+        assert!(!workspace.is_dirty(id));
+        // An ordinary file is read whole, as before.
+        let id = workspace.open_prepared_text(prepare_restored(&small, None).unwrap(), OpenMode::Permanent);
+        assert!(!workspace.documents[&id].buffer.is_file_backed());
+        assert_eq!(workspace.active_editor().unwrap().text(), "small\n");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
