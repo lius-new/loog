@@ -994,3 +994,13 @@ fn files_over_16_mib_open_in_place_when_utf8_and_are_read_whole_when_they_fit_ot
     let error = super::encoding::prepare(&huge).err().unwrap();
     assert!(error.contains("UTF-8"), "{error}");
 }
+
+#[test]
+fn saving_a_very_large_file_checks_for_room_first_and_says_how_much_it_needs() {
+    let dir = Temp::new();
+    let path = dir.0.join("large.txt");
+    // Room for a few bytes is there; room for an exabyte is not, and the message says so.
+    assert!(files::ensure_room_beside(&path, 1024).is_ok());
+    let error = files::ensure_room_beside(&path, u64::MAX / 2).unwrap_err().to_string();
+    assert!(error.contains("not enough free disk space") && error.contains("MB"), "{error}");
+}

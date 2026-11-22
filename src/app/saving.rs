@@ -133,6 +133,12 @@ fn save_file_backed(
     let ready = state.clone();
     let task = Box::new(move || {
         let result = (|| {
+            // A new copy of the whole file is written beside it first.
+            document_filesystem::ensure_room_beside(
+                &saved.path,
+                saved.pieces.len() as u64 + 16 * 1024 * 1024,
+            )
+            .map_err(|e| e.to_string())?;
             // The lines are learned while writing, so the new file need not be read again.
             let mut index = None;
             document_filesystem::write_with(&saved.path, |file| {

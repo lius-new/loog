@@ -183,8 +183,56 @@ pub fn write_encoded(path: &Path, text: &str, format: TextFormat) -> io::Result<
 pub fn write(path: &Path, contents: &[u8]) -> io::Result<()> {
     write_with(path, |file| file.write_all(contents))
 }
+/// Free space on the volume holding `dir`, when it can be known.
+#[cfg(windows)]
+fn free_space(dir: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut available = 0u64;
+    // SAFETY: `wide` is NUL terminated and `available` outlives the call; the other two
+    // out-parameters are optional.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(available)
+}
+#[cfg(unix)]
+fn free_space(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `path` is NUL terminated and `stat` is a valid out-parameter.
+    (unsafe { libc::statvfs(path.as_ptr(), &mut stat) } == 0)
+        .then(|| stat.f_bavail as u64 * stat.f_frsize as u64)
+}
+
+/// Check that `needed` bytes can be written beside `path`, as a save writes a whole new file
+/// there before it replaces the old one. A clear message now is better than a write that
+/// fails halfway through a very large file.
+pub(crate) fn ensure_room_beside(path: &Path, needed: u64) -> io::Result<()> {
+    let directory = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    match free_space(directory) {
+        Some(free) if free < needed => Err(io::Error::other(format!(
+            "there is not enough free disk space: saving writes a new copy of the file beside it, which needs {} MB, and {} MB are free",
+            needed.div_ceil(1024 * 1024),
+            free / (1024 * 1024)
+        ))),
+        _ => Ok(()),
+    }
+}
+
 /// Replace `path` with what `fill` writes to a temporary file beside it, so a failure at any
 /// point leaves the original untouched.
+
 pub(crate) fn write_with(
     path: &Path,
     fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
