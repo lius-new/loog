@@ -20,7 +20,7 @@ pub(crate) fn read_with_encoding(path: &Path, explicit: Option<TextFormat>) -> D
         Ok((decoded, state)) => DiskRead::Found {
             contents: decoded.text,
             state,
-            bytes: Some(decoded.bytes),
+            bytes: (!decoded.bytes.is_empty()).then_some(decoded.bytes),
         },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => DiskRead::Missing,
         Err(e) => DiskRead::Failed(e.to_string()),

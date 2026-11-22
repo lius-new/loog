@@ -340,8 +340,11 @@ impl PreparedTextFile {
     ) -> Self {
         let mut value = Self::with_disk_state(path, decoded.text, disk);
         value.0.meta.encoding_source = decoded.source;
-        value.0.disk_bytes = Some(decoded.bytes.clone());
-        value.0.encoding_bytes = Some(decoded.bytes);
+        // Empty means the reader did not retain the bytes (lossless UTF-8).
+        if !decoded.bytes.is_empty() {
+            value.0.disk_bytes = Some(decoded.bytes.clone());
+            value.0.encoding_bytes = Some(decoded.bytes);
+        }
         value
     }
     pub fn with_disk_state(path: PathBuf, contents: String, disk: DiskState) -> Self {

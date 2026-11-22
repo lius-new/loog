@@ -72,8 +72,28 @@ pub(crate) fn read_encoded(
         };
     }
     let state = state(path, &bytes, decoded.format);
-    decoded.bytes = std::sync::Arc::new(bytes);
+    // Plain UTF-8 round-trips exactly, so the decoded text already is the file: keeping the raw
+    // bytes would hold a second full copy for as long as the document is open. Callers treat an
+    // empty `bytes` as "not retained" and fall back to encoding the text.
+    decoded.bytes = if is_lossless_utf8(&bytes, &decoded) {
+        std::sync::Arc::default()
+    } else {
+        std::sync::Arc::new(bytes)
+    };
     Ok((decoded, state))
+
+}
+/// Whether `encode(decoded.text, decoded.format)` gives back exactly `bytes`.
+fn is_lossless_utf8(bytes: &[u8], decoded: &DecodedText) -> bool {
+    if decoded.format.charset != encoding::Charset::Utf8 {
+        return false;
+    }
+    let body = if decoded.format.bom {
+        bytes.strip_prefix(&[0xef, 0xbb, 0xbf][..])
+    } else {
+        Some(bytes)
+    };
+    body == Some(decoded.text.as_bytes())
 }
 pub(crate) fn state(
     path: &Path,
