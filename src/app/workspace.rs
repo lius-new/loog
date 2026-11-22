@@ -208,6 +208,36 @@ impl Workspace {
         {
             return ReconcileResult::Provided(document.meta.resource.clone());
         }
+        // Its text is not held, so it is compared by size and modification time, and read
+        // again only when the file changed.
+        if let Some(document) = self.core.documents.get(&id)
+            && document.buffer.is_file_backed()
+            && let Some(path) = document.meta.local_path()
+        {
+            let path = path.to_path_buf();
+            let known = document.disk_state.clone();
+            return match crate::infrastructure::document_filesystem::disk_state_of(
+                &path,
+                known.format,
+            ) {
+                Ok(now) if now.size == known.size && now.modified_time == known.modified_time => {
+                    ReconcileResult::Unchanged(path)
+                }
+                Ok(_) => match crate::infrastructure::document_filesystem::open_file_backed(&path)
+                {
+                    Ok((file, current)) => {
+                        self.transaction(|core| core.reconcile_large(id, file, current))
+                    }
+                    Err(error) => ReconcileResult::Failed(path, error.to_string()),
+                },
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    self.transaction(|core| {
+                        core.reconcile_with_disk(id, crate::domain::document::DiskRead::Missing)
+                    })
+                }
+                Err(error) => ReconcileResult::Failed(path, error.to_string()),
+            };
+        }
         if self
             .core
             .documents
@@ -272,6 +302,16 @@ impl Workspace {
         if !document.is_text() {
             return Err("Diff documents are read-only.".to_owned());
         }
+        if document.buffer.is_file_backed() {
+            let path = document
+                .meta
+                .local_path()
+                .ok_or("Resource reload requires its provider")?
+                .to_path_buf();
+            let (file, disk) = crate::infrastructure::document_filesystem::open_file_backed(&path)
+                .map_err(|error| format!("Could not reload {}: {error}", path.display()))?;
+            return self.transaction(|core| core.accept_disk_large(id, file, disk));
+        }
         let (decoded, disk) = crate::infrastructure::document_filesystem::read_encoded(
             document
                 .meta
@@ -304,9 +344,14 @@ impl Workspace {
         let Some(path) = document.meta.local_path() else {
             return false;
         };
-        let disk = filesystem::read_contents(path)
-            .ok()
-            .map(|contents| filesystem::capture(path, &contents));
+        let disk = if document.buffer.is_file_backed() {
+            crate::infrastructure::document_filesystem::disk_state_of(path, document.disk_state.format)
+                .ok()
+        } else {
+            filesystem::read_contents(path)
+                .ok()
+                .map(|contents| filesystem::capture(path, &contents))
+        };
         self.transaction(|core| core.keep_editor_with_disk(id, disk))
     }
 
@@ -321,8 +366,17 @@ impl Workspace {
         let Some(document) = self.core.documents.get(id) else {
             return false;
         };
-        let disk = filesystem::capture(&new_path, document.buffer.text());
+        let disk = if document.buffer.is_file_backed() {
+            crate::infrastructure::document_filesystem::disk_state_of(
+                &new_path,
+                document.disk_state.format,
+            )
+            .unwrap_or_else(|_| document.disk_state.clone())
+        } else {
+            filesystem::capture(&new_path, document.buffer.text())
+        };
         self.transaction(|core| core.move_path_with_disk(old_path, new_path, disk))
+
     }
 
     pub fn move_open_paths_under(&mut self, old_root: &Path, new_root: &Path) -> usize {

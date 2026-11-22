@@ -17,7 +17,7 @@ pub(crate) fn highlight_window(
         return Vec::new();
     }
     let Some(ready) = ready else {
-        return vec![(buffer.text()[window].to_owned(), theme::c().text)];
+        return vec![(buffer.slice(window).into_owned(), theme::c().text)];
     };
     let ceil = |offset| {
         let floor = buffer.grapheme_floor(offset);
@@ -33,26 +33,26 @@ pub(crate) fn highlight_window(
         let from = ceil(span.range.start).max(cursor).min(window.end);
         let to = ceil(span.range.end).min(window.end);
         if cursor < from {
-            result.push((buffer.text()[cursor..from].to_owned(), theme::c().text));
+            result.push((buffer.slice(cursor..from).into_owned(), theme::c().text));
             cursor = from;
         }
         if from >= to {
             continue;
         }
         let color = color_for(span.class);
-        let text = &buffer.text()[from..to];
+        let text = &buffer.slice(from..to);
         if let Some((previous, previous_color)) = result.last_mut()
             && *previous_color == color
         {
             previous.push_str(text);
         } else {
-            result.push((text.to_owned(), color));
+            result.push((text.to_string(), color));
         }
         cursor = to;
     }
     if cursor < window.end {
         result.push((
-            buffer.text()[cursor..window.end].to_owned(),
+            buffer.slice(cursor..window.end).into_owned(),
             theme::c().text,
         ));
     }

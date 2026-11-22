@@ -154,7 +154,7 @@ pub fn caret(
         .map(|h| hints::in_window(h, buffer.text(), range.clone()))
         .unwrap_or_default();
     let layout = view::layout_line_hinted(
-        &buffer.text()[range.clone()],
+        &buffer.slice(range.clone()),
         &inlays,
         origin,
         y,
@@ -163,7 +163,7 @@ pub fn caret(
     );
     let x = view::caret_x(
         layout.as_ref(),
-        buffer.text()[range.start..at.min(range.end)]
+        buffer.slice(range.start..at.min(range.end))
             .chars()
             .count(),
     )
@@ -191,7 +191,7 @@ pub fn hit(
     let range = window(buffer, map, row, sx, metrics.viewport_w);
     let initial = buffer.display_column(range.start);
     let origin = left + (initial - source.column) as f32 * fonts::editor().char_w;
-    let line = &buffer.text()[range.clone()];
+    let line = &buffer.slice(range.clone());
     let top = rect.top + row as f32 * fonts::editor().line_h;
     let drawn = hints::drawn(buffer.snapshot_identity());
     let inlays = drawn

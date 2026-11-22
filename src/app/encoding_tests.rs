@@ -752,3 +752,194 @@ fn encoding_ascii_picker_has_no_suggestion_or_reordering() {
     assert_eq!(frame.formats, TextFormat::choices());
     assert!(!state.get().workspace.is_dirty(id));
 }
+
+#[test]
+fn a_file_over_the_load_limit_opens_in_place_and_can_never_be_saved() {
+    let dir = Temp::new();
+    let path = dir.0.join("large.csv");
+    // One byte past the limit, in short rows, with a byte order mark and CRLF breaks.
+    let row = "id,中文,value\r\n";
+    let body = row.repeat(files::MAX_EDITABLE_FILE_BYTES as usize / row.len() + 1);
+    std::fs::write(&path, [&[0xef, 0xbb, 0xbf][..], body.as_bytes()].concat()).unwrap();
+    assert!(files::is_too_large_to_load(&path));
+
+    let mut workspace = Workspace::new();
+    let id = open(&mut workspace, &path);
+    let document = &workspace.documents[&id];
+    assert!(document.buffer.is_file_backed());
+    assert!(document.format().bom, "the byte order mark is kept for display");
+    let rows = body.len() / row.len();
+    assert_eq!(document.buffer.line_count(), rows + 1);
+    assert_eq!(document.buffer.line_text(1), "id,中文,value");
+    assert_eq!(document.buffer.line_ending(), "\r\n");
+    // Opened and untouched, it is clean, and there is nothing that could be written back.
+    assert!(!workspace.is_dirty(id));
+    assert!(workspace.shared_save_snapshot(id).is_none());
+    assert!(workspace.save_snapshot(id).is_none());
+    // Reconciling with the disk neither reads the file nor reports a change.
+    assert!(matches!(
+        workspace.reconcile_document(id),
+        ReconcileResult::Unchanged(_)
+    ));
+}
+
+#[test]
+fn a_file_over_the_load_limit_can_be_edited_and_undone_without_loading_it() {
+    use loog_editor_core::text::EditKind;
+    let dir = Temp::new();
+    let path = dir.0.join("large.txt");
+    let row = "some row of text\n";
+    let body = row.repeat(files::MAX_EDITABLE_FILE_BYTES as usize / row.len() + 1);
+    std::fs::write(&path, &body).unwrap();
+    let mut workspace = Workspace::new();
+    let id = open(&mut workspace, &path);
+    assert!(!workspace.is_dirty(id));
+
+    let middle = workspace.active_editor().unwrap().line_start(1_000_000);
+    workspace
+        .active_editor_mut()
+        .unwrap()
+        .replace(middle..middle, "中间", EditKind::Other)
+        .unwrap();
+    {
+        let editor = workspace.active_editor().unwrap();
+        assert_eq!(editor.line_text(1_000_000), "中间some row of text");
+        assert_eq!(editor.line_text(999_999), "some row of text");
+        assert_eq!(editor.len(), body.len() + "中间".len());
+    }
+    assert!(workspace.is_dirty(id));
+    // Nothing of it can be written, and its edits are not offered to session recovery.
+    assert!(workspace.shared_save_snapshot(id).is_none());
+
+    workspace.active_editor_mut().unwrap().undo();
+    assert_eq!(workspace.active_editor().unwrap().line_text(1_000_000), "some row of text");
+    assert!(!workspace.is_dirty(id), "undoing every edit makes it the file again");
+}
+
+#[test]
+fn a_file_backed_document_saves_by_streaming_and_then_reads_the_new_file() {
+    use loog_editor_core::text::EditKind;
+    let dir = Temp::new();
+    let path = dir.0.join("large.csv");
+    let row = "id,中文,value\r\n";
+    let body = row.repeat(files::MAX_EDITABLE_FILE_BYTES as usize / row.len() + 1);
+    let bom = [0xef, 0xbb, 0xbf];
+    std::fs::write(&path, [&bom[..], body.as_bytes()].concat()).unwrap();
+    let mut workspace = Workspace::new();
+    let id = open(&mut workspace, &path);
+
+    // Edit at the start, in the middle (a whole row) and at the very end.
+    let middle = workspace.active_editor().unwrap().line_range_with_break(500_000);
+    let end = workspace.active_editor().unwrap().len();
+    {
+        let mut editor = workspace.active_editor_mut().unwrap();
+        editor.replace(end..end, "tail", EditKind::Other).unwrap();
+        editor.replace(middle.clone(), "replaced row\r\n", EditKind::Other).unwrap();
+        editor.replace(0..0, "head,", EditKind::Other).unwrap();
+    }
+    let mut expected = body.clone();
+    expected.push_str("tail");
+    expected.replace_range(middle, "replaced row\r\n");
+    expected.insert_str(0, "head,");
+    assert!(workspace.is_dirty(id));
+
+    let saved = workspace.file_save_snapshot(id).unwrap();
+    files::write_with(&path, |file| saved.pieces.write_to(file)).unwrap();
+    let on_disk = std::fs::read(&path).unwrap();
+    assert_eq!(&on_disk[..3], &bom, "the byte order mark is written back");
+    assert!(on_disk[3..] == *expected.as_bytes(), "the file holds the edited text");
+    let (file, disk) = files::open_file_backed(&path).unwrap();
+    assert_eq!(disk.size, on_disk.len() as u64);
+    assert!(workspace.mark_file_saved(&saved, file, disk));
+    assert!(!workspace.is_dirty(id), "saved means clean again");
+    {
+        let editor = workspace.active_editor().unwrap();
+        assert_eq!(editor.line_text(0), "head,id,中文,value");
+        assert_eq!(editor.line_text(500_000), "replaced row");
+        assert_eq!(editor.len(), expected.len());
+    }
+    // It edits and undoes as before, now against the new file.
+    workspace.active_editor_mut().unwrap().replace(0..0, "z", EditKind::Other).unwrap();
+    assert!(workspace.is_dirty(id));
+    workspace.active_editor_mut().unwrap().undo();
+    assert!(!workspace.is_dirty(id));
+
+    // An edit made while a save was running stays unsaved.
+    let saved = workspace.file_save_snapshot(id).unwrap();
+    workspace.active_editor_mut().unwrap().replace(0..0, "late,", EditKind::Other).unwrap();
+    files::write_with(&path, |file| saved.pieces.write_to(file)).unwrap();
+    let (file, disk) = files::open_file_backed(&path).unwrap();
+    assert!(workspace.mark_file_saved(&saved, file, disk));
+    assert!(workspace.is_dirty(id));
+    assert_eq!(workspace.active_editor().unwrap().line_text(0), "late,head,id,中文,value");
+}
+
+#[test]
+fn a_file_backed_document_follows_changes_made_to_its_file_by_other_programs() {
+    use loog_editor_core::text::EditKind;
+    let dir = Temp::new();
+    let path = dir.0.join("large.txt");
+    let row = "some row of text\n";
+    let body = row.repeat(files::MAX_EDITABLE_FILE_BYTES as usize / row.len() + 1);
+    std::fs::write(&path, &body).unwrap();
+    let mut workspace = Workspace::new();
+    let id = open(&mut workspace, &path);
+    let lines = workspace.active_editor().unwrap().line_count();
+
+    // Nothing changed: nothing is read again.
+    assert!(matches!(workspace.reconcile_document(id), ReconcileResult::Unchanged(_)));
+
+    // Another program (Git, for one) rewrote the file. A document with no edits follows it.
+    let mut longer = body.clone();
+    longer.push_str("added by someone else\n");
+    std::fs::write(&path, &longer).unwrap();
+    assert!(matches!(workspace.reconcile_document(id), ReconcileResult::Reloaded(_)));
+    {
+        let editor = workspace.active_editor().unwrap();
+        assert_eq!(editor.line_count(), lines + 1);
+        assert_eq!(editor.line_text(lines - 1), "added by someone else");
+    }
+    assert!(!workspace.is_dirty(id));
+
+    // With edits of its own it is a conflict, and the edits are kept until the user chooses.
+    workspace.active_editor_mut().unwrap().replace(0..0, "mine ", EditKind::Other).unwrap();
+    longer.push_str("and again\n");
+    std::fs::write(&path, &longer).unwrap();
+    assert!(matches!(workspace.reconcile_document(id), ReconcileResult::Conflict(_)));
+    assert_eq!(workspace.active_editor().unwrap().line_text(0), "mine some row of text");
+    assert!(workspace.documents[&id].disk_conflict);
+
+    // Taking what is on disk drops the edits and the conflict.
+    workspace.accept_disk_version(id).unwrap();
+    assert_eq!(workspace.active_editor().unwrap().line_text(0), "some row of text");
+    assert!(!workspace.is_dirty(id));
+    assert!(!workspace.documents[&id].disk_conflict);
+    assert_eq!(workspace.active_editor().unwrap().line_count(), lines + 2);
+
+    // A file that is gone is reported, not silently kept as if it were there.
+    std::fs::remove_file(&path).unwrap();
+    assert!(matches!(workspace.reconcile_document(id), ReconcileResult::Missing(_)));
+}
+
+#[test]
+fn a_file_backed_document_is_reloaded_through_the_watcher_path_too() {
+    let dir = Temp::new();
+    let path = dir.0.join("large.txt");
+    let row = "some row of text\n";
+    let body = row.repeat(files::MAX_EDITABLE_FILE_BYTES as usize / row.len() + 1);
+    std::fs::write(&path, &body).unwrap();
+    let mut workspace = Workspace::new();
+    let id = open(&mut workspace, &path);
+    let lines = workspace.active_editor().unwrap().line_count();
+
+    std::fs::write(&path, format!("{body}new last line\n")).unwrap();
+    // Prepared off the UI thread against a copy, then installed if nothing moved meanwhile.
+    let updates = workspace.prepare_disk_updates(std::slice::from_ref(&path), false);
+    assert_eq!(updates.len(), 1);
+    let outcomes = workspace.apply_disk_updates(updates);
+    assert!(matches!(outcomes.as_slice(), [ReconcileResult::Reloaded(_)]));
+    let editor = workspace.active_editor().unwrap();
+    assert_eq!(editor.line_count(), lines + 1);
+    assert_eq!(editor.line_text(lines - 1), "new last line");
+    assert!(!workspace.is_dirty(id));
+}

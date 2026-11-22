@@ -30,7 +30,41 @@ pub(crate) fn options(path: &Path) -> EncodingSettings {
     }
     value
 }
-pub(crate) fn read_bytes(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
+/// A file over the limit for loading whole is opened in place instead, and is read only.
+pub(crate) fn is_too_large_to_load(path: &Path) -> bool {
+    fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() > MAX_EDITABLE_FILE_BYTES)
+}
+/// Open `path` as a text that stays in its file: only UTF-8 files qualify, and the whole file is
+/// read once to index its lines and to check that.
+pub(crate) fn open_file_backed(
+    path: &Path,
+) -> io::Result<(loog_editor_core::text::FileText, crate::domain::document::DiskState)> {
+    let text = loog_editor_core::text::FileText::open(path)?;
+    let meta = fs::metadata(path)?;
+    let state = crate::domain::document::DiskState {
+        modified_time: meta.modified().ok(),
+        size: meta.len(),
+        content_hash: 0,
+        format: TextFormat::new(encoding::Charset::Utf8, text.has_bom()),
+    };
+    Ok((text, state))
+}
+/// What a file looks like on disk, without reading it: for a document whose text stays in its
+/// file, which is compared by size and modification time instead of by content.
+pub(crate) fn disk_state_of(
+    path: &Path,
+    format: TextFormat,
+) -> io::Result<crate::domain::document::DiskState> {
+    let meta = fs::metadata(path)?;
+    Ok(crate::domain::document::DiskState {
+        modified_time: meta.modified().ok(),
+        size: meta.len(),
+        content_hash: 0,
+        format,
+    })
+}
+pub(crate) fn read_bytes(
+path: &Path, limit: u64) -> io::Result<Vec<u8>> {
     let file = fs::File::open(path)?;
     let meta = file.metadata()?;
     if !meta.is_file() {
@@ -81,7 +115,6 @@ pub(crate) fn read_encoded(
         std::sync::Arc::new(bytes)
     };
     Ok((decoded, state))
-
 }
 /// Whether `encode(decoded.text, decoded.format)` gives back exactly `bytes`.
 fn is_lossless_utf8(bytes: &[u8], decoded: &DecodedText) -> bool {
@@ -124,11 +157,31 @@ pub fn write_encoded(path: &Path, text: &str, format: TextFormat) -> io::Result<
     write(path, &bytes)
 }
 pub fn write(path: &Path, contents: &[u8]) -> io::Result<()> {
+    write_with(path, |file| file.write_all(contents))
+}
+/// Replace `path` with what `fill` writes to a temporary file beside it, so a failure at any
+/// point leaves the original untouched.
+pub(crate) fn write_with(
+    path: &Path,
+    fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
+) -> io::Result<()> {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     // Follow symbolic links, preserving the link rather than replacing it.
     let target = if path.is_symlink() {
         fs::canonicalize(path)?
     } else {
+/// Whether `encode(decoded.text, decoded.format)` gives back exactly `bytes`.
+fn is_lossless_utf8(bytes: &[u8], decoded: &DecodedText) -> bool {
+    if decoded.format.charset != encoding::Charset::Utf8 {
+        return false;
+    }
+    let body = if decoded.format.bom {
+        bytes.strip_prefix(&[0xef, 0xbb, 0xbf][..])
+    } else {
+        Some(bytes)
+    };
+    body == Some(decoded.text.as_bytes())
+}
         path.to_path_buf()
     };
     let permissions = fs::metadata(&target).ok().map(|m| m.permissions());
@@ -150,7 +203,7 @@ pub fn write(path: &Path, contents: &[u8]) -> io::Result<()> {
         .write(true)
         .open(&temp)?;
     let result = (|| {
-        file.write_all(contents)?;
+        fill(&mut file)?;
         if let Some(p) = permissions {
             file.set_permissions(p)?;
         }

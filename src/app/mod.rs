@@ -46,6 +46,7 @@ mod saving_tests;
 mod shell;
 pub(crate) mod state;
 pub(crate) mod syntax;
+pub(crate) mod syntax_window;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub(crate) mod ui_timer;

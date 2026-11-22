@@ -59,8 +59,11 @@ pub(crate) struct OpenDocument {
 
 impl OpenDocument {
     pub(crate) fn new(meta: FileMeta, contents: String, disk_state: DiskState) -> Self {
+        Self::with_buffer(meta, TextBuffer::new(contents), disk_state)
+    }
+
+    pub(crate) fn with_buffer(meta: FileMeta, mut buffer: TextBuffer, disk_state: DiskState) -> Self {
         let saved_format = disk_state.format;
-        let mut buffer = TextBuffer::new(contents);
         buffer.initialize_metadata(saved_format.code());
         let saved_text = buffer.text_snapshot();
         let dirty_cache = Arc::new(Mutex::new(DirtyCache::clean(&buffer, &saved_text)));
@@ -113,6 +116,10 @@ impl OpenDocument {
         }
         if self.format() != self.saved_format {
             return true;
+        }
+        // Its text is never held as a string, so it is dirty exactly when it differs from the file.
+        if let Some(unchanged) = self.buffer.file_unchanged() {
+            return !unchanged;
         }
         self.dirty_cache
             .lock()
@@ -347,6 +354,12 @@ impl PreparedTextFile {
         }
         value
     }
+    /// A document whose text stays in its file (see `TextBuffer::from_file`).
+    pub(crate) fn file_backed(path: PathBuf, buffer: TextBuffer, disk: DiskState) -> Self {
+        let mut value = Self(OpenDocument::with_buffer(FileMeta::from_path(path), buffer, disk));
+        value.0.meta.encoding_source = crate::domain::encoding::EncodingSource::Utf8;
+        value
+    }
     pub fn with_disk_state(path: PathBuf, contents: String, disk: DiskState) -> Self {
         Self(OpenDocument::new(FileMeta::from_path(path), contents, disk))
     }
@@ -481,6 +494,60 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
             self.clamp_document_views(id);
             ReconcileResult::Reloaded(path)
         }
+    }
+
+    /// A document whose text stays in its file, when the file on disk is not the one it
+    /// reads: reload it if it has no edits, otherwise it is a conflict the user resolves.
+    pub fn reconcile_large(
+        &mut self,
+        id: FileId,
+        file: loog_editor_core::text::FileText,
+        current: DiskState,
+    ) -> ReconcileResult {
+        let Some(document) = self.documents.get_mut(&id) else {
+            return ReconcileResult::Failed(PathBuf::new(), "Document is not open.".into());
+        };
+        let Some(path) = document.meta.resource.local_path().map(Path::to_path_buf) else {
+            return ReconcileResult::Provided(document.meta.resource.clone());
+        };
+        let dirty = document.is_dirty();
+        document.disk_observation += 1;
+        document.observed_disk = Some(current.clone());
+        document.missing_on_disk = false;
+        if dirty {
+            document.disk_conflict = true;
+            return ReconcileResult::Conflict(path);
+        }
+        document.buffer.reload_file(file);
+        document.buffer.initialize_metadata(current.format.code());
+        document.saved_text = document.buffer.text_snapshot();
+        document.saved_format = current.format;
+        document.disk_state = current;
+        document.disk_conflict = false;
+        self.clamp_document_views(id);
+        ReconcileResult::Reloaded(path)
+    }
+
+    /// Replace a file-backed document by what is on disk now, whatever it had.
+    pub fn accept_disk_large(
+        &mut self,
+        id: FileId,
+        file: loog_editor_core::text::FileText,
+        disk: DiskState,
+    ) -> Result<(), String> {
+        let document = self
+            .documents
+            .get_mut(&id)
+            .ok_or_else(|| "Document is not open.".to_owned())?;
+        document.buffer.reload_file(file);
+        document.buffer.initialize_metadata(disk.format.code());
+        document.saved_text = document.buffer.text_snapshot();
+        document.saved_format = disk.format;
+        document.disk_state = disk;
+        document.disk_conflict = false;
+        document.missing_on_disk = false;
+        self.clamp_document_views(id);
+        Ok(())
     }
 
     pub fn accept_disk_with(
@@ -1717,11 +1784,56 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
         Ok(true)
     }
 
+    /// Whether the document's text stays in its file, so it is saved by `file_save_snapshot`.
+    pub fn is_file_backed(&self, id: FileId) -> bool {
+        self.documents
+            .get(&id)
+            .is_some_and(|d| d.is_text() && d.buffer.is_file_backed())
+    }
+
+    pub fn file_save_snapshot(&self, id: FileId) -> Option<crate::domain::document::FileSaveSnapshot> {
+        let document = self.documents.get(&id).filter(|d| d.is_text())?;
+        Some(crate::domain::document::FileSaveSnapshot {
+            stamp: document.stamp(id),
+            path: document.meta.resource.local_path()?.to_path_buf(),
+            pieces: document.buffer.file_pieces()?,
+        })
+    }
+
+    /// A completed write of a file-backed document. Its text now is the file just written, so it
+    /// is read from there again, unless it was edited since the snapshot, which stays unsaved.
+    pub fn mark_file_saved(
+        &mut self,
+        saved: &crate::domain::document::FileSaveSnapshot,
+        file: loog_editor_core::text::FileText,
+        disk: DiskState,
+    ) -> bool {
+        let Some(document) = self.documents.get_mut(&saved.stamp.document).filter(|d| {
+            d.is_text()
+                && d.incarnation == saved.stamp.incarnation
+                && d.meta.resource.local_path() == Some(saved.path.as_path())
+        }) else {
+            return false;
+        };
+        document.disk_state = disk;
+        document.disk_conflict = false;
+        document.missing_on_disk = false;
+        if document.buffer.version() == saved.stamp.version {
+            document.buffer.break_undo_group();
+            document.buffer.rebase_file(file);
+        }
+        true
+    }
+
     pub fn shared_save_snapshot(
         &self,
         id: FileId,
     ) -> Option<crate::domain::document::SaveSnapshot> {
-        let document = self.documents.get(&id).filter(|d| d.is_text())?;
+        // A file-backed document holds no text to write back, so it can never be saved.
+        let document = self
+            .documents
+            .get(&id)
+            .filter(|d| d.is_text() && !d.buffer.is_file_backed())?;
         Some(crate::domain::document::SaveSnapshot {
             stamp: document.stamp(id),
             path: document.meta.resource.local_path()?.to_path_buf(),
@@ -1894,7 +2006,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
 
     pub fn save_snapshot(&self, id: FileId) -> Option<(FileId, PathBuf, String)> {
         let document = self.documents.get(&id)?;
-        if !document.is_text() {
+        if !document.is_text() || document.buffer.is_file_backed() {
             return None;
         }
         Some((

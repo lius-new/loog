@@ -62,6 +62,15 @@ pub struct DiskState {
     pub format: crate::domain::encoding::TextFormat,
 }
 
+/// What a background save of a document whose text stays in its file writes: the pieces of the
+/// file and of what was typed, which are immutable once taken.
+#[derive(Clone, Debug)]
+pub struct FileSaveSnapshot {
+    pub stamp: DocumentStamp,
+    pub path: PathBuf,
+    pub pieces: loog_editor_core::text::PieceText,
+}
+
 /// Immutable input to a background save. Text shares the editor's COW snapshot.
 #[derive(Clone, Debug)]
 pub struct SaveSnapshot {

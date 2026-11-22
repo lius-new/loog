@@ -120,6 +120,15 @@ pub(crate) fn prepare(path: &Path) -> Result<crate::app::workspace::PreparedText
             disk,
         ));
     }
+    if crate::infrastructure::document_filesystem::is_too_large_to_load(path) {
+        let (file, state) = crate::infrastructure::document_filesystem::open_file_backed(path)
+            .map_err(|e| format!("Could not open {}: {e}", path.display()))?;
+        return Ok(crate::app::workspace::PreparedTextFile::file_backed(
+            path.to_path_buf(),
+            loog_editor_core::text::TextBuffer::from_file(file),
+            state,
+        ));
+    }
     let (decoded, state) = crate::infrastructure::document_filesystem::read_encoded(
         path,
         None,

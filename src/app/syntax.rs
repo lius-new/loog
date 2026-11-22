@@ -14,6 +14,8 @@ use std::sync::{
 #[derive(Clone)]
 pub(crate) struct Highlighter {
     pub worker: Worker,
+    /// Cuts of documents too large to parse whole, one per pane.
+    pub chunks: super::syntax_window::Chunks,
     alive: Arc<AtomicBool>,
 }
 impl Highlighter {
@@ -35,15 +37,20 @@ impl Highlighter {
                     .map(|h| h.worker);
                 let mut changed = false;
                 for (document, stamp) in completed {
-                    if app
-                        .workspace
-                        .documents
-                        .get(&document)
-                        .is_some_and(|doc| doc.is_text() && doc.stamp(document) == stamp)
-                    {
+                    let Some(doc) = app.workspace.documents.get(&document).filter(|d| d.is_text())
+                    else {
+                        continue;
+                    };
+                    if doc.stamp(document) == stamp {
                         if let Some(worker) = &worker {
                             super::folding::publish_syntax(app, stamp, worker.folding(stamp));
                         }
+                        changed = true;
+                    } else if super::syntax_window::is_windowed(&doc.buffer)
+                        && stamp.incarnation == doc.incarnation
+                    {
+                        // The result is for a cut of the text, which never has the stamp of the
+                        // document; the screen only needs to be drawn again.
                         changed = true;
                     }
                 }
@@ -59,6 +66,7 @@ impl Highlighter {
                 completed.lock().unwrap().insert(stamp.document, stamp);
                 notifications.send(())
             }),
+            chunks: Default::default(),
             alive,
         }
     }

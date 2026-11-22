@@ -227,7 +227,8 @@ pub(crate) fn snapshot(
                     .into_iter()
                     .filter(|region| {
                         crate::features::git::conflict::markers_in_place(region, |n| {
-                            (1..=lines).contains(&n).then(|| doc.buffer.line(n - 1))
+                            ((1..=lines).contains(&n) && !doc.buffer.is_file_backed())
+                                .then(|| doc.buffer.line(n - 1))
                         })
                     })
                     .collect::<Vec<_>>()
@@ -637,13 +638,19 @@ pub(crate) fn binding(
             .services()
             .and_then(|runtime| runtime.highlighter())
             .map_or_else(Vec::new, |highlighter| {
-                let mut tokens = highlighter.worker.query(
-                    pane,
-                    document.stamp,
-                    crate::features::syntax::Source::new(&document.buffer),
-                    document.meta.lang.clone(),
-                    windows,
-                );
+                let mut tokens = if super::syntax_window::is_windowed(&document.buffer) {
+                    highlighter
+                        .chunks
+                        .query(&highlighter.worker, pane, document, windows)
+                } else {
+                    highlighter.worker.query(
+                        pane,
+                        document.stamp,
+                        crate::features::syntax::Source::new(&document.buffer),
+                        document.meta.lang.clone(),
+                        windows,
+                    )
+                };
                 // The server's semantic tokens, when they describe exactly this text,
                 // are drawn over the syntax tree's classes.
                 if syntax_state

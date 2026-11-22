@@ -111,6 +111,68 @@ fn submit(
     }
 }
 
+/// A document whose text stays in its file is written by streaming its pieces to a temporary
+/// file beside it, which then replaces it; the document then reads the new file. Save
+/// participants do not run, as they would need the text.
+fn save_file_backed(
+    state: &AppContext,
+    id: FileId,
+    done: impl FnOnce(&AppContext, bool) + Send + 'static,
+) -> bool {
+    let Some(saved) = state.get().workspace.file_save_snapshot(id) else {
+        return false;
+    };
+    let Some(runtime) = state.services() else {
+        state.update(|app| app.show_error("File saver is not available"));
+        return false;
+    };
+    let Some(application) = runtime.application() else {
+        state.update(|app| app.show_error("File saver is not available"));
+        return false;
+    };
+    let ready = state.clone();
+    let task = Box::new(move || {
+        let result = (|| {
+            document_filesystem::write_with(&saved.path, |file| saved.pieces.write_to(file))
+                .map_err(|e| e.to_string())?;
+            document_filesystem::open_file_backed(&saved.path).map_err(|e| e.to_string())
+        })();
+        application.post(move || {
+            if ready.services().is_none() {
+                return;
+            }
+            let mut success = true;
+            ready.update(|app| {
+                app.editor.saving.pending -= 1;
+                match result {
+                    Ok((file, disk)) => {
+                        app.workspace.mark_file_saved(&saved, file, disk);
+                    }
+                    Err(error) => {
+                        success = false;
+                        app.editor.saving.failures += 1;
+                        app.show_error(format!(
+                            "Could not save {}: {error}",
+                            saved.path.display()
+                        ));
+                    }
+                }
+            });
+            done(&ready, success);
+        });
+    });
+    match runtime.save(task) {
+        Ok(()) => {
+            state.update(|app| app.editor.saving.pending += 1);
+            true
+        }
+        Err(error) => {
+            state.update(|app| app.show_error(error));
+            false
+        }
+    }
+}
+
 pub(crate) fn document(
     state: &AppContext,
     id: FileId,
@@ -143,6 +205,9 @@ fn save_document(
     skip: bool,
     done: impl FnOnce(&AppContext, bool) + Send + 'static,
 ) -> bool {
+    if state.get().workspace.is_file_backed(id) {
+        return save_file_backed(state, id, done);
+    }
     let provided = state
         .get()
         .workspace
@@ -316,6 +381,19 @@ pub(crate) fn close(
             finish(state, success);
         }
     };
+    // Documents whose text stays in its file are written one at a time, like provided ones.
+    let file_backed: Vec<FileId> = ids
+        .iter()
+        .copied()
+        .filter(|id| state.get().workspace.is_file_backed(*id))
+        .collect();
+    let finish = move |state: &AppContext, success: bool| {
+        if success && !file_backed.is_empty() {
+            file_batch(state, file_backed, Box::new(finish));
+        } else {
+            finish(state, success);
+        }
+    };
     // The extensions that change files before saving run first. This stage is
     // part of the save for closing purposes: the close barrier waits for it.
     if save && let Some(host) = participants(state, &ids) {
@@ -354,6 +432,21 @@ pub(crate) fn close(
 }
 
 type ResourceDone = Box<dyn FnOnce(&AppContext, bool) + Send>;
+
+fn file_batch(state: &AppContext, mut ids: Vec<FileId>, done: ResourceDone) {
+    let Some(id) = ids.pop() else {
+        done(state, true);
+        return;
+    };
+    // If it cannot even be started (no saver), the close request stays open, as for any save.
+    let _ = save_file_backed(state, id, move |state, ok| {
+        if ok {
+            file_batch(state, ids, done);
+        } else {
+            done(state, false);
+        }
+    });
+}
 
 fn resource_batch(state: &AppContext, mut ids: Vec<FileId>, done: ResourceDone) {
     let Some(id) = ids.pop() else {

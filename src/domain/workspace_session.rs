@@ -617,7 +617,9 @@ fn save_pane_node<D: Clone, K: Clone + Ord>(
                             current: document.format(),
                             saved: document.saved_format,
                             read_override: document.meta.read_override.map(|_| document.format()),
-                            unsaved_text: dirty.then(|| document.buffer.text_snapshot()),
+                            // A file-backed document has no text to keep: its edits are not recovered.
+                            unsaved_text: (dirty && !document.buffer.is_file_backed())
+                                .then(|| document.buffer.text_snapshot()),
                             saved_text: (dirty || document.meta.local_path().is_none())
                                 .then(|| document.saved_text.clone()),
                             source_bytes: dirty.then(|| document.encoding_bytes.clone()).flatten(),

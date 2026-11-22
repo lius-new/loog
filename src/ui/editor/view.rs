@@ -443,7 +443,7 @@ pub(crate) fn render(
                 scroll_x,
                 metrics.viewport_w,
             );
-            let line = &buffer.text()[window.clone()];
+            let line = &buffer.slice(window.clone());
             let initial_column = buffer.display_column(window.start);
             let line_left =
                 code_left + (initial_column - source_row.column) as f32 * fonts::editor().char_w;
@@ -469,13 +469,13 @@ pub(crate) fn render(
                 }
                 let from = range.start.max(start).min(end);
                 let to = range.end.min(end).max(start);
-                let left = caret_x(layout.as_ref(), buffer.text()[start..from].chars().count())
+                let left = caret_x(layout.as_ref(), buffer.slice(start..from).chars().count())
                     .unwrap_or_else(|| {
                         code_left
                             + (buffer.display_column(from) - source_row.column) as f32
                                 * fonts::editor().char_w
                     });
-                let mut right = caret_x(layout.as_ref(), buffer.text()[start..to].chars().count())
+                let mut right = caret_x(layout.as_ref(), buffer.slice(start..to).chars().count())
                     .unwrap_or_else(|| {
                         code_left
                             + (buffer.display_column(to) - source_row.column) as f32
@@ -533,7 +533,7 @@ pub(crate) fn render(
             }
             if buffer.options().indent_guides {
                 let indentation = buffer
-                    .line(line_index)
+                    .line_text(line_index)
                     .chars()
                     .take(4096)
                     .take_while(|c| *c == ' ' || *c == '\t')
@@ -2085,7 +2085,7 @@ pub(crate) fn document_caret(
         .map(|hints| super::hints::in_window(hints, buffer.text(), range.clone()))
         .unwrap_or_default();
     let layout = layout_line_hinted(
-        &buffer.text()[range.clone()],
+        &buffer.slice(range.clone()),
         &line_hints,
         origin,
         top,
@@ -2094,7 +2094,7 @@ pub(crate) fn document_caret(
     );
     caret_x(
         layout.as_ref(),
-        buffer.text()[range.start..offset].chars().count(),
+        buffer.slice(range.start..offset).chars().count(),
     )
     .unwrap_or(left + visual as f32 * fonts::editor().char_w)
 }
@@ -2540,7 +2540,7 @@ pub(crate) fn cursor_offset_from_point(
     let range = line_window(buffer, line, scroll_x, metrics.viewport_w);
     let initial = buffer.display_column(range.start);
     let left = code_left + initial as f32 * fonts::editor().char_w;
-    let line_text = &buffer.text()[range.clone()];
+    let line_text = &buffer.slice(range.clone());
     let content_y = point_y + scroll_y;
     let line_top = rect.top + line as f32 * fonts::editor().line_h;
     let drawn = super::hints::drawn(buffer.snapshot_identity());
