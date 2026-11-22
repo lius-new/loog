@@ -141,10 +141,12 @@ fn apply_to_pieces(
         });
         delta += edit.text.len() as isize - edit.range.len() as isize;
     }
-    // Later offsets first, so the earlier ones stay valid.
-    for edit in edits.into_iter().rev() {
-        file.replace(edit.range, &edit.text);
-    }
+    // One pass over the pieces, however many edits there are.
+    let batch: Vec<_> = edits
+        .iter()
+        .map(|edit| (edit.range.clone(), edit.text.as_str()))
+        .collect();
+    file.replace_many(&batch);
     Ok(ChangeSet::new(changes))
 }
 
