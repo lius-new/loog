@@ -423,3 +423,132 @@ fn editor_viewport_benchmark() {
         );
     }
 }
+
+/// `LOOG_LARGE_FILE_BENCH=<path>`: what scrolling, jumping and typing cost per frame in a file
+/// kept in its file, through the real layout. Opt in; it reads nothing but the lines it draws.
+#[test]
+#[ignore = "real text layout benchmark over the file named by LOOG_LARGE_FILE_BENCH"]
+fn large_file_scroll_and_typing_benchmark() {
+    use loog_editor_core::text::EditKind;
+    let path = std::path::PathBuf::from(
+        std::env::var_os("LOOG_LARGE_FILE_BENCH").expect("set LOOG_LARGE_FILE_BENCH"),
+    );
+    let context = ApplicationContext::empty(Default::default());
+    let _fonts = lgui::backend::install_text_environment(
+        &context,
+        lgui::render_skia::skia_text_system_handle(),
+    );
+    view::clear_layout_cache();
+    let opening = Instant::now();
+    let prepared = crate::app::encoding::prepare(&path).expect("open the file");
+    let open_ms = opening.elapsed().as_secs_f64() * 1000.0;
+    let mut app = AppState::new();
+    app.workspace
+        .open_prepared_text(prepared, crate::app::workspace::OpenMode::Permanent);
+    app.editor.focused = true;
+    let in_place = app.workspace.active_editor().unwrap().is_file_backed();
+    let initial = Arc::new(Mutex::new(Some(app)));
+    let exposed = Arc::new(Mutex::new(None));
+    let output = exposed.clone();
+    let runtime = Arc::new(AppRuntime::default());
+    let view_runtime = runtime.clone();
+    let queue = UiTasks::default();
+    let application = queue.application();
+    let rect = UiRect::new(0.0, 0.0, 1000.0, 600.0);
+    let ui: AppView = Arc::new(move |cx| {
+        let state = AppContext::detached(cx.state_with(|| initial.lock().unwrap().take().unwrap()))
+            .with_runtime(&view_runtime);
+        if view_runtime.highlighter().is_none() {
+            view_runtime.install_highlighter(Highlighter::new(state.clone(), application.clone()));
+        }
+        let git = cx.state_with(GitStoreSnapshot::default);
+        *output.lock().unwrap() = Some(state.clone());
+        let id = UiId::new("large-file-bench");
+        let focus = cx.focus_handle(id.clone());
+        view::render(
+            state.get().workspace.active_pane(),
+            rect,
+            super::editor_view::binding(
+                state,
+                git,
+                crate::domain::identity::PaneId::new(1),
+                rect,
+            ),
+            id,
+            focus,
+        )
+    });
+    let mut session = UiSession::new();
+    let frame = |session: &mut UiSession| {
+        let started = Instant::now();
+        session.render_view(&ui, rect, UiScale::ONE);
+        started.elapsed().as_secs_f64() * 1000.0
+    };
+    let cold_ms = frame(&mut session);
+    let state: AppContext = exposed.lock().unwrap().clone().unwrap();
+    let lines = state.get().workspace.active_editor().unwrap().line_count();
+    let line_h = crate::ui::fonts::editor().line_h;
+    let stats = |mut values: Vec<f64>| {
+        values.sort_by(f64::total_cmp);
+        (values[values.len() / 2], values[values.len() - 1])
+    };
+    // Wheel scrolling: three lines at a time.
+    let mut scroll = Vec::new();
+    for i in 0..100 {
+        state.update(|app| app.workspace.set_active_scroll(0.0, i as f32 * 3.0 * line_h));
+        scroll.push(frame(&mut session));
+    }
+    // Jumps, as dragging the scrollbar or going to a line does: to the middle, the end, the start.
+    let mut jumps = Vec::new();
+    for target in [lines / 2, lines - 40, 0, lines / 3, lines / 3 * 2] {
+        state.update(|app| app.workspace.set_active_scroll(0.0, target as f32 * line_h));
+        jumps.push(frame(&mut session));
+    }
+    // Page by page through the middle.
+    let mut pages = Vec::new();
+    let middle = (lines / 2) as f32 * line_h;
+    for i in 0..30 {
+        state.update(|app| app.workspace.set_active_scroll(0.0, middle + i as f32 * 580.0));
+        pages.push(frame(&mut session));
+    }
+    // Typing in the middle of the file: the edit and the frame that shows it.
+    let mut typing = Vec::new();
+    let mut edits = Vec::new();
+    state.update(|app| app.workspace.set_active_scroll(0.0, middle));
+    frame(&mut session);
+    let mut at = state.get().workspace.active_editor().unwrap().line_start(lines / 2);
+    for _ in 0..60 {
+        let started = Instant::now();
+        state.update(|app| {
+            app.workspace
+                .active_editor_mut()
+                .unwrap()
+                .replace(at..at, "x", EditKind::Other)
+                .unwrap();
+        });
+        edits.push(started.elapsed().as_secs_f64() * 1000.0);
+        session.render_view(&ui, rect, UiScale::ONE);
+        typing.push(started.elapsed().as_secs_f64() * 1000.0);
+        at += 1;
+    }
+    let edit_only = stats(edits);
+    let (scroll, jump, page, typed) = (stats(scroll), stats(jumps), stats(pages), stats(typing));
+    println!(
+        "LARGE_FILE {}",
+        serde_json::json!({
+            "in_place": in_place,
+            "lines": lines,
+            "open_ms": open_ms,
+            "cold_frame_ms": cold_ms,
+            "wheel_scroll_median_ms": scroll.0,
+            "wheel_scroll_max_ms": scroll.1,
+            "jump_median_ms": jump.0,
+            "jump_max_ms": jump.1,
+            "page_median_ms": page.0,
+            "page_max_ms": page.1,
+            "type_edit_only_median_ms": edit_only.0,
+            "type_edit_plus_frame_median_ms": typed.0,
+            "type_edit_plus_frame_max_ms": typed.1,
+        })
+    );
+}

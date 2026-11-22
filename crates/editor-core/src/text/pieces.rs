@@ -75,6 +75,8 @@ struct Piece {
     len: usize,
     /// Line breaks inside the piece.
     breaks: usize,
+    /// For a piece of the file: the line breaks of the file before where it starts.
+    base: usize,
 }
 
 /// Where each piece starts, in bytes and in line breaks, so a place is found by searching
@@ -113,6 +115,7 @@ impl PieceText {
             start: 0,
             len: original.len(),
             breaks: original.line_count() - 1,
+            base: 0,
         };
         Self {
             len: original.len(),
@@ -249,10 +252,7 @@ impl PieceText {
         let inside = offset - bytes;
         breaks
             + match &piece.source {
-                Source::Original => {
-                    self.original_breaks_before(piece.start + inside)
-                        - self.original_breaks_before(piece.start)
-                }
+                Source::Original => self.original_breaks_before(piece.start + inside) - piece.base,
                 Source::Added(chunk) => {
                     chunk.breaks_in(piece.start..piece.start + inside)
                 }
@@ -278,7 +278,7 @@ impl PieceText {
         let nth = wanted - index.break_starts[at];
         let inside = match &piece.source {
             Source::Original => {
-                let global = self.original_breaks_before(piece.start) + nth;
+                let global = piece.base + nth;
                 self.original.line_start(global + 1) - 1 - piece.start
             }
             Source::Added(chunk) => {
@@ -351,14 +351,13 @@ impl PieceText {
     /// Replace several ranges at once, in one pass over the pieces however many there are. The
     /// ranges are in the current text, in order and not overlapping.
     pub fn replace_many(&mut self, edits: &[(Range<usize>, &str)]) {
-        let Some(first) = edits.first() else {
+        if edits.is_empty() {
             return;
-        };
-        let first_start = first.0.start;
+        }
         // A few edits change a few pieces near them; the rest of the text is left alone.
         if edits.len() <= 8 && !self.pieces.is_empty() {
             self.replace_near(edits);
-            self.keep_lines_before(first_start);
+            self.keep_lines(edits);
             return;
         }
         let old = std::mem::take(Arc::make_mut(&mut self.pieces));
@@ -386,18 +385,31 @@ impl PieceText {
         self.unchanged = Arc::default();
         self.index = Arc::default();
         *Arc::make_mut(&mut self.pieces) = out;
-        self.keep_lines_before(first_start);
+        self.keep_lines(edits);
     }
 
-    /// The recent lines described the text before an edit. Keep those before it.
-    fn keep_lines_before(&mut self, offset: usize) {
+    /// The recent lines described the text before the edits. Those before them are still right.
+    /// After a single edit the lines that start beyond it are too, only a little further on or
+    /// back, so typing does not make every line on the screen be read again.
+    fn keep_lines(&mut self, edits: &[(Range<usize>, &str)]) {
+        let first_start = edits.first().map_or(0, |edit| edit.0.start);
+        let single = match edits {
+            [(range, text)] => Some((range.end, text.len() as isize - range.len() as isize)),
+            _ => None,
+        };
         let kept: VecDeque<_> = self
             .lines
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
-            .filter(|((start, _), line)| start + line.len() <= offset)
-            .cloned()
+            .filter_map(|((start, tab), line)| {
+                if start + line.len() <= first_start {
+                    return Some(((*start, *tab), line.clone()));
+                }
+                // A line that starts after the edit ended, not at its end, is the same text.
+                let (end, shift) = single?;
+                (*start > end).then(|| (((*start as isize + shift) as usize, *tab), line.clone()))
+            })
             .collect();
         self.lines = Arc::new(Mutex::new(kept));
     }
@@ -560,6 +572,7 @@ fn insert(out: &mut Vec<Piece>, text: &str) {
             len: text.len(),
             start: 0,
             breaks,
+            base: 0,
             source: Source::Added(chunk),
         },
     );
@@ -600,16 +613,19 @@ impl Walk<'_> {
 
     /// The part of `piece` from `from` to `to`, counted from its start.
     fn cut(&self, piece: &Piece, from: usize, to: usize) -> Piece {
+        let (breaks, base) = match &piece.source {
+            Source::Original => {
+                let before = self.original.line_of(piece.start + from);
+                (self.original.line_of(piece.start + to) - before, before)
+            }
+            Source::Added(chunk) => (chunk.breaks_in(piece.start + from..piece.start + to), 0),
+        };
         Piece {
             source: piece.source.clone(),
             start: piece.start + from,
             len: to - from,
-            breaks: match &piece.source {
-                Source::Original => {
-                    self.original.line_of(piece.start + to) - self.original.line_of(piece.start + from)
-                }
-                Source::Added(chunk) => chunk.breaks_in(piece.start + from..piece.start + to),
-            },
+            breaks,
+            base,
         }
     }
 }

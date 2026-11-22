@@ -18,6 +18,9 @@ const LINES_PER_CHECKPOINT: usize = 64;
 const BLOCK: usize = 64 * 1024;
 const CACHED_BLOCKS: usize = 8;
 const SCAN_CHUNK: usize = 4 * 1024 * 1024;
+/// How much is looked at to count or find line breaks near a place. Lines are far shorter than a
+/// block, and a lookup that starts near where the last one ended needs only a few of them.
+const LOOK: usize = 8 * 1024;
 
 /// What a pass over the bytes of a text learns about its lines. `FileText::open` makes it while
 /// reading a file; a writer can make it while the text is written, so the file need not be read
@@ -116,6 +119,9 @@ pub struct FileText {
     longest_line: usize,
     crlf_first: bool,
     cache: Mutex<VecDeque<(usize, std::sync::Arc<Vec<u8>>)>>,
+    /// Where the last lookup ended, as (offset, line breaks before it). Drawing asks for one line
+    /// after another, so the next lookup starts here and not at the checkpoint before it.
+    last: Mutex<(usize, usize)>,
 }
 
 #[cfg(windows)]
@@ -214,6 +220,7 @@ impl FileText {
             longest_line: index.longest_line,
             crlf_first: index.crlf_first,
             cache: Mutex::default(),
+            last: Mutex::default(),
         }
     }
 }
@@ -299,12 +306,19 @@ impl FileText {
             return self.len;
         }
         let checkpoint = line / self.per_checkpoint;
-        let mut start = self.checkpoints[checkpoint] as usize;
-        let mut skip = line - checkpoint * self.per_checkpoint;
+        let (mut start, mut have) = (
+            self.checkpoints[checkpoint] as usize,
+            checkpoint * self.per_checkpoint,
+        );
+        let last = *self.last.lock().unwrap_or_else(|e| e.into_inner());
+        // Strictly before: the offset the last lookup ended at need not be where a line starts.
+        if last.1 < line && last.1 > have {
+            (start, have) = last;
+        }
+        let mut skip = line - have;
         while skip > 0 {
-            // Lines are short next to a block, so scan in block-sized steps.
             let bytes = self
-                .read(start..(start + BLOCK).min(self.len))
+                .read(start..(start + LOOK).min(self.len))
                 .unwrap_or_default();
             let mut at = 0;
             while skip > 0 {
@@ -317,13 +331,15 @@ impl FileText {
                 }
             }
             if skip == 0 {
-                return start + at;
+                start += at;
+                break;
             }
             if bytes.is_empty() {
                 return self.len;
             }
             start += bytes.len();
         }
+        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = (start, line);
         start
     }
 
@@ -334,17 +350,25 @@ impl FileText {
             .checkpoints
             .partition_point(|&start| start as usize <= offset)
             .saturating_sub(1);
-        let mut line = checkpoint * self.per_checkpoint;
-        let mut at = self.checkpoints[checkpoint] as usize;
+        let (mut at, mut line) = (
+            self.checkpoints[checkpoint] as usize,
+            checkpoint * self.per_checkpoint,
+        );
+        let last = *self.last.lock().unwrap_or_else(|e| e.into_inner());
+        if last.0 <= offset && last.0 > at {
+            (at, line) = last;
+        }
         while at < offset {
-            let bytes = self.read(at..(at + BLOCK).min(offset)).unwrap_or_default();
+            let bytes = self.read(at..(at + LOOK).min(offset)).unwrap_or_default();
             if bytes.is_empty() {
                 break;
             }
             line += newline::count(&bytes);
             at += bytes.len();
         }
-        line.min(self.lines - 1)
+        let line = line.min(self.lines - 1);
+        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = (offset, line);
+        line
     }
 }
 
@@ -610,6 +634,38 @@ mod edit_tests {
                 memory.line_range_with_break(line),
                 "line {line} {context}"
             );
+        }
+        // The answers that use a line kept from an earlier question, which an edit moves or drops.
+        for line in (0..memory.line_count()).step_by(5) {
+            assert_eq!(
+                file.line_display_width(line),
+                memory.line_display_width(line),
+                "width {line} {context}"
+            );
+            assert_eq!(
+                file.offset_at_display_column(line, 5),
+                memory.offset_at_display_column(line, 5),
+                "column {line} {context}"
+            );
+            assert_eq!(
+                file.offset_at_char_column(line, 3),
+                memory.offset_at_char_column(line, 3),
+                "char column {line} {context}"
+            );
+        }
+        for offset in (0..=memory.len()).step_by(53) {
+            if memory.is_grapheme_boundary(offset) {
+                assert_eq!(
+                    file.display_column(offset),
+                    memory.display_column(offset),
+                    "display column {offset} {context}"
+                );
+                assert_eq!(
+                    file.line_col(offset),
+                    memory.line_col(offset),
+                    "line col {offset} {context}"
+                );
+            }
         }
         for offset in (0..=memory.len()).step_by(7) {
             assert_eq!(
