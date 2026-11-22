@@ -150,7 +150,6 @@ fn cut(buffer: &TextBuffer, low: usize, high: usize) -> Option<Range<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use loog_editor_core::text::FileText;
     use std::io::Write;
 
     #[test]
@@ -161,7 +160,9 @@ mod tests {
             .unwrap()
             .write_all(text.as_bytes())
             .unwrap();
-        let buffer = TextBuffer::from_file(FileText::open(&path).unwrap());
+        let buffer = TextBuffer::from_source(std::sync::Arc::new(
+            crate::infrastructure::file_text::FileText::open(&path).unwrap(),
+        ));
         assert!(is_windowed(&buffer));
         // A screen of lines 2000..2040 is cut with context, on line boundaries.
         let (low, high) = (buffer.line_start(2000), buffer.line_start(2040));

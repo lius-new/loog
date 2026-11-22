@@ -153,10 +153,7 @@ pub fn run(
                     continue;
                 }
                 results.searched += 1;
-                (
-                    matcher.matches(&text, cancel, remaining + 1),
-                    hash(&text),
-                )
+                (matcher.matches(&text, cancel, remaining + 1), hash(&text))
             };
             if matches.len() > remaining {
                 results.limit_hit = true;

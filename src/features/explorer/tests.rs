@@ -83,10 +83,7 @@ fn entries_sort_folders_before_files_then_by_name() {
     let port = MemoryDirectories::default().dir("root", &["b.txt", "z-dir/", "a.txt", "c-dir/"]);
     let entries = port.read_directory(Path::new("root"));
     assert_eq!(
-        entries
-            .iter()
-            .map(|entry| entry.name)
-            .collect::<Vec<_>>(),
+        entries.iter().map(|entry| entry.name).collect::<Vec<_>>(),
         ["c-dir", "z-dir", "a.txt", "b.txt"]
     );
 }
@@ -361,7 +358,10 @@ fn refresh_is_deferred_during_inline_edit() {
     port = port.dir("root", &["later.txt"]);
     assert!(model.apply_pending_refresh(&port));
     assert!(!model.pending_refresh());
-    assert_eq!(model.listing("root").unwrap().get(0).unwrap().name, "later.txt");
+    assert_eq!(
+        model.listing("root").unwrap().get(0).unwrap().name,
+        "later.txt"
+    );
 }
 
 #[test]

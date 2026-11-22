@@ -207,7 +207,7 @@ fn native_window_options() -> Result<WinitWindowOptions, Box<dyn std::error::Err
         let options = WinitWindowOptions::new().window_icon(small);
         // File drops are handled through WM_DROPFILES by infrastructure::file_drop.
         // Avoid creating an OLE drop target only to revoke it after startup.
-        return Ok(options.taskbar_icon(large).drag_and_drop(false));
+        Ok(options.taskbar_icon(large).drag_and_drop(false))
     }
 
     #[cfg(not(target_os = "windows"))]

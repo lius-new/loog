@@ -37,7 +37,11 @@ impl Highlighter {
                     .map(|h| h.worker);
                 let mut changed = false;
                 for (document, stamp) in completed {
-                    let Some(doc) = app.workspace.documents.get(&document).filter(|d| d.is_text())
+                    let Some(doc) = app
+                        .workspace
+                        .documents
+                        .get(&document)
+                        .filter(|d| d.is_text())
                     else {
                         continue;
                     };

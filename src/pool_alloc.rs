@@ -123,7 +123,12 @@ impl<const PAGES: usize> Space<PAGES> {
             return false;
         }
         let base = unsafe {
-            VirtualAlloc(std::ptr::null_mut(), self.region_bytes(), MEM_RESERVE, PAGE_NOACCESS)
+            VirtualAlloc(
+                std::ptr::null_mut(),
+                self.region_bytes(),
+                MEM_RESERVE,
+                PAGE_NOACCESS,
+            )
         };
         if base.is_null() {
             self.failed = true;
@@ -182,7 +187,12 @@ impl<const PAGES: usize> Space<PAGES> {
         };
         let address = self.page_address(page);
         let committed = unsafe {
-            VirtualAlloc(address as *mut c_void, self.page_bytes(), MEM_COMMIT, PAGE_READWRITE)
+            VirtualAlloc(
+                address as *mut c_void,
+                self.page_bytes(),
+                MEM_COMMIT,
+                PAGE_READWRITE,
+            )
         };
         if committed.is_null() {
             self.free_pages[self.free_page_count] = page as u32;
@@ -410,7 +420,10 @@ unsafe impl GlobalAlloc for PoolAlloc {
         };
         if pooled {
             // Same size class: nothing to move.
-            if new_size > 0 && new_size <= MAX_SMALL && class_of(new_size) == class_of(layout.size()) {
+            if new_size > 0
+                && new_size <= MAX_SMALL
+                && class_of(new_size) == class_of(layout.size())
+            {
                 return ptr;
             }
         } else if !(new_size <= MAX_SMALL && layout.align() <= 16) {
@@ -443,7 +456,12 @@ fn gather() -> Box<Stats> {
 #[allow(dead_code)]
 pub fn stats() -> (usize, usize, usize, [usize; CLASSES]) {
     let stats = gather();
-    (stats.committed / 1024, stats.live / 1024, stats.pages, stats.class_pages)
+    (
+        stats.committed / 1024,
+        stats.live / 1024,
+        stats.pages,
+        stats.class_pages,
+    )
 }
 
 #[cfg(test)]
@@ -488,7 +506,7 @@ mod tests {
             unsafe { fill(ptr, size, seed) };
             live.push((ptr, layout, seed));
             // Free about half of what is live, in no particular order.
-            if live.len() > 50 && lcg(&mut state) % 2 == 0 {
+            if live.len() > 50 && lcg(&mut state).is_multiple_of(2) {
                 let index = lcg(&mut state) as usize % live.len();
                 let (ptr, layout, seed) = live.swap_remove(index);
                 assert!(
@@ -508,7 +526,10 @@ mod tests {
     #[test]
     fn realloc_preserves_contents_across_every_tier() {
         let alloc = PoolAlloc;
-        let sizes = [1usize, 8, 16, 17, 100, 512, 513, 1024, 1025, 3000, 16384, 16385, 40000, 5000, 200, 20, 1];
+        let sizes = [
+            1usize, 8, 16, 17, 100, 512, 513, 1024, 1025, 3000, 16384, 16385, 40000, 5000, 200, 20,
+            1,
+        ];
         let mut layout = Layout::from_size_align(sizes[0], 8).unwrap();
         let mut ptr = unsafe { alloc.alloc(layout) };
         let mut length = sizes[0];
@@ -517,7 +538,10 @@ mod tests {
             ptr = unsafe { alloc.realloc(ptr, layout, next) };
             assert!(!ptr.is_null());
             let kept = length.min(next);
-            assert!(unsafe { check(ptr, kept, 3) }, "contents lost going to {next}");
+            assert!(
+                unsafe { check(ptr, kept, 3) },
+                "contents lost going to {next}"
+            );
             layout = Layout::from_size_align(next, 8).unwrap();
             length = next;
             unsafe { fill(ptr, length, 3) };
@@ -534,7 +558,10 @@ mod tests {
             unsafe { std::ptr::write_bytes(dirty, 0xAB, size) };
             unsafe { alloc.dealloc(dirty, layout) };
             let zeroed = unsafe { alloc.alloc_zeroed(layout) };
-            assert!((0..size).all(|index| unsafe { *zeroed.add(index) } == 0), "size {size}");
+            assert!(
+                (0..size).all(|index| unsafe { *zeroed.add(index) } == 0),
+                "size {size}"
+            );
             unsafe { alloc.dealloc(zeroed, layout) };
         }
     }
@@ -593,7 +620,10 @@ mod tests {
                 round();
             }
             let after = stats().2;
-            assert!(after < warm + 400, "size {size}: pages grew from {warm} to {after}");
+            assert!(
+                after < warm + 400,
+                "size {size}: pages grew from {warm} to {after}"
+            );
         }
     }
 
@@ -611,6 +641,9 @@ mod tests {
             unsafe { alloc.dealloc(block, layout) };
         }
         let after = stats().3[class];
-        assert!(during >= after + 20, "pages stayed committed ({during} then {after})");
+        assert!(
+            during >= after + 20,
+            "pages stayed committed ({during} then {after})"
+        );
     }
 }

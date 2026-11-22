@@ -62,7 +62,11 @@ impl OpenDocument {
         Self::with_buffer(meta, TextBuffer::new(contents), disk_state)
     }
 
-    pub(crate) fn with_buffer(meta: FileMeta, mut buffer: TextBuffer, disk_state: DiskState) -> Self {
+    pub(crate) fn with_buffer(
+        meta: FileMeta,
+        mut buffer: TextBuffer,
+        disk_state: DiskState,
+    ) -> Self {
         let saved_format = disk_state.format;
         buffer.initialize_metadata(saved_format.code());
         let saved_text = buffer.text_snapshot();
@@ -117,7 +121,6 @@ impl OpenDocument {
         !self.buffer.is_file_backed() && self.buffer.len() <= max_bytes
     }
     pub(crate) fn is_dirty(&self) -> bool {
-
         if !self.is_text() {
             return false;
         }
@@ -363,7 +366,11 @@ impl PreparedTextFile {
     }
     /// A document whose text stays in its file (see `TextBuffer::from_file`).
     pub(crate) fn file_backed(path: PathBuf, buffer: TextBuffer, disk: DiskState) -> Self {
-        let mut value = Self(OpenDocument::with_buffer(FileMeta::from_path(path), buffer, disk));
+        let mut value = Self(OpenDocument::with_buffer(
+            FileMeta::from_path(path),
+            buffer,
+            disk,
+        ));
         value.0.meta.encoding_source = crate::domain::encoding::EncodingSource::Utf8;
         value
     }
@@ -508,7 +515,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
     pub fn reconcile_large(
         &mut self,
         id: FileId,
-        file: loog_editor_core::text::FileText,
+        file: loog_editor_core::text::SharedSource,
         current: DiskState,
     ) -> ReconcileResult {
         let Some(document) = self.documents.get_mut(&id) else {
@@ -539,7 +546,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
     pub fn accept_disk_large(
         &mut self,
         id: FileId,
-        file: loog_editor_core::text::FileText,
+        file: loog_editor_core::text::SharedSource,
         disk: DiskState,
     ) -> Result<(), String> {
         let document = self
@@ -1798,7 +1805,10 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
             .is_some_and(|d| d.is_text() && d.buffer.is_file_backed())
     }
 
-    pub fn file_save_snapshot(&self, id: FileId) -> Option<crate::domain::document::FileSaveSnapshot> {
+    pub fn file_save_snapshot(
+        &self,
+        id: FileId,
+    ) -> Option<crate::domain::document::FileSaveSnapshot> {
         let document = self.documents.get(&id).filter(|d| d.is_text())?;
         Some(crate::domain::document::FileSaveSnapshot {
             stamp: document.stamp(id),
@@ -1812,7 +1822,7 @@ impl<D: Clone, K: Clone + Ord> Workspace<D, K> {
     pub fn mark_file_saved(
         &mut self,
         saved: &crate::domain::document::FileSaveSnapshot,
-        file: loog_editor_core::text::FileText,
+        file: loog_editor_core::text::SharedSource,
         disk: DiskState,
     ) -> bool {
         let Some(document) = self.documents.get_mut(&saved.stamp.document).filter(|d| {

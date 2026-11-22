@@ -17,13 +17,17 @@ impl DirectoryPort for ExplorerFilesystem {
     fn read_directory(&self, directory: &Path) -> Arc<Listing> {
         let parent: Arc<str> = Arc::from(directory.to_string_lossy().as_ref());
         // Names go straight into the listing's one buffer, with no String per entry.
-        let entries = fs::read_dir(directory).into_iter().flatten().flatten().map(|entry| {
-            let name = entry.file_name();
-            (
-                name.to_string_lossy().into_owned(),
-                entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false),
-            )
-        });
+        let entries = fs::read_dir(directory)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| {
+                let name = entry.file_name();
+                (
+                    name.to_string_lossy().into_owned(),
+                    entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false),
+                )
+            });
         Arc::new(Listing::sorted(parent, entries))
     }
 
@@ -233,10 +237,7 @@ mod tests {
 
         let entries = ExplorerFilesystem.read_directory(&root);
         assert_eq!(
-            entries
-                .iter()
-                .map(|entry| entry.name)
-                .collect::<Vec<_>>(),
+            entries.iter().map(|entry| entry.name).collect::<Vec<_>>(),
             ["z-dir", "a.txt"]
         );
 

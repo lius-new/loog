@@ -81,8 +81,8 @@ mod tests {
                 let expected: Vec<_> = (0..slice.len()).filter(|&i| slice[i] == b'\n').collect();
                 assert_eq!(count(slice), expected.len());
                 assert_eq!(position(slice), expected.first().copied());
-                for n in 0..expected.len().min(5) {
-                    assert_eq!(nth(slice, n), Some(expected[n]));
+                for (n, &found) in expected.iter().enumerate().take(5) {
+                    assert_eq!(nth(slice, n), Some(found));
                 }
                 assert_eq!(nth(slice, expected.len()), None);
             }

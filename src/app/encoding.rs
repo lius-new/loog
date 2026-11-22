@@ -125,7 +125,7 @@ pub(crate) fn prepare(path: &Path) -> Result<crate::app::workspace::PreparedText
             Ok((file, state)) => {
                 return Ok(crate::app::workspace::PreparedTextFile::file_backed(
                     path.to_path_buf(),
-                    loog_editor_core::text::TextBuffer::from_file(file),
+                    loog_editor_core::text::TextBuffer::from_source(std::sync::Arc::new(file)),
                     state,
                 ));
             }

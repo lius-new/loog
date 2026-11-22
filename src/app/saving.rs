@@ -162,15 +162,13 @@ fn save_file_backed(
                 app.editor.saving.pending -= 1;
                 match result {
                     Ok((file, disk)) => {
-                        app.workspace.mark_file_saved(&saved, file, disk);
+                        app.workspace
+                            .mark_file_saved(&saved, std::sync::Arc::new(file), disk);
                     }
                     Err(error) => {
                         success = false;
                         app.editor.saving.failures += 1;
-                        app.show_error(format!(
-                            "Could not save {}: {error}",
-                            saved.path.display()
-                        ));
+                        app.show_error(format!("Could not save {}: {error}", saved.path.display()));
                     }
                 }
             });

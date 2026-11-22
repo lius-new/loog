@@ -10,7 +10,7 @@ use std::sync::Arc;
 use super::ports::DirectoryPort;
 use super::tree::{self, TreeCache};
 use super::{
-    Listing, ExplorerCreateKind, ExplorerCreateRequest, ExplorerRenameRequest, ExplorerTargetKind,
+    ExplorerCreateKind, ExplorerCreateRequest, ExplorerRenameRequest, ExplorerTargetKind, Listing,
     roots,
 };
 

@@ -343,8 +343,7 @@ pub fn enter(editor: &mut EditorMut<'_>) {
                 .trim_start_matches([' ', '\t'])
                 .chars()
                 .next();
-            let code =
-                crate::normal::context_at(editor, r.start, &editor.options().language);
+            let code = crate::normal::context_at(editor, r.start, &editor.options().language);
             let extra = if code
                 && (matches!(a, Some('{' | '[' | '('))
                     || a == Some(':')

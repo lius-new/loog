@@ -38,7 +38,6 @@ fn prepare_restored(
 }
 
 pub struct SessionRestore {
-
     alive: Arc<AtomicBool>,
     stop_delay: mpsc::Sender<()>,
     work: mpsc::Sender<Option<(FileId, PathBuf)>>,
@@ -550,18 +549,26 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let large = dir.join("large.txt");
         let row = "one row of the file\n";
-        std::fs::write(&large, row.repeat(MAX_EDITABLE_FILE_BYTES as usize / row.len() + 1))
-            .unwrap();
+        std::fs::write(
+            &large,
+            row.repeat(MAX_EDITABLE_FILE_BYTES as usize / row.len() + 1),
+        )
+        .unwrap();
         let small = dir.join("small.txt");
         std::fs::write(&small, "small\n").unwrap();
 
         let mut workspace = Workspace::new();
-        let id = workspace.open_prepared_text(prepare_restored(&large, None).unwrap(), OpenMode::Permanent);
+        let id = workspace
+            .open_prepared_text(prepare_restored(&large, None).unwrap(), OpenMode::Permanent);
         assert!(workspace.documents[&id].buffer.is_file_backed());
-        assert_eq!(workspace.active_editor().unwrap().line_text(1), "one row of the file");
+        assert_eq!(
+            workspace.active_editor().unwrap().line_text(1),
+            "one row of the file"
+        );
         assert!(!workspace.is_dirty(id));
         // An ordinary file is read whole, as before.
-        let id = workspace.open_prepared_text(prepare_restored(&small, None).unwrap(), OpenMode::Permanent);
+        let id = workspace
+            .open_prepared_text(prepare_restored(&small, None).unwrap(), OpenMode::Permanent);
         assert!(!workspace.documents[&id].buffer.is_file_backed());
         assert_eq!(workspace.active_editor().unwrap().text(), "small\n");
         std::fs::remove_dir_all(&dir).ok();

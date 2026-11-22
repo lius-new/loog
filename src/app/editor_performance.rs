@@ -468,12 +468,7 @@ fn large_file_scroll_and_typing_benchmark() {
         view::render(
             state.get().workspace.active_pane(),
             rect,
-            super::editor_view::binding(
-                state,
-                git,
-                crate::domain::identity::PaneId::new(1),
-                rect,
-            ),
+            super::editor_view::binding(state, git, crate::domain::identity::PaneId::new(1), rect),
             id,
             focus,
         )
@@ -495,7 +490,10 @@ fn large_file_scroll_and_typing_benchmark() {
     // Wheel scrolling: three lines at a time.
     let mut scroll = Vec::new();
     for i in 0..100 {
-        state.update(|app| app.workspace.set_active_scroll(0.0, i as f32 * 3.0 * line_h));
+        state.update(|app| {
+            app.workspace
+                .set_active_scroll(0.0, i as f32 * 3.0 * line_h)
+        });
         scroll.push(frame(&mut session));
     }
     // Jumps, as dragging the scrollbar or going to a line does: to the middle, the end, the start.
@@ -508,7 +506,10 @@ fn large_file_scroll_and_typing_benchmark() {
     let mut pages = Vec::new();
     let middle = (lines / 2) as f32 * line_h;
     for i in 0..30 {
-        state.update(|app| app.workspace.set_active_scroll(0.0, middle + i as f32 * 580.0));
+        state.update(|app| {
+            app.workspace
+                .set_active_scroll(0.0, middle + i as f32 * 580.0)
+        });
         pages.push(frame(&mut session));
     }
     // Typing in the middle of the file: the edit and the frame that shows it.
@@ -516,8 +517,13 @@ fn large_file_scroll_and_typing_benchmark() {
     let mut edits = Vec::new();
     state.update(|app| app.workspace.set_active_scroll(0.0, middle));
     frame(&mut session);
-    let mut at = state.get().workspace.active_editor().unwrap().line_start(lines / 2);
-    for _ in 0..60 {
+    let start = state
+        .get()
+        .workspace
+        .active_editor()
+        .unwrap()
+        .line_start(lines / 2);
+    for at in (start..).take(60) {
         let started = Instant::now();
         state.update(|app| {
             app.workspace
@@ -529,7 +535,6 @@ fn large_file_scroll_and_typing_benchmark() {
         edits.push(started.elapsed().as_secs_f64() * 1000.0);
         session.render_view(&ui, rect, UiScale::ONE);
         typing.push(started.elapsed().as_secs_f64() * 1000.0);
-        at += 1;
     }
     let edit_only = stats(edits);
     let (scroll, jump, page, typed) = (stats(scroll), stats(jumps), stats(pages), stats(typing));

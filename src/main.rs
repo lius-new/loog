@@ -25,9 +25,9 @@ mod domain;
 mod features;
 mod infrastructure;
 mod model;
-mod ui;
 #[cfg(all(windows, feature = "pool-alloc"))]
 mod pool_alloc;
+mod ui;
 
 /// Opt-in (--features pool-alloc): serves small allocations from a size-class pool, which keeps
 /// memory lower than the system heap when blocks of many sizes are allocated and freed.

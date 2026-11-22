@@ -103,14 +103,17 @@ impl Listing {
         for (name, is_dir) in entries {
             let start = names.len() as u32;
             names.push_str(name.as_ref());
-            spans.push((start, names.len() as u32 | if is_dir { DIRECTORY } else { 0 }));
+            spans.push((
+                start,
+                names.len() as u32 | if is_dir { DIRECTORY } else { 0 },
+            ));
         }
         let text = names.as_str();
         spans.sort_by(|a, b| {
-            (b.1 & DIRECTORY)
-                .cmp(&(a.1 & DIRECTORY))
-                .then_with(|| text[a.0 as usize..(a.1 & !DIRECTORY) as usize]
-                    .cmp(&text[b.0 as usize..(b.1 & !DIRECTORY) as usize]))
+            (b.1 & DIRECTORY).cmp(&(a.1 & DIRECTORY)).then_with(|| {
+                text[a.0 as usize..(a.1 & !DIRECTORY) as usize]
+                    .cmp(&text[b.0 as usize..(b.1 & !DIRECTORY) as usize])
+            })
         });
         Self {
             parent,
@@ -129,7 +132,10 @@ impl Listing {
         for (name, is_dir) in entries {
             let start = names.len() as u32;
             names.push_str(name.as_ref());
-            spans.push((start, names.len() as u32 | if is_dir { DIRECTORY } else { 0 }));
+            spans.push((
+                start,
+                names.len() as u32 | if is_dir { DIRECTORY } else { 0 },
+            ));
         }
         Self {
             parent,
@@ -146,7 +152,10 @@ impl Listing {
         for entry in entries {
             let start = names.len() as u32;
             names.push_str(&entry.name);
-            spans.push((start, names.len() as u32 | if entry.is_dir { DIRECTORY } else { 0 }));
+            spans.push((
+                start,
+                names.len() as u32 | if entry.is_dir { DIRECTORY } else { 0 },
+            ));
         }
         Self {
             parent,
@@ -172,7 +181,7 @@ impl Listing {
         self.spans.get(index).map(|&(start, end)| EntryRef {
             name: &self.names[start as usize..(end & !DIRECTORY) as usize],
             is_dir: end & DIRECTORY != 0,
-            parent: &*self.parent,
+            parent: &self.parent,
         })
     }
 

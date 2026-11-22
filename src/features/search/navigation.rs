@@ -40,7 +40,6 @@ pub fn prepare(
     let text = match buffer {
         Some(buffer) => buffer.text.clone(),
         None => Arc::new(
-
             source
                 .read_text(intent.file.path.local_path().ok_or_else(|| {
                     OpenError::Read("This source only reads local resources".into())

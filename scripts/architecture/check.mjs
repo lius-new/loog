@@ -103,11 +103,13 @@ export function allowed(file, dependency) {
   if(file==='src/features/providers/mod.rs'&&['feature','request','results','position'].includes(root))return true;
   if(file.startsWith('src/features/providers/'))return ['features','domain','serde_json'].includes(root);
   if(file==='src/infrastructure/window_geometry.rs')return ['infrastructure','domain','lgui','windows_sys','std::process'].includes(root);
-  if(file==='src/infrastructure/document_filesystem.rs')return ['infrastructure','features','domain','std::fs','std::process','windows_sys'].includes(root);
+  if(file==='src/infrastructure/document_filesystem.rs')return ['infrastructure','features','domain','std::fs','std::process','windows_sys','libc'].includes(root);
   if(file.startsWith('src/features/encoding/'))return ['features','domain','encoding_rs','chardetng'].includes(root);
   if(file==='src/infrastructure/editorconfig.rs')return ['infrastructure','domain','std::fs','globset','loog_editor_core'].includes(root);
+  if(file==='src/infrastructure/file_text.rs')return ['infrastructure','std::fs','std::process'].includes(root);
+  if(file==='src/pool_alloc.rs')return ['std::thread'].includes(root);
   if(file==='src/infrastructure/edit_journal.rs')return ['infrastructure','std::fs','std::process'].includes(root);
-  if(file==='src/infrastructure/file_watcher.rs')return ['infrastructure','notify','std::fs','std::thread'].includes(root);
+  if(file==='src/infrastructure/file_watcher.rs')return ['infrastructure','notify','std::fs','std::process','std::thread'].includes(root);
   if(file==='src/infrastructure/query_watcher.rs')return ['infrastructure','notify','std::fs','std::thread'].includes(root);
   if(file==='src/ui/theme_package.rs'&&root==='serde_json')return true;
   if(file==='src/features/language_service/snippet/transform.rs'&&root==='fancy_regex')return true;
@@ -117,7 +119,7 @@ export function allowed(file, dependency) {
   if(file==='src/infrastructure/keymap_filesystem.rs')return ['infrastructure','features','std::fs'].includes(root);
   if(file.startsWith('src/features/settings/'))return ['features','domain','serde','serde_json'].includes(root);
   if(['src/infrastructure/settings_filesystem.rs','src/infrastructure/project_settings.rs'].includes(file))return ['infrastructure','features','domain','std::fs'].includes(root);
-  if(file==='src/infrastructure/config_watcher.rs')return ['infrastructure','notify','std::fs','std::thread'].includes(root);
+  if(file==='src/infrastructure/config_watcher.rs')return ['infrastructure','notify','std::fs','std::process','std::thread'].includes(root);
   if(file.startsWith('src/features/terminal/'))return ['features','domain','serde','vt100'].includes(root);
   if(file.startsWith('src/features/explorer/'))return ['features','domain'].includes(root);
   if(file.startsWith('src/features/git/'))return ['features','domain'].includes(root)||(file==='src/features/git/diff_text.rs'&&root==='similar');
@@ -131,7 +133,7 @@ export function allowed(file, dependency) {
   if(file==='src/infrastructure/update.rs')return ['infrastructure','features','domain','base64','ureq','ring','serde','serde_json','windows_sys','std::fs','std::process','std::thread'].includes(root);
   if(file==='src/infrastructure/explorer_filesystem.rs')return ['features','domain','std::fs','std::process','windows_sys'].includes(root);
   if(file.startsWith('src/features/search/'))return ['features','domain','globset','regex','unicode_segmentation'].includes(root);
-  if(file.startsWith('src/infrastructure/search_filesystem'))return ['features','domain','ignore','std::fs','std::process'].includes(root);
+  if(file.startsWith('src/infrastructure/search_filesystem'))return ['infrastructure','features','domain','ignore','std::fs','std::process'].includes(root);
   if(file.startsWith('src/infrastructure/terminal/'))return ['infrastructure','features','domain','base64','ring','vt100','conpty','portable_pty','windows_sys','libc','std::fs','std::process','std::thread'].includes(root);
   if(file.startsWith('src/infrastructure/git/'))return ['infrastructure','features','domain','serde','std::fs','std::process','std::thread'].includes(root);
   if(file==='src/infrastructure/workspace_filesystem.rs')return ['infrastructure','domain','std::fs'].includes(root);

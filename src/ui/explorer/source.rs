@@ -92,7 +92,7 @@ impl Entry {
                     entries
                         .iter()
                         .map(|entry| {
-                            Self::local(path.join(&entry.name), entry.name.to_owned(), entry.is_dir)
+                            Self::local(path.join(entry.name), entry.name.to_owned(), entry.is_dir)
                         })
                         .collect()
                 })

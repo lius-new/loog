@@ -7,8 +7,8 @@ use std::ops::Range;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use super::buffer::TextBuffer;
-use super::file_text::FileText;
 use super::newline;
+use super::source::{FileIndex, IndexBuilder, SharedSource, TextSource};
 
 #[derive(Debug, Default)]
 struct ChunkData {
@@ -92,7 +92,7 @@ type Lines = Mutex<VecDeque<((usize, usize), Arc<TextBuffer>)>>;
 /// A file with edits. Cloning shares everything until the next edit.
 #[derive(Clone, Debug)]
 pub struct PieceText {
-    original: Arc<FileText>,
+    original: SharedSource,
     pieces: Arc<Vec<Piece>>,
     len: usize,
     breaks: usize,
@@ -108,8 +108,7 @@ pub struct PieceText {
 pub const MAX_REMOVED: usize = 64 * 1024 * 1024;
 
 impl PieceText {
-    pub fn new(file: FileText) -> Self {
-        let original = Arc::new(file);
+    pub fn new(original: SharedSource) -> Self {
         let whole = Piece {
             source: Source::Original,
             start: 0,
@@ -132,6 +131,9 @@ impl PieceText {
     pub fn len(&self) -> usize {
         self.len
     }
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
     pub fn line_count(&self) -> usize {
         self.breaks + 1
     }
@@ -151,9 +153,11 @@ impl PieceText {
             for piece in self.pieces.iter() {
                 let same = match &piece.source {
                     Source::Original => piece.start == at,
-                    Source::Added(chunk) => self.original.read(at..at + piece.len).is_ok_and(|bytes| {
-                        bytes == chunk.read().bytes[piece.start..piece.start + piece.len]
-                    }),
+                    Source::Added(chunk) => {
+                        self.original.read(at..at + piece.len).is_ok_and(|bytes| {
+                            bytes == chunk.read().bytes[piece.start..piece.start + piece.len]
+                        })
+                    }
                 };
                 if !same {
                     return false;
@@ -253,9 +257,7 @@ impl PieceText {
         breaks
             + match &piece.source {
                 Source::Original => self.original_breaks_before(piece.start + inside) - piece.base,
-                Source::Added(chunk) => {
-                    chunk.breaks_in(piece.start..piece.start + inside)
-                }
+                Source::Added(chunk) => chunk.breaks_in(piece.start..piece.start + inside),
             }
     }
 
@@ -297,11 +299,8 @@ impl PieceText {
 
     /// As `write_to`, also learning the lines of what is written, so that the file can be opened
     /// as the new text without reading it again.
-    pub fn write_indexed(
-        &self,
-        out: &mut dyn std::io::Write,
-    ) -> std::io::Result<super::file_text::FileIndex> {
-        let mut builder = super::file_text::IndexBuilder::new();
+    pub fn write_indexed(&self, out: &mut dyn std::io::Write) -> std::io::Result<FileIndex> {
+        let mut builder = IndexBuilder::new();
         self.write_with(out, Some(&mut builder))?;
         Ok(builder.finish())
     }
@@ -309,7 +308,7 @@ impl PieceText {
     fn write_with(
         &self,
         out: &mut dyn std::io::Write,
-        mut index: Option<&mut super::file_text::IndexBuilder>,
+        mut index: Option<&mut IndexBuilder>,
     ) -> std::io::Result<()> {
         if self.original.has_bom() {
             out.write_all(&[0xef, 0xbb, 0xbf])?;
@@ -365,7 +364,7 @@ impl PieceText {
             pieces: old.into_iter(),
             current: None,
             at: 0,
-            original: &self.original,
+            original: &*self.original,
         };
         let mut out: Vec<Piece> = Vec::with_capacity(walk.pieces.len() + 2 * edits.len() + 1);
         let (mut removed, mut inserted) = (0, 0);
@@ -432,7 +431,7 @@ impl PieceText {
             pieces: region.into_iter(),
             current: None,
             at,
-            original: &self.original,
+            original: &*self.original,
         };
         let mut out: Vec<Piece> = Vec::with_capacity(hi - lo + 2 * edits.len() + 1);
         let (mut removed, mut inserted) = (0, 0);
@@ -471,7 +470,9 @@ impl PieceText {
             .and_then(OnceLock::get_mut)
             .map(|index| {
                 index.starts.splice(lo..=hi, new_starts.iter().copied());
-                index.break_starts.splice(lo..=hi, new_break_starts.iter().copied());
+                index
+                    .break_starts
+                    .splice(lo..=hi, new_break_starts.iter().copied());
                 for s in &mut index.starts[lo + rebuilt..] {
                     *s = (*s as isize + shift) as usize;
                 }
@@ -488,7 +489,11 @@ impl PieceText {
             break_starts.extend_from_slice(&old.break_starts[..lo]);
             starts.extend_from_slice(&new_starts);
             break_starts.extend_from_slice(&new_break_starts);
-            starts.extend(old.starts[hi + 1..].iter().map(|s| (*s as isize + shift) as usize));
+            starts.extend(
+                old.starts[hi + 1..]
+                    .iter()
+                    .map(|s| (*s as isize + shift) as usize),
+            );
             break_starts.extend(
                 old.break_starts[hi + 1..]
                     .iter()
@@ -584,7 +589,7 @@ struct Walk<'a> {
     /// What is left of the piece being taken from, which starts at `at`.
     current: Option<Piece>,
     at: usize,
-    original: &'a FileText,
+    original: &'a dyn TextSource,
 }
 
 impl Walk<'_> {
@@ -632,13 +637,11 @@ impl Walk<'_> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::source::MemorySource;
     use super::*;
-    use std::io::Write;
 
-    fn temp(name: &str, text: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!("loog-pieces-{}-{name}", std::process::id()));
-        std::fs::File::create(&path).unwrap().write_all(text.as_bytes()).unwrap();
-        path
+    fn source(text: &str) -> SharedSource {
+        Arc::new(MemorySource::from_text(text))
     }
 
     fn assert_matches(pieces: &PieceText, model: &str, context: &str) {
@@ -657,7 +660,11 @@ mod tests {
         }
         for offset in (0..=model.len()).step_by(1.max(model.len() / 60)) {
             let expected = starts.partition_point(|&s| s <= offset) - 1;
-            assert_eq!(pieces.line_of(offset), expected, "line_of {offset} {context}");
+            assert_eq!(
+                pieces.line_of(offset),
+                expected,
+                "line_of {offset} {context}"
+            );
         }
     }
 
@@ -666,14 +673,23 @@ mod tests {
     fn edits_in_batches_and_runs_equal_the_same_edits_on_a_string() {
         let mut model: String = (0..300).map(|i| format!("row {i} 中文\n")).collect();
         model.push_str("tail");
-        let path = temp("model", &model);
-        let mut pieces = PieceText::new(FileText::open(&path).unwrap());
+        let mut pieces = PieceText::new(source(&model));
         let mut seed = 9u64;
         let mut next = |bound: usize| {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((seed >> 33) as usize) % bound.max(1)
         };
-        let words = ["", "a", "bc\n", "\n\n", "中", "x\r\ny", "long line without a break at all"];
+        let words = [
+            "",
+            "a",
+            "bc\n",
+            "\n\n",
+            "中",
+            "x\r\ny",
+            "long line without a break at all",
+        ];
         for step in 0..300 {
             let kind = next(4);
             let mut edits: Vec<(Range<usize>, String)> = Vec::new();
@@ -697,7 +713,11 @@ mod tests {
                 continue;
             }
             let mut cursor = 0;
-            let wanted = if next(5) == 0 { 12 + next(5) } else { 1 + next(6) };
+            let wanted = if next(5) == 0 {
+                12 + next(5)
+            } else {
+                1 + next(6)
+            };
             while cursor <= model.len() && edits.len() < wanted {
                 let start = loop {
                     let at = cursor + next(model.len() - cursor + 1);
@@ -726,15 +746,13 @@ mod tests {
             }
             assert_matches(&pieces, &model, &format!("batch {step}"));
         }
-        std::fs::remove_file(path).ok();
     }
 
     /// An older state is not changed by edits made after it, including typing that extends a
     /// chunk the older state also uses.
     #[test]
     fn an_older_state_keeps_its_text_while_typing_goes_on() {
-        let path = temp("snapshots", "one\ntwo\nthree\n");
-        let mut pieces = PieceText::new(FileText::open(&path).unwrap());
+        let mut pieces = PieceText::new(source("one\ntwo\nthree\n"));
         pieces.replace(3..3, "X");
         let after_x = pieces.clone();
         pieces.replace(4..4, "Y");
@@ -748,7 +766,6 @@ mod tests {
         branch.replace(4..4, "B");
         assert_eq!(branch.text(0..branch.len()), "oneXB\ntwo\nthree\n");
         assert_eq!(after_y.text(0..after_y.len()), "oneXY\ntwo\nthree\n");
-        std::fs::remove_file(path).ok();
     }
 
     /// Many thousand edits stay quick: a replace of every row in one batch, and typing that does
@@ -756,8 +773,7 @@ mod tests {
     #[test]
     fn a_hundred_thousand_edits_take_a_moment_not_minutes() {
         let text: String = (0..200_000).map(|i| format!("row {i}\n")).collect();
-        let path = temp("many", &text);
-        let mut pieces = PieceText::new(FileText::open(&path).unwrap());
+        let mut pieces = PieceText::new(source(&text));
         let started = std::time::Instant::now();
         let edits: Vec<(Range<usize>, &str)> = text
             .match_indices("row")
@@ -771,15 +787,20 @@ mod tests {
         // Typing 5,000 characters at one place leaves it as a single added piece.
         let started = std::time::Instant::now();
         let before = pieces.pieces.len();
-        let mut at = 7;
-        for _ in 0..5_000 {
+        for at in (7..).take(5_000) {
             pieces.replace(at..at, "q");
-            at += 1;
         }
-        assert!(pieces.pieces.len() <= before + 2, "typing made {} pieces", pieces.pieces.len() - before);
+        assert!(
+            pieces.pieces.len() <= before + 2,
+            "typing made {} pieces",
+            pieces.pieces.len() - before
+        );
         let typing = started.elapsed();
         println!("PIECES replace-all of 200000 rows {batch:?}, 5000 typed characters {typing:?}");
-        assert!(batch.as_secs() < 20 && typing.as_secs() < 20, "{batch:?} {typing:?}");
+        assert!(
+            batch.as_secs() < 20 && typing.as_secs() < 20,
+            "{batch:?} {typing:?}"
+        );
         // Lines are found in a text of 200,000 pieces without going through them.
         let started = std::time::Instant::now();
         let mut checksum = 0;
@@ -788,6 +809,5 @@ mod tests {
         }
         assert!(checksum > 0);
         assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
-        std::fs::remove_file(path).ok();
     }
 }

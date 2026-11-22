@@ -330,11 +330,6 @@
       "migrated_in": "R5.2",
       "from": "sidebar_hovered"
     },
-    "hovered_path": {
-      "owner": "ui/explorer/state",
-      "migrated_in": "R5.2",
-      "from": "tree_hovered_path"
-    },
     "selection": {
       "owner": "ui/explorer/state",
       "migrated_in": "multi-select"

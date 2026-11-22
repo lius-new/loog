@@ -64,7 +64,6 @@ pub fn read(path: &Path, limit: usize) -> GitResult<Option<Vec<u8>>> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.into()),
     }
-
 }
 
 /// One spelling per repository, matching workspace folders (canonicalized when opened).
@@ -178,4 +177,3 @@ mod tests {
         assert_eq!(canonical(file.clone()), file);
     }
 }
-

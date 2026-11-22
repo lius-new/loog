@@ -224,7 +224,6 @@ fn found_without_reading(path: &std::path::Path) -> bool {
 }
 
 pub fn navigate(
-
     state: &AppContext,
     application: ApplicationHandle,
     rect: UiRect,
@@ -769,7 +768,10 @@ mod tests {
         let prepared = crate::app::encoding::prepare(&path).unwrap();
         let mut workspace = crate::app::workspace::Workspace::new();
         let id = workspace.open_prepared_text(prepared, crate::app::workspace::OpenMode::Permanent);
-        assert_eq!(workspace.active_editor().unwrap().line_text(0), "needle line");
+        assert_eq!(
+            workspace.active_editor().unwrap().line_text(0),
+            "needle line"
+        );
         assert!(workspace.documents[&id].buffer.len() > 7_000_000);
         std::fs::write(&path, "small\n").unwrap();
         assert!(!found_without_reading(&path));

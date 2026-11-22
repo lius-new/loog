@@ -1,30 +1,49 @@
-//! A text that stays in its file. Opening reads it once to find the line starts and to check that
-//! it is UTF-8; after that, only the ranges that are asked for are read, through a small cache of
-//! blocks. A very large file therefore costs a few bytes per thousand lines, not its own size.
+//! Where a text that stays outside memory comes from, and what is known about its lines.
 //!
-//! The text is read only: nothing here changes the file.
+//! A `TextSource` is read by ranges. The editing core never opens files itself: an adapter that
+//! can (a file, here a memory buffer) implements it, and `TextBuffer::from_source` and
+//! `PieceText` work on top of it, so a text of any size costs a few bytes per thousand lines.
 
-use std::collections::VecDeque;
-use std::fs::File;
 use std::io;
 use std::ops::Range;
-use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use super::newline;
 
 /// A line start is kept for every this many lines; a lookup scans at most this many lines.
 const LINES_PER_CHECKPOINT: usize = 64;
-const BLOCK: usize = 64 * 1024;
-const CACHED_BLOCKS: usize = 8;
-const SCAN_CHUNK: usize = 4 * 1024 * 1024;
 /// How much is looked at to count or find line breaks near a place. Lines are far shorter than a
 /// block, and a lookup that starts near where the last one ended needs only a few of them.
 const LOOK: usize = 8 * 1024;
 
-/// What a pass over the bytes of a text learns about its lines. `FileText::open` makes it while
-/// reading a file; a writer can make it while the text is written, so the file need not be read
-/// again to be opened.
+/// A text read by byte ranges. It is UTF-8 as a whole, without its byte order mark if it has one.
+pub trait TextSource: Send + Sync + std::fmt::Debug {
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    /// Whether the text came with a UTF-8 byte order mark, to be written back.
+    fn has_bom(&self) -> bool;
+    fn line_count(&self) -> usize;
+    /// The longest line's length in bytes: an upper bound of its width for sizing scroll ranges.
+    fn longest_line(&self) -> usize;
+    fn first_line_is_crlf(&self) -> bool;
+    /// The bytes of `range`, which is cut to the text.
+    fn read(&self, range: Range<usize>) -> io::Result<Vec<u8>>;
+    /// Read `range` into `buffer`, past any cache, for copying the whole text.
+    fn read_into(&self, range: Range<usize>, buffer: &mut [u8]) -> io::Result<()>;
+    /// Byte offset where `line` starts; the end of the text for a line past the last.
+    fn line_start(&self, line: usize) -> usize;
+    /// The line containing `offset`; a line break belongs to the line it ends.
+    fn line_of(&self, offset: usize) -> usize;
+}
+
+/// A source shared by the buffers and pieces that read it.
+pub type SharedSource = Arc<dyn TextSource>;
+
+/// What a pass over the bytes of a text learns about its lines. An adapter makes it while it
+/// reads the text to check it; a writer can make it while the text is written, so the file need
+/// not be read again to be opened.
 pub struct IndexBuilder {
     per_checkpoint: usize,
     checkpoints: Vec<u64>,
@@ -37,7 +56,9 @@ pub struct IndexBuilder {
     pos: usize,
 }
 
-/// The lines of a text of `len` bytes (without any byte order mark).
+/// The lines of a text: where every 64th starts, how many there are, and where the last lookup
+/// ended, so that the next one, which drawing makes for the line after, starts there.
+#[derive(Debug)]
 pub struct FileIndex {
     len: usize,
     checkpoints: Vec<u64>,
@@ -45,13 +66,21 @@ pub struct FileIndex {
     lines: usize,
     longest_line: usize,
     crlf_first: bool,
+    /// Where the last lookup ended, as (offset, line breaks before it).
+    last: Mutex<(usize, usize)>,
+}
+
+impl Default for IndexBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl IndexBuilder {
     pub fn new() -> Self {
         Self::with_checkpoints(LINES_PER_CHECKPOINT)
     }
-    fn with_checkpoints(per_checkpoint: usize) -> Self {
+    pub(crate) fn with_checkpoints(per_checkpoint: usize) -> Self {
         Self {
             per_checkpoint,
             checkpoints: vec![0],
@@ -81,7 +110,7 @@ impl IndexBuilder {
                 self.crlf_first = before == b'\r';
             }
             self.line_start = end + 1;
-            if self.lines % self.per_checkpoint == 0 {
+            if self.lines.is_multiple_of(self.per_checkpoint) {
                 self.checkpoints.push(self.line_start as u64);
             }
             self.lines += 1;
@@ -101,140 +130,25 @@ impl IndexBuilder {
             lines: self.lines,
             longest_line: self.longest_line,
             crlf_first: self.crlf_first,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct FileText {
-
-    file: File,
-    /// Bytes before the text itself: a UTF-8 byte order mark.
-    skip: usize,
-    len: usize,
-    /// Start of line `n * LINES_PER_CHECKPOINT`, relative to the text.
-    checkpoints: Vec<u64>,
-    per_checkpoint: usize,
-    lines: usize,
-    longest_line: usize,
-    crlf_first: bool,
-    cache: Mutex<VecDeque<(usize, std::sync::Arc<Vec<u8>>)>>,
-    /// Where the last lookup ended, as (offset, line breaks before it). Drawing asks for one line
-    /// after another, so the next lookup starts here and not at the checkpoint before it.
-    last: Mutex<(usize, usize)>,
-}
-
-#[cfg(windows)]
-fn read_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<usize> {
-    std::os::windows::fs::FileExt::seek_read(file, buffer, offset)
-}
-#[cfg(unix)]
-fn read_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<usize> {
-    std::os::unix::fs::FileExt::read_at(file, buffer, offset)
-}
-
-fn read_exact_at(file: &File, mut buffer: &mut [u8], mut offset: u64) -> io::Result<()> {
-    while !buffer.is_empty() {
-        let read = read_at(file, buffer, offset)?;
-        if read == 0 {
-            return Err(io::ErrorKind::UnexpectedEof.into());
-        }
-        offset += read as u64;
-        buffer = &mut buffer[read..];
-    }
-    Ok(())
-}
-
-impl FileText {
-    pub fn open(path: &Path) -> io::Result<Self> {
-        Self::open_with(path, LINES_PER_CHECKPOINT)
-    }
-
-    fn open_with(path: &Path, per_checkpoint: usize) -> io::Result<Self> {
-        let file = File::open(path)?;
-        let total = file.metadata()?.len() as usize;
-        let mut chunk = vec![0u8; SCAN_CHUNK.min(total.max(1)) + 4];
-        let mut head = [0u8; 3];
-        let head_len = read_at(&file, &mut head, 0)?;
-        let skip = if head[..head_len].starts_with(&[0xef, 0xbb, 0xbf]) {
-            3
-        } else {
-            0
-        };
-        let len = total - skip;
-        let mut builder = IndexBuilder::with_checkpoints(per_checkpoint);
-        // A UTF-8 sequence cut by the end of a chunk is carried over to the next one.
-        let mut carry = Vec::<u8>::new();
-        let mut at = 0usize;
-        while at < len {
-            let want = (chunk.len() - 4).min(len - at);
-            let read = &mut chunk[carry.len()..carry.len() + want];
-            read_exact_at(&file, read, (skip + at) as u64)?;
-            chunk[..carry.len()].copy_from_slice(&carry);
-            let filled = carry.len() + want;
-            let valid = match std::str::from_utf8(&chunk[..filled]) {
-                Ok(_) => filled,
-                Err(error) if error.error_len().is_none() && at + want < len => error.valid_up_to(),
-                Err(_) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "file is not valid UTF-8",
-                    ));
-                }
-            };
-            builder.feed(&chunk[..valid]);
-            carry.clear();
-            carry.extend_from_slice(&chunk[valid..filled]);
-            at += want;
-        }
-        let index = builder.finish();
-        debug_assert_eq!(index.len, len);
-        Ok(Self::assemble(file, skip, index))
-    }
-
-    /// A file whose lines are already known, from writing it: it is opened without being read.
-    /// An error means the file is not the size it was said to be, and `open` should be used.
-    pub fn open_indexed(path: &Path, index: FileIndex) -> io::Result<Self> {
-        let file = File::open(path)?;
-        let total = file.metadata()?.len() as usize;
-        let mut head = [0u8; 3];
-        let head_len = read_at(&file, &mut head, 0)?;
-        let skip = if head[..head_len].starts_with(&[0xef, 0xbb, 0xbf]) { 3 } else { 0 };
-        if total != skip + index.len {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "the file is not what was written",
-            ));
-        }
-        Ok(Self::assemble(file, skip, index))
-    }
-
-    fn assemble(file: File, skip: usize, index: FileIndex) -> Self {
-        Self {
-            file,
-            skip,
-            len: index.len,
-            checkpoints: index.checkpoints,
-            per_checkpoint: index.per_checkpoint,
-            lines: index.lines,
-            longest_line: index.longest_line,
-            crlf_first: index.crlf_first,
-            cache: Mutex::default(),
             last: Mutex::default(),
         }
     }
 }
-impl FileText {
+
+/// How an index reads the text it describes.
+pub type Reader<'a> = &'a dyn Fn(Range<usize>) -> io::Result<Vec<u8>>;
+
+impl FileIndex {
+    /// Bytes of the text (without any byte order mark).
     pub fn len(&self) -> usize {
         self.len
     }
-    pub fn has_bom(&self) -> bool {
-        self.skip > 0
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
     pub fn line_count(&self) -> usize {
         self.lines
     }
-    /// The longest line's length in bytes: an upper bound of its width for sizing scroll ranges.
     pub fn longest_line(&self) -> usize {
         self.longest_line
     }
@@ -242,66 +156,8 @@ impl FileText {
         self.crlf_first
     }
 
-    /// The bytes of `range`, read through the block cache.
-    pub fn read(&self, range: Range<usize>) -> io::Result<Vec<u8>> {
-        let range = range.start.min(self.len)..range.end.min(self.len);
-        let mut out = Vec::with_capacity(range.len());
-        let mut at = range.start;
-        while at < range.end {
-            let index = at / BLOCK;
-            let block = self.block(index)?;
-            let from = at - index * BLOCK;
-            let to = (range.end - index * BLOCK).min(block.len());
-            if to <= from {
-                break;
-            }
-            out.extend_from_slice(&block[from..to]);
-            at = index * BLOCK + to;
-        }
-        Ok(out)
-    }
-
-    /// Read `range` straight from the file into `buffer`, past the cache: for copying a whole
-    /// file, which would only push out the blocks the display uses.
-    pub fn read_into(&self, range: Range<usize>, buffer: &mut [u8]) -> io::Result<()> {
-        let range = range.start.min(self.len)..range.end.min(self.len);
-        read_exact_at(
-            &self.file,
-            &mut buffer[..range.len()],
-            (self.skip + range.start) as u64,
-        )
-    }
-
-    fn block(&self, index: usize) -> io::Result<std::sync::Arc<Vec<u8>>> {
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(position) = cache.iter().position(|(i, _)| *i == index) {
-            let entry = cache.remove(position).unwrap();
-            let block = entry.1.clone();
-            cache.push_front(entry);
-            return Ok(block);
-        }
-        let start = index * BLOCK;
-        let mut bytes = vec![0u8; BLOCK.min(self.len.saturating_sub(start))];
-        read_exact_at(&self.file, &mut bytes, (self.skip + start) as u64)?;
-        let block = std::sync::Arc::new(bytes);
-        cache.push_front((index, block.clone()));
-        cache.truncate(CACHED_BLOCKS);
-        Ok(block)
-    }
-
-    /// The text of `range`. The file was checked to be UTF-8 when it was opened, so a range on
-    /// character boundaries always decodes; a range that is not (or a file that changed since)
-    /// shows replacement characters instead of failing.
-    pub fn text(&self, range: Range<usize>) -> String {
-        match self.read(range) {
-            Ok(bytes) => String::from_utf8(bytes)
-                .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned()),
-            Err(_) => String::new(),
-        }
-    }
-
     /// Byte offset where `line` starts; the end of the text for a line past the last.
-    pub fn line_start(&self, line: usize) -> usize {
+    pub fn line_start(&self, line: usize, read: Reader) -> usize {
         if line >= self.lines {
             return self.len;
         }
@@ -317,9 +173,7 @@ impl FileText {
         }
         let mut skip = line - have;
         while skip > 0 {
-            let bytes = self
-                .read(start..(start + LOOK).min(self.len))
-                .unwrap_or_default();
+            let bytes = read(start..(start + LOOK).min(self.len)).unwrap_or_default();
             let mut at = 0;
             while skip > 0 {
                 match newline::position(&bytes[at..]) {
@@ -344,7 +198,7 @@ impl FileText {
     }
 
     /// The line containing `offset`; a line break belongs to the line it ends.
-    pub fn line_of(&self, offset: usize) -> usize {
+    pub fn line_of(&self, offset: usize, read: Reader) -> usize {
         let offset = offset.min(self.len);
         let checkpoint = self
             .checkpoints
@@ -359,7 +213,7 @@ impl FileText {
             (at, line) = last;
         }
         while at < offset {
-            let bytes = self.read(at..(at + LOOK).min(offset)).unwrap_or_default();
+            let bytes = read(at..(at + LOOK).min(offset)).unwrap_or_default();
             if bytes.is_empty() {
                 break;
             }
@@ -372,104 +226,144 @@ impl FileText {
     }
 }
 
+/// A text held in memory as a source: for tests, and for any text that is already in memory but
+/// is to be edited as pieces.
+#[derive(Debug)]
+pub struct MemorySource {
+    bytes: Vec<u8>,
+    bom: bool,
+    index: FileIndex,
+}
+
+impl MemorySource {
+    /// `bytes` as a file would hold them: a leading UTF-8 byte order mark is noted and dropped.
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self::with_checkpoints(bytes, LINES_PER_CHECKPOINT)
+    }
+    pub fn from_text(text: &str) -> Self {
+        Self::new(text.as_bytes().to_vec())
+    }
+    pub(crate) fn with_checkpoints(mut bytes: Vec<u8>, per_checkpoint: usize) -> Self {
+        let bom = bytes.starts_with(&[0xef, 0xbb, 0xbf]);
+        if bom {
+            bytes.drain(..3);
+        }
+        let mut builder = IndexBuilder::with_checkpoints(per_checkpoint);
+        builder.feed(&bytes);
+        let index = builder.finish();
+        Self { bytes, bom, index }
+    }
+    fn slice(&self, range: Range<usize>) -> &[u8] {
+        &self.bytes[range.start.min(self.bytes.len())..range.end.min(self.bytes.len())]
+    }
+}
+
+impl TextSource for MemorySource {
+    fn len(&self) -> usize {
+        self.bytes.len()
+    }
+    fn has_bom(&self) -> bool {
+        self.bom
+    }
+    fn line_count(&self) -> usize {
+        self.index.line_count()
+    }
+    fn longest_line(&self) -> usize {
+        self.index.longest_line()
+    }
+    fn first_line_is_crlf(&self) -> bool {
+        self.index.first_line_is_crlf()
+    }
+    fn read(&self, range: Range<usize>) -> io::Result<Vec<u8>> {
+        Ok(self.slice(range).to_vec())
+    }
+    fn read_into(&self, range: Range<usize>, buffer: &mut [u8]) -> io::Result<()> {
+        let bytes = self.slice(range);
+        buffer[..bytes.len()].copy_from_slice(bytes);
+        Ok(())
+    }
+    fn line_start(&self, line: usize) -> usize {
+        self.index.line_start(line, &|range| self.read(range))
+    }
+    fn line_of(&self, offset: usize) -> usize {
+        self.index.line_of(offset, &|range| self.read(range))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-
-    fn temp(name: &str, bytes: &[u8]) -> std::path::PathBuf {
-        let path =
-            std::env::temp_dir().join(format!("loog-file-text-{}-{name}", std::process::id()));
-        std::fs::File::create(&path)
-            .unwrap()
-            .write_all(bytes)
-            .unwrap();
-        path
-    }
 
     #[test]
-    fn lines_match_an_in_memory_scan_across_checkpoints_and_blocks() {
+    fn lines_match_a_plain_scan_across_checkpoints() {
         let mut text = String::new();
         for i in 0..5000 {
             text.push_str(&format!("row {i} 中文 {}\n", "x".repeat(i % 53)));
         }
         text.push_str("last line without a break");
-        let path = temp("lines", text.as_bytes());
-        let file = FileText::open_with(&path, 7).unwrap();
+        let source = MemorySource::with_checkpoints(text.clone().into_bytes(), 7);
         let starts: Vec<usize> = std::iter::once(0)
             .chain(text.match_indices('\n').map(|(at, _)| at + 1))
             .collect();
-        assert_eq!(file.line_count(), starts.len());
-        assert_eq!(file.len(), text.len());
+        assert_eq!(source.line_count(), starts.len());
+        assert_eq!(source.len(), text.len());
         for (line, &start) in starts.iter().enumerate().step_by(37) {
-            assert_eq!(file.line_start(line), start, "line {line}");
-            assert_eq!(file.line_of(start), line);
+            assert_eq!(source.line_start(line), start, "line {line}");
+            assert_eq!(source.line_of(start), line);
         }
-        assert_eq!(file.line_of(text.len()), starts.len() - 1);
-        assert_eq!(file.line_start(starts.len()), text.len());
-        // A range across several blocks reads back exactly.
-        let range = 1000..200_000;
-        assert_eq!(file.read(range.clone()).unwrap(), &text.as_bytes()[range]);
+        // Asked one after another, as drawing does, and backwards too.
+        for (line, &start) in starts.iter().enumerate().take(260).skip(100) {
+            assert_eq!(source.line_start(line), start);
+        }
+        for (line, &start) in starts.iter().enumerate().take(260).skip(100).rev() {
+            assert_eq!(source.line_start(line), start);
+        }
+        assert_eq!(source.line_of(text.len()), starts.len() - 1);
+        assert_eq!(source.line_start(starts.len()), text.len());
+        assert_eq!(
+            source.read(1000..2000).unwrap(),
+            &text.as_bytes()[1000..2000]
+        );
         let longest = text.lines().map(str::len).max().unwrap();
-        assert_eq!(file.longest_line(), longest);
-        std::fs::remove_file(path).ok();
+        assert_eq!(source.longest_line(), longest);
     }
 
     #[test]
     fn byte_order_mark_crlf_and_trailing_break_are_understood() {
-        let path = temp("bom", b"\xef\xbb\xbfone\r\ntwo\r\n");
-        let file = FileText::open(&path).unwrap();
-        assert!(file.has_bom() && file.first_line_is_crlf());
-        assert_eq!((file.len(), file.line_count()), (10, 3));
-        assert_eq!(file.text(0..3), "one");
-        assert_eq!(file.line_start(2), 10);
-        std::fs::remove_file(path).ok();
+        let source = MemorySource::new(b"\xef\xbb\xbfone\r\ntwo\r\n".to_vec());
+        assert!(source.has_bom() && source.first_line_is_crlf());
+        assert_eq!((source.len(), source.line_count()), (10, 3));
+        assert_eq!(source.read(0..3).unwrap(), b"one");
+        assert_eq!(source.line_start(2), 10);
     }
 
     #[test]
-    fn invalid_utf8_is_refused_even_when_split_by_a_scan_chunk() {
-        let mut bytes = "é".repeat(SCAN_CHUNK).into_bytes();
-        bytes.push(0xff);
-        let path = temp("bad", &bytes);
-        assert_eq!(
-            FileText::open(&path).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
-        // Multi-byte characters straddling chunk boundaries are fine.
-        let good = "é".repeat(SCAN_CHUNK);
-        let path2 = temp("good", good.as_bytes());
-        assert_eq!(FileText::open(&path2).unwrap().len(), good.len());
-        std::fs::remove_file(path).ok();
-        std::fs::remove_file(path2).ok();
-    }
-}
-
-#[cfg(test)]
-mod large_file_probe {
-    use super::*;
-
-    /// `LOOG_FILE_TEXT_PROBE=<path>` times opening a real file. Not run by default.
-    #[test]
-    #[ignore = "reads the file named by LOOG_FILE_TEXT_PROBE"]
-    fn open_time_of_a_real_file() {
-        let path = std::env::var("LOOG_FILE_TEXT_PROBE").expect("set LOOG_FILE_TEXT_PROBE");
-        let started = std::time::Instant::now();
-        let file = FileText::open(Path::new(&path)).unwrap();
-        println!(
-            "FILE_TEXT opened {} bytes, {} lines, longest {} in {:?}",
-            file.len(),
-            file.line_count(),
-            file.longest_line(),
-            started.elapsed()
-        );
-        let started = std::time::Instant::now();
-        let middle = file.line_start(file.line_count() / 2);
-        let text = file.text(middle..middle + 200);
-        println!(
-            "FILE_TEXT middle line lookup {:?}: {:?}",
-            started.elapsed(),
-            &text[..text.len().min(60)]
-        );
+    fn a_builder_fed_in_pieces_learns_what_a_single_feed_does() {
+        let text = "alpha\r\nbeta\ngamma\r\n\r\nlast";
+        let mut whole = IndexBuilder::new();
+        whole.feed(text.as_bytes());
+        let whole = whole.finish();
+        for cut in 0..text.len() {
+            let mut parts = IndexBuilder::new();
+            parts.feed(&text.as_bytes()[..cut]);
+            parts.feed(&text.as_bytes()[cut..]);
+            let parts = parts.finish();
+            assert_eq!(
+                (
+                    parts.len(),
+                    parts.line_count(),
+                    parts.longest_line(),
+                    parts.first_line_is_crlf()
+                ),
+                (
+                    whole.len(),
+                    whole.line_count(),
+                    whole.longest_line(),
+                    whole.first_line_is_crlf()
+                ),
+                "cut at {cut}"
+            );
+        }
     }
 }
 
@@ -478,7 +372,7 @@ mod buffer_tests {
     use super::super::buffer::TextBuffer;
     use super::super::change::Edit;
     use super::*;
-    use std::io::Write;
+    use std::sync::Arc;
 
     /// A file-backed buffer must answer every read query as the same text in memory does.
     #[test]
@@ -493,18 +387,13 @@ mod buffer_tests {
                 4 => format!("cafe\u{301} 👩\u{200d}💻 🇨🇳 {i}\n"),
                 5 => format!("word_one two.three 'four' {i}\r\n"),
                 6 => format!("{}\n", "long ".repeat(70)),
-                7 => format!("   leading and trailing   \n"),
+                7 => "   leading and trailing   \n".to_owned(),
                 _ => format!("end {i}\r\n"),
             });
         }
         text.push_str("last without a break");
-        let path = std::env::temp_dir().join(format!("loog-buffer-diff-{}", std::process::id()));
-        std::fs::File::create(&path)
-            .unwrap()
-            .write_all(text.as_bytes())
-            .unwrap();
         let memory = TextBuffer::new(text.clone());
-        let file = TextBuffer::from_file(FileText::open(&path).unwrap());
+        let file = TextBuffer::from_source(Arc::new(MemorySource::from_text(&text)));
         assert!(file.is_file_backed());
         assert_eq!(
             (file.len(), file.line_count()),
@@ -605,7 +494,6 @@ mod buffer_tests {
         }
         assert_eq!(file.slice(100..400), memory.slice(100..400));
         assert!(file.clone().apply_edits(vec![Edit::insert(0, "x")]).is_ok());
-        std::fs::remove_file(path).ok();
     }
 }
 
@@ -616,7 +504,7 @@ mod edit_tests {
     use super::super::history::EditKind;
     use super::super::selection::Selection;
     use super::*;
-    use std::io::Write;
+    use std::sync::Arc;
 
     /// The text of any buffer, however it is stored.
     fn whole(buffer: &TextBuffer) -> String {
@@ -697,13 +585,8 @@ mod edit_tests {
             });
         }
         text.push_str("tail without a break");
-        let path = std::env::temp_dir().join(format!("loog-edit-diff-{}", std::process::id()));
-        std::fs::File::create(&path)
-            .unwrap()
-            .write_all(text.as_bytes())
-            .unwrap();
         let mut memory = TextBuffer::new(text.clone());
-        let mut file = TextBuffer::from_file(FileText::open(&path).unwrap());
+        let mut file = TextBuffer::from_source(Arc::new(MemorySource::from_text(&text)));
         let (mut memory_selection, mut file_selection) = (Selection::caret(0), Selection::caret(0));
         let pieces = [
             "",
@@ -774,57 +657,5 @@ mod edit_tests {
         {}
         assert_eq!(whole(&file), text);
         assert_eq!(file.file_unchanged(), Some(true));
-        std::fs::remove_file(path).ok();
-    }
-
-    /// The lines learned while writing a text must be those of reading the file it makes.
-    #[test]
-    fn lines_learned_while_writing_equal_lines_read_from_the_file() {
-        let mut text = String::from("\u{feff}");
-        for i in 0..900 {
-            text.push_str(&match i % 5 {
-                0 => format!("line {i}\r\n"),
-                1 => "\n".to_owned(),
-                2 => format!("中文 {i} tail\n"),
-                3 => format!("{}\n", "long ".repeat(40)),
-                _ => format!("x{i}\r\n"),
-            });
-        }
-        text.push_str("no final break");
-        let original = std::env::temp_dir().join(format!("loog-index-in-{}", std::process::id()));
-        let written = std::env::temp_dir().join(format!("loog-index-out-{}", std::process::id()));
-        std::fs::File::create(&original).unwrap().write_all(text.as_bytes()).unwrap();
-        let mut pieces = super::super::pieces::PieceText::new(FileText::open(&original).unwrap());
-        // Edits across the text: inside a line, over line breaks, at both ends.
-        let len = pieces.len();
-        pieces.replace(len..len, "\nappended\r\n");
-        pieces.replace(2000..2600, "replaced\nwith\r\nbreaks");
-        pieces.replace(100..100, "inserted ");
-        pieces.replace(3..40, "");
-        let mut out = std::fs::File::create(&written).unwrap();
-        let index = pieces.write_indexed(&mut out).unwrap();
-        drop(out);
-        let learned = FileText::open_indexed(&written, index).unwrap();
-        let read = FileText::open(&written).unwrap();
-        assert_eq!((learned.len(), learned.line_count()), (read.len(), read.line_count()));
-        assert_eq!(learned.has_bom(), read.has_bom());
-        assert_eq!(learned.longest_line(), read.longest_line());
-        assert_eq!(learned.first_line_is_crlf(), read.first_line_is_crlf());
-        for line in (0..=read.line_count()).step_by(3) {
-            assert_eq!(learned.line_start(line), read.line_start(line), "line {line}");
-        }
-        for offset in (0..=read.len()).step_by(97) {
-            assert_eq!(learned.line_of(offset), read.line_of(offset), "offset {offset}");
-        }
-        // The same text as the pieces said it was.
-        assert_eq!(read.text(0..read.len()), pieces.text(0..pieces.len()));
-        // A file that is not what was written is refused, so the caller reads it instead.
-        let mut out = std::fs::File::create(&written).unwrap();
-        let index = pieces.write_indexed(&mut out).unwrap();
-        out.write_all(b"changed afterwards").unwrap();
-        drop(out);
-        assert!(FileText::open_indexed(&written, index).is_err());
-        std::fs::remove_file(original).ok();
-        std::fs::remove_file(written).ok();
     }
 }

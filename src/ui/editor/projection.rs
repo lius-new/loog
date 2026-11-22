@@ -163,9 +163,7 @@ pub fn caret(
     );
     let x = view::caret_x(
         layout.as_ref(),
-        buffer.slice(range.start..at.min(range.end))
-            .chars()
-            .count(),
+        buffer.slice(range.start..at.min(range.end)).chars().count(),
     )
     .unwrap_or(
         left + buffer.display_column(at).saturating_sub(source.column) as f32

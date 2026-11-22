@@ -14,6 +14,9 @@ use super::ports::DirectoryPort;
 use super::store::Store;
 use super::types::EntryRef;
 
+/// A directory as a comparison sees it: whether it is expanded, and its entries (name, is a folder).
+type DirectoryContent = (bool, Option<Vec<(String, bool)>>);
+
 /// Cache key of a directory.
 pub fn key(path: &Path) -> String {
     path.to_string_lossy().into_owned()
@@ -476,7 +479,7 @@ impl TreeCache {
     }
 
     /// Everything a comparison needs, by directory key.
-    fn content(&self) -> BTreeMap<String, (bool, Option<Vec<(String, bool)>>)> {
+    fn content(&self) -> BTreeMap<String, DirectoryContent> {
         self.store
             .marked()
             .map(|index| {

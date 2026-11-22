@@ -194,10 +194,11 @@ impl Store {
             .parent()
             .and_then(Path::to_str)
             .filter(|parent| !parent.is_empty() && key.starts_with(parent));
-        let (parent, suffix_start) = match parent_key.and_then(|parent| self.lookup(parent).map(|index| (index, parent))) {
-            Some((index, parent)) => (index, parent.len()),
-            None => (NONE, 0),
-        };
+        let (parent, suffix_start) =
+            match parent_key.and_then(|parent| self.lookup(parent).map(|index| (index, parent))) {
+                Some((index, parent)) => (index, parent.len()),
+                None => (NONE, 0),
+            };
         let suffix = &key[suffix_start..];
         grow(&mut self.names, suffix.len(), NAMES_STEP);
         let start = self.names.len() as u32;
@@ -268,8 +269,9 @@ impl Store {
         let ends_start = self.ends.len() as u32;
         for entry in listing.iter() {
             self.names.extend_from_slice(entry.name.as_bytes());
-            self.ends
-                .push((self.names.len() as u32 - names_start) | if entry.is_dir { DIRECTORY } else { 0 });
+            self.ends.push(
+                (self.names.len() as u32 - names_start) | if entry.is_dir { DIRECTORY } else { 0 },
+            );
         }
         let names_len = self.names.len() as u32 - names_start;
         let count = listing.len() as u32;
@@ -295,7 +297,10 @@ impl Store {
         let dir = self.dir(index);
         (epoch != 0 && dir.width_epoch.load(Ordering::Relaxed) == epoch).then(|| {
             let widths = dir.widths.load(Ordering::Relaxed);
-            (f32::from_bits((widths >> 32) as u32), f32::from_bits(widths as u32))
+            (
+                f32::from_bits((widths >> 32) as u32),
+                f32::from_bits(widths as u32),
+            )
         })
     }
 
@@ -324,11 +329,13 @@ impl Store {
         let mut names = Vec::with_capacity(used - self.garbage);
         let mut ends = Vec::with_capacity(self.ends.len());
         for dir in &mut self.dirs {
-            let suffix = &self.names[dir.suffix_start as usize..(dir.suffix_start + dir.suffix_len) as usize];
+            let suffix = &self.names
+                [dir.suffix_start as usize..(dir.suffix_start + dir.suffix_len) as usize];
             dir.suffix_start = names.len() as u32;
             names.extend_from_slice(suffix);
             if dir.flags & LOADED != 0 {
-                let listing = &self.names[dir.names_start as usize..(dir.names_start + dir.names_len) as usize];
+                let listing = &self.names
+                    [dir.names_start as usize..(dir.names_start + dir.names_len) as usize];
                 dir.names_start = names.len() as u32;
                 names.extend_from_slice(listing);
                 let range = dir.ends_start as usize..(dir.ends_start + dir.count) as usize;
@@ -342,7 +349,10 @@ impl Store {
     }
 
     pub fn len_loaded(&self) -> usize {
-        self.dirs.iter().filter(|dir| dir.flags & LOADED != 0).count()
+        self.dirs
+            .iter()
+            .filter(|dir| dir.flags & LOADED != 0)
+            .count()
     }
 
     /// Every directory that has a listing or an expansion mark.
@@ -385,7 +395,12 @@ impl Store {
     /// The node of `name` inside directory `parent`, if there is one.
     pub fn child(&self, parent: u32, name: &str) -> Option<u32> {
         let dir = self.dir(parent);
-        let hash = child_hash(dir.hash, dir.flags, dir.suffix_len == 0 && dir.parent == NONE, name);
+        let hash = child_hash(
+            dir.hash,
+            dir.flags,
+            dir.suffix_len == 0 && dir.parent == NONE,
+            name,
+        );
         self.index.find(&self.dirs, hash)
     }
 
@@ -411,8 +426,10 @@ impl Store {
                 rows += self.rows_below(child, revision);
             }
         }
-        dir.rows
-            .store((u64::from(stamp) << 32) | rows as u32 as u64, Ordering::Relaxed);
+        dir.rows.store(
+            (u64::from(stamp) << 32) | rows as u32 as u64,
+            Ordering::Relaxed,
+        );
         rows
     }
 
@@ -430,7 +447,10 @@ mod tests {
     use std::sync::Arc;
 
     fn listing(parent: &str, entries: &[(&str, bool)]) -> Listing {
-        Listing::ordered(Arc::from(parent), entries.iter().map(|(name, dir)| (*name, *dir)))
+        Listing::ordered(
+            Arc::from(parent),
+            entries.iter().map(|(name, dir)| (*name, *dir)),
+        )
     }
 
     fn join(parent: &str, name: &str) -> String {
@@ -474,7 +494,10 @@ mod tests {
     fn entries_come_back_in_order_with_their_kind() {
         let mut store = Store::default();
         let index = store.ensure("root");
-        store.set_listing(index, &listing("root", &[("a", true), ("bb", false), ("ccc", true)]));
+        store.set_listing(
+            index,
+            &listing("root", &[("a", true), ("bb", false), ("ccc", true)]),
+        );
         assert_eq!(store.entry_count(index), 3);
         assert_eq!(store.entry(index, 0), Some(("a", true)));
         assert_eq!(store.entry(index, 1), Some(("bb", false)));
@@ -495,8 +518,15 @@ mod tests {
             store.set_listing(index, &listing("root", &entries));
         }
         // One listing is about 10 KiB; without compaction 200 copies would be 2 MiB.
-        assert!(store.names.len() < 400 * 1024, "names grew to {}", store.names.len());
-        assert_eq!(store.entry(index, 399), Some(("file-number-0399.rs", false)));
+        assert!(
+            store.names.len() < 400 * 1024,
+            "names grew to {}",
+            store.names.len()
+        );
+        assert_eq!(
+            store.entry(index, 399),
+            Some(("file-number-0399.rs", false))
+        );
         assert_eq!(store.key_of(index), "root");
     }
 
@@ -527,10 +557,16 @@ mod tests {
         let a_index = store.ensure(&a);
         let d_index = store.ensure(&d);
         let hidden_index = store.ensure(&hidden);
-        store.set_listing(root_index, &listing(&root, &[("a", true), ("b", false), ("hidden", true)]));
+        store.set_listing(
+            root_index,
+            &listing(&root, &[("a", true), ("b", false), ("hidden", true)]),
+        );
         store.set_listing(a_index, &listing(&a, &[("c", false), ("d", true)]));
         store.set_listing(d_index, &listing(&d, &[("e", false)]));
-        store.set_listing(hidden_index, &listing(&hidden, &[("x", false), ("y", false)]));
+        store.set_listing(
+            hidden_index,
+            &listing(&hidden, &[("x", false), ("y", false)]),
+        );
         for index in [root_index, a_index, d_index] {
             store.set_expanded(index, true);
         }

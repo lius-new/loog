@@ -356,10 +356,10 @@ fn stale_line_navigation_requests_refresh_instead_of_selecting_unrelated_text() 
 
 #[test]
 fn an_open_file_backed_document_is_searched_in_pieces_including_its_edits() {
-    use loog_editor_core::text::{FileText, PieceText};
-    let path = std::env::temp_dir().join(format!("loog-search-pieces-{}", std::process::id()));
-    std::fs::write(&path, "alpha\nneedle one\nomega\nneedle two").unwrap();
-    let mut pieces = PieceText::new(FileText::open(&path).unwrap());
+    use loog_editor_core::text::PieceText;
+    let mut pieces = PieceText::new(Arc::new(loog_editor_core::text::MemorySource::from_text(
+        "alpha\nneedle one\nomega\nneedle two",
+    )));
     pieces.replace(0..0, "needle zero\r\n");
     let whole = pieces.text(0..pieces.len());
     assert_eq!(whole, "needle zero\r\nalpha\nneedle one\nomega\nneedle two");
@@ -373,18 +373,27 @@ fn an_open_file_backed_document_is_searched_in_pieces_including_its_edits() {
         pieces: Some(pieces),
     });
     let mut found = Results::default();
-    service::run(&source, request, &AtomicBool::new(false), |next| found = next).unwrap();
+    service::run(&source, request, &AtomicBool::new(false), |next| {
+        found = next
+    })
+    .unwrap();
     assert_eq!((found.matches, found.searched), (3, 1));
     let file = &found.files[0];
-    let expected = Matcher::new(&spec("needle"))
-        .unwrap()
-        .matches(&whole, &AtomicBool::new(false), 10);
+    let expected =
+        Matcher::new(&spec("needle"))
+            .unwrap()
+            .matches(&whole, &AtomicBool::new(false), 10);
     assert_eq!(
-        file.matches.iter().map(|m| (m.range.clone(), m.line)).collect::<Vec<_>>(),
-        expected.iter().map(|m| (m.range.clone(), m.line)).collect::<Vec<_>>()
+        file.matches
+            .iter()
+            .map(|m| (m.range.clone(), m.line))
+            .collect::<Vec<_>>(),
+        expected
+            .iter()
+            .map(|m| (m.range.clone(), m.line))
+            .collect::<Vec<_>>()
     );
     assert_eq!(file.content_hash, hash(&whole));
     // The open document stands in for the file on disk, which is not read.
     assert!(source.reads.lock().unwrap().is_empty());
-    std::fs::remove_file(path).ok();
 }

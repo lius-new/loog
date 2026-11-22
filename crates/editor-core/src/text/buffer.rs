@@ -185,11 +185,15 @@ impl TextBuffer {
     }
 
     /// A read-only buffer over a text that stays in its file.
-    pub fn from_file(file: super::file_text::FileText) -> Self {
+    pub fn from_source(file: super::SharedSource) -> Self {
         let mut buffer = Self::new(String::new());
         buffer.text = empty_text();
         buffer.observed_ending = file.line_count() > 1;
-        buffer.ending = if file.first_line_is_crlf() { "\r\n" } else { "\n" };
+        buffer.ending = if file.first_line_is_crlf() {
+            "\r\n"
+        } else {
+            "\n"
+        };
         buffer.file = Some(super::pieces::PieceText::new(file));
         buffer
     }
@@ -207,7 +211,7 @@ impl TextBuffer {
 
     /// After a file-backed buffer's text was written to its file, read from the file again: the
     /// text is unchanged, so only where it is stored changes, and it is the file as opened again.
-    pub fn rebase_file(&mut self, file: super::file_text::FileText) {
+    pub fn rebase_file(&mut self, file: super::SharedSource) {
         if self.file.is_some() {
             self.file = Some(super::pieces::PieceText::new(file));
         }
@@ -242,7 +246,10 @@ impl TextBuffer {
         } else {
             self.line_range(line)
         };
-        let key = (range.start, self.options.tab_width * 2 + usize::from(with_break));
+        let key = (
+            range.start,
+            self.options.tab_width * 2 + usize::from(with_break),
+        );
         if let Some(proxy) = file.cached_line(key) {
             return (range.start, proxy);
         }
@@ -317,7 +324,9 @@ impl TextBuffer {
     }
 
     pub fn len(&self) -> usize {
-        self.file.as_ref().map_or(self.text.len(), |file| file.len())
+        self.file
+            .as_ref()
+            .map_or(self.text.len(), |file| file.len())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -365,18 +374,17 @@ impl TextBuffer {
     }
 
     /// As `reload`, for a text that stays in its file: the buffer now reads `file` instead.
-    pub fn reload_file(&mut self, file: super::file_text::FileText) {
+    pub fn reload_file(&mut self, file: super::SharedSource) {
         let version = self.version + 1;
         let options = self.options.clone();
         let file_options = self.file_options;
-        *self = Self::from_file(file);
+        *self = Self::from_source(file);
         self.configure(options);
         self.file_options = file_options;
         self.version = version;
     }
 
     pub fn install_prepared(&mut self, mut prepared: Self) {
-
         prepared.configure(self.options.clone());
         if prepared.file_options == Default::default() {
             prepared.file_options = self.file_options;
@@ -766,7 +774,13 @@ impl TextBuffer {
     /// The text from `offset` to the end of its line, line break included.
     pub fn rest_of_line(&self, offset: usize) -> std::borrow::Cow<'_, str> {
         let offset = offset.min(self.len());
-        self.slice(offset..self.line_range_with_break(self.line_of(offset)).end.max(offset))
+        self.slice(
+            offset
+                ..self
+                    .line_range_with_break(self.line_of(offset))
+                    .end
+                    .max(offset),
+        )
     }
 
     /// A line's content, read from the file for a file-backed buffer.
@@ -792,9 +806,11 @@ impl TextBuffer {
         }
         let offset = self.char_floor(offset);
         let line = self.line_of(offset);
-        let position = self
-            .lines
-            .position_by(line, offset - self.lines.start(&self.text, line), |p| p.byte);
+        let position =
+            self.lines
+                .position_by(line, offset - self.lines.start(&self.text, line), |p| {
+                    p.byte
+                });
         (
             line,
             position.chars

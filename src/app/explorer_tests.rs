@@ -135,15 +135,18 @@ fn removing_a_workspace_folder_keeps_disk_documents_and_clears_tree_state() {
         vec![removed.clone(), kept.clone()],
         vec![removed.clone(), kept.clone()],
     );
-    app.explorer
-        .model
-        .insert_listing(removed.to_string_lossy().into_owned(), crate::features::explorer::Listing::default().into());
-    app.explorer
-        .model
-        .insert_listing(child.to_string_lossy().into_owned(), crate::features::explorer::Listing::default().into());
-    app.explorer
-        .model
-        .insert_listing(kept.to_string_lossy().into_owned(), crate::features::explorer::Listing::default().into());
+    app.explorer.model.insert_listing(
+        removed.to_string_lossy().into_owned(),
+        crate::features::explorer::Listing::default().into(),
+    );
+    app.explorer.model.insert_listing(
+        child.to_string_lossy().into_owned(),
+        crate::features::explorer::Listing::default().into(),
+    );
+    app.explorer.model.insert_listing(
+        kept.to_string_lossy().into_owned(),
+        crate::features::explorer::Listing::default().into(),
+    );
     for path in [&removed, &child, &kept] {
         app.explorer
             .model
@@ -301,9 +304,10 @@ fn renamed_directory_retargets_tabs_and_rebuilds_tree_state() {
     let old_file = old_path.join("main.rs");
     let new_file = new_path.join("main.rs");
     app.explorer.model.restore(vec![root], Vec::new());
-    app.explorer
-        .model
-        .insert_listing(old_path.to_string_lossy().into_owned(), crate::features::explorer::Listing::default().into());
+    app.explorer.model.insert_listing(
+        old_path.to_string_lossy().into_owned(),
+        crate::features::explorer::Listing::default().into(),
+    );
     app.explorer
         .model
         .set_expanded(&old_path.to_string_lossy(), true);

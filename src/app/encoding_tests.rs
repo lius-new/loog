@@ -767,7 +767,10 @@ fn a_file_over_the_load_limit_opens_in_place_and_can_never_be_saved() {
     let id = open(&mut workspace, &path);
     let document = &workspace.documents[&id];
     assert!(document.buffer.is_file_backed());
-    assert!(document.format().bom, "the byte order mark is kept for display");
+    assert!(
+        document.format().bom,
+        "the byte order mark is kept for display"
+    );
     let rows = body.len() / row.len();
     assert_eq!(document.buffer.line_count(), rows + 1);
     assert_eq!(document.buffer.line_text(1), "id,中文,value");
@@ -812,8 +815,14 @@ fn a_file_over_the_load_limit_can_be_edited_and_undone_without_loading_it() {
     assert!(workspace.shared_save_snapshot(id).is_none());
 
     workspace.active_editor_mut().unwrap().undo();
-    assert_eq!(workspace.active_editor().unwrap().line_text(1_000_000), "some row of text");
-    assert!(!workspace.is_dirty(id), "undoing every edit makes it the file again");
+    assert_eq!(
+        workspace.active_editor().unwrap().line_text(1_000_000),
+        "some row of text"
+    );
+    assert!(
+        !workspace.is_dirty(id),
+        "undoing every edit makes it the file again"
+    );
 }
 
 #[test]
@@ -829,12 +838,17 @@ fn a_file_backed_document_saves_by_streaming_and_then_reads_the_new_file() {
     let id = open(&mut workspace, &path);
 
     // Edit at the start, in the middle (a whole row) and at the very end.
-    let middle = workspace.active_editor().unwrap().line_range_with_break(500_000);
+    let middle = workspace
+        .active_editor()
+        .unwrap()
+        .line_range_with_break(500_000);
     let end = workspace.active_editor().unwrap().len();
     {
         let mut editor = workspace.active_editor_mut().unwrap();
         editor.replace(end..end, "tail", EditKind::Other).unwrap();
-        editor.replace(middle.clone(), "replaced row\r\n", EditKind::Other).unwrap();
+        editor
+            .replace(middle.clone(), "replaced row\r\n", EditKind::Other)
+            .unwrap();
         editor.replace(0..0, "head,", EditKind::Other).unwrap();
     }
     let mut expected = body.clone();
@@ -853,10 +867,13 @@ fn a_file_backed_document_saves_by_streaming_and_then_reads_the_new_file() {
     .unwrap();
     let on_disk = std::fs::read(&path).unwrap();
     assert_eq!(&on_disk[..3], &bom, "the byte order mark is written back");
-    assert!(on_disk[3..] == *expected.as_bytes(), "the file holds the edited text");
+    assert!(
+        on_disk[3..] == *expected.as_bytes(),
+        "the file holds the edited text"
+    );
     let (file, disk) = files::open_written_file(&path, index.unwrap()).unwrap();
     assert_eq!(disk.size, on_disk.len() as u64);
-    assert!(workspace.mark_file_saved(&saved, file, disk));
+    assert!(workspace.mark_file_saved(&saved, std::sync::Arc::new(file), disk));
     assert!(!workspace.is_dirty(id), "saved means clean again");
     {
         let editor = workspace.active_editor().unwrap();
@@ -865,19 +882,30 @@ fn a_file_backed_document_saves_by_streaming_and_then_reads_the_new_file() {
         assert_eq!(editor.len(), expected.len());
     }
     // It edits and undoes as before, now against the new file.
-    workspace.active_editor_mut().unwrap().replace(0..0, "z", EditKind::Other).unwrap();
+    workspace
+        .active_editor_mut()
+        .unwrap()
+        .replace(0..0, "z", EditKind::Other)
+        .unwrap();
     assert!(workspace.is_dirty(id));
     workspace.active_editor_mut().unwrap().undo();
     assert!(!workspace.is_dirty(id));
 
     // An edit made while a save was running stays unsaved.
     let saved = workspace.file_save_snapshot(id).unwrap();
-    workspace.active_editor_mut().unwrap().replace(0..0, "late,", EditKind::Other).unwrap();
+    workspace
+        .active_editor_mut()
+        .unwrap()
+        .replace(0..0, "late,", EditKind::Other)
+        .unwrap();
     files::write_with(&path, |file| saved.pieces.write_to(file)).unwrap();
     let (file, disk) = files::open_file_backed(&path).unwrap();
-    assert!(workspace.mark_file_saved(&saved, file, disk));
+    assert!(workspace.mark_file_saved(&saved, std::sync::Arc::new(file), disk));
     assert!(workspace.is_dirty(id));
-    assert_eq!(workspace.active_editor().unwrap().line_text(0), "late,head,id,中文,value");
+    assert_eq!(
+        workspace.active_editor().unwrap().line_text(0),
+        "late,head,id,中文,value"
+    );
 }
 
 #[test]
@@ -893,13 +921,19 @@ fn a_file_backed_document_follows_changes_made_to_its_file_by_other_programs() {
     let lines = workspace.active_editor().unwrap().line_count();
 
     // Nothing changed: nothing is read again.
-    assert!(matches!(workspace.reconcile_document(id), ReconcileResult::Unchanged(_)));
+    assert!(matches!(
+        workspace.reconcile_document(id),
+        ReconcileResult::Unchanged(_)
+    ));
 
     // Another program (Git, for one) rewrote the file. A document with no edits follows it.
     let mut longer = body.clone();
     longer.push_str("added by someone else\n");
     std::fs::write(&path, &longer).unwrap();
-    assert!(matches!(workspace.reconcile_document(id), ReconcileResult::Reloaded(_)));
+    assert!(matches!(
+        workspace.reconcile_document(id),
+        ReconcileResult::Reloaded(_)
+    ));
     {
         let editor = workspace.active_editor().unwrap();
         assert_eq!(editor.line_count(), lines + 1);
@@ -908,23 +942,39 @@ fn a_file_backed_document_follows_changes_made_to_its_file_by_other_programs() {
     assert!(!workspace.is_dirty(id));
 
     // With edits of its own it is a conflict, and the edits are kept until the user chooses.
-    workspace.active_editor_mut().unwrap().replace(0..0, "mine ", EditKind::Other).unwrap();
+    workspace
+        .active_editor_mut()
+        .unwrap()
+        .replace(0..0, "mine ", EditKind::Other)
+        .unwrap();
     longer.push_str("and again\n");
     std::fs::write(&path, &longer).unwrap();
-    assert!(matches!(workspace.reconcile_document(id), ReconcileResult::Conflict(_)));
-    assert_eq!(workspace.active_editor().unwrap().line_text(0), "mine some row of text");
+    assert!(matches!(
+        workspace.reconcile_document(id),
+        ReconcileResult::Conflict(_)
+    ));
+    assert_eq!(
+        workspace.active_editor().unwrap().line_text(0),
+        "mine some row of text"
+    );
     assert!(workspace.documents[&id].disk_conflict);
 
     // Taking what is on disk drops the edits and the conflict.
     workspace.accept_disk_version(id).unwrap();
-    assert_eq!(workspace.active_editor().unwrap().line_text(0), "some row of text");
+    assert_eq!(
+        workspace.active_editor().unwrap().line_text(0),
+        "some row of text"
+    );
     assert!(!workspace.is_dirty(id));
     assert!(!workspace.documents[&id].disk_conflict);
     assert_eq!(workspace.active_editor().unwrap().line_count(), lines + 2);
 
     // A file that is gone is reported, not silently kept as if it were there.
     std::fs::remove_file(&path).unwrap();
-    assert!(matches!(workspace.reconcile_document(id), ReconcileResult::Missing(_)));
+    assert!(matches!(
+        workspace.reconcile_document(id),
+        ReconcileResult::Missing(_)
+    ));
 }
 
 #[test]
@@ -943,7 +993,10 @@ fn a_file_backed_document_is_reloaded_through_the_watcher_path_too() {
     let updates = workspace.prepare_disk_updates(std::slice::from_ref(&path), false);
     assert_eq!(updates.len(), 1);
     let outcomes = workspace.apply_disk_updates(updates);
-    assert!(matches!(outcomes.as_slice(), [ReconcileResult::Reloaded(_)]));
+    assert!(matches!(
+        outcomes.as_slice(),
+        [ReconcileResult::Reloaded(_)]
+    ));
     let editor = workspace.active_editor().unwrap();
     assert_eq!(editor.line_count(), lines + 1);
     assert_eq!(editor.line_text(lines - 1), "new last line");
@@ -956,7 +1009,11 @@ fn a_file_backed_document_is_never_given_to_language_servers_whatever_the_limit(
     let large = dir.0.join("large.rs");
     let small = dir.0.join("small.rs");
     let row = "fn row() {}\n";
-    std::fs::write(&large, row.repeat(files::MAX_EDITABLE_FILE_BYTES as usize / row.len() + 1)).unwrap();
+    std::fs::write(
+        &large,
+        row.repeat(files::MAX_EDITABLE_FILE_BYTES as usize / row.len() + 1),
+    )
+    .unwrap();
     std::fs::write(&small, row).unwrap();
     let mut workspace = Workspace::new();
     let large_id = open(&mut workspace, &large);
@@ -974,7 +1031,11 @@ fn files_over_16_mib_open_in_place_when_utf8_and_are_read_whole_when_they_fit_ot
     let mib = 1024 * 1024;
     // 20 MiB of UTF-8 text: over the in-place size, under the load limit.
     let utf8 = dir.0.join("mid.txt");
-    std::fs::write(&utf8, "一行文字 mid size\n".repeat(20 * mib / "一行文字 mid size\n".len())).unwrap();
+    std::fs::write(
+        &utf8,
+        "一行文字 mid size\n".repeat(20 * mib / "一行文字 mid size\n".len()),
+    )
+    .unwrap();
     let mut workspace = Workspace::new();
     let id = open(&mut workspace, &utf8);
     assert!(workspace.documents[&id].buffer.is_file_backed());
@@ -986,7 +1047,13 @@ fn files_over_16_mib_open_in_place_when_utf8_and_are_read_whole_when_they_fit_ot
     std::fs::write(&gbk_path, &*bytes).unwrap();
     let id = open(&mut workspace, &gbk_path);
     assert!(!workspace.documents[&id].buffer.is_file_backed());
-    assert!(workspace.active_editor().unwrap().text().starts_with("这是一行中文文字"));
+    assert!(
+        workspace
+            .active_editor()
+            .unwrap()
+            .text()
+            .starts_with("这是一行中文文字")
+    );
 
     // 70 MiB that is not UTF-8 cannot be loaded whole either: a clear message, not a crash.
     let huge = dir.0.join("huge-binary.dat");
@@ -1001,6 +1068,11 @@ fn saving_a_very_large_file_checks_for_room_first_and_says_how_much_it_needs() {
     let path = dir.0.join("large.txt");
     // Room for a few bytes is there; room for an exabyte is not, and the message says so.
     assert!(files::ensure_room_beside(&path, 1024).is_ok());
-    let error = files::ensure_room_beside(&path, u64::MAX / 2).unwrap_err().to_string();
-    assert!(error.contains("not enough free disk space") && error.contains("MB"), "{error}");
+    let error = files::ensure_room_beside(&path, u64::MAX / 2)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("not enough free disk space") && error.contains("MB"),
+        "{error}"
+    );
 }

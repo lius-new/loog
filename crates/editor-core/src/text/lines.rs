@@ -299,7 +299,8 @@ impl LineIndex {
         // unpacked for it but not replaced.
         let last = (last + self.len()).saturating_sub(before);
         self.tree.pack_range(
-            first.saturating_sub(line_tree::BLOCK + 1)..(last + line_tree::BLOCK + 1).min(self.len()),
+            first.saturating_sub(line_tree::BLOCK + 1)
+                ..(last + line_tree::BLOCK + 1).min(self.len()),
         );
     }
 
@@ -415,8 +416,9 @@ impl LineIndex {
         let suffix_index =
             last_positions.partition_point(|p| p.byte <= tail.old.end - old.start_in(None, last));
         let suffix = last_positions.get(suffix_index).and_then(|p| {
-            let offset =
-                tail.new_start + tail.inserted.len() + (old.start_in(None, last) + p.byte - tail.old.end);
+            let offset = tail.new_start
+                + tail.inserted.len()
+                + (old.start_in(None, last) + p.byte - tail.old.end);
             (offset <= region.end
                 && text.is_char_boundary(offset)
                 && unicode_segmentation::GraphemeCursor::new(offset, text.len(), true)
@@ -652,15 +654,23 @@ mod tests {
         let text = "a\tb\r\n中文\n\nend\n";
         let index = LineIndex::new(text);
         assert_eq!(
-            (0..index.len()).map(|n| index.start(text, n)).collect::<Vec<_>>(),
+            (0..index.len())
+                .map(|n| index.start(text, n))
+                .collect::<Vec<_>>(),
             [0, 5, 12, 13, 17]
         );
         assert_eq!(
-            (0..index.len()).map(|n| index.width(text, n)).collect::<Vec<_>>(),
+            (0..index.len())
+                .map(|n| index.width(text, n))
+                .collect::<Vec<_>>(),
             [5, 4, 0, 3, 0]
         );
         assert_eq!(index.content_end(text, 0), 3);
-        assert_eq!(index.line_of(text, 4), 0, "the LF belongs to the line it ends");
+        assert_eq!(
+            index.line_of(text, 4),
+            0,
+            "the LF belongs to the line it ends"
+        );
         assert_eq!(index.line_of(text, 5), 1);
         assert_eq!(index.line_of(text, 17), 4);
     }
@@ -719,9 +729,8 @@ mod tests {
             })
             .collect();
         let mut index = LineIndex::new(&text);
-        let long_lines = (0..index.len()).filter(|&row| {
-            index.content_end(&text, row) - index.start(&text, row) > 256
-        });
+        let long_lines = (0..index.len())
+            .filter(|&row| index.content_end(&text, row) - index.start(&text, row) > 256);
         let long_blocks = long_lines
             .map(|row| index.tree.locate_row(row).base_row)
             .collect::<std::collections::BTreeSet<_>>()
@@ -809,14 +818,7 @@ mod tests {
         let (actual, expected) = (rows(index, text), rows(&fresh, text));
         assert_eq!(actual.len(), expected.len());
         for (row, (a, b)) in actual.iter().zip(&expected).enumerate() {
-            let summary = |l: &Line| {
-                (
-                    l.bytes,
-                    l.width,
-                    l.crlf,
-                    l.positions.is_some(),
-                )
-            };
+            let summary = |l: &Line| (l.bytes, l.width, l.crlf, l.positions.is_some());
             assert_eq!(summary(a), summary(b), "line {row}");
         }
         assert_eq!(index.max_width(), fresh.max_width());
@@ -830,9 +832,9 @@ mod tests {
             let start = index.start(text, line);
             let end = index.content_end(text, line);
             let positions = index.tree.locate_row(line);
-            let positions = positions
-                .data
-                .map_or(&[][..], |(lines, _)| lines[line - positions.base_row].positions());
+            let positions = positions.data.map_or(&[][..], |(lines, _)| {
+                lines[line - positions.base_row].positions()
+            });
             let mut checkpoints = positions.iter().peekable();
             let (mut chars, mut columns) = (0, 0);
             for (byte, g) in text[start..end]

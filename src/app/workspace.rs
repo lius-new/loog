@@ -223,13 +223,14 @@ impl Workspace {
                 Ok(now) if now.size == known.size && now.modified_time == known.modified_time => {
                     ReconcileResult::Unchanged(path)
                 }
-                Ok(_) => match crate::infrastructure::document_filesystem::open_file_backed(&path)
-                {
-                    Ok((file, current)) => {
-                        self.transaction(|core| core.reconcile_large(id, file, current))
+                Ok(_) => {
+                    match crate::infrastructure::document_filesystem::open_file_backed(&path) {
+                        Ok((file, current)) => self.transaction(|core| {
+                            core.reconcile_large(id, std::sync::Arc::new(file), current)
+                        }),
+                        Err(error) => ReconcileResult::Failed(path, error.to_string()),
                     }
-                    Err(error) => ReconcileResult::Failed(path, error.to_string()),
-                },
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     self.transaction(|core| {
                         core.reconcile_with_disk(id, crate::domain::document::DiskRead::Missing)
@@ -310,7 +311,8 @@ impl Workspace {
                 .to_path_buf();
             let (file, disk) = crate::infrastructure::document_filesystem::open_file_backed(&path)
                 .map_err(|error| format!("Could not reload {}: {error}", path.display()))?;
-            return self.transaction(|core| core.accept_disk_large(id, file, disk));
+            return self
+                .transaction(|core| core.accept_disk_large(id, std::sync::Arc::new(file), disk));
         }
         let (decoded, disk) = crate::infrastructure::document_filesystem::read_encoded(
             document
@@ -345,8 +347,11 @@ impl Workspace {
             return false;
         };
         let disk = if document.buffer.is_file_backed() {
-            crate::infrastructure::document_filesystem::disk_state_of(path, document.disk_state.format)
-                .ok()
+            crate::infrastructure::document_filesystem::disk_state_of(
+                path,
+                document.disk_state.format,
+            )
+            .ok()
         } else {
             filesystem::read_contents(path)
                 .ok()
@@ -376,7 +381,6 @@ impl Workspace {
             filesystem::capture(&new_path, document.buffer.text())
         };
         self.transaction(|core| core.move_path_with_disk(old_path, new_path, disk))
-
     }
 
     pub fn move_open_paths_under(&mut self, old_root: &Path, new_root: &Path) -> usize {

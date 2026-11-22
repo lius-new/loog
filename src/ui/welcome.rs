@@ -1,9 +1,8 @@
 //! Welcome canvas shown when no project or document is open.
 
 use lgui::core::{
-    Color, Signal, TextStyle, UiNode,
-    CursorIcon, EventPolicy, SemanticRole, Semantics, UiElement, UiEventKind, UiFocusHandle, UiId,
-    clip,
+    Color, CursorIcon, EventPolicy, SemanticRole, Semantics, Signal, TextStyle, UiElement,
+    UiEventKind, UiFocusHandle, UiId, UiNode, clip,
 };
 use lgui::prelude::{Element, UiRect, VisualStyle, group, panel, text};
 
@@ -210,7 +209,13 @@ fn action_row(
     editor_focus: UiFocusHandle,
 ) -> Element {
     let colors = theme::c();
-    let surface = hover_surface(rect, 4.0, &hover, (None, None), (colors.border, colors.surface));
+    let surface = hover_surface(
+        rect,
+        4.0,
+        &hover,
+        (None, None),
+        (colors.border, colors.surface),
+    );
     let hover_state = state.clone();
     let click_state = state.clone();
     surface
@@ -259,7 +264,9 @@ impl Hover {
             return element;
         };
         let index = self.index;
-        element.bind(signal, move |hover, node| patch(*hover == Some(index), node))
+        element.bind(signal, move |hover, node| {
+            patch(*hover == Some(index), node)
+        })
     }
 }
 
@@ -283,11 +290,19 @@ fn hover_surface(
         if hovered { Some(hot) } else { idle }
     };
     let outer = hover.bind(
-        panel(rect, fill_style(pick(hover.hovered, hot.0, outer_idle), radius)),
+        panel(
+            rect,
+            fill_style(pick(hover.hovered, hot.0, outer_idle), radius),
+        ),
         move |hovered, node| node.style = fill_style(pick(hovered, hot.0, outer_idle), radius),
     );
     let inner_radius = (radius - 1.0).max(0.0);
-    let inner_rect = UiRect::new(rect.left + 1.0, rect.top + 1.0, rect.right - 1.0, rect.bottom - 1.0);
+    let inner_rect = UiRect::new(
+        rect.left + 1.0,
+        rect.top + 1.0,
+        rect.right - 1.0,
+        rect.bottom - 1.0,
+    );
     let inner = hover.bind(
         panel(
             inner_rect,

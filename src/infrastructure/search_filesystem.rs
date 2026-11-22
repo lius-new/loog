@@ -30,8 +30,10 @@ impl SearchSourcePort for SearchFilesystem {
         if !big {
             return Ok(None);
         }
-        match loog_editor_core::text::FileText::open(path) {
-            Ok(file) => Ok(Some(Box::new(file))),
+        match crate::infrastructure::file_text::FileText::open(path) {
+            Ok(file) => Ok(Some(Box::new(
+                std::sync::Arc::new(file) as loog_editor_core::text::SharedSource
+            ))),
             Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
                 Err("Unsupported text encoding".into())
             }

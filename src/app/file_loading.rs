@@ -299,7 +299,9 @@ fn finish(app: &mut AppState, generation: u64, prepared: Result<PreparedTextFile
             .active_document()
             .is_some_and(|document| app.workspace.is_file_backed(document))
     {
-        app.show_toast("Large file opened without loading it. Language features and previews are off.");
+        app.show_toast(
+            "Large file opened without loading it. Language features and previews are off.",
+        );
     }
     true
 }
@@ -965,14 +967,22 @@ mod tests {
         });
         // An ordinary file says nothing.
         h.open("small.txt");
-        h.pump_until(|app| app.workspace.file_id_for_path(std::path::Path::new("small.txt")).is_some());
+        h.pump_until(|app| {
+            app.workspace
+                .file_id_for_path(std::path::Path::new("small.txt"))
+                .is_some()
+        });
         assert!(h.state.get().chrome.toast.is_none());
         // One kept in its file says why language features are off.
         let name = large.to_string_lossy().into_owned();
         h.open(&name);
         h.pump_until(|app| app.workspace.file_id_for_path(&large).is_some());
         let toast = h.state.get().chrome.toast.clone().expect("a notice");
-        assert!(toast.message.contains("Language features"), "{}", toast.message);
+        assert!(
+            toast.message.contains("Language features"),
+            "{}",
+            toast.message
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -45,14 +45,20 @@ pub(crate) fn exceeds_load_limit(path: &Path) -> bool {
 /// read once to index its lines and to check that.
 pub(crate) fn open_file_backed(
     path: &Path,
-) -> io::Result<(loog_editor_core::text::FileText, crate::domain::document::DiskState)> {
-    let text = loog_editor_core::text::FileText::open(path)?;
+) -> io::Result<(
+    crate::infrastructure::file_text::FileText,
+    crate::domain::document::DiskState,
+)> {
+    let text = super::file_text::FileText::open(path)?;
     let meta = fs::metadata(path)?;
     let state = crate::domain::document::DiskState {
         modified_time: meta.modified().ok(),
         size: meta.len(),
         content_hash: 0,
-        format: TextFormat::new(encoding::Charset::Utf8, text.has_bom()),
+        format: TextFormat::new(
+            encoding::Charset::Utf8,
+            loog_editor_core::text::TextSource::has_bom(&text),
+        ),
     };
     Ok((text, state))
 }
@@ -75,20 +81,24 @@ pub(crate) fn disk_state_of(
 pub(crate) fn open_written_file(
     path: &Path,
     index: loog_editor_core::text::FileIndex,
-) -> io::Result<(loog_editor_core::text::FileText, crate::domain::document::DiskState)> {
-    let text = loog_editor_core::text::FileText::open_indexed(path, index)?;
+) -> io::Result<(
+    crate::infrastructure::file_text::FileText,
+    crate::domain::document::DiskState,
+)> {
+    let text = super::file_text::FileText::open_indexed(path, index)?;
     let meta = fs::metadata(path)?;
     let state = crate::domain::document::DiskState {
         modified_time: meta.modified().ok(),
         size: meta.len(),
         content_hash: 0,
-        format: TextFormat::new(encoding::Charset::Utf8, text.has_bom()),
+        format: TextFormat::new(
+            encoding::Charset::Utf8,
+            loog_editor_core::text::TextSource::has_bom(&text),
+        ),
     };
     Ok((text, state))
 }
-pub(crate) fn read_bytes(
-
-path: &Path, limit: u64) -> io::Result<Vec<u8>> {
+pub(crate) fn read_bytes(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
     let file = fs::File::open(path)?;
     let meta = file.metadata()?;
     if !meta.is_file() {
@@ -203,6 +213,7 @@ fn free_space(dir: &Path) -> Option<u64> {
     (ok != 0).then_some(available)
 }
 #[cfg(unix)]
+#[allow(clippy::unnecessary_cast)] // the field types differ between platforms
 fn free_space(dir: &Path) -> Option<u64> {
     use std::os::unix::ffi::OsStrExt;
     let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
@@ -232,7 +243,6 @@ pub(crate) fn ensure_room_beside(path: &Path, needed: u64) -> io::Result<()> {
 
 /// Replace `path` with what `fill` writes to a temporary file beside it, so a failure at any
 /// point leaves the original untouched.
-
 pub(crate) fn write_with(
     path: &Path,
     fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
@@ -242,18 +252,18 @@ pub(crate) fn write_with(
     let target = if path.is_symlink() {
         fs::canonicalize(path)?
     } else {
-/// Whether `encode(decoded.text, decoded.format)` gives back exactly `bytes`.
-fn is_lossless_utf8(bytes: &[u8], decoded: &DecodedText) -> bool {
-    if decoded.format.charset != encoding::Charset::Utf8 {
-        return false;
-    }
-    let body = if decoded.format.bom {
-        bytes.strip_prefix(&[0xef, 0xbb, 0xbf][..])
-    } else {
-        Some(bytes)
-    };
-    body == Some(decoded.text.as_bytes())
-}
+        /// Whether `encode(decoded.text, decoded.format)` gives back exactly `bytes`.
+        fn is_lossless_utf8(bytes: &[u8], decoded: &DecodedText) -> bool {
+            if decoded.format.charset != encoding::Charset::Utf8 {
+                return false;
+            }
+            let body = if decoded.format.bom {
+                bytes.strip_prefix(&[0xef, 0xbb, 0xbf][..])
+            } else {
+                Some(bytes)
+            };
+            body == Some(decoded.text.as_bytes())
+        }
         path.to_path_buf()
     };
     let permissions = fs::metadata(&target).ok().map(|m| m.permissions());

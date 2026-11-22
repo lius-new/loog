@@ -269,7 +269,11 @@ impl LineTree {
         let (base_row, base_byte, rows, bytes) =
             (found.base_row, found.base_byte, found.rows, found.bytes);
         let lines = read(base_byte, bytes, base_row + rows == self.len());
-        assert_eq!(lines.len(), rows, "a packed block's lines were read back wrongly");
+        assert_eq!(
+            lines.len(),
+            rows,
+            "a packed block's lines were read back wrongly"
+        );
         fn visit(node: &mut Arc<Node>, row: usize, new: Arc<Node>) {
             if let Kind::Branch(..) = node.kind {
                 let Kind::Branch(left, right) = &mut Arc::make_mut(node).kind else {

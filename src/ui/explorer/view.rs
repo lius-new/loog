@@ -29,6 +29,9 @@ use crate::ui::components::state_access::StateAccess;
 use crate::ui::drawer::drawer_icon;
 use crate::ui::theme;
 
+/// What a root's width was remembered for: its key and tree revision, and the width.
+type Remembered = std::collections::HashMap<(String, u32, u32), (u64, f32)>;
+
 const HEADER_H: f32 = theme::TABS_H;
 const ROW_H: f32 = theme::DRAWER_ROW_H;
 const CREATE_ROW_H: f32 = 28.0;
@@ -989,7 +992,10 @@ fn build_tree(
     }
     if entry.directory && expanded {
         let children_top = *y;
-        match entry.local_path().filter(|_| source::can_skip_rows(tree.panel)) {
+        match entry
+            .local_path()
+            .filter(|_| source::can_skip_rows(tree.panel))
+        {
             Some(path) => {
                 // Only the rows near the viewport become entries. A sibling whose whole subtree
                 // lies above or below it just advances the layout cursor by its row count.
@@ -1005,8 +1011,11 @@ fn build_tree(
                             *y += height;
                             continue;
                         }
-                        let child =
-                            Entry::local(path.join(child.name), child.name.to_owned(), child.is_dir);
+                        let child = Entry::local(
+                            path.join(child.name),
+                            child.name.to_owned(),
+                            child.is_dir,
+                        );
                         build_tree(tree, &child, y, depth + 1, parent, index, elements, visited);
                     }
                 }
@@ -1033,8 +1042,7 @@ fn tree_content_right(entry: &Entry, s: &ExplorerPanelState, left: f32) -> f32 {
     // Measuring every expanded row is slow in a large tree, and the answer only changes when a
     // listing or an expansion does, so a local root's width is remembered per tree revision.
     thread_local! {
-        static REMEMBERED: std::cell::RefCell<std::collections::HashMap<(String, u32, u32), (u64, f32)>> =
-            Default::default();
+        static REMEMBERED: std::cell::RefCell<Remembered> = Default::default();
     }
     let remembered = entry
         .local_path()
@@ -1099,7 +1107,8 @@ fn widen_to_listing(
     let widths = s.model.name_widths(key, epoch, |listing| {
         let (mut widest_dir, mut widest_file) = (0.0f32, 0.0f32);
         for entry in listing.iter() {
-            let width = crate::ui::tabs::measure_once(entry.name, theme::UI_SIZE, 400) + TREE_TEXT_PAD;
+            let width =
+                crate::ui::tabs::measure_once(entry.name, theme::UI_SIZE, 400) + TREE_TEXT_PAD;
             if entry.is_dir {
                 widest_dir = widest_dir.max(width);
             } else {
@@ -1631,20 +1640,36 @@ mod width_tests {
         let model = &mut panel.model;
         model.insert_listing(
             key(&[]),
-            listing(&key(&[]), &[("src", true), ("a-rather-long-file-name.rs", false), ("z", false)]),
+            listing(
+                &key(&[]),
+                &[
+                    ("src", true),
+                    ("a-rather-long-file-name.rs", false),
+                    ("z", false),
+                ],
+            ),
         );
         model.insert_listing(
             key(&["src"]),
-            listing(&key(&["src"]), &[("nested-directory-with-a-long-name", true), ("b.rs", false)]),
+            listing(
+                &key(&["src"]),
+                &[("nested-directory-with-a-long-name", true), ("b.rs", false)],
+            ),
         );
         model.insert_listing(
             key(&["src", "nested-directory-with-a-long-name"]),
             listing(
                 &key(&["src", "nested-directory-with-a-long-name"]),
-                &[("deep-file-with-an-even-longer-name-than-the-rest.txt", false)],
+                &[(
+                    "deep-file-with-an-even-longer-name-than-the-rest.txt",
+                    false,
+                )],
             ),
         );
-        model.insert_listing(key(&["unopened"]), listing(&key(&["unopened"]), &[("never-counted.txt", false)]));
+        model.insert_listing(
+            key(&["unopened"]),
+            listing(&key(&["unopened"]), &[("never-counted.txt", false)]),
+        );
         for path in [
             key(&[]),
             key(&["src"]),
@@ -1667,7 +1692,9 @@ mod width_tests {
         assert!((fast - walked).abs() < 0.01, "fast {fast} walked {walked}");
         assert!(fast > 12.0);
         // The widest name is the deepest one, so collapsing its directory narrows the result.
-        panel.model.set_expanded(&key(&["src", "nested-directory-with-a-long-name"]), false);
+        panel
+            .model
+            .set_expanded(&key(&["src", "nested-directory-with-a-long-name"]), false);
         let narrower = local_content_right(&entry, &panel, 12.0);
         assert!(narrower < fast);
     }

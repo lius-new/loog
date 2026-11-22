@@ -86,8 +86,16 @@ pub(crate) fn prepare_batch(app: &AppState, batch: &FileChangeBatch) -> Prepared
         .listings()
         .filter_map(|(key, previous)| {
             let next = working.listing(&key);
-            let unchanged = next.as_ref().is_some_and(|next| previous.same_entries(next));
-            (!unchanged).then(|| (key.clone(), previous.to_listing(), next.map(|next| next.to_listing())))
+            let unchanged = next
+                .as_ref()
+                .is_some_and(|next| previous.same_entries(next));
+            (!unchanged).then(|| {
+                (
+                    key.clone(),
+                    previous.to_listing(),
+                    next.map(|next| next.to_listing()),
+                )
+            })
         })
         .collect();
     let editing = if batch.requires_full_rescan

@@ -20,12 +20,12 @@ impl ByteSource for loog_editor_core::text::PieceText {
     }
 }
 
-impl ByteSource for loog_editor_core::text::FileText {
+impl ByteSource for loog_editor_core::text::SharedSource {
     fn len(&self) -> usize {
-        self.len()
+        loog_editor_core::text::TextSource::len(self.as_ref())
     }
     fn read(&self, range: Range<usize>) -> io::Result<Vec<u8>> {
-        loog_editor_core::text::FileText::read(self, range)
+        loog_editor_core::text::TextSource::read(self.as_ref(), range)
     }
 }
 
@@ -269,48 +269,5 @@ mod tests {
         .err()
         .unwrap();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-    }
-}
-
-#[cfg(test)]
-mod probe {
-    use super::*;
-
-    /// `LOOG_FILE_TEXT_PROBE=<path>`: where the time of searching a real file goes.
-    #[test]
-    #[ignore = "reads the file named by LOOG_FILE_TEXT_PROBE"]
-    fn where_the_time_of_a_large_search_goes() {
-        let path = std::env::var("LOOG_FILE_TEXT_PROBE").expect("set LOOG_FILE_TEXT_PROBE");
-        let file = loog_editor_core::text::FileText::open(std::path::Path::new(&path)).unwrap();
-        let total = file.len();
-        let started = std::time::Instant::now();
-        let mut at = 0;
-        let mut checksum = 0usize;
-        while at < total {
-            let bytes = file.read(at..(at + CHUNK_BYTES).min(total)).unwrap();
-            checksum += bytes.len();
-            at += bytes.len();
-        }
-        println!(
-            "PROBE read only: {:?} ({checksum} bytes)",
-            started.elapsed()
-        );
-        let started = std::time::Instant::now();
-        let mut at = 0;
-        let mut hash = HASH_SEED;
-        while at < total {
-            let bytes = file.read(at..(at + CHUNK_BYTES).min(total)).unwrap();
-            hash = hash_continue(hash, &bytes);
-            at += bytes.len();
-        }
-        println!("PROBE read + hash: {:?} ({hash})", started.elapsed());
-        let matcher = super::tests::matcher("row 2217465", false);
-        let started = std::time::Instant::now();
-        let found = search(&matcher, &file, &AtomicBool::new(false), 100).unwrap();
-        println!(
-            "PROBE full search: {:?}, {} matches",
-            started.elapsed(),
-            found.matches.len()
-        );
     }
 }
