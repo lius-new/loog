@@ -2241,12 +2241,12 @@ impl ExtensionService {
             };
             ids.push(id);
             let document = &app.workspace.documents[file];
-            let synchronized = document.buffer.len()
-                <= app
-                    .preferences
+            let synchronized = document.within_language_limit(
+                app.preferences
                     .values()
                     .language_features
-                    .max_document_bytes;
+                    .max_document_bytes,
+            );
             // A package for some languages hears only about their documents, so a document
             // of another language neither feeds it nor wakes it.
             for package in self
@@ -2618,13 +2618,12 @@ impl ExtensionService {
         let Some((file, document)) = found.map(|(file, d)| (*file, d)) else {
             return 0;
         };
-        if document.buffer.len()
-            > app
-                .preferences
+        if !document.within_language_limit(
+            app.preferences
                 .values()
                 .language_features
-                .max_document_bytes
-        {
+                .max_document_bytes,
+        ) {
             return 0;
         }
         // Only the state the request was made for; a document that moved on is not asked.
@@ -3829,13 +3828,12 @@ impl ExtensionService {
             })
             .collect();
         for (file, path, language, version) in current {
-            if app.workspace.documents[file].buffer.len()
-                > app
-                    .preferences
+            if !app.workspace.documents[file].within_language_limit(
+                app.preferences
                     .values()
                     .language_features
-                    .max_document_bytes
-            {
+                    .max_document_bytes,
+            ) {
                 continue;
             }
             let Some(doc_id) = self.seen.get(file).copied() else {

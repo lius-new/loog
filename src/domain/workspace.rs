@@ -110,7 +110,14 @@ impl OpenDocument {
     pub(crate) fn format(&self) -> crate::domain::encoding::TextFormat {
         crate::domain::encoding::TextFormat::from_code(self.buffer.metadata())
     }
+    /// Whether the text is small enough, and held as one string, to be given to language
+    /// servers. A document whose text stays in its file has no string to give: a server would
+    /// be told it is empty, and answer for that, whatever limit is set.
+    pub(crate) fn within_language_limit(&self, max_bytes: usize) -> bool {
+        !self.buffer.is_file_backed() && self.buffer.len() <= max_bytes
+    }
     pub(crate) fn is_dirty(&self) -> bool {
+
         if !self.is_text() {
             return false;
         }

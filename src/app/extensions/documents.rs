@@ -198,6 +198,7 @@ impl ExtensionService {
                     .values()
                     .language_features
                     .max_document_bytes
+                || document.buffer.is_file_backed()
             {
                 continue;
             }
@@ -262,12 +263,12 @@ impl ExtensionService {
                                 )
                         })
                     });
-                let synchronized = document.buffer.len()
-                    <= app
-                        .preferences
+                let synchronized = document.within_language_limit(
+                    app.preferences
                         .values()
                         .language_features
-                        .max_document_bytes;
+                        .max_document_bytes,
+                );
                 let stamp = ViewStamp {
                     version: document.buffer.version(),
                     incarnation: document.incarnation,

@@ -943,3 +943,21 @@ fn a_file_backed_document_is_reloaded_through_the_watcher_path_too() {
     assert_eq!(editor.line_text(lines - 1), "new last line");
     assert!(!workspace.is_dirty(id));
 }
+
+#[test]
+fn a_file_backed_document_is_never_given_to_language_servers_whatever_the_limit() {
+    let dir = Temp::new();
+    let large = dir.0.join("large.rs");
+    let small = dir.0.join("small.rs");
+    let row = "fn row() {}\n";
+    std::fs::write(&large, row.repeat(files::MAX_EDITABLE_FILE_BYTES as usize / row.len() + 1)).unwrap();
+    std::fs::write(&small, row).unwrap();
+    let mut workspace = Workspace::new();
+    let large_id = open(&mut workspace, &large);
+    let small_id = open(&mut workspace, &small);
+    // Even a limit that would admit it: it has no string of its own to give, so a server
+    // would be told the document is empty.
+    assert!(!workspace.documents[&large_id].within_language_limit(usize::MAX));
+    assert!(workspace.documents[&small_id].within_language_limit(1024));
+    assert!(!workspace.documents[&small_id].within_language_limit(4));
+}
