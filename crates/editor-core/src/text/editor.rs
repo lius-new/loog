@@ -57,7 +57,7 @@ impl<'a> Editor<'a> {
         (!ranges.is_empty()).then(|| {
             ranges
                 .into_iter()
-                .map(|r| &self.buffer.text()[r])
+                .map(|r| self.buffer.slice(r))
                 .collect::<Vec<_>>()
                 .join(self.buffer.line_ending())
         })

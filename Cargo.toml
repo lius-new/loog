@@ -119,6 +119,10 @@ opt-level = 2
 [profile.dev.package.lgui-widgets]
 opt-level = 2
 
+# Scanning and indexing very large files must keep up in dev builds too.
+[profile.dev.package.loog-editor-core]
+opt-level = 2
+
 # GIF decompression, composition and pixel transfer must also keep up in dev builds.
 [profile.dev.package.image]
 opt-level = 2

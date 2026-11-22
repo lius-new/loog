@@ -257,13 +257,13 @@ pub fn type_text(editor: &mut EditorMut<'_>, text: &str, language: &str) {
             let c = s.cursor;
             if r.is_empty()
                 && editor.is_auto_close(c)
-                && editor.text()[c..].starts_with(ch)
+                && editor.char_after(c) == Some(ch)
                 && matches!(ch, ')' | ']' | '}' | '\'' | '"')
             {
                 return Plan::keep(Selection::caret(c + ch.len_utf8()));
             }
             let start = editor.line_start(editor.line_of(c));
-            let prefix = &editor.text()[start..c];
+            let prefix = editor.slice(start..c);
             if r.is_empty()
                 && matches!(ch, '}' | ']' | ')')
                 && !prefix.is_empty()
@@ -271,7 +271,7 @@ pub fn type_text(editor: &mut EditorMut<'_>, text: &str, language: &str) {
                     other.cursor == c || editor.line_of(other.cursor) != editor.line_of(c)
                 })
                 && prefix.chars().all(|c| c == ' ' || c == '\t')
-                && crate::normal::code_context(editor.text(), c, language)
+                && crate::normal::context_at(editor, c, language)
             {
                 let removed = if prefix.ends_with('\t') {
                     1
@@ -292,10 +292,10 @@ pub fn type_text(editor: &mut EditorMut<'_>, text: &str, language: &str) {
                 }
                 _ => return Plan::replace(s, text),
             };
-            let prev = editor.text()[..r.start].chars().next_back();
-            let next = editor.text()[r.end..].chars().next();
+            let prev = editor.char_before(r.start);
+            let next = editor.char_after(r.end);
             if !editor.options().auto_pairs
-                || !crate::normal::code_context(editor.text(), r.start, language)
+                || !crate::normal::context_at(editor, r.start, language)
                 || language == "rust" && prev == Some('\'')
                 || matches!(ch, '\'' | '"')
                     && prev.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '\\')
@@ -306,7 +306,7 @@ pub fn type_text(editor: &mut EditorMut<'_>, text: &str, language: &str) {
             {
                 return Plan::replace(s, text);
             }
-            let content = &editor.text()[r.clone()];
+            let content = editor.slice(r.clone());
             let end = content.len() + 1;
             let mut p = Plan::at(r.clone(), &format!("{ch}{content}{close}"), 1);
             if !r.is_empty() {
@@ -332,18 +332,19 @@ pub fn enter(editor: &mut EditorMut<'_>) {
         .map(|s| {
             let r = range(s);
             let start = editor.line_start(editor.line_of(r.start));
-            let prefix = &editor.text()[start..r.start];
+            let prefix = editor.slice(start..r.start);
             let indent: String = prefix
                 .chars()
                 .take_while(|&c| c == ' ' || c == '\t')
                 .collect();
             let a = prefix.trim_end().chars().next_back();
-            let b = editor.text()[r.end..]
+            let b = editor
+                .rest_of_line(r.end)
                 .trim_start_matches([' ', '\t'])
                 .chars()
                 .next();
             let code =
-                crate::normal::code_context(editor.text(), r.start, &editor.options().language);
+                crate::normal::context_at(editor, r.start, &editor.options().language);
             let extra = if code
                 && (matches!(a, Some('{' | '[' | '('))
                     || a == Some(':')
@@ -474,7 +475,7 @@ pub fn lines(editor: &mut EditorMut<'_>, operation: crate::normal::LineOperation
                 let down = operation == CopyDown;
                 let eof = last + 1 == editor.line_count();
                 let nl = editor.line_ending();
-                let block = &editor.text()[start..end];
+                let block = editor.slice(start..end);
                 let value = if eof {
                     if down {
                         format!("{nl}{block}")
@@ -515,7 +516,7 @@ pub fn lines(editor: &mut EditorMut<'_>, operation: crate::normal::LineOperation
                         } else {
                             editor.len()
                         };
-                        &editor.text()[editor.line_end(row)..next]
+                        editor.slice(editor.line_end(row)..next)
                     })
                     .collect();
                 let mut order: Vec<_> = (0..contents.len()).collect();
@@ -530,7 +531,7 @@ pub fn lines(editor: &mut EditorMut<'_>, operation: crate::normal::LineOperation
                 for (position, &original) in order.iter().enumerate() {
                     origins[original] = value.len();
                     value.push_str(contents[original]);
-                    value.push_str(endings[position]);
+                    value.push_str(&endings[position]);
                     if low + original == last {
                         boundary = value.len();
                     }
@@ -585,7 +586,7 @@ pub fn comment(editor: &mut EditorMut<'_>, prefix: &str) {
         .map(|(at, _)| {
             if remove {
                 let n =
-                    prefix.len() + usize::from(editor.text()[at + prefix.len()..].starts_with(' '));
+                    prefix.len() + usize::from(editor.char_after(at + prefix.len()) == Some(' '));
                 Edit::delete(at..at + n)
             } else {
                 Edit::insert(at, format!("{prefix} "))

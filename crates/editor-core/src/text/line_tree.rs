@@ -3,7 +3,7 @@
 use super::lines::Position;
 use std::{ops::Range, sync::Arc};
 
-const BLOCK: usize = 512;
+pub(super) const BLOCK: usize = 512;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Line {
@@ -24,8 +24,22 @@ enum Kind {
         lines: Vec<Line>,
         starts: Vec<usize>,
     },
+    /// A leaf of ordinary short lines keeps only its totals. Its lines are read back from the
+    /// text when needed, so a document costs a few bytes per block rather than per line.
+    Packed,
     Branch(Arc<Node>, Arc<Node>),
 }
+
+/// A leaf found by row or byte, with where it starts. `data` is `None` for a packed leaf.
+pub(super) struct Located<'a> {
+    pub base_row: usize,
+    pub base_byte: usize,
+    pub rows: usize,
+    pub bytes: usize,
+    pub data: Option<(&'a [Line], &'a [usize])>,
+}
+
+const NEEDS_TEXT: &str = "a packed block was read without the text it was packed from";
 #[derive(Clone, Debug)]
 struct Node {
     rows: usize,
@@ -55,6 +69,22 @@ fn leaf(lines: Vec<Line>) -> Arc<Node> {
         height: 1,
         kind: Kind::Leaf { lines, starts },
     })
+}
+/// The leaf without its lines, unless a line carries checkpoints that cannot be recomputed cheaply.
+fn pack(node: &Arc<Node>) -> Arc<Node> {
+    match &node.kind {
+        Kind::Leaf { lines, .. } if lines.iter().all(|line| line.positions.is_none()) => {
+            Arc::new(Node {
+                rows: node.rows,
+                bytes: node.bytes,
+                width: node.width,
+                crlf: node.crlf,
+                height: 1,
+                kind: Kind::Packed,
+            })
+        }
+        _ => node.clone(),
+    }
 }
 fn branch(left: Arc<Node>, right: Arc<Node>) -> Arc<Node> {
     Arc::new(Node {
@@ -132,6 +162,8 @@ fn split(root: Link, row: usize) -> (Link, Link) {
             Some(leaf(lines[..row].to_vec())),
             Some(leaf(lines[row..].to_vec())),
         ),
+        // Callers split at block boundaries only, which never reach inside a leaf.
+        Kind::Packed => unreachable!("{NEEDS_TEXT}"),
         Kind::Branch(left, right) => {
             if row < left.rows {
                 let (a, b) = split(Some(left.clone()), row);
@@ -141,6 +173,29 @@ fn split(root: Link, row: usize) -> (Link, Link) {
                 (join(Some(left.clone()), a), b)
             }
         }
+    }
+}
+
+fn located<'a>(node: &'a Node, kind: &'a Kind, base_row: usize, base_byte: usize) -> Located<'a> {
+    Located {
+        base_row,
+        base_byte,
+        rows: node.rows,
+        bytes: node.bytes,
+        data: match kind {
+            Kind::Leaf { lines, starts } => Some((lines.as_slice(), starts.as_slice())),
+            _ => None,
+        },
+    }
+}
+fn build(nodes: &[Arc<Node>]) -> Link {
+    match nodes.len() {
+        0 => None,
+        1 => Some(nodes[0].clone()),
+        n => Some(branch(
+            build(&nodes[..n / 2]).unwrap(),
+            build(&nodes[n / 2..]).unwrap(),
+        )),
     }
 }
 
@@ -169,18 +224,106 @@ impl LineTree {
             remaining -= size;
             leaves.push(leaf(block));
         }
-        fn build(nodes: &[Arc<Node>]) -> Link {
-            match nodes.len() {
-                0 => None,
-                1 => Some(nodes[0].clone()),
-                n => Some(branch(
-                    build(&nodes[..n / 2]).unwrap(),
-                    build(&nodes[n / 2..]).unwrap(),
-                )),
-            }
-        }
         Self {
             root: build(&leaves),
+        }
+    }
+    /// `count` blocks made one at a time and packed at once, so a large text never holds its
+    /// per-line data all at the same time. `block(i)` gives the lines of block `i`.
+    pub fn from_packed_blocks(count: usize, mut block: impl FnMut(usize) -> Vec<Line>) -> Self {
+        let leaves: Vec<_> = (0..count).map(|i| pack(&leaf(block(i)))).collect();
+        Self {
+            root: build(&leaves),
+        }
+    }
+    /// Pack the leaves that touch `rows`, after edits left them with their lines in memory.
+    pub fn pack_range(&mut self, rows: Range<usize>) {
+        fn visit(node: &mut Arc<Node>, base: usize, rows: &Range<usize>) {
+            if base + node.rows <= rows.start || base >= rows.end {
+                return;
+            }
+            match &node.kind {
+                Kind::Leaf { .. } => *node = pack(node),
+                Kind::Packed => {}
+                Kind::Branch(..) => {
+                    let Kind::Branch(left, right) = &mut Arc::make_mut(node).kind else {
+                        unreachable!()
+                    };
+                    let split = base + left.rows;
+                    visit(left, base, rows);
+                    visit(right, split, rows);
+                }
+            }
+        }
+        if let Some(root) = self.root.as_mut() {
+            visit(root, 0, &rows);
+        }
+    }
+    /// Bring a packed leaf's lines back into memory. `read` gets the leaf's first byte, its byte
+    /// length and whether it is the last leaf, and returns its lines read from the text.
+    pub fn unpack(&mut self, row: usize, read: impl FnOnce(usize, usize, bool) -> Vec<Line>) {
+        let found = self.locate_row(row);
+        if found.data.is_some() {
+            return;
+        }
+        let (base_row, base_byte, rows, bytes) =
+            (found.base_row, found.base_byte, found.rows, found.bytes);
+        let lines = read(base_byte, bytes, base_row + rows == self.len());
+        assert_eq!(lines.len(), rows, "a packed block's lines were read back wrongly");
+        fn visit(node: &mut Arc<Node>, row: usize, new: Arc<Node>) {
+            if let Kind::Branch(..) = node.kind {
+                let Kind::Branch(left, right) = &mut Arc::make_mut(node).kind else {
+                    unreachable!()
+                };
+                if row < left.rows {
+                    visit(left, row, new);
+                } else {
+                    visit(right, row - left.rows, new);
+                }
+            } else {
+                *node = new;
+            }
+        }
+        visit(self.root.as_mut().unwrap(), row, leaf(lines));
+    }
+    /// The leaf holding `row`.
+    pub fn locate_row(&self, mut row: usize) -> Located<'_> {
+        let (mut base_row, mut base_byte) = (0, 0);
+        let mut node = self.root.as_deref().unwrap();
+        loop {
+            match &node.kind {
+                Kind::Branch(left, right) => {
+                    if row < left.rows {
+                        node = left;
+                    } else {
+                        row -= left.rows;
+                        base_row += left.rows;
+                        base_byte += left.bytes;
+                        node = right;
+                    }
+                }
+                kind => return located(node, kind, base_row, base_byte),
+            }
+        }
+    }
+    /// The leaf holding byte `offset`; the end of the text belongs to the last leaf.
+    pub fn locate_byte(&self, mut offset: usize) -> Located<'_> {
+        let (mut base_row, mut base_byte) = (0, 0);
+        let mut node = self.root.as_deref().unwrap();
+        loop {
+            match &node.kind {
+                Kind::Branch(left, right) => {
+                    if offset < left.bytes {
+                        node = left;
+                    } else {
+                        offset -= left.bytes;
+                        base_row += left.rows;
+                        base_byte += left.bytes;
+                        node = right;
+                    }
+                }
+                kind => return located(node, kind, base_row, base_byte),
+            }
         }
     }
     pub fn len(&self) -> usize {
@@ -192,52 +335,24 @@ impl LineTree {
     pub fn crlf_count(&self) -> usize {
         self.root.as_ref().map_or(0, |n| n.crlf)
     }
-    fn block(&self, mut row: usize) -> (usize, usize, &[Line], &[usize]) {
-        let (mut base, mut bytes) = (0, 0);
-        let mut node = self.root.as_deref().unwrap();
-        loop {
-            match &node.kind {
-                Kind::Leaf { lines, starts } => return (base, bytes, lines, starts),
-                Kind::Branch(left, right) => {
-                    if row < left.rows {
-                        node = left;
-                    } else {
-                        row -= left.rows;
-                        base += left.rows;
-                        bytes += left.bytes;
-                        node = right;
-                    }
-                }
-            }
-        }
-    }
+    /// A line's data. Only for leaves with their lines in memory.
     pub fn get(&self, row: usize) -> &Line {
-        let (base, _, lines, _) = self.block(row);
-        &lines[row - base]
+        let found = self.locate_row(row);
+        &found.data.expect(NEEDS_TEXT).0[row - found.base_row]
     }
+    #[cfg(test)]
     pub fn start(&self, row: usize) -> usize {
-        let (base, bytes, _, starts) = self.block(row);
-        bytes + starts[row - base]
+        let found = self.locate_row(row);
+        found.base_byte + found.data.expect(NEEDS_TEXT).1[row - found.base_row]
     }
-    pub fn line_of(&self, mut offset: usize) -> usize {
-        let mut base = 0;
-        let mut node = self.root.as_deref().unwrap();
-        loop {
-            match &node.kind {
-                Kind::Leaf { starts, .. } => {
-                    return base + starts.partition_point(|&s| s <= offset).saturating_sub(1);
-                }
-                Kind::Branch(left, right) => {
-                    if offset < left.bytes {
-                        node = left;
-                    } else {
-                        offset -= left.bytes;
-                        base += left.rows;
-                        node = right;
-                    }
-                }
-            }
-        }
+    #[cfg(test)]
+    pub fn line_of(&self, offset: usize) -> usize {
+        let found = self.locate_byte(offset);
+        let (_, starts) = found.data.expect(NEEDS_TEXT);
+        found.base_row
+            + starts
+                .partition_point(|&s| s <= offset - found.base_byte)
+                .saturating_sub(1)
     }
     pub fn extend(&mut self, lines: Vec<Line>) {
         self.root = join(self.root.take(), Self::from_lines(lines).root);
@@ -255,21 +370,21 @@ impl LineTree {
         }
         // Include neighbouring blocks so repeated insertions do not leave a new
         // tiny leaf behind on every edit. More distant blocks stay shared.
-        let (mut first, _, _, _) = self.block(range.start.min(self.len() - 1));
-        let (last, _, right, _) = self.block(
+        let mut first = self.locate_row(range.start.min(self.len() - 1)).base_row;
+        let last = self.locate_row(
             range
                 .end
                 .saturating_sub(1)
                 .max(range.start)
                 .min(self.len() - 1),
         );
-        let mut end = last + right.len();
+        let mut end = last.base_row + last.rows;
         if first > 0 {
-            first = self.block(first - 1).0;
+            first = self.locate_row(first - 1).base_row;
         }
         if end < self.len() {
-            let (base, _, lines, _) = self.block(end);
-            end = base + lines.len();
+            let next = self.locate_row(end);
+            end = next.base_row + next.rows;
         }
         let rows = (first..range.start)
             .map(|row| self.get(row).clone())
@@ -295,6 +410,7 @@ impl LineTree {
                     node.width = lines.iter().map(|l| l.width).max().unwrap_or(0);
                     node.crlf = lines.iter().filter(|l| l.crlf).count();
                 }
+                Kind::Packed => unreachable!("{NEEDS_TEXT}"),
                 Kind::Branch(left, right) => {
                     if row < left.rows {
                         visit(left, row, update);
@@ -308,6 +424,18 @@ impl LineTree {
             }
         }
         visit(self.root.as_mut().unwrap(), row, update);
+    }
+    /// Leaves holding their lines in memory (the rest keep only their totals).
+    #[cfg(test)]
+    pub fn unpacked_leaves(&self) -> usize {
+        fn count(node: &Node) -> usize {
+            match &node.kind {
+                Kind::Leaf { .. } => 1,
+                Kind::Packed => 0,
+                Kind::Branch(left, right) => count(left) + count(right),
+            }
+        }
+        self.root.as_deref().map_or(0, count)
     }
     pub fn iter(&self) -> Iter<'_> {
         Iter {
@@ -329,6 +457,7 @@ impl<'a> Iterator for Iter<'a> {
             }
             match &self.stack.pop()?.kind {
                 Kind::Leaf { lines, .. } => self.current = lines.iter(),
+                Kind::Packed => unreachable!("{NEEDS_TEXT}"),
                 Kind::Branch(left, right) => {
                     self.stack.push(right);
                     self.stack.push(left);
@@ -368,7 +497,7 @@ mod tests {
         }
         fn leaves(node: &Node) -> usize {
             match &node.kind {
-                Kind::Leaf { .. } => 1,
+                Kind::Leaf { .. } | Kind::Packed => 1,
                 Kind::Branch(a, b) => leaves(a) + leaves(b),
             }
         }
@@ -385,6 +514,7 @@ mod tests {
                 assert_eq!(starts.len(), lines.len());
                 assert_eq!(node.height, 1);
             }
+            Kind::Packed => assert_eq!(node.height, 1),
             Kind::Branch(a, b) => {
                 verify(a);
                 verify(b);

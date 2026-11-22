@@ -13,7 +13,7 @@ use super::selection::Selection;
 
 /// The line break ending the first line, if it has one.
 fn first_line_ending(text: &str, lines: &LineIndex) -> Option<&'static str> {
-    let next = lines.next_start(0)?;
+    let next = lines.next_start(text, 0)?;
     Some(if next >= 2 && text.as_bytes()[next - 2] == b'\r' {
         "\r\n"
     } else {
@@ -115,7 +115,49 @@ pub struct TextBuffer {
     bracket_index: Arc<std::sync::OnceLock<Vec<(usize, usize)>>>,
     options: super::options::EditingOptions,
     file_options: super::options::FileOptions,
+    /// A text that stays in its file and is read in ranges; `text` and `lines` are then empty.
+    /// Such a buffer is read only.
+    file: Option<super::pieces::PieceText>,
 }
+
+/// Apply sorted, valid edits to a file's pieces. Undo keeps the text an edit removes, so how
+/// much one edit may remove is limited.
+fn apply_to_pieces(
+    file: &mut super::pieces::PieceText,
+    edits: Vec<Edit>,
+) -> Result<ChangeSet, EditError> {
+    let removed: usize = edits.iter().map(|edit| edit.range.len()).sum();
+    if removed > super::pieces::MAX_REMOVED {
+        return Err(EditError::TooLarge);
+    }
+    let mut changes = Vec::with_capacity(edits.len());
+    let mut delta = 0isize;
+    for edit in &edits {
+        changes.push(Change {
+            new_start: (edit.range.start as isize + delta) as usize,
+            removed: file.text(edit.range.clone()),
+            old: edit.range.clone(),
+            inserted: edit.text.clone(),
+        });
+        delta += edit.text.len() as isize - edit.range.len() as isize;
+    }
+    // Later offsets first, so the earlier ones stay valid.
+    for edit in edits.into_iter().rev() {
+        file.replace(edit.range, &edit.text);
+    }
+    Ok(ChangeSet::new(changes))
+}
+
+/// The shared empty text of every file-backed buffer, so their text snapshots compare equal to
+/// the saved snapshot of their document and they never look modified.
+fn empty_text() -> Arc<String> {
+    static EMPTY: std::sync::OnceLock<Arc<String>> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(Arc::default).clone()
+}
+
+/// A line is read at most this far when a query needs its text, so one enormous line cannot
+/// make a single frame read the whole file.
+const MAX_LINE_READ: usize = 1 << 20;
 
 impl TextBuffer {
     pub fn new(text: impl Into<String>) -> Self {
@@ -136,7 +178,85 @@ impl TextBuffer {
             bracket_index: Arc::default(),
             options: Default::default(),
             file_options: Default::default(),
+            file: None,
         }
+    }
+
+    /// A read-only buffer over a text that stays in its file.
+    pub fn from_file(file: super::file_text::FileText) -> Self {
+        let mut buffer = Self::new(String::new());
+        buffer.text = empty_text();
+        buffer.observed_ending = file.line_count() > 1;
+        buffer.ending = if file.first_line_is_crlf() { "\r\n" } else { "\n" };
+        buffer.file = Some(super::pieces::PieceText::new(file));
+        buffer
+    }
+
+    /// Whether the text stays in its file: such a buffer cannot be edited, and its text is not
+    /// available as one string (see `slice`).
+    pub fn is_file_backed(&self) -> bool {
+        self.file.is_some()
+    }
+
+    /// The text of a file-backed buffer as it is now, to be written out from another thread.
+    pub fn file_pieces(&self) -> Option<super::pieces::PieceText> {
+        self.file.clone()
+    }
+
+    /// After a file-backed buffer's text was written to its file, read from the file again: the
+    /// text is unchanged, so only where it is stored changes, and it is the file as opened again.
+    pub fn rebase_file(&mut self, file: super::file_text::FileText) {
+        if self.file.is_some() {
+            self.file = Some(super::pieces::PieceText::new(file));
+        }
+    }
+
+    /// For a file-backed buffer: whether its text is still exactly the file as it was opened.
+    pub fn file_unchanged(&self) -> Option<bool> {
+        self.file.as_ref().map(|file| file.is_unchanged())
+    }
+
+    /// The bytes `range` of the text. Borrowed from memory, or read from the file.
+    pub fn slice(&self, range: Range<usize>) -> std::borrow::Cow<'_, str> {
+        match &self.file {
+            None => std::borrow::Cow::Borrowed(&self.text[range]),
+            Some(file) => std::borrow::Cow::Owned(file.text(range)),
+        }
+    }
+
+    /// The line containing `offset` with its line break, and where it starts. Read from the
+    /// file, at most `MAX_LINE_READ` bytes of it.
+    /// A small in-memory buffer holding one line's content, to answer questions about the line
+    /// with the same code as for any text, and where the line starts. Kept in a cache.
+    fn line_proxy(&self, line: usize) -> (usize, Arc<TextBuffer>) {
+        self.line_proxy_of(line, true)
+    }
+
+    /// As `line_proxy`, optionally with the line break, which word queries treat as text.
+    fn line_proxy_of(&self, line: usize, with_break: bool) -> (usize, Arc<TextBuffer>) {
+        let file = self.file.as_ref().expect("only for file-backed buffers");
+        let range = if with_break {
+            self.line_range_with_break(line)
+        } else {
+            self.line_range(line)
+        };
+        let key = (range.start, self.options.tab_width * 2 + usize::from(with_break));
+        if let Some(proxy) = file.cached_line(key) {
+            return (range.start, proxy);
+        }
+        let end = range.end.min(range.start + MAX_LINE_READ);
+        let mut proxy = TextBuffer::new(file.text(range.start..end));
+        proxy.configure(self.options.clone());
+        let proxy = Arc::new(proxy);
+        file.cache_line(key, proxy.clone());
+        (range.start, proxy)
+    }
+
+    fn file_line(&self, file: &super::pieces::PieceText, offset: usize) -> (usize, String) {
+        let line = file.line_of(offset);
+        let start = file.line_start(line);
+        let end = file.line_start(line + 1).min(start + MAX_LINE_READ);
+        (start, file.text(start..end))
     }
 
     /// Opaque document metadata, with undo steps interleaved with text edits.
@@ -184,6 +304,9 @@ impl TextBuffer {
     }
 
     pub fn matches_snapshot(&self, saved: &Arc<String>) -> bool {
+        if let Some(file) = &self.file {
+            return file.is_unchanged();
+        }
         Arc::ptr_eq(&self.text, saved) || self.text.as_str() == saved.as_str()
     }
 
@@ -192,11 +315,11 @@ impl TextBuffer {
     }
 
     pub fn len(&self) -> usize {
-        self.text.len()
+        self.file.as_ref().map_or(self.text.len(), |file| file.len())
     }
 
     pub fn is_empty(&self) -> bool {
-        self.text.is_empty()
+        self.len() == 0
     }
 
     /// Increases with every change to the text.
@@ -239,7 +362,19 @@ impl TextBuffer {
         self.version = version;
     }
 
+    /// As `reload`, for a text that stays in its file: the buffer now reads `file` instead.
+    pub fn reload_file(&mut self, file: super::file_text::FileText) {
+        let version = self.version + 1;
+        let options = self.options.clone();
+        let file_options = self.file_options;
+        *self = Self::from_file(file);
+        self.configure(options);
+        self.file_options = file_options;
+        self.version = version;
+    }
+
     pub fn install_prepared(&mut self, mut prepared: Self) {
+
         prepared.configure(self.options.clone());
         if prepared.file_options == Default::default() {
             prepared.file_options = self.file_options;
@@ -251,7 +386,10 @@ impl TextBuffer {
     /// Validate and apply `edits`, all given in the current text's offsets.
     /// Nothing changes when any edit is invalid.
     pub(super) fn apply_edits(&mut self, edits: Vec<Edit>) -> Result<ChangeSet, EditError> {
-        let edits = validate(&self.text, edits)?;
+        let edits = match &self.file {
+            Some(file) => super::change::validate_file(file, edits)?,
+            None => validate(&self.text, edits)?,
+        };
         if edits.is_empty() {
             return Ok(ChangeSet::default());
         }
@@ -270,7 +408,17 @@ impl TextBuffer {
             })
             .collect();
         self.bracket_index = Arc::default();
-        let changes = if Arc::strong_count(&self.text) > 1 {
+        // Lines of the blocks these edits rebuild are read from the text, so before it changes.
+        if self.file.is_none() {
+            Arc::make_mut(&mut self.lines)
+                .prepare(&self.text, edits.iter().map(|e| e.range.clone()));
+        }
+        let changes = if let Some(file) = &mut self.file {
+            let changes = apply_to_pieces(file, edits)?;
+            // Each state of the text has its own identity, though it holds no string.
+            self.text = Arc::new(String::new());
+            changes
+        } else if Arc::strong_count(&self.text) > 1 {
             // Copy directly into the final layout with insertion headroom.
             // Cloning String first would allocate again when it grows, and a
             // batch would then build another full output from that clone.
@@ -288,7 +436,9 @@ impl TextBuffer {
                 false
             }
         });
-        Arc::make_mut(&mut self.lines).update(&self.text, &changes);
+        if self.file.is_none() {
+            Arc::make_mut(&mut self.lines).update(&self.text, &changes);
+        }
         self.version += 1;
         let revision = super::revision::TextRevision {
             before_version,
@@ -318,6 +468,9 @@ impl TextBuffer {
         while journal.len() > 64 || journal.iter().map(|r| r.edits.len()).sum::<usize>() > 2048 {
             journal.pop_front();
         }
+        if self.file.is_some() {
+            return Ok(changes);
+        }
         if let Some(ending) = first_line_ending(&self.text, &self.lines) {
             self.ending = ending;
             self.observed_ending = true;
@@ -331,7 +484,10 @@ impl TextBuffer {
 
     /// Whether `edits` could be applied to the text now, without applying them.
     pub fn check_edits(&self, edits: Vec<Edit>) -> Result<(), EditError> {
-        super::change::validate(self.text(), edits).map(|_| ())
+        match &self.file {
+            Some(file) => super::change::validate_file(file, edits).map(|_| ()),
+            None => super::change::validate(self.text(), edits).map(|_| ()),
+        }
     }
 
     /// Edits made until `set_transaction(None)` form one undo step tagged `id`,
@@ -379,6 +535,15 @@ impl TextBuffer {
     // ---- Characters ----------------------------------------------------------
 
     fn char_floor(&self, offset: usize) -> usize {
+        if let Some(file) = &self.file {
+            let offset = offset.min(file.len());
+            let (start, line) = self.file_line(file, offset);
+            let mut local = (offset - start).min(line.len());
+            while !line.is_char_boundary(local) {
+                local -= 1;
+            }
+            return start + local;
+        }
         let mut offset = offset.min(self.text.len());
         while !self.text.is_char_boundary(offset) {
             offset -= 1;
@@ -387,6 +552,18 @@ impl TextBuffer {
     }
 
     pub fn is_grapheme_boundary(&self, offset: usize) -> bool {
+        if let Some(file) = &self.file {
+            if offset > file.len() {
+                return false;
+            }
+            let (start, line) = self.file_line(file, offset);
+            let local = offset - start;
+            return local <= line.len()
+                && line.is_char_boundary(local)
+                && GraphemeCursor::new(local, line.len(), true)
+                    .is_boundary(&line, 0)
+                    .unwrap_or(true);
+        }
         offset <= self.text.len()
             && self.text.is_char_boundary(offset)
             && GraphemeCursor::new(offset, self.text.len(), true)
@@ -400,6 +577,16 @@ impl TextBuffer {
         if self.is_grapheme_boundary(offset) {
             return offset;
         }
+        if let Some(file) = &self.file {
+            // A line is graphemes by itself, apart from a CRLF pair that its break holds whole.
+            let (start, line) = self.file_line(file, offset);
+            return start
+                + GraphemeCursor::new(offset - start, line.len(), true)
+                    .prev_boundary(&line, 0)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0);
+        }
         GraphemeCursor::new(offset, self.text.len(), true)
             .prev_boundary(&self.text, 0)
             .ok()
@@ -410,6 +597,15 @@ impl TextBuffer {
     /// The grapheme boundary after `offset`, or the end of the text.
     pub fn next_grapheme(&self, offset: usize) -> usize {
         let offset = self.grapheme_floor(offset);
+        if let Some(file) = &self.file {
+            let (start, line) = self.file_line(file, offset);
+            return start
+                + GraphemeCursor::new(offset - start, line.len(), true)
+                    .next_boundary(&line, 0)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(line.len());
+        }
         GraphemeCursor::new(offset, self.text.len(), true)
             .next_boundary(&self.text, 0)
             .ok()
@@ -420,6 +616,22 @@ impl TextBuffer {
     /// The grapheme boundary before `offset`, or the start of the text.
     pub fn prev_grapheme(&self, offset: usize) -> usize {
         let offset = self.char_floor(offset);
+        if let Some(file) = &self.file {
+            let (start, line) = self.file_line(file, offset);
+            if offset == start {
+                // The previous grapheme is in the line before.
+                return match start {
+                    0 => 0,
+                    _ => self.prev_grapheme_in_file(file, start),
+                };
+            }
+            return start
+                + GraphemeCursor::new(offset - start, line.len(), true)
+                    .prev_boundary(&line, 0)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0);
+        }
         GraphemeCursor::new(offset, self.text.len(), true)
             .prev_boundary(&self.text, 0)
             .ok()
@@ -427,10 +639,27 @@ impl TextBuffer {
             .unwrap_or(0)
     }
 
-    /// The grapheme starting at `offset`, if any.
+    /// The boundary before the line break that ends the line before `at`, `at` being a line start.
+    fn prev_grapheme_in_file(&self, file: &super::pieces::PieceText, at: usize) -> usize {
+        let (start, line) = self.file_line(file, at - 1);
+        start
+            + GraphemeCursor::new(line.len().min(at - start), line.len(), true)
+                .prev_boundary(&line, 0)
+                .ok()
+                .flatten()
+                .unwrap_or(0)
+    }
+
+    /// The grapheme starting at `offset`, if any. Not for file-backed buffers (use `slice`).
     pub fn grapheme_at(&self, offset: usize) -> Option<&str> {
         let start = self.grapheme_floor(offset);
         (start < self.text.len()).then(|| &self.text[start..self.next_grapheme(start)])
+    }
+
+    /// The grapheme starting at `offset`, if any, read from the file for a file-backed buffer.
+    pub fn grapheme_text(&self, offset: usize) -> Option<std::borrow::Cow<'_, str>> {
+        let start = self.grapheme_floor(offset);
+        (start < self.len()).then(|| self.slice(start..self.next_grapheme(start)))
     }
 
     /// Move both ends of a selection onto grapheme boundaries.
@@ -446,31 +675,50 @@ impl TextBuffer {
     // ---- Lines ---------------------------------------------------------------
 
     pub fn line_count(&self) -> usize {
-        self.lines.len()
+        self.file
+            .as_ref()
+            .map_or_else(|| self.lines.len(), |file| file.line_count())
     }
 
     /// The line containing `offset`. A line break belongs to the line it ends.
     pub fn line_of(&self, offset: usize) -> usize {
-        self.lines.line_of(offset.min(self.text.len()))
+        if let Some(file) = &self.file {
+            return file.line_of(offset);
+        }
+        self.lines.line_of(&self.text, offset.min(self.text.len()))
     }
 
     /// `offset` as a row and a byte column. Rows count LF bytes, matching
     /// parsers such as Tree-sitter; a CRLF pair is one break.
     pub fn byte_point(&self, offset: usize) -> super::revision::BytePoint {
-        let offset = offset.min(self.text.len());
-        let row = self.lines.line_of(offset);
+        let offset = offset.min(self.len());
+        let row = self.line_of(offset);
         super::revision::BytePoint {
             row,
-            column: offset - self.lines.start(row),
+            column: offset - self.line_start(row),
         }
     }
 
     pub fn line_start(&self, line: usize) -> usize {
-        self.lines.start(self.last_line_at_most(line))
+        if let Some(file) = &self.file {
+            return file.line_start(self.last_line_at_most(line));
+        }
+        self.lines.start(&self.text, self.last_line_at_most(line))
     }
 
     /// Where a line's content ends, before its line break.
     pub fn line_end(&self, line: usize) -> usize {
+        if let Some(file) = &self.file {
+            let line = self.last_line_at_most(line);
+            let start = file.line_start(line);
+            if line + 1 >= file.line_count() {
+                return file.len();
+            }
+            // Before the line break: the LF, and a CR in front of it.
+            let end = file.line_start(line + 1) - 1;
+            let cr = end > start && file.read(end - 1..end).is_ok_and(|byte| byte == [13]);
+            return end - usize::from(cr);
+        }
         self.lines
             .content_end(&self.text, self.last_line_at_most(line))
     }
@@ -483,7 +731,14 @@ impl TextBuffer {
     /// A line including its line break.
     pub fn line_range_with_break(&self, line: usize) -> Range<usize> {
         let line = self.last_line_at_most(line);
-        self.lines.start(line)..self.lines.next_start(line).unwrap_or(self.text.len())
+        if let Some(file) = &self.file {
+            return file.line_start(line)..file.line_start(line + 1);
+        }
+        self.lines.start(&self.text, line)
+            ..self
+                .lines
+                .next_start(&self.text, line)
+                .unwrap_or(self.text.len())
     }
 
     /// A line's content, without its line break.
@@ -491,25 +746,57 @@ impl TextBuffer {
         &self.text[self.line_range(line)]
     }
 
+    /// The character that ends before `offset`, if any.
+    pub fn char_before(&self, offset: usize) -> Option<char> {
+        let offset = self.char_floor(offset);
+        let bytes = self.slice(offset.saturating_sub(4)..offset);
+        bytes.chars().next_back()
+    }
+
+    /// The character that starts at `offset`, if any.
+    pub fn char_after(&self, offset: usize) -> Option<char> {
+        let offset = self.char_floor(offset);
+        self.slice(offset..(offset + 4).min(self.len()))
+            .chars()
+            .next()
+    }
+
+    /// The text from `offset` to the end of its line, line break included.
+    pub fn rest_of_line(&self, offset: usize) -> std::borrow::Cow<'_, str> {
+        let offset = offset.min(self.len());
+        self.slice(offset..self.line_range_with_break(self.line_of(offset)).end.max(offset))
+    }
+
+    /// A line's content, read from the file for a file-backed buffer.
+    pub fn line_text(&self, line: usize) -> std::borrow::Cow<'_, str> {
+        self.slice(self.line_range(line))
+    }
+
     pub fn lines(&self) -> impl Iterator<Item = &str> + '_ {
         (0..self.line_count()).map(|line| self.line(line))
     }
 
     fn last_line_at_most(&self, line: usize) -> usize {
-        line.min(self.lines.len() - 1)
+        line.min(self.line_count() - 1)
     }
 
     /// Zero-based line and character column of an offset.
     pub fn line_col(&self, offset: usize) -> (usize, usize) {
+        if self.file.is_some() {
+            let offset = self.char_floor(offset);
+            let line = self.line_of(offset);
+            let (start, proxy) = self.line_proxy(line);
+            return (line, proxy.line_col(offset - start).1);
+        }
         let offset = self.char_floor(offset);
         let line = self.line_of(offset);
         let position = self
             .lines
-            .position_by(line, offset - self.lines.start(line), |p| p.byte);
+            .position_by(line, offset - self.lines.start(&self.text, line), |p| p.byte);
         (
             line,
             position.chars
-                + self.text[self.lines.start(line) + position.byte..offset]
+                + self.text[self.lines.start(&self.text, line) + position.byte..offset]
                     .chars()
                     .count(),
         )
@@ -517,6 +804,10 @@ impl TextBuffer {
 
     /// The offset of a character column, clamped to the line's content.
     pub fn offset_at_char_column(&self, line: usize, column: usize) -> usize {
+        if self.file.is_some() {
+            let (start, proxy) = self.line_proxy(line);
+            return start + proxy.offset_at_char_column(0, column);
+        }
         let range = self.line_range(line);
         let position = self
             .lines
@@ -547,6 +838,9 @@ impl TextBuffer {
         self.file_options = options;
     }
     pub fn matching_brackets(&self, cursor: usize) -> Option<(usize, usize)> {
+        if self.file.is_some() {
+            return None;
+        }
         let pairs = self
             .bracket_index
             .get_or_init(|| super::brackets::index(self.text(), &self.options.language));
@@ -563,7 +857,7 @@ impl TextBuffer {
     }
     pub fn configure(&mut self, options: super::options::EditingOptions) {
         let options = options.clamped();
-        if options.tab_width != self.options.tab_width {
+        if options.tab_width != self.options.tab_width && self.file.is_none() {
             self.lines = Arc::new(LineIndex::with_tab_width(self.text(), options.tab_width));
         }
         if self.options.language != options.language {
@@ -575,7 +869,7 @@ impl TextBuffer {
         self.metadata = (self.metadata & !super::options::ENDING_MASK) | ending.code();
     }
     pub fn line_ending_label(&self) -> &'static str {
-        if self.lines.mixed_endings() {
+        if self.file.is_none() && self.lines.mixed_endings() {
             "Mixed"
         } else if self.line_ending() == "\r\n" {
             "CRLF"
@@ -589,9 +883,14 @@ impl TextBuffer {
     /// Display column of `offset` within its line (tabs and wide characters
     /// expanded).
     pub fn display_column(&self, offset: usize) -> usize {
+        if self.file.is_some() {
+            let offset = self.char_floor(offset);
+            let (start, proxy) = self.line_proxy(self.line_of(offset));
+            return proxy.display_column(offset - start);
+        }
         let offset = self.char_floor(offset);
         let line = self.line_of(offset);
-        let start = self.lines.start(line);
+        let start = self.lines.start(&self.text, line);
         let position = self.lines.position_by(line, offset - start, |p| p.byte);
         self.text[start + position.byte..offset]
             .graphemes(true)
@@ -603,6 +902,10 @@ impl TextBuffer {
     /// The last grapheme boundary of `line` whose display column does not pass
     /// `column`, so a column inside a wide character or tab rounds down.
     pub fn offset_at_display_column(&self, line: usize, column: usize) -> usize {
+        if self.file.is_some() {
+            let (start, proxy) = self.line_proxy(line);
+            return start + proxy.offset_at_display_column(0, column);
+        }
         let range = self.line_range(line);
         let position = self
             .lines
@@ -631,6 +934,12 @@ impl TextBuffer {
         left: usize,
         right: usize,
     ) -> Option<Range<usize>> {
+        if self.file.is_some() {
+            let (start, proxy) = self.line_proxy(line);
+            return proxy
+                .display_column_range(0, left, right)
+                .map(|range| start + range.start..start + range.end);
+        }
         let range = self.line_range(line);
         let position = self
             .lines
@@ -655,10 +964,17 @@ impl TextBuffer {
     }
 
     pub fn line_display_width(&self, line: usize) -> usize {
-        self.lines.width(self.last_line_at_most(line))
+        if self.file.is_some() {
+            return self.line_proxy(line).1.line_display_width(0);
+        }
+        self.lines.width(&self.text, self.last_line_at_most(line))
     }
 
     pub fn max_line_display_width(&self) -> usize {
+        if let Some(file) = &self.file {
+            // The longest line's bytes bound its width without reading every line.
+            return file.longest_line();
+        }
         self.lines.max_width()
     }
 
@@ -668,6 +984,12 @@ impl TextBuffer {
     /// whitespace, or a single punctuation mark. Unicode word boundaries
     /// join across `.` and `'`, so `a.rs` is cut at the dot into three.
     pub fn word_range(&self, offset: usize) -> Range<usize> {
+        if self.file.is_some() {
+            let offset = self.grapheme_floor(offset);
+            let (start, proxy) = self.line_proxy_of(self.line_of(offset), true);
+            let range = proxy.word_range((offset - start).min(proxy.len()));
+            return start + range.start..start + range.end;
+        }
         let offset = self.grapheme_floor(offset);
         let line = self.line_range_with_break(self.line_of(offset));
         let Some(segment) = self.text[line.clone()]
@@ -710,6 +1032,9 @@ impl TextBuffer {
         selected: Range<usize>,
         lines: Range<usize>,
     ) -> Vec<Range<usize>> {
+        if self.file.is_some() {
+            return Vec::new();
+        }
         const MAX_LEN: usize = 200;
         const MAX_FOUND: usize = 2000;
         if lines.is_empty() || selected.is_empty() || selected.len() > MAX_LEN {
@@ -743,6 +1068,27 @@ impl TextBuffer {
 
     /// The start of the word before `from`, skipping whitespace.
     pub fn word_left(&self, from: usize) -> usize {
+        if self.file.is_some() {
+            // The same search as below, one line at a time, going back until a word is found.
+            let from = self.char_floor(from);
+            let mut line = self.line_of(from);
+            let mut until = from;
+            loop {
+                let (start, proxy) = self.line_proxy_of(line, true);
+                let found = proxy.text()[..(until - start).min(proxy.len())]
+                    .split_word_bound_indices()
+                    .rev()
+                    .find(|(_, segment)| !segment.chars().all(char::is_whitespace));
+                if let Some((index, _)) = found {
+                    return start + index;
+                }
+                if line == 0 {
+                    return 0;
+                }
+                line -= 1;
+                until = self.line_range_with_break(line).end;
+            }
+        }
         self.text[..self.char_floor(from)]
             .split_word_bound_indices()
             .rev()
@@ -752,6 +1098,33 @@ impl TextBuffer {
 
     /// The end of the word after `from`, skipping leading whitespace.
     pub fn word_right(&self, from: usize) -> usize {
+        if self.file.is_some() {
+            let from = self.char_floor(from);
+            let mut line = self.line_of(from);
+            let mut at = from;
+            let (mut found, mut end, mut leading_space) = (false, from, None);
+            loop {
+                let (start, proxy) = self.line_proxy_of(line, true);
+                let rest = &proxy.text()[(at - start).min(proxy.len())..];
+                let leading = *leading_space
+                    .get_or_insert_with(|| rest.chars().next().is_some_and(char::is_whitespace));
+                for (index, segment) in rest.split_word_bound_indices() {
+                    let space = segment.chars().all(char::is_whitespace);
+                    if (found || leading) && !space {
+                        return end;
+                    }
+                    end = at + index + segment.len();
+                    if !space {
+                        found = true;
+                    }
+                }
+                if line + 1 >= self.line_count() {
+                    return end;
+                }
+                line += 1;
+                at = self.line_start(line);
+            }
+        }
         let from = self.char_floor(from);
         let rest = &self.text[from..];
         let mut end = 0;

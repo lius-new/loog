@@ -66,7 +66,7 @@ pub fn type_text(editor: &mut EditorMut<'_>, text: &str, language: &str) {
     let cursor = editor.cursor();
     if editor.selection().is_none()
         && editor.is_auto_close(cursor)
-        && editor.text()[cursor..].starts_with(ch)
+        && editor.char_after(cursor) == Some(ch)
         && matches!(ch, ')' | ']' | '}' | '\'' | '"')
     {
         editor.set_cursor(cursor + ch.len_utf8());
@@ -74,10 +74,10 @@ pub fn type_text(editor: &mut EditorMut<'_>, text: &str, language: &str) {
     }
     if editor.selection().is_none() && matches!(ch, '}' | ']' | ')') {
         let start = editor.line_start(editor.line_of(cursor));
-        let prefix = &editor.text()[start..cursor];
+        let prefix = editor.slice(start..cursor);
         if !prefix.is_empty()
             && prefix.chars().all(|c| c == ' ' || c == '\t')
-            && code_context(editor.text(), cursor, language)
+            && context_at(editor, cursor, language)
         {
             let removed = if prefix.ends_with('\t') {
                 1
@@ -107,11 +107,11 @@ pub fn type_text(editor: &mut EditorMut<'_>, text: &str, language: &str) {
     };
     let range = editor.selection().unwrap_or(cursor..cursor);
     let before = editor.selection_state();
-    let previous = editor.text()[..range.start].chars().next_back();
-    let next = editor.text()[range.end..].chars().next();
+    let previous = editor.char_before(range.start);
+    let next = editor.char_after(range.end);
     let quote = ch == '\'' || ch == '"';
     if (language == "rust" && previous == Some('\''))
-        || !code_context(editor.text(), range.start, language)
+        || !context_at(editor, range.start, language)
         || (quote && previous.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '\\'))
         || (range.is_empty()
             && next.is_some_and(|c| {
@@ -121,7 +121,7 @@ pub fn type_text(editor: &mut EditorMut<'_>, text: &str, language: &str) {
         insert(editor, text);
         return;
     }
-    let content = &editor.text()[range.clone()];
+    let content = editor.slice(range.clone());
     let value = format!("{ch}{content}{close}");
     let open = range.start;
     let end = open + 1 + content.len();
@@ -151,6 +151,11 @@ pub(crate) fn quotes(language: &str) -> bool {
 
 /// Bounded lexical fallback: uncertainty in long prefixes disables pairing.
 /// Comments and strings deliberately suppress pairs until a reliable boundary.
+/// `code_context` for the text before `offset` of any buffer; it only ever looks that far.
+pub(crate) fn context_at(buffer: &crate::text::TextBuffer, offset: usize, language: &str) -> bool {
+    offset <= 64 * 1024 && code_context(&buffer.slice(0..offset), offset, language)
+}
+
 pub(crate) fn code_context(text: &str, end: usize, language: &str) -> bool {
     if end > 64 * 1024 {
         return false;
@@ -271,21 +276,24 @@ pub fn enter(editor: &mut EditorMut<'_>) {
         .selection()
         .map_or(editor.cursor(), |range| range.start);
     let line_start = editor.line_start(editor.line_of(start));
-    let indent: String = editor.text()[line_start..start]
+    let indent: String = editor
+        .slice(line_start..start)
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
         .collect();
     let newline = editor.line_ending();
     let range = editor.selection().unwrap_or(start..start);
-    let before = editor.text()[line_start..start].trim_end();
-    let after = editor.text()[range.end..].trim_start_matches([' ', '\t']);
+    let before_text = editor.slice(line_start..start);
+    let before = before_text.trim_end();
+    let after_text = editor.rest_of_line(range.end);
+    let after = after_text.trim_start_matches([' ', '\t']);
     let opening = before.chars().next_back();
     let closing = after.chars().next();
     let pair = matches!(
         (opening, closing),
         (Some('{'), Some('}')) | (Some('['), Some(']')) | (Some('('), Some(')'))
     );
-    let extra = if code_context(editor.text(), start, &editor.options().language)
+    let extra = if context_at(editor, start, &editor.options().language)
         && (matches!(opening, Some('{' | '[' | '('))
             || opening == Some(':')
                 && matches!(editor.options().language.as_ref(), "python" | "yaml"))
@@ -338,7 +346,7 @@ pub fn indent(editor: &mut EditorMut<'_>, outdent: bool) {
             if !outdent {
                 return Some(Edit::insert(start, &indent));
             }
-            let rest = &editor.text()[start..editor.line_end(line)];
+            let rest = editor.slice(start..editor.line_end(line));
             let remove = if rest.starts_with('\t') {
                 1
             } else {

@@ -36,6 +36,8 @@ pub enum EditError {
     NotCharBoundary(usize),
     /// Two ranges overlap, or two insertions share one position.
     Overlapping(Range<usize>, Range<usize>),
+    /// An edit removes more text than undo can keep.
+    TooLarge,
 }
 
 impl fmt::Display for EditError {
@@ -48,6 +50,7 @@ impl fmt::Display for EditError {
                 write!(f, "offset {offset} is not on a character boundary")
             }
             Self::Overlapping(a, b) => write!(f, "edit ranges {a:?} and {b:?} overlap"),
+            Self::TooLarge => write!(f, "the edit removes too much text to undo"),
         }
     }
 }
@@ -55,17 +58,33 @@ impl fmt::Display for EditError {
 impl std::error::Error for EditError {}
 
 /// Check `edits` against `text` and return them sorted, without no-ops.
-pub(super) fn validate(text: &str, mut edits: Vec<Edit>) -> Result<Vec<Edit>, EditError> {
+pub(super) fn validate(text: &str, edits: Vec<Edit>) -> Result<Vec<Edit>, EditError> {
+    validate_with(text.len(), |offset| text.is_char_boundary(offset), edits)
+}
+
+/// As `validate`, for a text kept as pieces of a file.
+pub(super) fn validate_file(
+    text: &super::pieces::PieceText,
+    edits: Vec<Edit>,
+) -> Result<Vec<Edit>, EditError> {
+    validate_with(text.len(), |offset| text.is_char_boundary(offset), edits)
+}
+
+fn validate_with(
+    len: usize,
+    is_char_boundary: impl Fn(usize) -> bool,
+    mut edits: Vec<Edit>,
+) -> Result<Vec<Edit>, EditError> {
     for edit in &edits {
         let range = &edit.range;
-        if range.start > range.end || range.end > text.len() {
+        if range.start > range.end || range.end > len {
             return Err(EditError::OutOfBounds {
                 range: range.clone(),
-                len: text.len(),
+                len,
             });
         }
         for offset in [range.start, range.end] {
-            if !text.is_char_boundary(offset) {
+            if !is_char_boundary(offset) {
                 return Err(EditError::NotCharBoundary(offset));
             }
         }
