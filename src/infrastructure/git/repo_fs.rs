@@ -44,15 +44,27 @@ pub fn read(path: &Path, limit: usize) -> GitResult<Option<Vec<u8>>> {
     if remote::is_remote(path) {
         return remote::read_file(path, limit);
     }
-    match std::fs::read(path) {
-        Ok(bytes) if bytes.len() <= limit => Ok(Some(bytes)),
-        Ok(_) => Err(crate::features::git::error::GitError::new(
+    // The size first: a file over the limit is refused without being read into memory.
+    let too_large = || {
+        crate::features::git::error::GitError::new(
             crate::features::git::error::GitErrorKind::Unsupported,
             "The file is larger than Git reads it.",
-        )),
+        )
+    };
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.len() > limit as u64 => return Err(too_large()),
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    }
+    match std::fs::read(path) {
+        Ok(bytes) if bytes.len() <= limit => Ok(Some(bytes)),
+        // It grew while being read.
+        Ok(_) => Err(too_large()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.into()),
     }
+
 }
 
 /// One spelling per repository, matching workspace folders (canonicalized when opened).
@@ -166,3 +178,4 @@ mod tests {
         assert_eq!(canonical(file.clone()), file);
     }
 }
+
