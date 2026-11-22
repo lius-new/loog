@@ -30,8 +30,15 @@ pub(crate) fn options(path: &Path) -> EncodingSettings {
     }
     value
 }
-/// A file over the limit for loading whole is opened in place instead, and is read only.
-pub(crate) fn is_too_large_to_load(path: &Path) -> bool {
+/// A file over this size is opened in place instead of being loaded: its text stays in the
+/// file and only the lines shown are read, so it costs a few megabytes however large it is.
+/// Smaller files are read whole, as every feature can then use their text.
+pub(crate) const OPEN_IN_PLACE_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) fn opens_in_place(path: &Path) -> bool {
+    fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() > OPEN_IN_PLACE_BYTES)
+}
+/// Whether the file is over what can be loaded whole at all.
+pub(crate) fn exceeds_load_limit(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() > MAX_EDITABLE_FILE_BYTES)
 }
 /// Open `path` as a text that stays in its file: only UTF-8 files qualify, and the whole file is

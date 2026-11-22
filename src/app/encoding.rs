@@ -120,14 +120,27 @@ pub(crate) fn prepare(path: &Path) -> Result<crate::app::workspace::PreparedText
             disk,
         ));
     }
-    if crate::infrastructure::document_filesystem::is_too_large_to_load(path) {
-        let (file, state) = crate::infrastructure::document_filesystem::open_file_backed(path)
-            .map_err(|e| format!("Could not open {}: {e}", path.display()))?;
-        return Ok(crate::app::workspace::PreparedTextFile::file_backed(
-            path.to_path_buf(),
-            loog_editor_core::text::TextBuffer::from_file(file),
-            state,
-        ));
+    if crate::infrastructure::document_filesystem::opens_in_place(path) {
+        match crate::infrastructure::document_filesystem::open_file_backed(path) {
+            Ok((file, state)) => {
+                return Ok(crate::app::workspace::PreparedTextFile::file_backed(
+                    path.to_path_buf(),
+                    loog_editor_core::text::TextBuffer::from_file(file),
+                    state,
+                ));
+            }
+            // Not UTF-8, or binary. A file that fits is read whole, which can decode it.
+            Err(error)
+                if error.kind() == std::io::ErrorKind::InvalidData
+                    && !crate::infrastructure::document_filesystem::exceeds_load_limit(path) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                return Err(format!(
+                    "Could not open {}: a file over 64 MB can only be opened as UTF-8 text, and this one is in another encoding or is binary.",
+                    path.display()
+                ));
+            }
+            Err(error) => return Err(format!("Could not open {}: {error}", path.display())),
+        }
     }
     let (decoded, state) = crate::infrastructure::document_filesystem::read_encoded(
         path,

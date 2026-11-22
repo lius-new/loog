@@ -292,6 +292,15 @@ fn finish(app: &mut AppState, generation: u64, prepared: Result<PreparedTextFile
     if pending.toggle_svg && succeeded {
         crate::app::image_preview::run(app, id, crate::ui::image_preview::Command::Toggle);
     }
+    // A file this large is not loaded, which is why some features do not apply to it.
+    if succeeded
+        && app
+            .workspace
+            .active_document()
+            .is_some_and(|document| app.workspace.is_file_backed(document))
+    {
+        app.show_toast("Large file opened without loading it. Language features and previews are off.");
+    }
     true
 }
 
@@ -938,5 +947,32 @@ mod tests {
             std::path::Path::new("current.txt")
         );
         assert!(retained.editor.pending_file.is_some());
+    }
+
+    #[test]
+    fn opening_a_file_that_stays_in_its_file_says_why_some_features_are_off() {
+        let dir = std::env::temp_dir().join(format!("loog-open-notice-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let large = dir.join("large.txt");
+        std::fs::write(&large, "line\n".repeat(4 * 1024 * 1024)).unwrap();
+        let in_place = large.clone();
+        let h = Harness::new(move |request| {
+            if request.path == in_place {
+                crate::app::encoding::prepare(&request.path)
+            } else {
+                Ok(PreparedTextFile::new(request.path.clone(), "small".into()))
+            }
+        });
+        // An ordinary file says nothing.
+        h.open("small.txt");
+        h.pump_until(|app| app.workspace.file_id_for_path(std::path::Path::new("small.txt")).is_some());
+        assert!(h.state.get().chrome.toast.is_none());
+        // One kept in its file says why language features are off.
+        let name = large.to_string_lossy().into_owned();
+        h.open(&name);
+        h.pump_until(|app| app.workspace.file_id_for_path(&large).is_some());
+        let toast = h.state.get().chrome.toast.clone().expect("a notice");
+        assert!(toast.message.contains("Language features"), "{}", toast.message);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -761,7 +761,7 @@ fn a_file_over_the_load_limit_opens_in_place_and_can_never_be_saved() {
     let row = "id,中文,value\r\n";
     let body = row.repeat(files::MAX_EDITABLE_FILE_BYTES as usize / row.len() + 1);
     std::fs::write(&path, [&[0xef, 0xbb, 0xbf][..], body.as_bytes()].concat()).unwrap();
-    assert!(files::is_too_large_to_load(&path));
+    assert!(files::opens_in_place(&path));
 
     let mut workspace = Workspace::new();
     let id = open(&mut workspace, &path);
@@ -960,4 +960,31 @@ fn a_file_backed_document_is_never_given_to_language_servers_whatever_the_limit(
     assert!(!workspace.documents[&large_id].within_language_limit(usize::MAX));
     assert!(workspace.documents[&small_id].within_language_limit(1024));
     assert!(!workspace.documents[&small_id].within_language_limit(4));
+}
+
+#[test]
+fn files_over_16_mib_open_in_place_when_utf8_and_are_read_whole_when_they_fit_otherwise() {
+    let dir = Temp::new();
+    let mib = 1024 * 1024;
+    // 20 MiB of UTF-8 text: over the in-place size, under the load limit.
+    let utf8 = dir.0.join("mid.txt");
+    std::fs::write(&utf8, "一行文字 mid size\n".repeat(20 * mib / "一行文字 mid size\n".len())).unwrap();
+    let mut workspace = Workspace::new();
+    let id = open(&mut workspace, &utf8);
+    assert!(workspace.documents[&id].buffer.is_file_backed());
+
+    // 20 MiB in GBK is not UTF-8: it is read whole and decoded, as before.
+    let gbk_path = dir.0.join("mid-gbk.txt");
+    let text = "这是一行中文文字\n".repeat(20 * mib / 24);
+    let (bytes, _, _) = encoding_rs::GBK.encode(&text);
+    std::fs::write(&gbk_path, &*bytes).unwrap();
+    let id = open(&mut workspace, &gbk_path);
+    assert!(!workspace.documents[&id].buffer.is_file_backed());
+    assert!(workspace.active_editor().unwrap().text().starts_with("这是一行中文文字"));
+
+    // 70 MiB that is not UTF-8 cannot be loaded whole either: a clear message, not a crash.
+    let huge = dir.0.join("huge-binary.dat");
+    std::fs::write(&huge, vec![0xb0u8; 70 * mib]).unwrap();
+    let error = super::encoding::prepare(&huge).err().unwrap();
+    assert!(error.contains("UTF-8"), "{error}");
 }

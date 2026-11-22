@@ -20,9 +20,12 @@ fn prepare_restored(
     path: &Path,
     explicit: Option<crate::domain::encoding::TextFormat>,
 ) -> Result<PreparedTextFile, String> {
-    if crate::domain::media::is_raster(path)
-        || crate::infrastructure::document_filesystem::is_too_large_to_load(path)
-    {
+    // A file that stays in its file is UTF-8 and has no encoding to choose, so a chosen
+    // encoding is honoured only for a file that is read whole.
+    let in_place = crate::infrastructure::document_filesystem::opens_in_place(path)
+        && (explicit.is_none()
+            || crate::infrastructure::document_filesystem::exceeds_load_limit(path));
+    if crate::domain::media::is_raster(path) || in_place {
         return crate::app::encoding::prepare(path);
     }
     let read = crate::infrastructure::document_filesystem::read_encoded(
