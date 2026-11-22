@@ -844,11 +844,17 @@ fn a_file_backed_document_saves_by_streaming_and_then_reads_the_new_file() {
     assert!(workspace.is_dirty(id));
 
     let saved = workspace.file_save_snapshot(id).unwrap();
-    files::write_with(&path, |file| saved.pieces.write_to(file)).unwrap();
+    // As the app saves: the lines are learned while writing, and the file is not read again.
+    let mut index = None;
+    files::write_with(&path, |file| {
+        index = Some(saved.pieces.write_indexed(file)?);
+        Ok(())
+    })
+    .unwrap();
     let on_disk = std::fs::read(&path).unwrap();
     assert_eq!(&on_disk[..3], &bom, "the byte order mark is written back");
     assert!(on_disk[3..] == *expected.as_bytes(), "the file holds the edited text");
-    let (file, disk) = files::open_file_backed(&path).unwrap();
+    let (file, disk) = files::open_written_file(&path, index.unwrap()).unwrap();
     assert_eq!(disk.size, on_disk.len() as u64);
     assert!(workspace.mark_file_saved(&saved, file, disk));
     assert!(!workspace.is_dirty(id), "saved means clean again");

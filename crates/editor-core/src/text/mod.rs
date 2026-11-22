@@ -21,7 +21,7 @@ mod line_tree;
 mod newline;
 mod file_text;
 mod pieces;
-pub use self::file_text::FileText;
+pub use self::file_text::{FileIndex, FileText};
 pub use self::pieces::PieceText;
 mod lines;
 mod options;

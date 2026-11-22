@@ -19,8 +19,92 @@ const BLOCK: usize = 64 * 1024;
 const CACHED_BLOCKS: usize = 8;
 const SCAN_CHUNK: usize = 4 * 1024 * 1024;
 
+/// What a pass over the bytes of a text learns about its lines. `FileText::open` makes it while
+/// reading a file; a writer can make it while the text is written, so the file need not be read
+/// again to be opened.
+pub struct IndexBuilder {
+    per_checkpoint: usize,
+    checkpoints: Vec<u64>,
+    lines: usize,
+    line_start: usize,
+    longest_line: usize,
+    crlf_first: bool,
+    seen_first_break: bool,
+    previous_last: u8,
+    pos: usize,
+}
+
+/// The lines of a text of `len` bytes (without any byte order mark).
+pub struct FileIndex {
+    len: usize,
+    checkpoints: Vec<u64>,
+    per_checkpoint: usize,
+    lines: usize,
+    longest_line: usize,
+    crlf_first: bool,
+}
+
+impl IndexBuilder {
+    pub fn new() -> Self {
+        Self::with_checkpoints(LINES_PER_CHECKPOINT)
+    }
+    fn with_checkpoints(per_checkpoint: usize) -> Self {
+        Self {
+            per_checkpoint,
+            checkpoints: vec![0],
+            lines: 1,
+            line_start: 0,
+            longest_line: 0,
+            crlf_first: false,
+            seen_first_break: false,
+            previous_last: 0,
+            pos: 0,
+        }
+    }
+    /// The next bytes of the text, in order.
+    pub fn feed(&mut self, bytes: &[u8]) {
+        let base = self.pos;
+        let mut from = 0;
+        while let Some(found) = newline::position(&bytes[from..]) {
+            let end = base + from + found;
+            self.longest_line = self.longest_line.max(end - self.line_start);
+            if !self.seen_first_break {
+                self.seen_first_break = true;
+                let before = if from + found > 0 {
+                    bytes[from + found - 1]
+                } else {
+                    self.previous_last
+                };
+                self.crlf_first = before == b'\r';
+            }
+            self.line_start = end + 1;
+            if self.lines % self.per_checkpoint == 0 {
+                self.checkpoints.push(self.line_start as u64);
+            }
+            self.lines += 1;
+            from += found + 1;
+        }
+        if let Some(&last) = bytes.last() {
+            self.previous_last = last;
+        }
+        self.pos += bytes.len();
+    }
+    pub fn finish(mut self) -> FileIndex {
+        self.longest_line = self.longest_line.max(self.pos - self.line_start);
+        FileIndex {
+            len: self.pos,
+            checkpoints: self.checkpoints,
+            per_checkpoint: self.per_checkpoint,
+            lines: self.lines,
+            longest_line: self.longest_line,
+            crlf_first: self.crlf_first,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct FileText {
+
     file: File,
     /// Bytes before the text itself: a UTF-8 byte order mark.
     skip: usize,
@@ -72,11 +156,7 @@ impl FileText {
             0
         };
         let len = total - skip;
-        let (mut checkpoints, mut lines) = (vec![0u64], 1usize);
-        let (mut line_start, mut longest_line) = (0usize, 0usize);
-        let mut crlf_first = false;
-        let mut seen_first_break = false;
-        let mut previous_last = 0u8;
+        let mut builder = IndexBuilder::with_checkpoints(per_checkpoint);
         // A UTF-8 sequence cut by the end of a chunk is carried over to the next one.
         let mut carry = Vec::<u8>::new();
         let mut at = 0usize;
@@ -96,48 +176,48 @@ impl FileText {
                     ));
                 }
             };
-            let base = at - carry.len();
-            let mut from = 0;
-            while let Some(found) = newline::position(&chunk[from..valid]) {
-                let end = base + from + found;
-                longest_line = longest_line.max(end - line_start);
-                if !seen_first_break {
-                    seen_first_break = true;
-                    let before = if from + found > 0 {
-                        chunk[from + found - 1]
-                    } else {
-                        previous_last
-                    };
-                    crlf_first = before == b'\r';
-                }
-                line_start = end + 1;
-                if lines % per_checkpoint == 0 {
-                    checkpoints.push(line_start as u64);
-                }
-                lines += 1;
-                from += found + 1;
-            }
-            if valid > 0 {
-                previous_last = chunk[valid - 1];
-            }
+            builder.feed(&chunk[..valid]);
             carry.clear();
             carry.extend_from_slice(&chunk[valid..filled]);
             at += want;
         }
-        longest_line = longest_line.max(len - line_start);
-        Ok(Self {
-            file,
-            skip,
-            len,
-            checkpoints,
-            per_checkpoint,
-            lines,
-            longest_line,
-            crlf_first,
-            cache: Mutex::default(),
-        })
+        let index = builder.finish();
+        debug_assert_eq!(index.len, len);
+        Ok(Self::assemble(file, skip, index))
     }
 
+    /// A file whose lines are already known, from writing it: it is opened without being read.
+    /// An error means the file is not the size it was said to be, and `open` should be used.
+    pub fn open_indexed(path: &Path, index: FileIndex) -> io::Result<Self> {
+        let file = File::open(path)?;
+        let total = file.metadata()?.len() as usize;
+        let mut head = [0u8; 3];
+        let head_len = read_at(&file, &mut head, 0)?;
+        let skip = if head[..head_len].starts_with(&[0xef, 0xbb, 0xbf]) { 3 } else { 0 };
+        if total != skip + index.len {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "the file is not what was written",
+            ));
+        }
+        Ok(Self::assemble(file, skip, index))
+    }
+
+    fn assemble(file: File, skip: usize, index: FileIndex) -> Self {
+        Self {
+            file,
+            skip,
+            len: index.len,
+            checkpoints: index.checkpoints,
+            per_checkpoint: index.per_checkpoint,
+            lines: index.lines,
+            longest_line: index.longest_line,
+            crlf_first: index.crlf_first,
+            cache: Mutex::default(),
+        }
+    }
+}
+impl FileText {
     pub fn len(&self) -> usize {
         self.len
     }
@@ -639,5 +719,56 @@ mod edit_tests {
         assert_eq!(whole(&file), text);
         assert_eq!(file.file_unchanged(), Some(true));
         std::fs::remove_file(path).ok();
+    }
+
+    /// The lines learned while writing a text must be those of reading the file it makes.
+    #[test]
+    fn lines_learned_while_writing_equal_lines_read_from_the_file() {
+        let mut text = String::from("\u{feff}");
+        for i in 0..900 {
+            text.push_str(&match i % 5 {
+                0 => format!("line {i}\r\n"),
+                1 => "\n".to_owned(),
+                2 => format!("中文 {i} tail\n"),
+                3 => format!("{}\n", "long ".repeat(40)),
+                _ => format!("x{i}\r\n"),
+            });
+        }
+        text.push_str("no final break");
+        let original = std::env::temp_dir().join(format!("loog-index-in-{}", std::process::id()));
+        let written = std::env::temp_dir().join(format!("loog-index-out-{}", std::process::id()));
+        std::fs::File::create(&original).unwrap().write_all(text.as_bytes()).unwrap();
+        let mut pieces = super::super::pieces::PieceText::new(FileText::open(&original).unwrap());
+        // Edits across the text: inside a line, over line breaks, at both ends.
+        let len = pieces.len();
+        pieces.replace(len..len, "\nappended\r\n");
+        pieces.replace(2000..2600, "replaced\nwith\r\nbreaks");
+        pieces.replace(100..100, "inserted ");
+        pieces.replace(3..40, "");
+        let mut out = std::fs::File::create(&written).unwrap();
+        let index = pieces.write_indexed(&mut out).unwrap();
+        drop(out);
+        let learned = FileText::open_indexed(&written, index).unwrap();
+        let read = FileText::open(&written).unwrap();
+        assert_eq!((learned.len(), learned.line_count()), (read.len(), read.line_count()));
+        assert_eq!(learned.has_bom(), read.has_bom());
+        assert_eq!(learned.longest_line(), read.longest_line());
+        assert_eq!(learned.first_line_is_crlf(), read.first_line_is_crlf());
+        for line in (0..=read.line_count()).step_by(3) {
+            assert_eq!(learned.line_start(line), read.line_start(line), "line {line}");
+        }
+        for offset in (0..=read.len()).step_by(97) {
+            assert_eq!(learned.line_of(offset), read.line_of(offset), "offset {offset}");
+        }
+        // The same text as the pieces said it was.
+        assert_eq!(read.text(0..read.len()), pieces.text(0..pieces.len()));
+        // A file that is not what was written is refused, so the caller reads it instead.
+        let mut out = std::fs::File::create(&written).unwrap();
+        let index = pieces.write_indexed(&mut out).unwrap();
+        out.write_all(b"changed afterwards").unwrap();
+        drop(out);
+        assert!(FileText::open_indexed(&written, index).is_err());
+        std::fs::remove_file(original).ok();
+        std::fs::remove_file(written).ok();
     }
 }

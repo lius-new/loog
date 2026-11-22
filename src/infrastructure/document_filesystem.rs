@@ -70,7 +70,24 @@ pub(crate) fn disk_state_of(
         format,
     })
 }
+/// As `open_file_backed`, for a file just written whose lines were learned while writing it, so
+/// it is not read again. A file that is not the size written is opened the ordinary way.
+pub(crate) fn open_written_file(
+    path: &Path,
+    index: loog_editor_core::text::FileIndex,
+) -> io::Result<(loog_editor_core::text::FileText, crate::domain::document::DiskState)> {
+    let text = loog_editor_core::text::FileText::open_indexed(path, index)?;
+    let meta = fs::metadata(path)?;
+    let state = crate::domain::document::DiskState {
+        modified_time: meta.modified().ok(),
+        size: meta.len(),
+        content_hash: 0,
+        format: TextFormat::new(encoding::Charset::Utf8, text.has_bom()),
+    };
+    Ok((text, state))
+}
 pub(crate) fn read_bytes(
+
 path: &Path, limit: u64) -> io::Result<Vec<u8>> {
     let file = fs::File::open(path)?;
     let meta = file.metadata()?;

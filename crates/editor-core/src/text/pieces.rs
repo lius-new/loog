@@ -239,6 +239,25 @@ impl PieceText {
 
     /// Write the whole text, as a file would hold it, reading the original in large steps.
     pub fn write_to(&self, out: &mut dyn std::io::Write) -> std::io::Result<()> {
+        self.write_with(out, None)
+    }
+
+    /// As `write_to`, also learning the lines of what is written, so that the file can be opened
+    /// as the new text without reading it again.
+    pub fn write_indexed(
+        &self,
+        out: &mut dyn std::io::Write,
+    ) -> std::io::Result<super::file_text::FileIndex> {
+        let mut builder = super::file_text::IndexBuilder::new();
+        self.write_with(out, Some(&mut builder))?;
+        Ok(builder.finish())
+    }
+
+    fn write_with(
+        &self,
+        out: &mut dyn std::io::Write,
+        mut index: Option<&mut super::file_text::IndexBuilder>,
+    ) -> std::io::Result<()> {
         if self.original.has_bom() {
             out.write_all(&[0xef, 0xbb, 0xbf])?;
         }
@@ -251,12 +270,19 @@ impl PieceText {
                         let step = (end - at).min(buffer.len());
                         self.original
                             .read_into(at..at + step, &mut buffer[..step])?;
+                        if let Some(index) = index.as_deref_mut() {
+                            index.feed(&buffer[..step]);
+                        }
                         out.write_all(&buffer[..step])?;
                         at += step;
                     }
                 }
                 Source::Added(chunk) => {
-                    out.write_all(&chunk.bytes[piece.start..piece.start + piece.len])?
+                    let bytes = &chunk.bytes[piece.start..piece.start + piece.len];
+                    if let Some(index) = index.as_deref_mut() {
+                        index.feed(bytes);
+                    }
+                    out.write_all(bytes)?
                 }
             }
         }

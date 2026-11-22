@@ -133,10 +133,20 @@ fn save_file_backed(
     let ready = state.clone();
     let task = Box::new(move || {
         let result = (|| {
-            document_filesystem::write_with(&saved.path, |file| saved.pieces.write_to(file))
-                .map_err(|e| e.to_string())?;
-            document_filesystem::open_file_backed(&saved.path).map_err(|e| e.to_string())
+            // The lines are learned while writing, so the new file need not be read again.
+            let mut index = None;
+            document_filesystem::write_with(&saved.path, |file| {
+                index = Some(saved.pieces.write_indexed(file)?);
+                Ok(())
+            })
+            .map_err(|e| e.to_string())?;
+            match index.map(|index| document_filesystem::open_written_file(&saved.path, index)) {
+                Some(Ok(opened)) => Ok(opened),
+                // Anything unexpected about the file just written: read it to be sure.
+                _ => document_filesystem::open_file_backed(&saved.path).map_err(|e| e.to_string()),
+            }
         })();
+
         application.post(move || {
             if ready.services().is_none() {
                 return;
