@@ -79,6 +79,7 @@ pub(crate) fn render(
     editor_id: UiId,
     editor_focus: UiFocusHandle,
 ) -> Element {
+    LINE_LAYOUTS.with(|cache| cache.borrow_mut().advance());
     let s = state.get();
     let focused_pane = s.focused_pane;
 
@@ -2212,6 +2213,8 @@ type LayoutKey = (u32, i32, usize, u32, usize);
 struct LayoutEntry {
     layout: LineLayout,
     used: u64,
+    /// The editor render that last used this line.
+    epoch: u64,
     bytes: usize,
 }
 #[derive(Default)]
@@ -2219,13 +2222,42 @@ struct LayoutCache {
     entries: HashMap<LayoutKey, HashMap<String, LayoutEntry>>,
     len: usize,
     clock: u64,
+    /// Counts editor renders, so lines of files no longer on screen can be told from lines the
+    /// next frame will draw again.
+    epoch: u64,
     bytes: usize,
     hits: usize,
     misses: usize,
     evictions: usize,
 }
 const LAYOUT_BUDGET: usize = 8 * 1024 * 1024;
+/// An entry unused for this many editor renders is dropped. Every visible line is used by each
+/// render of its editor, so a few panes' worth of renders is the age of a line still on screen.
+const LAYOUT_MAX_AGE: u64 = 8;
 impl LayoutCache {
+    /// Start an editor render: forget the lines the last few renders did not draw. A shaped line
+    /// is several KB, so keeping every line ever shown would make memory grow with each file.
+    fn advance(&mut self) {
+        self.epoch += 1;
+        let oldest = self.epoch.saturating_sub(LAYOUT_MAX_AGE);
+        let (mut len, mut bytes, mut evicted) = (0, 0, 0);
+        self.entries.retain(|_, lines| {
+            lines.retain(|_, entry| {
+                let keep = entry.epoch >= oldest;
+                if keep {
+                    len += 1;
+                    bytes += entry.bytes;
+                } else {
+                    evicted += 1;
+                }
+                keep
+            });
+            !lines.is_empty()
+        });
+        self.len = len;
+        self.bytes = bytes;
+        self.evictions += evicted;
+    }
     fn trim(&mut self) {
         while self.bytes > LAYOUT_BUDGET || self.len > 2048 {
             let Some((key, line)) = self
@@ -2360,12 +2392,14 @@ pub(crate) fn layout_line_hinted(
         let mut cache = cache.borrow_mut();
         cache.clock += 1;
         let used = cache.clock;
+        let epoch = cache.epoch;
         let found = cache
             .entries
             .get_mut(&key)
             .and_then(|entries| entries.get_mut(line))
             .map(|entry| {
                 entry.used = used;
+                entry.epoch = epoch;
                 entry.layout.clone()
             });
         if found.is_some() {
@@ -2411,6 +2445,7 @@ pub(crate) fn layout_line_hinted(
             let mut cache = cache.borrow_mut();
             cache.clock += 1;
             let used = cache.clock;
+            let epoch = cache.epoch;
             let bytes = line.len()
                 + layout.source_to_display.len()
                     * (std::mem::size_of::<usize>() + 2 * std::mem::size_of::<UiRect>())
@@ -2422,6 +2457,7 @@ pub(crate) fn layout_line_hinted(
                 LayoutEntry {
                     layout: layout.clone(),
                     used,
+                    epoch,
                     bytes,
                 },
             );
