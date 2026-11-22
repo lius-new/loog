@@ -215,7 +215,16 @@ pub fn navigate_selected(
     );
 }
 
+/// Whether a result in this file was located without its text being read: files over the size
+/// search reads whole are searched in pieces, so the document is opened afterwards, by the
+/// same function that opens any file, whatever size it is.
+fn found_without_reading(path: &std::path::Path) -> bool {
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.len() > crate::features::search::MAX_FILE_BYTES as u64)
+}
+
 pub fn navigate(
+
     state: &AppContext,
     application: ApplicationHandle,
     rect: UiRect,
@@ -261,9 +270,12 @@ pub fn navigate(
             // A file too large to hold, not open yet, is opened in place: prepared here, off the
             // UI thread, since reading its lines takes a moment.
             let in_place = match (&opened, &buffer) {
-                (Ok(_), None) if crate::infrastructure::document_filesystem::is_too_large_to_load(&path) => {
+                // The match was found without reading the file, so open it the way it opens
+                // by hand, which keeps a file this large in place.
+                (Ok(_), None) if found_without_reading(&path) => {
                     Some(crate::app::encoding::prepare(&path))
                 }
+
                 _ => None,
             };
             application.post(move || {
@@ -745,5 +757,22 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "old disk\n");
         stop_new();
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_result_in_a_file_between_4_and_64_mib_opens_with_its_text() {
+        // Such a file is searched in pieces, so its text is not read for the result; opening it
+        // must still load it, not open it empty.
+        let path = std::env::temp_dir().join(format!("loog-nav-mid-{}", std::process::id()));
+        std::fs::write(&path, "needle line\n".repeat(600_000)).unwrap(); // about 7 MiB
+        assert!(found_without_reading(&path));
+        let prepared = crate::app::encoding::prepare(&path).unwrap();
+        let mut workspace = crate::app::workspace::Workspace::new();
+        let id = workspace.open_prepared_text(prepared, crate::app::workspace::OpenMode::Permanent);
+        assert_eq!(workspace.active_editor().unwrap().line_text(0), "needle line");
+        assert!(workspace.documents[&id].buffer.len() > 7_000_000);
+        std::fs::write(&path, "small\n").unwrap();
+        assert!(!found_without_reading(&path));
+        std::fs::remove_file(&path).ok();
     }
 }
