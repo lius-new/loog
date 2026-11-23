@@ -1,6 +1,7 @@
 //! File icon theme support for the workspace tree.
 //!
-//! The bundled SVGs are a focused subset of Material Icon Theme. Matching is
+//! The bundled file SVGs are a focused subset of Material Icon Theme; the
+//! directory chevrons are Loog's own, drawn with `currentColor`. Matching is
 //! intentionally kept in Loog so the framework's generic icon registry
 //! stays independent from editor-specific file type policy.
 
@@ -9,6 +10,9 @@ use lgui::icons::SvgIconRegistry;
 pub const DEFAULT_FILE_ICON: &str = "file-type-document";
 pub const FOLDER_ICON: &str = "folder";
 pub const FOLDER_OPEN_ICON: &str = "folder-open";
+/// A collapsed and an expanded directory in the workspace tree.
+pub const CHEVRON_RIGHT_ICON: &str = "chevron-right";
+pub const CHEVRON_DOWN_ICON: &str = "chevron-down";
 
 const RUST: &str = "file-type-rust";
 const GO: &str = "file-type-go";
@@ -241,6 +245,8 @@ pub fn register(registry: SvgIconRegistry) -> SvgIconRegistry {
     registry
         .with_icon_bytes(FOLDER_ICON, icon("folder.svg"))
         .with_icon_bytes(FOLDER_OPEN_ICON, icon("folder-open.svg"))
+        .with_icon_bytes(CHEVRON_RIGHT_ICON, icon("chevron-right.svg"))
+        .with_icon_bytes(CHEVRON_DOWN_ICON, icon("chevron-down.svg"))
         .with_icon_bytes(DEFAULT_FILE_ICON, icon("document.svg"))
         .with_icon_bytes(RUST, icon("rust.svg"))
         .with_icon_bytes(GO, icon("go.svg"))
@@ -291,6 +297,8 @@ fn icon(name: &str) -> &'static [u8] {
         "folder-open.svg" => {
             include_bytes!("../../assets/icon-themes/material/icons/folder-open.svg")
         }
+        "chevron-right.svg" => include_bytes!("../../assets/icon-themes/loog/chevron-right.svg"),
+        "chevron-down.svg" => include_bytes!("../../assets/icon-themes/loog/chevron-down.svg"),
         "document.svg" => include_bytes!("../../assets/icon-themes/material/icons/document.svg"),
         "rust.svg" => include_bytes!("../../assets/icon-themes/material/icons/rust.svg"),
         "go.svg" => include_bytes!("../../assets/icon-themes/material/icons/go.svg"),
@@ -379,6 +387,8 @@ mod tests {
         let registry = register(SvgIconRegistry::new());
         let keys = std::iter::once(FOLDER_ICON)
             .chain(std::iter::once(FOLDER_OPEN_ICON))
+            .chain(std::iter::once(CHEVRON_RIGHT_ICON))
+            .chain(std::iter::once(CHEVRON_DOWN_ICON))
             .chain(std::iter::once(DEFAULT_FILE_ICON))
             .chain(EXACT_FILE_ICONS.iter().map(|(_, icon)| *icon))
             .chain(SUFFIX_FILE_ICONS.iter().map(|(_, icon)| *icon));

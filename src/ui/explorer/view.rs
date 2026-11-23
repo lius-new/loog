@@ -41,6 +41,8 @@ const TREE_ICON_GAP: f32 = 4.0;
 const TREE_LABEL_OFFSET: f32 = TREE_ICON_SIZE + TREE_ICON_GAP;
 /// Extra shaping room so the final glyph is not wrapped or clipped prematurely.
 const TREE_TEXT_PAD: f32 = 6.0;
+/// Opacity of the vertical guide that joins an expanded directory to its children.
+const GUIDE_ALPHA: u8 = 210;
 const DIRECTORY_RIGHT_PAD: f32 = 12.0;
 const STATUS_RIGHT_PAD: f32 = 8.0;
 const STATUS_WIDTH: f32 = 17.0;
@@ -534,7 +536,7 @@ fn create_row(tree: &TreeContext<'_>, y: f32, indent: f32, kind: ExplorerCreateK
     let rect = tree.rect;
     let border = edit_border(tree.panel);
     let icon = if kind == ExplorerCreateKind::Folder {
-        crate::ui::file_icons::FOLDER_ICON
+        crate::ui::file_icons::CHEVRON_RIGHT_ICON
     } else {
         crate::ui::file_icons::DEFAULT_FILE_ICON
     };
@@ -611,9 +613,9 @@ fn rename_row(
         (
             "Rename folder",
             if is_expanded {
-                crate::ui::file_icons::FOLDER_OPEN_ICON
+                crate::ui::file_icons::CHEVRON_DOWN_ICON
             } else {
-                crate::ui::file_icons::FOLDER_ICON
+                crate::ui::file_icons::CHEVRON_RIGHT_ICON
             },
         )
     };
@@ -707,9 +709,9 @@ fn dir_row(
         content_right - DIRECTORY_RIGHT_PAD
     };
     let icon = if is_expanded {
-        crate::ui::file_icons::FOLDER_OPEN_ICON
+        crate::ui::file_icons::CHEVRON_DOWN_ICON
     } else {
-        crate::ui::file_icons::FOLDER_ICON
+        crate::ui::file_icons::CHEVRON_RIGHT_ICON
     };
     let layer = if sticky { "sticky" } else { "content" };
     let fid = UiId::owned(format!("tree-{layer}-{key}"));
@@ -1027,10 +1029,15 @@ fn build_tree(
             }
         }
         if *y > children_top && tree.row_visible(children_top, *y - children_top) {
-            let guide_x = indent + TREE_ICON_SIZE / 2.0;
+            // A whole-pixel x keeps the 1px guide from being smeared over two
+            // pixel columns, and the reduced alpha keeps it from competing with
+            // the rows it connects.
+            let guide_x = (indent + TREE_ICON_SIZE / 2.0).round();
+            let mut style = VisualStyle::filled(theme::c().border);
+            style.fill_alpha = GUIDE_ALPHA;
             elements.push(panel(
                 UiRect::new(guide_x, children_top, guide_x + 1.0, *y),
-                VisualStyle::filled(theme::c().border),
+                style,
             ));
         }
     }
