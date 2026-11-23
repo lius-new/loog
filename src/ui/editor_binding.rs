@@ -86,6 +86,9 @@ pub(crate) struct ViewState {
     pub signature: Option<(usize, crate::ui::editor::signature::View)>,
     /// Other occurrences of the symbol under the caret.
     pub symbol_highlights: Arc<[Range<usize>]>,
+    /// Lines of the whole document where the selected text, or the word the
+    /// caret is in, appears, for the overview ruler.
+    pub occurrence_lines: Arc<[usize]>,
     /// The word to show as a link to its definition while the key is held.
     pub link: Option<Range<usize>>,
     /// Hints the servers want shown inside lines, sorted by offset.

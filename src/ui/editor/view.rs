@@ -1037,6 +1037,17 @@ pub(crate) fn render(
                 rows,
             ));
         }
+        if !s.occurrence_lines.is_empty() {
+            root = root.child(occurrence_ruler(
+                rect,
+                metrics,
+                has_horizontal,
+                fonts::editor().line_h,
+                s.occurrence_lines
+                    .iter()
+                    .map(|&line| displayed_span(&buffer, &projection, line, 1).0),
+            ));
+        }
         if !s.overview_marks.is_empty() || !s.conflicts.is_empty() {
             root = root.child(overview_ruler(
                 rect,
@@ -2880,3 +2891,45 @@ fn active_block_ruler(
 
 /// Opacity of the active block's band on the overview ruler.
 const ACTIVE_BLOCK_RULER_ALPHA: u8 = 110;
+
+/// Where the selected text, or the caret's word, appears elsewhere: a tick per
+/// displayed row across the overview ruler, under the Git and diagnostic marks.
+/// Ticks closer than a pixel draw as one, so a word that is everywhere stays cheap.
+fn occurrence_ruler(
+    rect: UiRect,
+    metrics: ScrollMetrics,
+    has_horizontal: bool,
+    row_height: f32,
+    rows: impl IntoIterator<Item = usize>,
+) -> Element {
+    let corner = if has_horizontal { SCROLLBAR_SIZE } else { 0.0 };
+    let lane = UiRect::new(
+        rect.right - SCROLLBAR_SIZE + 1.0,
+        rect.top,
+        rect.right - 1.0,
+        rect.bottom - corner,
+    );
+    let scale = lane.height() / metrics.content_h.max(metrics.viewport_h);
+    let mut ruler = group(lane);
+    let style = VisualStyle::filled(theme::c().accent).alpha(OCCURRENCE_RULER_ALPHA);
+    let mut last: Option<(f32, f32)> = None;
+    for row in rows {
+        let top = (lane.top + row as f32 * row_height * scale).min(lane.bottom - MIN_MARK_LENGTH);
+        let bottom = top + MIN_MARK_LENGTH;
+        match &mut last {
+            Some((_, end)) if top <= *end + 1.0 => *end = end.max(bottom),
+            _ => {
+                if let Some((from, to)) = last.replace((top, bottom)) {
+                    ruler = ruler.child(panel(UiRect::new(lane.left, from, lane.right, to), style));
+                }
+            }
+        }
+    }
+    if let Some((from, to)) = last {
+        ruler = ruler.child(panel(UiRect::new(lane.left, from, lane.right, to), style));
+    }
+    ruler
+}
+
+/// Opacity of an occurrence's tick on the overview ruler.
+const OCCURRENCE_RULER_ALPHA: u8 = 150;

@@ -167,14 +167,57 @@ pub(crate) fn snapshot(
         })
         .map(|doc| state.vim.search_matches(&doc.buffer, visible_lines.clone()))
         .unwrap_or_default();
-    // Other places the selected text appears, tinted as the symbol under the
-    // caret is; one selection only, and only the lines on screen.
+    // The text whose other occurrences are tinted: the one selection or, with
+    // none, the word the caret is in or just after, as VS Code does.
+    let occurrence_target: Option<(std::ops::Range<usize>, bool)> =
+        document.as_ref().and_then(|doc| match selections.len() {
+            1 => Some((selections[0].clone(), false)),
+            0 => {
+                let buffer = &doc.buffer;
+                let caret = doc.editor().cursor();
+                let is_word = |range: &std::ops::Range<usize>| {
+                    !range.is_empty()
+                        && buffer
+                            .slice(range.clone())
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '_')
+                };
+                let here = buffer.word_range(caret);
+                let word = if is_word(&here) {
+                    here
+                } else {
+                    let before = buffer.word_range(buffer.prev_grapheme(caret));
+                    if before.end == caret && is_word(&before) {
+                        before
+                    } else {
+                        return None;
+                    }
+                };
+                Some((word, true))
+            }
+            _ => None,
+        });
+    // Where else it appears in the whole document: the overview ruler shows
+    // them all, and a lone word is not tinted. Found once per caret move or edit.
+    let occurrence_lines: Arc<[usize]> = document
+        .as_ref()
+        .zip(occurrence_target.as_ref())
+        .map(|(doc, (target, caret_word))| occurrence_lines(&doc.buffer, pane, target, *caret_word))
+        .unwrap_or_default();
+    // Other places the target appears on screen, tinted as the symbol under the
+    // caret is. A caret's own word is tinted too, once there is another.
     let selection_occurrences: Arc<[std::ops::Range<usize>]> = document
         .as_ref()
-        .filter(|_| selections.len() == 1)
-        .map(|doc| {
-            doc.buffer
-                .other_occurrences(selections[0].clone(), visible_lines.clone())
+        .zip(occurrence_target.as_ref())
+        .map(|(doc, (target, caret_word))| {
+            let mut found = doc
+                .buffer
+                .other_occurrences(target.clone(), visible_lines.clone());
+            if *caret_word && !occurrence_lines.is_empty() {
+                found.push(target.clone());
+                found.sort_by_key(|range| range.start);
+            }
+            found
         })
         .unwrap_or_default()
         .into();
@@ -292,6 +335,7 @@ pub(crate) fn snapshot(
         language_peek: None,
         signature: None,
         symbol_highlights: selection_occurrences,
+        occurrence_lines,
         link: None,
         inlay_hints: Arc::from(Vec::new()),
     }
@@ -978,6 +1022,40 @@ mod tests {
     }
 
     #[test]
+    fn the_word_under_the_caret_is_tinted_with_its_other_occurrences_and_marked_on_the_ruler() {
+        // Offsets: "let length" is 0..10, so 6 is inside `length` and 10 is just after it.
+        let text = "let length = 1;\nlet other = length + 2;\nlength;\nlet solo = 3;\n";
+        let words: Vec<std::ops::Range<usize>> = text
+            .match_indices("length")
+            .map(|(start, found)| start..start + found.len())
+            .collect();
+        for caret in [6, 10] {
+            let mut app = document(text);
+            app.workspace.active_editor_mut().unwrap().set_cursor(caret);
+            let pane = app.workspace.active_pane();
+            let scene = snapshot(app, GitStoreSnapshot::default(), pane, RECT);
+            assert_eq!(&*scene.symbol_highlights, &words[..], "caret {caret}");
+            assert_eq!(&*scene.occurrence_lines, &[0, 1, 2], "caret {caret}");
+        }
+
+        // A word that appears once has nothing to match, and its own tint alone
+        // would say nothing.
+        let mut app = document(text);
+        let solo = text.find("solo").unwrap() + 1;
+        app.workspace.active_editor_mut().unwrap().set_cursor(solo);
+        let pane = app.workspace.active_pane();
+        let scene = snapshot(app, GitStoreSnapshot::default(), pane, RECT);
+        assert!(scene.symbol_highlights.is_empty());
+        assert!(scene.occurrence_lines.is_empty());
+
+        // In the space between `length` and `=` there is no word to follow.
+        let mut app = document(text);
+        app.workspace.active_editor_mut().unwrap().set_cursor(11);
+        let pane = app.workspace.active_pane();
+        let scene = snapshot(app, GitStoreSnapshot::default(), pane, RECT);
+        assert!(scene.symbol_highlights.is_empty());
+    }
+    #[test]
     fn snapshot_moves_git_conflicts_for_unsaved_edits() {
         use crate::features::git::conflict::ConflictRegion;
         let mut app = document(
@@ -1157,4 +1235,43 @@ R
         app.workspace.active_editor_mut().unwrap().undo();
         assert_eq!(app.workspace.active_editor().unwrap().text(), "");
     }
+}
+
+/// The source lines where `target` appears in the whole document, plus its own
+/// line for a caret's word, or none when it appears nowhere else. Documents
+/// above 4 MiB and file-backed ones are skipped. The last answer is kept, so a
+/// repaint with the caret where it was costs nothing.
+fn occurrence_lines(
+    buffer: &loog_editor_core::text::TextBuffer,
+    pane: loog_editor_core::identity::PaneId,
+    target: &std::ops::Range<usize>,
+    caret_word: bool,
+) -> Arc<[usize]> {
+    type Key = (loog_editor_core::identity::PaneId, u64, usize, usize);
+    thread_local! {
+        static LAST: std::cell::RefCell<Option<(Key, Arc<[usize]>)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    if buffer.len() > 4 * 1024 * 1024 {
+        return Arc::from(Vec::new());
+    }
+    let key = (pane, buffer.version(), target.start, target.end);
+    if let Some((cached, lines)) = LAST.with(|last| last.borrow().clone())
+        && cached == key
+    {
+        return lines;
+    }
+    let others = buffer.other_occurrences(target.clone(), 0..buffer.line_count());
+    let mut lines: Vec<usize> = others
+        .iter()
+        .map(|range| buffer.line_of(range.start))
+        .collect();
+    if !lines.is_empty() && caret_word {
+        lines.push(buffer.line_of(target.start));
+    }
+    lines.sort_unstable();
+    lines.dedup();
+    let lines: Arc<[usize]> = lines.into();
+    LAST.with(|last| *last.borrow_mut() = Some((key, lines.clone())));
+    lines
 }
