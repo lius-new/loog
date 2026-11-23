@@ -10,7 +10,6 @@
 //! The view reads only the Explorer projection and its frame inputs; anything
 //! touching other features goes out as a [`Command`].
 
-#[cfg(test)]
 use std::path::Path;
 
 use lgui::core::{
@@ -41,8 +40,6 @@ const TREE_ICON_GAP: f32 = 4.0;
 const TREE_LABEL_OFFSET: f32 = TREE_ICON_SIZE + TREE_ICON_GAP;
 /// Extra shaping room so the final glyph is not wrapped or clipped prematurely.
 const TREE_TEXT_PAD: f32 = 6.0;
-/// Opacity of the vertical guide that joins an expanded directory to its children.
-const GUIDE_ALPHA: u8 = 210;
 const DIRECTORY_RIGHT_PAD: f32 = 12.0;
 const STATUS_RIGHT_PAD: f32 = 8.0;
 const STATUS_WIDTH: f32 = 17.0;
@@ -137,6 +134,8 @@ struct TreeContext<'a> {
     input: &'a EditInput,
     rect: UiRect,
     content_right: f32,
+    /// The directory whose guide is the active row's, found once per frame.
+    active_guide: Option<&'a Path>,
     /// Content-space `y` range whose rows get UI nodes; rows outside it only
     /// advance the layout cursor.
     visible: (f32, f32),
@@ -205,6 +204,7 @@ pub fn render(
         // Only rows near the viewport get UI nodes. The scroll offset is clamped
         // by the content height, which is known only after a pass, so a pass
         // built for a stale offset is redone once for the clamped one.
+        let active_guide = source::active_guide(&s, frame);
         let build = |scroll_hint: f32| {
             let tree = TreeContext {
                 panel: &s,
@@ -214,6 +214,7 @@ pub fn render(
                 input: &input,
                 rect: content_rect,
                 content_right,
+                active_guide,
                 visible: (
                     content_rect.top + scroll_hint - OVERSCAN,
                     content_rect.bottom + scroll_hint + OVERSCAN,
@@ -238,6 +239,7 @@ pub fn render(
             input: &input,
             rect: content_rect,
             content_right,
+            active_guide,
             visible: (0.0, 0.0),
         };
 
@@ -263,11 +265,23 @@ pub fn render(
         }
         bar = bar.child(clip_el);
 
-        for sticky in sticky_rows(&rows, content_rect.top, scroll)
-            .into_iter()
-            .rev()
-        {
-            let directory = sticky.directory;
+        let stickies = sticky_rows(&rows, content_rect.top, scroll);
+        // The pinned rows above each pinned row that are its ancestors: their
+        // guides run beside it.
+        let mut ancestors: Vec<Vec<usize>> = Vec::with_capacity(stickies.len());
+        let mut stack: Vec<usize> = Vec::new();
+        for (index, sticky) in stickies.iter().enumerate() {
+            while stack
+                .last()
+                .is_some_and(|&above| stickies[above].directory.depth >= sticky.directory.depth)
+            {
+                stack.pop();
+            }
+            ancestors.push(stack.clone());
+            stack.push(index);
+        }
+        for (index, sticky) in stickies.iter().enumerate().rev() {
+            let directory = &sticky.directory;
             let indent = content_rect.left + INDENT + directory.depth as f32 * INDENT;
             // The workspace root keeps its plain color, as in the tree itself.
             let label_color = if directory.depth == 0 {
@@ -286,6 +300,34 @@ pub fn render(
                 false,
                 label_color,
             ));
+            // The pinned row hides the guides of the directories above it, so
+            // they are drawn again over it. The rows of those directories come
+            // after this one and stay on top of any guide they overlap.
+            let row_rect = UiRect::new(
+                content_rect.left,
+                sticky.top,
+                content_rect.right,
+                sticky.top + ROW_H,
+            );
+            let mut guides = clip(row_rect, 0.0, 0.0);
+            let mut any = false;
+            for &above in &ancestors[index] {
+                let above = &stickies[above].directory;
+                let active = above.entry.guide_active(active_guide);
+                if !(active || s.ui.hovered) {
+                    continue;
+                }
+                let indent = content_rect.left + INDENT + above.depth as f32 * INDENT;
+                let x = (indent + TREE_ICON_SIZE / 2.0).round() - scroll_x;
+                guides = guides.child(panel(
+                    UiRect::new(x, row_rect.top, x + 1.0, row_rect.bottom),
+                    VisualStyle::filled(guide_color(active)),
+                ));
+                any = true;
+            }
+            if any {
+                bar = bar.child(guides);
+            }
         }
 
         if max_scroll > 0.0 && (s.ui.hovered || s.ui.scrollbar_dragging) {
@@ -674,6 +716,17 @@ fn follow_hover(row: Element, hover: &RowHover, key: &str, fixed: Option<Color>)
     })
 }
 
+/// Color of an indent guide: a brighter tone for the active row's guide, a
+/// dimmer one for the others, which show only while the pointer is over the
+/// drawer.
+fn guide_color(active: bool) -> Color {
+    if active {
+        theme::c().text_ghost
+    } else {
+        theme::c().border
+    }
+}
+
 fn row_fill(fixed: Option<Color>, hovered: bool) -> VisualStyle {
     match fixed {
         Some(color) => VisualStyle::filled(color),
@@ -1037,17 +1090,21 @@ fn build_tree(
                 }
             }
         }
+        // Like VS Code: every guide shows while the pointer is over the drawer,
+        // and only the active row's guide when it is not. Two neighbouring tones
+        // tell them apart: the brighter one for the active row's guide. The cheap
+        // visibility checks come first, since this runs for every row of the pass.
         if *y > children_top && tree.row_visible(children_top, *y - children_top) {
-            // A whole-pixel x keeps the 1px guide from being smeared over two
-            // pixel columns, and the reduced alpha keeps it from competing with
-            // the rows it connects.
-            let guide_x = (indent + TREE_ICON_SIZE / 2.0).round();
-            let mut style = VisualStyle::filled(theme::c().border);
-            style.fill_alpha = GUIDE_ALPHA;
-            elements.push(panel(
-                UiRect::new(guide_x, children_top, guide_x + 1.0, *y),
-                style,
-            ));
+            let active = entry.guide_active(tree.active_guide);
+            if active || tree.panel.ui.hovered {
+                // A whole-pixel x keeps the 1px guide from being smeared over two
+                // pixel columns.
+                let guide_x = (indent + TREE_ICON_SIZE / 2.0).round();
+                elements.push(panel(
+                    UiRect::new(guide_x, children_top, guide_x + 1.0, *y),
+                    VisualStyle::filled(guide_color(active)),
+                ));
+            }
         }
     }
 }

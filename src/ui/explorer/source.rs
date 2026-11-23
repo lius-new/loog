@@ -5,7 +5,7 @@ use crate::features::explorer::{ExplorerContextTarget, ExplorerCreateKind, Explo
 use crate::features::resource_tree::{EditKind, Target};
 use lgui::core::PointerButton;
 use loog_workspace_api::{FileInfo, FileKind, ResourceRef};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug)]
 enum Origin {
@@ -213,6 +213,12 @@ impl Entry {
             .as_ref()
             .is_some_and(|resource| frame.active_resource == Some(resource))
             || matches!(&self.origin, Origin::Local(path) if panel.ui.selection.contains(path) || frame.active_path == Some(path.as_path()))
+    }
+
+    /// Whether the guide that joins this expanded directory to its children is
+    /// the active row's, given the directory `active_guide` found for the frame.
+    pub fn guide_active(&self, target: Option<&Path>) -> bool {
+        matches!((&self.origin, target), (Origin::Local(path), Some(target)) if path == target)
     }
 
     pub fn decoration(&self, frame: &Frame<'_>) -> Decoration {
@@ -505,4 +511,25 @@ mod skipping_tests {
         assert_eq!(local_rows_below(&panel, &a.to_string_lossy()), 3);
         assert_eq!(local_rows_below(&panel, &hidden.to_string_lossy()), 0);
     }
+}
+
+/// The directory whose indent guide belongs to the active row: the row's own
+/// guide when it is an expanded directory, otherwise the guide of the directory
+/// that contains it. Found once per frame, so the tree pass only compares paths.
+pub(super) fn active_guide<'a>(
+    panel: &'a ExplorerPanelState,
+    frame: &Frame<'a>,
+) -> Option<&'a Path> {
+    let (row, is_directory) = match panel.ui.active_directory(frame.active_path) {
+        Some(directory) => (directory.as_path(), true),
+        None => (frame.active_path?, false),
+    };
+    if is_directory
+        && panel
+            .model
+            .is_expanded(&crate::features::explorer::tree::key(row))
+    {
+        return Some(row);
+    }
+    row.parent()
 }

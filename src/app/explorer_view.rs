@@ -1140,6 +1140,114 @@ mod tests {
     }
 
     #[test]
+    fn indent_guides_show_on_hover_and_the_active_one_stays() {
+        use crate::features::explorer::tree::key;
+        let (root, mut app) = workspace("explorer-view-guides", &["src/main.rs", "a.rs"]);
+        let (dir, file) = (root.join("src"), root.join("src/main.rs"));
+        app.workspace.test_open_view(file.clone(), String::new());
+        let mut h = harness(app);
+        h.run(Command::ToggleDirectory(key(&dir)));
+        h.render();
+        // The 1px vertical lines inside the tree: (x, fill), left to right.
+        let guides = |h: &Harness| {
+            let (bright, dim) = (
+                Some(crate::ui::theme::c().text_ghost),
+                Some(crate::ui::theme::c().border),
+            );
+            let mut found: Vec<(f32, Option<lgui::prelude::Color>)> = h
+                .session
+                .tree()
+                .nodes()
+                .iter()
+                .filter(|node| {
+                    (node.style.fill == bright || node.style.fill == dim)
+                        && node.layout_rect.width() == 1.0
+                        && node.layout_rect.height() > 10.0
+                        && node.layout_rect.left > 505.0
+                })
+                .map(|node| (node.layout_rect.left, node.style.fill))
+                .collect();
+            found.sort_by(|a, b| a.0.total_cmp(&b.0));
+            found
+        };
+        let (bright, dim) = (
+            Some(crate::ui::theme::c().text_ghost),
+            Some(crate::ui::theme::c().border),
+        );
+
+        // Away from the drawer only the guide of the open file's folder shows.
+        assert_eq!(guides(&h).iter().map(|g| g.1).collect::<Vec<_>>(), [bright]);
+        let inner = guides(&h)[0].0;
+
+        // Over the drawer every guide shows, the others dimmer.
+        h.state.update(|app| app.explorer.ui.hovered = true);
+        h.render();
+        let hovered = guides(&h);
+        assert_eq!(
+            hovered.iter().map(|g| g.1).collect::<Vec<_>>(),
+            [dim, bright]
+        );
+        assert_eq!(hovered[1].0, inner);
+
+        // An expanded directory made active owns its guide, not its parent.
+        h.run(Command::SelectDirectory(root.clone()));
+        h.render();
+        assert_eq!(
+            guides(&h).iter().map(|g| g.1).collect::<Vec<_>>(),
+            [bright, dim]
+        );
+        h.state.update(|app| app.explorer.ui.hovered = false);
+        h.render();
+        assert_eq!(guides(&h).iter().map(|g| g.1).collect::<Vec<_>>(), [bright]);
+        assert!(guides(&h)[0].0 < inner);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn pinned_rows_keep_the_guides_of_the_directories_above_them() {
+        use crate::features::explorer::tree::key;
+        use lgui::core::{InputEvent, Point, WheelDelta, dispatch_runtime_output};
+        let files: Vec<String> = (0..60).map(|index| format!("a/b/f{index}.rs")).collect();
+        let names: Vec<&str> = files.iter().map(String::as_str).collect();
+        let (root, app) = workspace("explorer-view-pinned-guides", &names);
+        let mut h = harness(app);
+        for path in [root.join("a"), root.join("a/b")] {
+            h.run(Command::ToggleDirectory(key(&path)));
+        }
+        h.state.update(|app| app.explorer.ui.hovered = true);
+        h.render();
+        let events = h.session.handle_input(InputEvent::Wheel {
+            point: Point::new(650.0, 400.0),
+            delta: WheelDelta::pixels(0.0, -300.0),
+        });
+        dispatch_runtime_output(
+            events,
+            &h.services.application,
+            &lgui::window::WindowId::new("pinned-guides-test"),
+            |action| h.session.handle_default_action(action),
+            |_| {},
+        );
+        h.render();
+        assert!(h.state.get().explorer.ui.scroll > 0.0);
+
+        // One-row-high guides are the ones drawn beside pinned rows. The pinned
+        // directory `b` has two directories above it, `a` has one.
+        let beside_pinned_rows = h
+            .session
+            .tree()
+            .nodes()
+            .iter()
+            .filter(|node| {
+                node.layout_rect.width() == 1.0
+                    && node.layout_rect.height() == crate::ui::theme::DRAWER_ROW_H
+                    && node.layout_rect.left > 505.0
+            })
+            .count();
+        assert_eq!(beside_pinned_rows, 3);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn pressing_a_file_twice_starts_a_double_click_drag() {
         let (root, app) = workspace("explorer-view-press", &["a.rs"]);
         let h = harness(app);
