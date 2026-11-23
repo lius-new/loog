@@ -54,6 +54,14 @@ pub(crate) fn svg_icons() -> SvgIconRegistry {
                 ui::components::loading_indicator::SVG,
             )
             .with_icon("layout-view", r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" d="M2 2.5h12v11H2zM5.5 2.5v11M5.5 10h8.5"/></svg>"#)
+            .with_icon(
+                ui::terminal::header::CHEVRON_DOWN_ICON,
+                ui::terminal::header::CHEVRON_DOWN_SVG,
+            )
+            .with_icon(
+                ui::terminal::header::SEARCH_ICON,
+                ui::terminal::header::SEARCH_SVG,
+            )
             .with_icon("layout-eye", icondata::LuEye)
             .with_icon("layout-eye-off", icondata::LuEyeOff)
             .with_icon("panel-left", icondata::VsLayoutSidebarLeft)

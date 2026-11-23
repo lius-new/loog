@@ -11,8 +11,8 @@ pub const DEFAULT_FILE_ICON: &str = "file-type-document";
 pub const FOLDER_ICON: &str = "folder";
 pub const FOLDER_OPEN_ICON: &str = "folder-open";
 /// A collapsed and an expanded directory in the workspace tree.
-pub const CHEVRON_RIGHT_ICON: &str = "chevron-right";
-pub const CHEVRON_DOWN_ICON: &str = "chevron-down";
+pub const CHEVRON_RIGHT_ICON: &str = "file-tree-chevron-right";
+pub const CHEVRON_DOWN_ICON: &str = "file-tree-chevron-down";
 
 const RUST: &str = "file-type-rust";
 const GO: &str = "file-type-go";
@@ -380,6 +380,22 @@ mod tests {
     fn unknown_files_use_the_document_fallback() {
         assert_eq!(icon_for_file("AUTHORS"), DEFAULT_FILE_ICON);
         assert_eq!(icon_for_file("sample.unknown"), DEFAULT_FILE_ICON);
+    }
+
+    #[test]
+    fn tree_chevrons_do_not_replace_the_applications_own_chevrons() {
+        // File icons are registered last, so a shared key would replace the
+        // chevron every other panel draws with that key.
+        let registry = crate::app::svg_icons();
+        for (tree, application) in [
+            (CHEVRON_RIGHT_ICON, "chevron-right"),
+            (CHEVRON_DOWN_ICON, "chevron-down"),
+        ] {
+            assert_ne!(tree, application);
+            let tree = registry.resolve(tree).expect("tree chevron");
+            let application = registry.resolve(application).expect("application chevron");
+            assert_ne!(tree, application);
+        }
     }
 
     #[test]

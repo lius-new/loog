@@ -375,7 +375,7 @@ pub(crate) fn render_view(
     terminal = terminal.child(header::button(
         "terminal-shell-menu",
         tools.shell,
-        "chevron-down",
+        header::CHEVRON_DOWN_ICON,
         "Choose shell",
         shell_menu_open,
         tool_color,
@@ -419,7 +419,7 @@ pub(crate) fn render_view(
         "terminal-search",
         search_box,
         tools.search,
-        "search",
+        header::SEARCH_ICON,
         "Search terminal output",
         find_open,
         tool_color,

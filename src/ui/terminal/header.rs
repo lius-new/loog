@@ -7,6 +7,14 @@ use lgui::prelude::{Color, Element, UiRect, VisualStyle, panel};
 
 use crate::ui::theme;
 
+/// Icon keys of the header's own dropdown chevron and magnifier. They are strokes
+/// rather than the Codicons' filled hairlines, whose diagonals and arcs come out
+/// as broken dots on a 1px grid.
+pub(crate) const CHEVRON_DOWN_ICON: &str = "header-chevron-down";
+pub(crate) const SEARCH_ICON: &str = "header-search";
+pub(crate) const CHEVRON_DOWN_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5 8 10l3.5-3.5"/></svg>"#;
+pub(crate) const SEARCH_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4.25"/><path d="m5.75 10.25-3.25 3.25"/></svg>"#;
+
 /// Distances of the right-hand tools. A wide header spreads them out; a narrow
 /// one keeps them close so the session tabs still have room.
 #[derive(Clone, Copy, Debug, PartialEq)]

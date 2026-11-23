@@ -525,7 +525,7 @@ fn output_toolbar(
     root = root.child(header::button(
         "log-find",
         slots[2],
-        "search",
+        header::SEARCH_ICON,
         "Filter lines",
         panel_state.find_open,
         tone,
