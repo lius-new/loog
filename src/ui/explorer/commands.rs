@@ -61,6 +61,8 @@ pub enum Command {
     },
     /// Expand or collapse a directory row (reads it on first expansion).
     ToggleDirectory(String),
+    /// Marks a clicked local directory as the selected row.
+    SelectDirectory(PathBuf),
     /// Open the context menu; `None` targets the drawer background.
     OpenMenu {
         point: (f32, f32),

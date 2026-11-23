@@ -17,7 +17,7 @@ use crate::features::explorer::{ExplorerContextTarget, ExplorerCreateKind, Explo
 use crate::features::explorer::{edit, roots};
 use crate::infrastructure::explorer_filesystem::ExplorerFilesystem;
 use crate::model::document::FileId;
-use crate::ui::explorer::state::ExplorerReveal;
+use crate::ui::explorer::state::{ExplorerReveal, SelectedDirectory};
 
 /// Shared Explorer click policy for local and provided files.
 pub(crate) fn open_mode(clicks: u8) -> crate::app::workspace::OpenMode {
@@ -267,6 +267,11 @@ pub fn reveal_folder(state: &AppContext, path: &Path) {
             app.show_toast("Folder is outside the workspace.");
             return;
         }
+        let editor_path = app.workspace.active_path().map(Path::to_path_buf);
+        app.explorer.ui.selected_directory = Some(SelectedDirectory {
+            path: path.clone(),
+            editor_path,
+        });
         app.drawer.visible = true;
         app.explorer.ui.scroll_x = 0.0;
     });
@@ -310,6 +315,10 @@ fn reveal_path(app: &mut AppState, path: &Path) -> bool {
             covered: depth,
         }
     });
+    // Revealing makes this row the only active one.
+    app.explorer.ui.selected_directory = None;
+    app.explorer.ui.selection.clear();
+    app.explorer.ui.selection_anchor = None;
     true
 }
 

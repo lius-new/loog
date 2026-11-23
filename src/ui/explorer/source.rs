@@ -204,6 +204,11 @@ impl Entry {
     }
 
     pub fn selected(&self, panel: &ExplorerPanelState, frame: &Frame<'_>) -> bool {
+        // The tree has one active row: an active directory takes the highlight
+        // from the open file.
+        if let Some(directory) = panel.ui.active_directory(frame.active_path) {
+            return matches!(&self.origin, Origin::Local(path) if path == directory);
+        }
         self.resource
             .as_ref()
             .is_some_and(|resource| frame.active_resource == Some(resource))

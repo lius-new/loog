@@ -37,6 +37,10 @@ pub struct ExplorerUiState {
     pub selection: HashSet<PathBuf>,
     /// Last plain or ctrl-clicked file; shift-click extends from it.
     pub selection_anchor: Option<PathBuf>,
+    /// The directory last activated (clicked, or revealed). The tree has one
+    /// active row, so it replaces the highlight of the open file while it holds.
+    /// It is kept apart from `selection`, which batch actions apply to.
+    pub selected_directory: Option<SelectedDirectory>,
     pub scroll: f32,
     pub scroll_x: f32,
     pub scrollbar_dragging: bool,
@@ -88,3 +92,22 @@ pub struct ExplorerPanelState {
 /// Cache key of the tree row under the pointer. A signal rather than application state, so
 /// moving between rows repaints the rows in place and re-renders nothing.
 pub type RowHover = lgui::core::Signal<Option<String>>;
+
+/// A directory made the tree's active row, and the document that was active in
+/// the editor at that moment. Switching to another document hands the highlight
+/// back to that document's file, so only one row is ever active.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectedDirectory {
+    pub path: PathBuf,
+    pub editor_path: Option<PathBuf>,
+}
+
+impl ExplorerUiState {
+    /// The active directory, unless the editor moved to another document since.
+    pub fn active_directory(&self, editor_path: Option<&std::path::Path>) -> Option<&PathBuf> {
+        self.selected_directory
+            .as_ref()
+            .filter(|selected| selected.editor_path.as_deref() == editor_path)
+            .map(|selected| &selected.path)
+    }
+}

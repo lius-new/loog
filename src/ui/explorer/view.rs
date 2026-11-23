@@ -715,17 +715,21 @@ fn dir_row(
     };
     let layer = if sticky { "sticky" } else { "content" };
     let fid = UiId::owned(format!("tree-{layer}-{key}"));
+    // A selected directory is filled like a selected file. Sticky rows keep the
+    // sidebar fill that hides the rows scrolling beneath them.
+    let fixed = (!sticky)
+        .then(|| entry.selected(tree.panel, tree.frame))
+        .filter(|selected| *selected)
+        .map(|_| theme::c().active_line);
     let style = if sticky {
         VisualStyle::filled(theme::c().sidebar)
-    } else if hovered {
-        VisualStyle::filled(theme::c().surface)
     } else {
-        VisualStyle::default()
+        row_fill(fixed, hovered)
     };
 
     let mut row = panel(row_rect, style).event_policy(EventPolicy::INTERACTIVE);
     if !sticky {
-        row = follow_hover(row, tree.frame.hover, key, None)
+        row = follow_hover(row, tree.frame.hover, key, fixed)
             .on_pointer_move(track_hover(tree.frame.hover, key));
     }
 
@@ -734,6 +738,11 @@ fn dir_row(
     let row = row
         .on_pointer_down_with_button(move |cx, pointer, button| {
             if let Some(command) = click_entry.press((pointer.point.x, pointer.point.y), button) {
+                if button == PointerButton::Left
+                    && let Some(path) = click_entry.local_path()
+                {
+                    commands.dispatch(Command::SelectDirectory(path.clone()));
+                }
                 commands.dispatch(command);
             }
             cx.stop_propagation();

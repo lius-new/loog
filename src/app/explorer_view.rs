@@ -269,6 +269,16 @@ fn run(state: &AppContext, services: &Services, command: Command) {
                 services.editor_focus.focus();
             }
         }
+        Command::SelectDirectory(path) => state.update(move |app| {
+            app.explorer.ui.selection.clear();
+            app.explorer.ui.selection_anchor = None;
+            let editor_path = app
+                .workspace
+                .active_path()
+                .map(std::path::Path::to_path_buf);
+            app.explorer.ui.selected_directory =
+                Some(crate::ui::explorer::state::SelectedDirectory { path, editor_path });
+        }),
         Command::ToggleDirectory(key) => {
             state.update(move |app| explorer::toggle_directory(app, &key));
         }
@@ -290,6 +300,7 @@ fn run(state: &AppContext, services: &Services, command: Command) {
             app.explorer.ui.menu_hover = None;
         }),
         Command::PressFile { path, point } => state.update(move |app| {
+            app.explorer.ui.selected_directory = None;
             let ctrl = app.editor.modifiers.ctrl() || app.editor.modifiers.meta();
             let shift = app.editor.modifiers.shift();
             if ctrl || shift {
@@ -1056,6 +1067,75 @@ mod tests {
         assert!(app.editor.tabs.tab_context_menu.is_none());
         assert_eq!(app.explorer.ui.menu, Some((600.0, 40.0)));
         assert_eq!(app.explorer.ui.menu_target, menu_target);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_tree_has_a_single_active_row() {
+        use crate::features::explorer::tree::key;
+        use lgui::core::Point;
+        let (root, mut app) =
+            workspace("explorer-view-one-active", &["src/main.rs", "a.rs", "b.rs"]);
+        let (a, b, dir) = (root.join("a.rs"), root.join("b.rs"), root.join("src"));
+        let a_view = app.workspace.test_open_view(a.clone(), String::new());
+        let mut h = harness(app);
+        h.render();
+        let active = Some(crate::ui::theme::c().active_line);
+        // The fill of the row that holds the icon with this id.
+        let fill = |h: &Harness, icon: String| {
+            let icon = h
+                .session
+                .tree()
+                .node(&UiId::owned(icon))
+                .expect("tree row")
+                .layout_rect;
+            let hit = h
+                .session
+                .tree()
+                .hit_test(Point::new(icon.left - 6.0, icon.top + 8.0))
+                .expect("tree row");
+            h.session.tree().node(&hit.id).unwrap().style.fill
+        };
+        let file = |h: &Harness, path: &Path| fill(h, format!("tree-file-icon-{}", key(path)));
+        let directory = |h: &Harness, path: &Path| fill(h, format!("tree-content-{}", key(path)));
+
+        // The document open in the editor is the active row.
+        assert_eq!(file(&h, &a), active);
+        assert_ne!(directory(&h, &dir), active);
+
+        // Activating a directory takes the highlight from the file, and the
+        // directory stays out of the selection that batch actions use.
+        h.run(Command::SelectDirectory(dir.clone()));
+        h.render();
+        assert_eq!(directory(&h, &dir), active);
+        assert_ne!(file(&h, &a), active);
+        assert!(h.state.get().explorer.ui.selection.is_empty());
+
+        // Revealing a file hands the highlight to that file.
+        let id = h.state.get().workspace.test_document(a_view);
+        crate::app::explorer::reveal_file(&h.state, id);
+        h.render();
+        assert_ne!(directory(&h, &dir), active);
+        assert_eq!(file(&h, &a), active);
+
+        // Switching to another document does too.
+        h.run(Command::SelectDirectory(dir.clone()));
+        h.state.update(|app| {
+            app.workspace.test_open_view(b.clone(), String::new());
+        });
+        h.render();
+        assert_ne!(directory(&h, &dir), active);
+        assert_eq!(file(&h, &b), active);
+        assert_ne!(file(&h, &a), active);
+
+        // Pressing a file makes it the only active row as well.
+        h.run(Command::SelectDirectory(dir.clone()));
+        h.run(Command::PressFile {
+            path: a.clone(),
+            point: (520.0, 50.0),
+        });
+        h.render();
+        assert_ne!(directory(&h, &dir), active);
         let _ = fs::remove_dir_all(root);
     }
 
