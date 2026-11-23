@@ -949,7 +949,10 @@ pub(crate) fn render_session(
         || ui
             .terminal_scrollbar_drag
             .is_some_and(|(id, _)| id == session_id);
-    if snapshot.scrollback_rows > 0 || emphasized {
+    // Like the file drawer and the editor, the scrollbar shows only while the
+    // pointer is over the pane, the terminal has keyboard focus, or its thumb
+    // is dragged. It overlays the text, so hiding it does not move it.
+    if (emphasized || focused) && (snapshot.scrollback_rows > 0 || emphasized) {
         terminal = terminal.child(vertical_scrollbar(
             body,
             &snapshot,

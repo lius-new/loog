@@ -624,8 +624,8 @@ mod tests {
         tabs.notify();
         session.render_view(&view, viewport, UiScale::ONE);
         assert!(thumb(&session, 1).is_some());
-        // History keeps the faint scrollbar visible in every pane.
-        assert!(thumb(&session, 2).is_some());
+        // Only the hovered pane shows its scrollbar.
+        assert!(thumb(&session, 2).is_none());
         let bottom = thumb(&session, 1).unwrap();
         assert_eq!(
             session
@@ -641,7 +641,7 @@ mod tests {
             &mut session,
             InputEvent::PointerMove(PointerData::mouse(Point::new(450.0, 90.0))),
         );
-        assert!(thumb(&session, 1).is_some());
+        assert!(thumb(&session, 1).is_none());
         assert!(thumb(&session, 2).is_some());
         send(&mut session, InputEvent::PointerMove(inside));
         left.scroll(20);
@@ -687,7 +687,15 @@ mod tests {
             },
         );
         assert!(state.get().terminal.ui.terminal_scrollbar_drag.is_none());
+        // Released outside the pane: nothing is hovered or dragged any more.
+        assert!(thumb(&session, 1).is_none());
+        // Keyboard focus shows it without the pointer.
+        state.update(|app| app.terminal.ui.terminal_focused = true);
+        session.render_view(&view, viewport, UiScale::ONE);
         assert!(thumb(&session, 1).is_some());
+        state.update(|app| app.terminal.ui.terminal_focused = false);
+        session.render_view(&view, viewport, UiScale::ONE);
+        assert!(thumb(&session, 1).is_none());
         assert!(
             left.test_selection().is_none(),
             "drag must not start text selection"
