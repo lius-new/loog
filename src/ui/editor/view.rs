@@ -1003,10 +1003,13 @@ pub(crate) fn render(
             }
         }
 
-        let emphasized = s.editor_hovered == Some(pane)
-            || (focused_pane
-                && (s.editor_vertical_scrollbar_dragging
-                    || s.editor_horizontal_scrollbar_dragging));
+        let dragging = focused_pane
+            && (s.editor_vertical_scrollbar_dragging || s.editor_horizontal_scrollbar_dragging);
+        let emphasized = s.editor_hovered == Some(pane) || dragging;
+        // Like the file drawer, the scrollbars show only while the pointer is
+        // over the pane, the pane has keyboard focus, or a thumb is dragged.
+        // They overlay the text, so hiding them does not move it.
+        let show_scrollbars = emphasized || editor_focused;
         if !s.overview_marks.is_empty() || !s.conflicts.is_empty() {
             root = root.child(overview_ruler(
                 rect,
@@ -1045,7 +1048,7 @@ pub(crate) fn render(
                     .map(|d| (projection.row_of(&buffer, d.range.start), d.severity)),
             ));
         }
-        if has_vertical {
+        if has_vertical && show_scrollbars {
             root = root.child(vertical_scrollbar(
                 pane,
                 rect,
@@ -1056,7 +1059,7 @@ pub(crate) fn render(
                 state.clone(),
             ));
         }
-        if has_horizontal {
+        if has_horizontal && show_scrollbars {
             root = root.child(horizontal_scrollbar(
                 pane,
                 rect,
@@ -1068,7 +1071,7 @@ pub(crate) fn render(
                 state.clone(),
             ));
         }
-        if has_vertical && has_horizontal {
+        if has_vertical && has_horizontal && show_scrollbars {
             root = root.child(scrollbar_corner(pane, rect));
         }
         if let Some((_, card)) = card

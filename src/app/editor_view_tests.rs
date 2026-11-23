@@ -965,6 +965,66 @@ fn conflict_buttons_take_the_pointer_cursor_over_the_code() {
 }
 
 #[test]
+fn scrollbars_show_only_while_the_editor_is_hovered_or_focused() {
+    use lgui::application::AppView;
+    use lgui::core::UiScale;
+    use lgui::session::UiSession;
+    use std::sync::Arc;
+
+    let exposed = Arc::new(Mutex::new(None::<AppContext>));
+    let output = exposed.clone();
+    let viewport = UiRect::new(0.0, 0.0, 500.0, 300.0);
+    let view: AppView = Arc::new(move |cx| {
+        let state = AppContext::detached(
+            cx.state(document(&format!("{}\n", "line".repeat(100)).repeat(100))),
+        );
+        *output.lock().unwrap() = Some(state.clone());
+        let id = cx.use_stable_id();
+        let focus = cx.focus_handle(id.clone());
+        let git_store = cx.state(GitStoreSnapshot::default());
+        render(PaneId::new(1), viewport, state, git_store, id, focus)
+    });
+    let mut session = UiSession::new();
+    session.render_view(&view, viewport, UiScale::ONE);
+    let state = exposed.lock().unwrap().clone().unwrap();
+    // Thumbs are the only rounded panels filled with the dim text color.
+    let thumbs = |session: &UiSession| {
+        session
+            .tree()
+            .nodes()
+            .iter()
+            .filter(|node| node.style.fill == Some(theme::c().text_dim) && node.style.radius == 2.0)
+            .count()
+    };
+
+    // Neither hovered nor focused: no scrollbars.
+    state.update(|app| {
+        app.editor.focused = false;
+        app.editor.editor_hovered = None;
+    });
+    session.render_view(&view, viewport, UiScale::ONE);
+    assert_eq!(thumbs(&session), 0);
+
+    // Keyboard focus shows them.
+    state.update(|app| app.editor.focused = true);
+    session.render_view(&view, viewport, UiScale::ONE);
+    assert!(thumbs(&session) > 0);
+
+    // So does the pointer over the pane, without focus.
+    state.update(|app| {
+        app.editor.focused = false;
+        app.editor.editor_hovered = Some(PaneId::new(1));
+    });
+    session.render_view(&view, viewport, UiScale::ONE);
+    assert!(thumbs(&session) > 0);
+
+    // Leaving hides them again.
+    state.update(|app| app.editor.editor_hovered = None);
+    session.render_view(&view, viewport, UiScale::ONE);
+    assert_eq!(thumbs(&session), 0);
+}
+
+#[test]
 fn scrollbar_release_survives_editor_child_reordering() {
     use lgui::application::{AppView, ApplicationContext};
     use lgui::core::{
@@ -978,9 +1038,12 @@ fn scrollbar_release_survives_editor_child_reordering() {
     let output = exposed.clone();
     let viewport = UiRect::new(0.0, 0.0, 500.0, 300.0);
     let view: AppView = Arc::new(move |cx| {
-        let state = AppContext::detached(
-            cx.state(document(&format!("{}\n", "line".repeat(100)).repeat(100))),
-        );
+        let state = AppContext::detached(cx.state_with(|| {
+            let mut app = document(&format!("{}\n", "line".repeat(100)).repeat(100));
+            // The scrollbars show only for a focused or hovered editor.
+            app.editor.focused = true;
+            app
+        }));
         *output.lock().unwrap() = Some(state.clone());
         let id = cx.use_stable_id();
         let focus = cx.focus_handle(id.clone());

@@ -362,10 +362,14 @@ pub fn render(
         }
     }
 
-    let emphasized = app.editor.editor_hovered == Some(pane)
-        || (app.workspace.active_pane() == pane
-            && (app.editor.editor_vertical_scrollbar_dragging
-                || app.editor.editor_horizontal_scrollbar_dragging));
+    let dragging = app.workspace.active_pane() == pane
+        && (app.editor.editor_vertical_scrollbar_dragging
+            || app.editor.editor_horizontal_scrollbar_dragging);
+    let emphasized = app.editor.editor_hovered == Some(pane) || dragging;
+    // As in the text editor and the file drawer, the scrollbars show only while
+    // the pointer is over the pane, the pane has keyboard focus, or a thumb is
+    // dragged.
+    let show_scrollbars = emphasized || (app.editor.focused && app.workspace.active_pane() == pane);
     if !split && document.sections.is_none() {
         let marks = document.inline_change_marks();
         if !marks.is_empty() && marks.len() <= 10_000 {
@@ -380,7 +384,7 @@ pub fn render(
             ));
         }
     }
-    if max_y > 0.0 {
+    if max_y > 0.0 && show_scrollbars {
         if split && document.sections.is_none() {
             let columns = super::diff_split::Columns::new(body_rect, app.editor.diff_split.ratio);
             root = root.child(
@@ -406,7 +410,7 @@ pub fn render(
             scrollbars.clone(),
         ));
     }
-    if max_x > 0.0 {
+    if max_x > 0.0 && show_scrollbars {
         root = root.child(editor_view::horizontal_scrollbar(
             pane,
             body_rect,
