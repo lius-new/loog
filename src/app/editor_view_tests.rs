@@ -5289,3 +5289,46 @@ fn the_guide_of_the_cursors_block_is_brighter_than_the_others() {
         ]
     );
 }
+
+#[test]
+fn the_active_block_is_a_band_on_the_overview_ruler() {
+    use lgui::application::AppView;
+    use lgui::core::UiScale;
+    use lgui::session::UiSession;
+    use std::sync::Arc;
+
+    // The cursor is on line 1, which opens a block over lines 2 to 9.
+    let code = "for (a) {\n  let v = 1;\n  for (b) {\n    v = (v & 1)\n      ? 1\n      : 2;\n  }\n\n  done[v] = v;\n}\n";
+    let rect = UiRect::new(0.0, 0.0, 420.0, 230.0);
+    let view: AppView = Arc::new(move |cx| {
+        let state = AppContext::detached(cx.state(document(code)));
+        let git = cx.state(GitStoreSnapshot::default());
+        let id = UiId::new("active-block-ruler-test");
+        let focus = cx.focus_handle(id.clone());
+        render(PaneId::new(1), rect, state, git, id, focus)
+    });
+    let mut session = UiSession::new();
+    session.render_view(&view, rect, UiScale::ONE);
+    let line_h = crate::ui::fonts::editor().line_h;
+    let band: Vec<UiRect> = session
+        .tree()
+        .nodes()
+        .iter()
+        .filter(|node| {
+            node.style.fill == Some(theme::c().text_ghost)
+                && node.style.fill_alpha == 110
+                && node.layout_rect.right > rect.right - 14.0
+        })
+        .map(|node| node.layout_rect)
+        .collect();
+    assert_eq!(band.len(), 1, "one band for the one active block");
+    // The ruler maps rows onto the track in proportion, so whatever the scale,
+    // a band that starts after one line and spans eight is eight times as tall
+    // as the distance from the top of the ruler to its start.
+    let (top, height) = (band[0].top - rect.top, band[0].height());
+    assert!(top > 0.0);
+    assert!(
+        (height / top - 8.0).abs() < 0.3,
+        "starts at line 2 and spans eight lines: top {top}, height {height}"
+    );
+}

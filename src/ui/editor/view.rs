@@ -115,7 +115,7 @@ pub(crate) fn render(
         let active_guide = buffer
             .options()
             .indent_guides
-            .then(|| active_guide(&buffer, cursor_line, guide_step))
+            .then(|| active_guide(&buffer, cursor_line, guide_step, ACTIVE_GUIDE_SCAN_LINES))
             .flatten();
         let cursor_row =
             projection.caret_row(&buffer, buffer.cursor(), document.selection.wrap_affinity);
@@ -1019,6 +1019,24 @@ pub(crate) fn render(
         // over the pane, the pane has keyboard focus, or a thumb is dragged.
         // They overlay the text, so hiding them does not move it.
         let show_scrollbars = emphasized || editor_focused;
+        if buffer.options().indent_guides
+            && let Some(lines) = active_block_span(&buffer, id, cursor_line, guide_step)
+        {
+            let (first, rows) = displayed_span(
+                &buffer,
+                &projection,
+                *lines.start(),
+                lines.end() - lines.start() + 1,
+            );
+            root = root.child(active_block_ruler(
+                rect,
+                metrics,
+                has_horizontal,
+                fonts::editor().line_h,
+                first,
+                rows,
+            ));
+        }
         if !s.overview_marks.is_empty() || !s.conflicts.is_empty() {
             root = root.child(overview_ruler(
                 rect,
@@ -2750,7 +2768,12 @@ const ACTIVE_GUIDE_SCAN_LINES: usize = 500;
 /// block, because the next text line is indented deeper, owns the guide inside
 /// that block instead. The guide is active only along the lines of that one
 /// block, not wherever else its column is drawn.
-fn active_guide(buffer: &TextBuffer, cursor_line: usize, step: usize) -> Option<ActiveGuide> {
+fn active_guide(
+    buffer: &TextBuffer,
+    cursor_line: usize,
+    step: usize,
+    scan: usize,
+) -> Option<ActiveGuide> {
     let own = indent_columns(buffer, cursor_line);
     let here = guide_columns(buffer, cursor_line);
     let next = (cursor_line + 1..buffer.line_count())
@@ -2775,12 +2798,11 @@ fn active_guide(buffer: &TextBuffer, cursor_line: usize, step: usize) -> Option<
         return None;
     }
     let mut start = first;
-    while start > 0 && first - start < ACTIVE_GUIDE_SCAN_LINES && carries(start - 1) {
+    while start > 0 && first - start < scan && carries(start - 1) {
         start -= 1;
     }
     let mut end = first;
-    while end + 1 < buffer.line_count() && end - first < ACTIVE_GUIDE_SCAN_LINES && carries(end + 1)
-    {
+    while end + 1 < buffer.line_count() && end - first < scan && carries(end + 1) {
         end += 1;
     }
     Some(ActiveGuide {
@@ -2798,3 +2820,63 @@ fn guide_color(active: bool) -> lgui::prelude::Color {
         theme::c().border
     }
 }
+
+/// How far the overview ruler follows the active block from the cursor. The
+/// whole block is drawn there, so this is far larger than the guide's own limit.
+const ACTIVE_BLOCK_RULER_SCAN_LINES: usize = 20_000;
+
+/// The lines of the block the cursor is in, for the overview ruler. Found once
+/// per cursor line and text revision rather than once per frame.
+fn active_block_span(
+    buffer: &TextBuffer,
+    document: loog_editor_core::identity::ViewId,
+    cursor_line: usize,
+    step: usize,
+) -> Option<std::ops::RangeInclusive<usize>> {
+    type Key = (loog_editor_core::identity::ViewId, u64, usize, usize);
+    thread_local! {
+        static LAST: std::cell::RefCell<Option<(Key, Option<std::ops::RangeInclusive<usize>>)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    let key = (document, buffer.version(), cursor_line, step);
+    LAST.with(|last| {
+        if let Some((cached, span)) = &*last.borrow()
+            && *cached == key
+        {
+            return span.clone();
+        }
+        let span = active_guide(buffer, cursor_line, step, ACTIVE_BLOCK_RULER_SCAN_LINES)
+            .map(|guide| guide.lines);
+        *last.borrow_mut() = Some((key, span.clone()));
+        span
+    })
+}
+
+/// The block the cursor is in, as a faint band across the overview ruler, under
+/// the marks. `first` and `rows` are in displayed rows.
+fn active_block_ruler(
+    rect: UiRect,
+    metrics: ScrollMetrics,
+    has_horizontal: bool,
+    row_height: f32,
+    first: usize,
+    rows: usize,
+) -> Element {
+    let corner = if has_horizontal { SCROLLBAR_SIZE } else { 0.0 };
+    let lane = UiRect::new(
+        rect.right - SCROLLBAR_SIZE + 1.0,
+        rect.top,
+        rect.right - 1.0,
+        rect.bottom - corner,
+    );
+    let scale = lane.height() / metrics.content_h.max(metrics.viewport_h);
+    let top = (lane.top + first as f32 * row_height * scale).min(lane.bottom - MIN_MARK_LENGTH);
+    let bottom = (lane.top + (first + rows) as f32 * row_height * scale).max(top + MIN_MARK_LENGTH);
+    group(lane).child(panel(
+        UiRect::new(lane.left, top, lane.right, bottom.min(lane.bottom)),
+        VisualStyle::filled(theme::c().text_ghost).alpha(ACTIVE_BLOCK_RULER_ALPHA),
+    ))
+}
+
+/// Opacity of the active block's band on the overview ruler.
+const ACTIVE_BLOCK_RULER_ALPHA: u8 = 110;
