@@ -2,10 +2,12 @@
 //! Font raster choices belong here, not to individual document views.
 
 pub(crate) fn defaults() -> lgui::text::TextRenderingOptions {
-    // Symmetric grayscale smoothing avoids platform grid-fitting stair steps
-    // on transparent targets. Native LCD text keeps the system raster mode.
+    // Grayscale text uses slight hinting, as LCD text does. It snaps strokes to
+    // pixel rows only vertically, so the horizontal bars of dense CJK glyphs
+    // (日, 国, 目) stay separate at 10 to 14 px instead of smearing into grey
+    // blocks, and glyph widths still do not change.
     lgui::text::TextRenderingOptions::default()
-        .with_grayscale_hinting(lgui::text::TextHinting::None)
+        .with_grayscale_hinting(lgui::text::TextHinting::Slight)
 }
 
 // Retain 50% of the color-based correction. Returning
@@ -26,10 +28,9 @@ pub(crate) struct Coverage {
     pub contrast: f32,
 }
 
-/// Derive one window profile from its text/background pairs. Positive polarity
-/// means darker text on a lighter background. Its default contrast boost needs
-/// tapering as well as a higher gamma; applying the reverse-polarity curve would
-/// thicken those strokes. Neutral pairs stay close to the native coverage curve.
+/// Derive one window profile from its text/background pairs. The more the text
+/// differs in brightness from its background, in either direction, the lower the
+/// gamma, which thickens the strokes. Neutral pairs stay at the native curve.
 pub(crate) fn coverage(pairs: impl IntoIterator<Item = ColorPair>) -> Option<Coverage> {
     let (mut polarity, mut total) = (0.0, 0.0);
     for pair in pairs {
@@ -48,13 +49,15 @@ pub(crate) fn coverage(pairs: impl IntoIterator<Item = ColorPair>) -> Option<Cov
     }
     let polarity = (polarity / total).clamp(-1.0, 1.0);
     // Derive a bounded color correction without theme names or a brightness
-    // cutoff, then apply the same strength to gamma and contrast.
-    let strength = if polarity < 0.0 { 0.8 } else { 0.6 };
-    let gamma = (2.2 + strength * polarity).clamp(1.4, 2.8);
-    let contrast = (0.5 * (1.0 - polarity.max(0.0))).clamp(0.0, 0.5);
+    // cutoff. Both polarities are thickened by the same rule: dark strokes on a
+    // light background read thinner than light strokes on a dark one, so raising
+    // the gamma or tapering the contrast there (as this once did) made light
+    // themes hard to read. Contrast stays at the native value of 0.5.
+    let gamma = (2.2 - 0.8 * polarity.abs()).clamp(1.4, 2.2);
+
     Some(Coverage {
         gamma: 2.2 + (gamma - 2.2) * COMPENSATION_STRENGTH,
-        contrast: 0.5 + (contrast - 0.5) * COMPENSATION_STRENGTH,
+        contrast: 0.5,
     })
 }
 
@@ -88,8 +91,8 @@ mod tests {
         let light = coverage([pair(0, 0xffffff)]).unwrap();
         assert!((dark.gamma - 1.8).abs() < 0.000001);
         assert_eq!(dark.contrast, 0.5);
-        assert!((light.gamma - 2.5).abs() < 0.000001);
-        assert!((light.contrast - 0.25).abs() < 0.000001);
+        assert!((light.gamma - 1.8).abs() < 0.000001);
+        assert_eq!(light.contrast, 0.5);
     }
 
     #[test]
@@ -101,8 +104,8 @@ mod tests {
                 let current = coverage([pair(foreground, background)]).unwrap();
                 assert!((current.gamma - previous.gamma).abs() < 0.06);
                 assert!((current.contrast - previous.contrast).abs() < 0.03);
-                assert!((1.8..=2.5).contains(&current.gamma));
-                assert!((0.25..=0.5).contains(&current.contrast));
+                assert!((1.8..=2.2).contains(&current.gamma));
+                assert_eq!(current.contrast, 0.5);
                 previous = current;
             }
         }
@@ -117,9 +120,9 @@ mod tests {
             pair(0x2563eb, 0xfafafa),
         ])
         .unwrap();
-        assert!(combined.gamma < strong.gamma);
-        assert!(combined.gamma > 2.2);
-        assert!(combined.contrast > strong.contrast);
+        assert!(combined.gamma > strong.gamma);
+        assert!(combined.gamma < 2.2);
+        assert_eq!(combined.contrast, strong.contrast);
         let neutral = coverage([pair(0x808080, 0x808080)]).unwrap();
         assert_eq!(
             neutral,
@@ -135,7 +138,7 @@ mod tests {
     fn color_hue_and_relative_weights_are_used_without_theme_names() {
         let green = coverage([pair(0x00ff00, 0x808080)]).unwrap();
         let blue = coverage([pair(0x0000ff, 0x808080)]).unwrap();
-        assert!(green.gamma < 2.2 && blue.gamma > 2.2);
+        assert!(green.gamma < 2.2 && blue.gamma < 2.2);
         let weighted = coverage([
             ColorPair {
                 weight: 5.0,
