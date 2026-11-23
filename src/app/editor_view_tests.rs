@@ -5153,3 +5153,139 @@ fn folding_gutter_hover_reveals_right_column_and_preserves_numbers_actions_and_g
     }
     fonts::set(&fonts::FontSettings::EDITOR, &fonts::FontSettings::TERMINAL);
 }
+
+#[test]
+fn indent_guides_mark_each_level_start_and_run_through_blank_lines() {
+    use lgui::application::AppView;
+    use lgui::core::UiScale;
+    use lgui::session::UiSession;
+    use std::sync::Arc;
+
+    // Lines 2 to 9 sit inside the first block; the blank line 8 borrows the
+    // smaller indentation of its neighbours.
+    let code = "for (a) {\n  let v = 1;\n  for (b) {\n    v = (v & 1)\n      ? 1\n      : 2;\n  }\n\n  done[v] = v;\n}\n";
+    let rect = UiRect::new(0.0, 0.0, 420.0, 230.0);
+    let view: AppView = Arc::new(move |cx| {
+        let state = AppContext::detached(cx.state(document(code)));
+        let git = cx.state(GitStoreSnapshot::default());
+        let id = UiId::new("indent-guides-test");
+        let focus = cx.focus_handle(id.clone());
+        render(PaneId::new(1), rect, state, git, id, focus)
+    });
+    let mut session = UiSession::new();
+    session.render_view(&view, rect, UiScale::ONE);
+
+    let mut rows: std::collections::BTreeMap<i32, Vec<f32>> = Default::default();
+    for node in session.tree().nodes().iter().filter(|node| {
+        node.semantics
+            .as_ref()
+            .is_some_and(|s| s.name.as_deref() == Some("Indent guide"))
+    }) {
+        let rect = node.layout_rect;
+        assert_eq!(
+            rect.left,
+            rect.left.round(),
+            "a guide lies on a whole pixel"
+        );
+        assert_eq!(rect.width(), 1.0);
+        rows.entry(rect.top.round() as i32)
+            .or_default()
+            .push(rect.left);
+    }
+    let rows: Vec<Vec<f32>> = rows
+        .into_values()
+        .map(|mut lefts| {
+            lefts.sort_by(f32::total_cmp);
+            lefts
+        })
+        .collect();
+    // One guide per level start, none where the line's own text begins.
+    let counts: Vec<usize> = rows.iter().map(Vec::len).collect();
+    assert_eq!(counts, [1, 1, 2, 3, 3, 1, 1, 1]);
+    // Every line's first guide is at the same column, blank line included.
+    let first: Vec<f32> = rows.iter().map(|lefts| lefts[0]).collect();
+    assert!(first.windows(2).all(|pair| pair[0] == pair[1]));
+}
+
+/// Fill of every indent guide of `code` with the cursor at `cursor`, by line
+/// from the top and left to right.
+fn indent_guide_fills(code: &'static str, cursor: usize) -> Vec<Vec<Option<lgui::prelude::Color>>> {
+    use lgui::application::AppView;
+    use lgui::core::UiScale;
+    use lgui::session::UiSession;
+    use std::sync::Arc;
+
+    let rect = UiRect::new(0.0, 0.0, 420.0, 230.0);
+    let view: AppView = Arc::new(move |cx| {
+        let mut initial = document(code);
+        initial
+            .workspace
+            .active_editor_mut()
+            .unwrap()
+            .set_cursor(cursor);
+        let state = AppContext::detached(cx.state(initial));
+        let git = cx.state(GitStoreSnapshot::default());
+        let id = UiId::new("indent-guide-color-test");
+        let focus = cx.focus_handle(id.clone());
+        render(PaneId::new(1), rect, state, git, id, focus)
+    });
+    let mut session = UiSession::new();
+    session.render_view(&view, rect, UiScale::ONE);
+    let mut rows: std::collections::BTreeMap<i32, Vec<(f32, Option<lgui::prelude::Color>)>> =
+        Default::default();
+    for node in session.tree().nodes().iter().filter(|node| {
+        node.semantics
+            .as_ref()
+            .is_some_and(|s| s.name.as_deref() == Some("Indent guide"))
+    }) {
+        rows.entry(node.layout_rect.top.round() as i32)
+            .or_default()
+            .push((node.layout_rect.left, node.style.fill));
+    }
+    rows.into_values()
+        .map(|mut guides| {
+            guides.sort_by(|a, b| a.0.total_cmp(&b.0));
+            guides.into_iter().map(|guide| guide.1).collect()
+        })
+        .collect()
+}
+
+#[test]
+fn the_guide_of_the_cursors_block_is_brighter_than_the_others() {
+    const CODE: &str = "for (a) {\n  let v = 1;\n  for (b) {\n    v = (v & 1)\n      ? 1\n      : 2;\n  }\n\n  done[v] = v;\n}\n";
+    let active = Some(theme::c().text_ghost);
+    let rest = Some(theme::c().border);
+
+    // On a line that opens a block, the guide inside that block is active, but
+    // not the inner block's guides.
+    let on_opener = indent_guide_fills(CODE, 0);
+    assert_eq!(
+        on_opener,
+        [
+            vec![active],
+            vec![active],
+            vec![active, rest],
+            vec![active, rest, rest],
+            vec![active, rest, rest],
+            vec![active],
+            vec![active],
+            vec![active],
+        ]
+    );
+
+    // Inside the innermost block, only that block's guide, along its own lines.
+    let inside = indent_guide_fills(CODE, 59);
+    assert_eq!(
+        inside,
+        [
+            vec![rest],
+            vec![rest],
+            vec![rest, rest],
+            vec![rest, rest, active],
+            vec![rest, rest, active],
+            vec![rest],
+            vec![rest],
+            vec![rest],
+        ]
+    );
+}
