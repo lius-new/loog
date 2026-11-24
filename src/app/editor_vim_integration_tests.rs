@@ -448,13 +448,14 @@ fn smooth_caret_animates_every_vim_shape_without_sliding_on_mode_switches() {
     ui.settle();
     let (start, _) = ui.caret();
     assert!(start.width() > 2.0, "Normal mode paints a block");
+    // The block includes partially covered pixels, while the bar rounds its origin.
+    let same_column = |a: f32, b: f32| (a - b).abs() <= 1.0;
 
     ui.keys("w");
     let (target, offset) = ui.caret();
     assert!(target.left > start.left);
-    assert_eq!(
-        target.left + offset.0,
-        start.left,
+    assert!(
+        same_column(target.left + offset.0, start.left),
         "motions retarget without jumping"
     );
     ui.session.advance(0.0);
@@ -466,7 +467,8 @@ fn smooth_caret_animates_every_vim_shape_without_sliding_on_mode_switches() {
     ui.keys("i");
     let (bar, offset) = ui.caret();
     assert_eq!(offset, (0.0, 0.0), "a shape change alone does not move");
-    assert_eq!((bar.left, bar.width()), (target.left, 2.0));
+    assert_eq!(bar.width(), 2.0);
+    assert!(same_column(bar.left, target.left));
     assert_eq!(bar.top + 1.0, target.top);
     assert_eq!(bar.height(), crate::ui::fonts::editor().line_h);
 
@@ -474,9 +476,8 @@ fn smooth_caret_animates_every_vim_shape_without_sliding_on_mode_switches() {
     let (block, offset) = ui.caret();
     assert!(block.left < bar.left && block.width() > 2.0);
     assert_eq!(offset.1, 0.0, "switching shapes never slides vertically");
-    assert_eq!(
-        block.left + offset.0,
-        bar.left,
+    assert!(
+        same_column(block.left + offset.0, bar.left),
         "leaving Insert mode animates the step left"
     );
     ui.settle();

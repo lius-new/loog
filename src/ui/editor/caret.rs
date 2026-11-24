@@ -1,10 +1,12 @@
 //! Animate only the painted caret. Editing and IME use the logical position.
 use lgui::core::{
-    CompositingLayerAnimation, CompositingLayerSpec, LayerTransform, UiElement, UiId, UiScale,
-    animated_compositing_layer,
+    CompositingLayerAnimation, CompositingLayerSpec, LayerTransform, PhysicalRect, UiElement, UiId,
+    UiScale, animated_compositing_layer,
 };
 use lgui::prelude::{Element, UiRect, VisualStyle};
+use lgui::text::TextLayout;
 use loog_editor_core::{text::Selection, vim::CursorShape};
+use std::ops::Range;
 use std::time::Instant;
 
 use crate::domain::identity::PaneId;
@@ -34,6 +36,7 @@ pub(super) struct BlinkActivity {
 /// top-left of the character cell, so switching between bar, block and
 /// underline shapes changes the painted rect without a vertical slide.
 pub(super) fn render(
+    kind: CursorShape,
     shape: UiRect,
     cell: [f32; 2],
     style: VisualStyle,
@@ -43,7 +46,7 @@ pub(super) fn render(
 ) -> Element {
     Element::new(move |cx| {
         let scale = cx.context.scale();
-        let target = viewport_rect(shape, context.scroll, scale);
+        let target = viewport_rect(kind, shape, context.scroll, scale);
         let blink = blink.filter(|_| target.intersect(context.viewport).is_some());
         // Snap the cell like the painted rect, or the first frame jumps a subpixel.
         let snap_scrolled = |value: f32, scroll: f32| snap(value - scroll, scale);
@@ -95,13 +98,46 @@ pub(super) fn bar(cell: [f32; 2]) -> UiRect {
 pub(super) fn secondary_bar(cell: [f32; 2], scroll: (f32, f32), style: VisualStyle) -> Element {
     let shape = bar(cell);
     Element::new(move |cx| {
-        let target = viewport_rect(shape, scroll, cx.context.scale());
+        let target = viewport_rect(CursorShape::Bar, shape, scroll, cx.context.scale());
         UiElement::panel(cx.id, target, style)
     })
 }
 
-fn viewport_rect(shape: UiRect, (x, y): (f32, f32), scale: UiScale) -> UiRect {
-    pixel_aligned(shape.translate(-x, -y), scale)
+/// Horizontal bounds of a grapheme in the same shaped line used to draw it.
+pub(super) fn grapheme_span(
+    layout: &TextLayout,
+    source_to_display: &[usize],
+    hints: &[(usize, usize)],
+    chars: Range<usize>,
+) -> Option<Range<f32>> {
+    let start = *source_to_display.get(chars.start)?;
+    let mut end = *source_to_display.get(chars.end)?;
+    // The boundary after the grapheme includes any hints before the next one.
+    for &(hint, length) in hints.iter().rev().take_while(|(hint, _)| *hint >= start) {
+        if hint + length == end {
+            end = hint;
+        }
+    }
+    let bounds = layout
+        .selection_rects(start..end)
+        .into_iter()
+        .reduce(UiRect::union)?;
+    (bounds.left < bounds.right).then_some(bounds.left..bounds.right)
+}
+
+fn viewport_rect(kind: CursorShape, shape: UiRect, (x, y): (f32, f32), scale: UiScale) -> UiRect {
+    let shape = shape.translate(-x, -y);
+    if kind == CursorShape::Bar {
+        return pixel_aligned(shape, scale);
+    }
+    // Include every pixel touched by the character's horizontal span.
+    let rect = scale.physical_ui_rect(shape);
+    scale.logical_rect(PhysicalRect::new(
+        rect.left.floor() as i32,
+        scale.physical_value(shape.top),
+        rect.right.ceil() as i32,
+        scale.physical_value(shape.bottom),
+    ))
 }
 
 #[derive(Clone, Default)]
@@ -273,7 +309,15 @@ mod tests {
 
     fn caret_at(rect: UiRect, context: CaretContext) -> Element {
         let style = VisualStyle::filled(crate::ui::theme::c().accent);
-        render(rect, [rect.left, rect.top], style, context, true, None)
+        render(
+            CursorShape::Bar,
+            rect,
+            [rect.left, rect.top],
+            style,
+            context,
+            true,
+            None,
+        )
     }
 
     fn context() -> CaretContext {
@@ -462,6 +506,7 @@ mod tests {
                 let view: AppView = Arc::new(move |_| {
                     let accent = VisualStyle::filled(crate::ui::theme::c().accent);
                     group(viewport).child(clip(viewport, 0.0, 0.0).child(render(
+                        CursorShape::Bar,
                         bar(cell),
                         cell,
                         accent,
@@ -572,7 +617,7 @@ mod tests {
                 component(viewport, move |_, _| {
                     counter.fetch_add(1, Ordering::Relaxed);
                     let style = VisualStyle::filled(Color(0x818cf8));
-                    let caret = render(bounds, cell, style, context, false, Some(activity));
+                    let caret = render(shape, bounds, cell, style, context, false, Some(activity));
                     panel(viewport, VisualStyle::filled(Color(0x14161b)))
                         .child(clip(viewport, 0.0, 0.0).child(caret))
                 })
@@ -584,7 +629,7 @@ mod tests {
             surface
                 .draw(&first.scene.project_to_physical(scale), &frame)
                 .unwrap();
-            let expected = scale.physical_rect(viewport_rect(bounds, context.scroll, scale));
+            let expected = scale.physical_rect(viewport_rect(shape, bounds, context.scroll, scale));
             let pixel = (expected.top * physical.width() + expected.left) as usize * 4;
             let original = surface.pixels().to_vec();
             assert_eq!(&original[pixel..pixel + 3], &[0xf8, 0x8c, 0x81]);
@@ -740,5 +785,46 @@ mod tests {
                 assert!((value * factor - (value * factor).round()).abs() < 0.0001);
             }
         }
+    }
+
+    #[test]
+    fn block_caret_covers_the_shaped_grapheme_at_fractional_scale() {
+        use lgui::text::{TextCluster, TextDirection};
+
+        let cluster = |range, left, right| TextCluster {
+            range,
+            bounds: UiRect::new(left, 0.0, right, 22.0),
+            direction: TextDirection::LeftToRight,
+        };
+        let layout = TextLayout::new(
+            39.0,
+            22.0,
+            false,
+            Vec::new(),
+            vec![
+                cluster(0..1, 0.0, 6.5),
+                cluster(1..2, 6.5, 22.0), // hint before the wide character
+                cluster(2..3, 22.0, 33.0),
+                cluster(3..5, 33.0, 39.0), // one combined grapheme
+            ],
+            Vec::new(),
+        );
+        let map = [0, 2, 3, 4, 5];
+        let hints = [(1, 1)];
+        assert_eq!(grapheme_span(&layout, &map, &hints, 0..1), Some(0.0..6.5));
+        assert_eq!(grapheme_span(&layout, &map, &hints, 1..2), Some(22.0..33.0));
+        assert_eq!(grapheme_span(&layout, &map, &hints, 2..4), Some(33.0..39.0));
+
+        let scale = UiScale::new(0.8);
+        let rect = UiRect::new(38.875, 2.0, 45.375, 22.0);
+        let previous = scale.physical_rect(pixel_aligned(rect, scale));
+        let covered =
+            scale.physical_rect(viewport_rect(CursorShape::Block, rect, (0.0, 0.0), scale));
+        assert_eq!((previous.left, previous.right), (31, 36));
+        assert_eq!((covered.left, covered.right), (31, 37));
+        assert_eq!(
+            (covered.top, covered.bottom),
+            (previous.top, previous.bottom)
+        );
     }
 }

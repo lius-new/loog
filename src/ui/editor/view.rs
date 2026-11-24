@@ -106,7 +106,7 @@ pub(crate) fn render(
         let _tabs = TabScope::new(buffer.options().tab_width);
         let projection = document.projection.clone();
         let line_count = buffer.line_count();
-        let (cursor_line, cursor_col) = buffer.line_col();
+        let cursor_line = buffer.line_of(buffer.cursor());
         let active_guide = buffer
             .options()
             .indent_guides
@@ -436,8 +436,12 @@ pub(crate) fn render(
             })
             .collect();
         let ready = state.highlights(document, windows);
+        let editor_focused = s.focused && focused_pane;
+        let shape = s.cursor_shape;
         // Where each underlined diagnostic is on screen, least serious first.
         let mut diagnostic_hits: Vec<(UiRect, Range<usize>)> = Vec::new();
+        let mut caret_span = None;
+        let mut caret_columns = 1;
         for row_index in visible_rows.clone() {
             let source_row = projection.row(&buffer, row_index);
             let line_index = source_row.line;
@@ -463,6 +467,31 @@ pub(crate) fn render(
                 initial_column,
             );
             let (start, end) = (window.start, window.end);
+            if editor_focused
+                && row_index == cursor_row
+                && shape != CursorShape::Bar
+                && window.contains(&buffer.cursor())
+            {
+                let cursor = buffer.cursor();
+                let after = buffer.next_grapheme(cursor).min(end);
+                let chars = buffer.slice(start..cursor).chars().count()
+                    ..buffer.slice(start..after).chars().count();
+                caret_span = layout.as_ref().and_then(|line| {
+                    super::caret::grapheme_span(
+                        &line.layout,
+                        &line.source_to_display,
+                        &line.hints,
+                        chars,
+                    )
+                    .map(|span| span.start + line.origin.0..span.end + line.origin.0)
+                });
+                if caret_span.is_none() {
+                    caret_columns = buffer
+                        .display_column(after)
+                        .saturating_sub(buffer.display_column(cursor))
+                        .max(1);
+                }
+            }
             let next = if window.end < buffer.line_end(line_index) {
                 window.end
             } else {
@@ -665,7 +694,6 @@ pub(crate) fn render(
 
         content = content.child(clip(code_viewport, -scroll_x, -scroll_y).child(code));
         // Only the editor that owns keyboard focus shows a caret.
-        let editor_focused = s.focused && focused_pane;
         if editor_focused && visible_lines.contains(&cursor_line) {
             let cursor_y = code_top + cursor_row as f32 * fonts::editor().line_h;
             let (cursor_x, _) = projection::caret(
@@ -677,7 +705,6 @@ pub(crate) fn render(
                 scroll_x,
                 metrics.viewport_w,
             );
-            let shape = s.cursor_shape;
             let cell = [cursor_x, cursor_y];
             let (cursor_rect, cursor_style) = if shape == CursorShape::Bar {
                 (
@@ -685,34 +712,9 @@ pub(crate) fn render(
                     VisualStyle::filled(theme::c().accent),
                 )
             } else {
-                // Block cursors cover the character under the cursor.
-                let chars = buffer
-                    .grapheme_at(buffer.cursor())
-                    .filter(|grapheme| !grapheme.starts_with(['\r', '\n']))
-                    .map_or(0, |grapheme| grapheme.chars().count());
-                let right = (chars > 0)
-                    .then(|| {
-                        Some(
-                            projection::caret(
-                                &buffer,
-                                &projection,
-                                loog_editor_core::text::Selection {
-                                    cursor: buffer
-                                        .offset_at_char_column(cursor_line, cursor_col + chars),
-                                    wrap_affinity: loog_editor_core::text::Assoc::Before,
-                                    ..Default::default()
-                                },
-                                code_left,
-                                code_top,
-                                scroll_x,
-                                metrics.viewport_w,
-                            )
-                            .0,
-                        )
-                    })
-                    .flatten()
-                    .unwrap_or(cursor_x + fonts::editor().char_w)
-                    .max(cursor_x + 2.0);
+                let span = caret_span.unwrap_or_else(|| {
+                    cursor_x..cursor_x + caret_columns as f32 * fonts::editor().char_w
+                });
                 let top = match shape {
                     CursorShape::Underline => cursor_y + fonts::editor().line_h - 3.0,
                     CursorShape::HalfBlock => cursor_y + fonts::editor().line_h / 2.0,
@@ -720,9 +722,9 @@ pub(crate) fn render(
                 };
                 (
                     UiRect::new(
-                        cursor_x,
+                        span.start,
                         top,
-                        right,
+                        span.end,
                         cursor_y + fonts::editor().line_h - 1.0,
                     ),
                     VisualStyle::filled(theme::c().accent).alpha(140),
@@ -740,6 +742,7 @@ pub(crate) fn render(
             // The retained animation reports damage in the layer's own coordinates.
             // Keep the caret layers in viewport space even though the text scrolls.
             let mut carets = clip(code_viewport, 0.0, 0.0).child(super::caret::render(
+                shape,
                 cursor_rect,
                 cell,
                 cursor_style,
