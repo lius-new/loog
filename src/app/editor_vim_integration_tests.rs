@@ -467,7 +467,8 @@ fn smooth_caret_animates_every_vim_shape_without_sliding_on_mode_switches() {
     let (bar, offset) = ui.caret();
     assert_eq!(offset, (0.0, 0.0), "a shape change alone does not move");
     assert_eq!((bar.left, bar.width()), (target.left, 2.0));
-    assert!(bar.top > target.top);
+    assert_eq!(bar.top + 1.0, target.top);
+    assert_eq!(bar.height(), crate::ui::fonts::editor().line_h);
 
     ui.keys("<Esc>");
     let (block, offset) = ui.caret();

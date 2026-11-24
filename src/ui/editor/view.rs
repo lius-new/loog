@@ -757,8 +757,9 @@ pub(crate) fn render(
                 );
                 if y + fonts::editor().line_h >= scroll_y + rect.top && y <= scroll_y + rect.bottom
                 {
-                    code = code.child(panel(
-                        UiRect::new(x, y + 1.0, x + 2.0, y + fonts::editor().line_h - 1.0),
+                    code = code.child(super::caret::secondary_bar(
+                        [x, y],
+                        (scroll_x, scroll_y),
                         VisualStyle::filled(theme::c().accent),
                     ));
                 }

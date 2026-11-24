@@ -33,8 +33,7 @@ pub(super) fn render(
 ) -> Element {
     Element::new(move |cx| {
         let scale = cx.context.scale();
-        let target = pixel_aligned(shape.translate(-context.scroll.0, -context.scroll.1), scale)
-            .translate(context.scroll.0, context.scroll.1);
+        let target = scrolled_rect(shape, context.scroll, scale);
         // Snap the cell like the painted rect, or the first frame jumps a subpixel.
         let snap_scrolled = |value: f32, scroll: f32| snap(value - scroll, scale) + scroll;
         let cell = [
@@ -42,6 +41,17 @@ pub(super) fn render(
             snap_scrolled(cell[1], context.scroll.1),
         ];
         let id = UiId::owned(format!("editor-caret-{}", context.pane.get()));
+        let fill_id = UiId::owned(format!("{id}-fill"));
+        // The physical layer size can round slightly above an integer and
+        // allocate one extra texel. Fill it so resampling the layer cannot
+        // replace a caret pixel with transparency. The layer bounds clip it.
+        let texel = scale.logical_value(1);
+        let fill = UiRect::new(
+            target.left,
+            target.top,
+            target.right + texel,
+            target.bottom + texel,
+        );
         // The framework applies layer translations directly on animation frames,
         // without executing the app view or rerasterizing the editor text.
         cx.compile(
@@ -50,7 +60,9 @@ pub(super) fn render(
                 motion.scale = Some(scale);
                 motion.retarget(cell, context, animate);
             })
-            .child(Element::new(move |_| UiElement::panel(id, target, style))),
+            .child(Element::new(move |_| {
+                UiElement::group(id, target).child(UiElement::panel(fill_id, fill, style))
+            })),
         )
     })
     .key("editor-caret")
@@ -60,10 +72,22 @@ pub(super) fn render(
 pub(super) fn bar(cell: [f32; 2]) -> UiRect {
     UiRect::new(
         cell[0],
-        cell[1] + 3.0,
+        cell[1],
         cell[0] + 2.0,
-        cell[1] + fonts::editor().line_h - 3.0,
+        cell[1] + fonts::editor().line_h,
     )
+}
+
+pub(super) fn secondary_bar(cell: [f32; 2], scroll: (f32, f32), style: VisualStyle) -> Element {
+    let shape = bar(cell);
+    Element::new(move |cx| {
+        let target = scrolled_rect(shape, scroll, cx.context.scale());
+        UiElement::panel(cx.id, target, style)
+    })
+}
+
+fn scrolled_rect(shape: UiRect, (x, y): (f32, f32), scale: UiScale) -> UiRect {
+    pixel_aligned(shape.translate(-x, -y), scale).translate(x, y)
 }
 
 #[derive(Clone, Default)]
@@ -348,6 +372,68 @@ mod tests {
                     painted[0].0, expected,
                     "no caret may remain at an old position"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn insertion_bar_fills_its_pixel_width_and_the_entire_row() {
+        use lgui::application::AppView;
+        use lgui::core::clip;
+        use lgui::prelude::group;
+        use lgui::render_skia::SkiaSoftwareSurface;
+        use lgui::renderer::{FrameInfo, FrameReason};
+        use lgui::session::UiSession;
+        use std::sync::Arc;
+
+        let viewport = UiRect::new(0.0, 0.0, 80.0, 64.0);
+        let line_h = fonts::editor().line_h;
+        let mut context = context();
+        context.viewport = viewport;
+        for (factor, (sx, sy)) in [
+            (0.75, (0.0, 0.0)),
+            (0.8, (0.37, 0.63)),
+            (1.25, (96.83, 811.27)),
+        ] {
+            let scale = UiScale::new(factor);
+            context.scroll = (sx, sy);
+            let physical = scale.physical_rect(viewport);
+            let mut session = UiSession::new();
+            let mut surface = SkiaSoftwareSurface::new(1024 * 1024);
+            for x in [24.37, 34.27, 43.75] {
+                let cell = [x + sx, 16.91 + sy];
+                let view: AppView = Arc::new(move |_| {
+                    let accent = VisualStyle::filled(crate::ui::theme::c().accent);
+                    group(viewport).child(clip(viewport, -sx, -sy).child(render(
+                        bar(cell),
+                        cell,
+                        accent,
+                        context,
+                        false,
+                    )))
+                });
+                let scene = session
+                    .render_view(&view, viewport, scale)
+                    .scene
+                    .project_to_physical(scale);
+                let frame = FrameInfo::new(physical, &[], scale, FrameReason::SceneChange, true);
+                surface.draw(&scene, &frame).unwrap();
+
+                let top = scale.physical_value(cell[1] - sy);
+                let bottom = scale.physical_value(cell[1] + line_h - sy);
+                let left = scale.physical_value(cell[0] - sx);
+                let right = left + scale.physical_length(2.0);
+                for y in top - 1..=bottom {
+                    for x in left - 1..=right {
+                        let offset = (y * physical.width() + x) as usize * 4;
+                        let inside = (left..right).contains(&x) && (top..bottom).contains(&y);
+                        assert_eq!(
+                            surface.pixels()[offset + 3],
+                            if inside { 255 } else { 0 },
+                            "scale={factor}, cell={cell:?}, pixel=({x}, {y})"
+                        );
+                    }
+                }
             }
         }
     }
