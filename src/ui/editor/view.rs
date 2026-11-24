@@ -16,6 +16,7 @@ use lgui::prelude::{Color, Element, UiRect, VisualStyle, group, panel, selection
 use lgui::text::{self, TextLayout, TextLayoutRequest};
 
 use super::gutter;
+use super::indent;
 use super::projection;
 use super::syntax;
 use crate::domain::identity::PaneId;
@@ -106,16 +107,10 @@ pub(crate) fn render(
         let projection = document.projection.clone();
         let line_count = buffer.line_count();
         let (cursor_line, cursor_col) = buffer.line_col();
-        let guide_step = if buffer.options().use_tabs {
-            buffer.options().tab_width
-        } else {
-            buffer.options().indent_size
-        }
-        .max(1);
         let active_guide = buffer
             .options()
             .indent_guides
-            .then(|| active_guide(&buffer, cursor_line, guide_step, ACTIVE_GUIDE_SCAN_LINES))
+            .then(|| indent::active(&buffer, cursor_line))
             .flatten();
         let cursor_row =
             projection.caret_row(&buffer, buffer.cursor(), document.selection.wrap_affinity);
@@ -543,12 +538,7 @@ pub(crate) fn render(
                 }
             }
             if buffer.options().indent_guides {
-                let columns = guide_columns(&buffer, line_index);
-                let step = guide_step;
-                // A guide marks the start of each indentation level that the
-                // line sits inside, so none is drawn at the column where its
-                // own text begins.
-                for column in (0..columns).step_by(step) {
+                for column in indent::columns(&buffer, line_index) {
                     let active = active_guide.as_ref().is_some_and(|guide| {
                         guide.column == column && guide.lines.contains(&line_index)
                     });
@@ -1020,7 +1010,7 @@ pub(crate) fn render(
         // They overlay the text, so hiding them does not move it.
         let show_scrollbars = emphasized || editor_focused;
         if buffer.options().indent_guides
-            && let Some(lines) = active_block_span(&buffer, id, cursor_line, guide_step)
+            && let Some(lines) = indent::block_span(&buffer, id, cursor_line)
         {
             let (first, rows) = displayed_span(
                 &buffer,
@@ -2724,104 +2714,6 @@ mod card_placement_tests {
     }
 }
 
-/// How far a blank line looks for the lines whose indentation it borrows.
-const GUIDE_SCAN_LINES: usize = 64;
-
-/// Display columns of the indentation of `line`, or `None` for a blank line.
-fn indent_columns(buffer: &TextBuffer, line: usize) -> Option<usize> {
-    let text = buffer.line_text(line);
-    let indentation = text
-        .chars()
-        .take(4096)
-        .take_while(|c| *c == ' ' || *c == '\t')
-        .count();
-    // Only a line break or nothing after the indentation: blank.
-    if text
-        .chars()
-        .skip(indentation)
-        .take(1)
-        .all(|c| c == '\n' || c == '\r')
-    {
-        return None;
-    }
-    let end = buffer.offset_at_char_column(line, indentation);
-    Some(buffer.display_column(end))
-}
-
-/// Columns of indentation the guides of `line` extend over. A blank line takes
-/// the smaller indentation of the nearest text lines above and below it, so a
-/// guide runs through the blank lines inside a block instead of breaking.
-fn guide_columns(buffer: &TextBuffer, line: usize) -> usize {
-    if let Some(columns) = indent_columns(buffer, line) {
-        return columns;
-    }
-    let nearest = |lines: &mut dyn Iterator<Item = usize>| {
-        lines
-            .take(GUIDE_SCAN_LINES)
-            .find_map(|candidate| indent_columns(buffer, candidate))
-            .unwrap_or(0)
-    };
-    let above = nearest(&mut (0..line).rev());
-    let below = nearest(&mut (line + 1..buffer.line_count()));
-    above.min(below)
-}
-
-/// The guide of the block the cursor is in, and the lines it spans.
-struct ActiveGuide {
-    column: usize,
-    lines: std::ops::RangeInclusive<usize>,
-}
-
-/// How many lines the active guide's span is followed away from the cursor.
-const ACTIVE_GUIDE_SCAN_LINES: usize = 500;
-
-/// Like VS Code: the innermost guide on the cursor's line. A line that opens a
-/// block, because the next text line is indented deeper, owns the guide inside
-/// that block instead. The guide is active only along the lines of that one
-/// block, not wherever else its column is drawn.
-fn active_guide(
-    buffer: &TextBuffer,
-    cursor_line: usize,
-    step: usize,
-    scan: usize,
-) -> Option<ActiveGuide> {
-    let own = indent_columns(buffer, cursor_line);
-    let here = guide_columns(buffer, cursor_line);
-    let next = (cursor_line + 1..buffer.line_count())
-        .take(GUIDE_SCAN_LINES)
-        .find_map(|line| indent_columns(buffer, line));
-    let opens_block = own.zip(next).is_some_and(|(own, next)| next > own);
-    let column = if opens_block {
-        own? / step * step
-    } else if here > 0 {
-        (here - 1) / step * step
-    } else {
-        return None;
-    };
-    let carries = |line: usize| guide_columns(buffer, line) > column;
-    // The cursor's own line belongs to the block unless it opens it.
-    let first = if carries(cursor_line) {
-        cursor_line
-    } else {
-        cursor_line + 1
-    };
-    if first >= buffer.line_count() || !carries(first) {
-        return None;
-    }
-    let mut start = first;
-    while start > 0 && first - start < scan && carries(start - 1) {
-        start -= 1;
-    }
-    let mut end = first;
-    while end + 1 < buffer.line_count() && end - first < scan && carries(end + 1) {
-        end += 1;
-    }
-    Some(ActiveGuide {
-        column,
-        lines: start..=end,
-    })
-}
-
 /// Color of an indent guide: a brighter tone for the active block's guide, a
 /// dimmer one for the others, as in the file tree.
 fn guide_color(active: bool) -> lgui::prelude::Color {
@@ -2830,37 +2722,6 @@ fn guide_color(active: bool) -> lgui::prelude::Color {
     } else {
         theme::c().border
     }
-}
-
-/// How far the overview ruler follows the active block from the cursor. The
-/// whole block is drawn there, so this is far larger than the guide's own limit.
-const ACTIVE_BLOCK_RULER_SCAN_LINES: usize = 20_000;
-
-/// The lines of the block the cursor is in, for the overview ruler. Found once
-/// per cursor line and text revision rather than once per frame.
-fn active_block_span(
-    buffer: &TextBuffer,
-    document: loog_editor_core::identity::ViewId,
-    cursor_line: usize,
-    step: usize,
-) -> Option<std::ops::RangeInclusive<usize>> {
-    type Key = (loog_editor_core::identity::ViewId, u64, usize, usize);
-    thread_local! {
-        static LAST: std::cell::RefCell<Option<(Key, Option<std::ops::RangeInclusive<usize>>)>> =
-            const { std::cell::RefCell::new(None) };
-    }
-    let key = (document, buffer.version(), cursor_line, step);
-    LAST.with(|last| {
-        if let Some((cached, span)) = &*last.borrow()
-            && *cached == key
-        {
-            return span.clone();
-        }
-        let span = active_guide(buffer, cursor_line, step, ACTIVE_BLOCK_RULER_SCAN_LINES)
-            .map(|guide| guide.lines);
-        *last.borrow_mut() = Some((key, span.clone()));
-        span
-    })
 }
 
 /// The block the cursor is in, as a faint band across the overview ruler, under

@@ -3,6 +3,7 @@ mod caret;
 pub(crate) mod docs;
 mod gutter;
 pub(crate) mod hints;
+mod indent;
 pub(crate) mod keys;
 mod lightbulb;
 pub(crate) mod menu;
