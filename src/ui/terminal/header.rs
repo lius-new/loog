@@ -48,6 +48,16 @@ const ICON_ONLY_BELOW_W: f32 = 1100.0;
 const INSET: f32 = 8.0;
 const RULE_H: f32 = 14.0;
 
+/// Centre the dock controls between its two edges, including the painted rules.
+pub(crate) fn dock_rect(panel: UiRect) -> UiRect {
+    UiRect::new(
+        panel.left,
+        panel.top,
+        panel.right,
+        panel.top + theme::TABS_H,
+    )
+}
+
 thread_local! {
     static SCOPE: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
@@ -343,8 +353,7 @@ pub(super) fn category(
     (root, track.right)
 }
 
-/// Keep both edges of the border on physical pixels, including when a 22px
-/// control is centred in the header's odd-height content area.
+/// Keep both edges of the border on physical pixels at fractional scales.
 fn category_frame(id: UiId, rect: UiRect, fill: Color, radius: f32, scale: UiScale) -> UiElement {
     let painted = scale.logical_rect(scale.physical_rect(rect));
     let inset = scale.logical_value(scale.physical_length(1.0));

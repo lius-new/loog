@@ -310,16 +310,10 @@ pub(crate) fn render(
     // The editor area above the dock: where a jump reveals its target.
     editor: UiRect,
 ) -> Element {
-    let body = UiRect::new(rect.left, rect.top + theme::TABS_H, rect.right, rect.bottom);
+    let bar = header::dock_rect(rect);
+    let body = UiRect::new(rect.left, bar.bottom, rect.right, rect.bottom);
     let (binding, _, _) = super::terminal_view::binding(&state, &terminal_tabs, &application);
     let panel_state = state.get().log_panel;
-    // The dock header, as `commits_header` lays it out.
-    let bar = UiRect::new(
-        rect.left,
-        rect.top + 1.0,
-        rect.right,
-        rect.top + theme::TABS_H,
-    );
     let (content, toolbar): (Element, Box<dyn FnOnce(UiRect) -> Element>) = if tab
         == PanelTab::Output
     {

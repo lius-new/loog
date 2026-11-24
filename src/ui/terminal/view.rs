@@ -188,7 +188,7 @@ pub(crate) fn render_view(
         .active_id()
         .expect("a visible terminal panel must have an active tab");
     let tab_items = terminal_tab_snapshot.tabs().to_vec();
-    let header = UiRect::new(rect.left, rect.top + 1.0, rect.right, rect.top + HEADER_H);
+    let header = header::dock_rect(rect);
     let body = UiRect::new(rect.left, header.bottom, rect.right, rect.bottom);
     let sessions = terminal_tab_snapshot.active_group();
     let body_rects = session_rects(rect, &sessions);
@@ -697,7 +697,7 @@ pub(crate) fn commits_header(
     can_maximize: bool,
     toolbar: impl FnOnce(UiRect) -> Element,
 ) -> Element {
-    let header = UiRect::new(rect.left, rect.top + 1.0, rect.right, rect.top + HEADER_H);
+    let header = header::dock_rect(rect);
     let (category, right) = categories(header, state.clone(), terminal_focus, editor_focus.clone());
     let tools = header::layout(
         header,
