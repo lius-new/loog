@@ -7,6 +7,7 @@ use lgui::core::{CursorIcon, EventPolicy, TextStyle, UiEventContext, WheelUnit, 
 use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, component, group, panel, text};
 
 use crate::features::update::About;
+use crate::ui::components::divider;
 use crate::ui::components::input::{
     self, AccessInputOptions, InputBinding, InputState, InputStyle,
 };
@@ -389,7 +390,7 @@ pub fn render(rect: UiRect, state: Binding) -> Element {
     top += HEADER_H;
 
     for (title, settings) in SECTIONS {
-        content = content.child(section_title(page_left, page_right, top, title));
+        content = content.child(section_title(rect, page_left, page_right, top, title));
         top += SECTION_TITLE_H;
         for &setting in settings {
             let row = UiRect::new(page_left, top, page_right, top + setting.height(&app));
@@ -399,7 +400,7 @@ pub fn render(rect: UiRect, state: Binding) -> Element {
         top += SECTION_GAP;
     }
 
-    content = content.child(section_title(page_left, page_right, top, "KEYBOARD"));
+    content = content.child(section_title(rect, page_left, page_right, top, "KEYBOARD"));
     top += SECTION_TITLE_H;
     content = content.child(keymap_link_row(
         UiRect::new(page_left, top, page_right, top + ROW_H),
@@ -407,7 +408,7 @@ pub fn render(rect: UiRect, state: Binding) -> Element {
     ));
     top += ROW_H + SECTION_GAP;
 
-    content = content.child(section_title(page_left, page_right, top, "ABOUT"));
+    content = content.child(section_title(rect, page_left, page_right, top, "ABOUT"));
     top += SECTION_TITLE_H;
     content = content.child(version_row(
         UiRect::new(page_left, top, page_right, top + ROW_H),
@@ -419,30 +420,32 @@ pub fn render(rect: UiRect, state: Binding) -> Element {
     clip(rect, 0.0, 0.0).child(page)
 }
 
-fn section_title(left: f32, right: f32, top: f32, title: &'static str) -> Element {
-    panel(
-        UiRect::new(left, top - 1.0, right, top + SECTION_TITLE_H),
-        VisualStyle::filled(theme::c().bg),
-    )
-    .position(lgui::core::Position::Sticky {
-        top: lgui::core::Dimension::Points(0.0),
-        left: lgui::core::Dimension::Auto,
+fn section_title(
+    viewport: UiRect,
+    left: f32,
+    right: f32,
+    top: f32,
+    title: &'static str,
+) -> Element {
+    let height = SECTION_TITLE_H + 1.0;
+    // Resolve the sticky position before snapping. Moving a snapped header
+    // during layout can put its divider back between physical pixel rows.
+    let top = (top - 1.0).clamp(viewport.top, (viewport.bottom - height).max(viewport.top));
+    let header = UiRect::new(left, top, right, top + height);
+    Element::new(move |cx| {
+        let scale = cx.context.scale();
+        let background = scale.logical_rect(scale.physical_rect(header));
+        cx.compile(
+            panel(background, VisualStyle::filled(theme::c().bg))
+                .z_index(1)
+                .child(text(
+                    UiRect::new(left, top + 1.0, right, header.bottom),
+                    title,
+                    theme::mono(theme::c().text_dim, theme::SMALL).tracking(0.8),
+                ))
+                .child(divider::bottom_pixel(header, theme::c().border)),
+        )
     })
-    .z_index(1)
-    .child(text(
-        UiRect::new(left, top, right, top + SECTION_TITLE_H),
-        title,
-        theme::mono(theme::c().text_dim, theme::SMALL).tracking(0.8),
-    ))
-    .child(panel(
-        UiRect::new(
-            left,
-            top + SECTION_TITLE_H - 1.0,
-            right,
-            top + SECTION_TITLE_H,
-        ),
-        VisualStyle::filled(theme::c().border),
-    ))
 }
 
 /// "Edit in settings.json", right-aligned on the title row.
@@ -499,10 +502,7 @@ fn keymap_link_row(row: UiRect, state: Binding) -> Element {
             link,
             link_style,
         ))
-        .child(panel(
-            UiRect::new(row.left, row.bottom - 1.0, row.right, row.bottom),
-            VisualStyle::filled(theme::c().active_line),
-        ))
+        .child(divider::bottom_pixel(row, theme::c().active_line))
 }
 
 /// The running version and update status, with "Check now" or the same
@@ -524,10 +524,7 @@ fn version_row(row: UiRect, about: About, state: Binding) -> Element {
             about.detail,
             theme::sans(theme::c().text_dim, theme::SMALL + 1.0),
         ))
-        .child(panel(
-            UiRect::new(row.left, row.bottom - 1.0, row.right, row.bottom),
-            VisualStyle::filled(theme::c().active_line),
-        ));
+        .child(divider::bottom_pixel(row, theme::c().active_line));
     if let Some(action) = action {
         let link = UiRect::new(
             row.right - action_w,
@@ -582,10 +579,7 @@ fn setting_row(row: UiRect, setting: Setting, app: &Frame, state: Binding) -> El
         setting.description(),
         theme::sans(theme::c().text_dim, theme::SMALL + 1.0),
     ));
-    element = element.child(panel(
-        UiRect::new(row.left, row.bottom - 1.0, row.right, row.bottom),
-        VisualStyle::filled(theme::c().active_line),
-    ));
+    element = element.child(divider::bottom_pixel(row, theme::c().active_line));
 
     match setting.enabled(app) {
         Some(on) => {

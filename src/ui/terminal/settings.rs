@@ -2,6 +2,7 @@
 
 use crate::features::terminal::ShellKind;
 use crate::features::terminal::profiles::format_arguments;
+use crate::ui::components::divider;
 use crate::ui::components::input::{
     self, AccessInputOptions, InputBinding, InputState, InputStyle,
 };
@@ -97,9 +98,9 @@ pub fn render(rect: UiRect, state: Binding) -> Element {
         let list = if *first {
             list
         } else {
-            list.child(panel(
-                UiRect::new(inner_left, top, inner_right, top + 1.0),
-                VisualStyle::filled(theme::c().border),
+            list.child(divider::top_pixel(
+                UiRect::new(inner_left, top, inner_right, top),
+                theme::c().border,
             ))
         };
         *first = false;
