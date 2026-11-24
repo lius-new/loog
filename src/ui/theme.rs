@@ -398,7 +398,14 @@ pub fn icon_rect(slot: UiRect) -> UiRect {
     let top = (slot.top + slot.bottom - ICON_SIZE) / 2.0;
     UiRect::new(left, top, left + ICON_SIZE, top + ICON_SIZE)
 }
-pub const MONO_FAMILIES: &[&str] = &["Cascadia Mono", "Cascadia Code", "Consolas", "Courier New"];
+pub const MONO_FAMILIES: &[&str] = &[
+    "Cascadia Mono",
+    "Cascadia Code",
+    "Consolas",
+    "Courier New",
+    #[cfg(target_os = "windows")]
+    "DengXian",
+];
 
 // ---- Font sizes --------------------------------------------------------
 pub const UI_SIZE: f32 = 12.0;
