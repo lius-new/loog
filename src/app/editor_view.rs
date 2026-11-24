@@ -934,6 +934,45 @@ fn hover_offset(
     Some(offset)
 }
 
+/// The source lines where `target` appears in the whole document, plus its own
+/// line for a caret's word, or none when it appears nowhere else. Documents
+/// above 4 MiB and file-backed ones are skipped. The last answer is kept, so a
+/// repaint with the caret where it was costs nothing.
+fn occurrence_lines(
+    buffer: &loog_editor_core::text::TextBuffer,
+    pane: loog_editor_core::identity::PaneId,
+    target: &std::ops::Range<usize>,
+    caret_word: bool,
+) -> Arc<[usize]> {
+    type Key = (loog_editor_core::identity::PaneId, u64, usize, usize);
+    thread_local! {
+        static LAST: std::cell::RefCell<Option<(Key, Arc<[usize]>)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    if buffer.len() > 4 * 1024 * 1024 {
+        return Arc::from(Vec::new());
+    }
+    let key = (pane, buffer.version(), target.start, target.end);
+    if let Some((cached, lines)) = LAST.with(|last| last.borrow().clone())
+        && cached == key
+    {
+        return lines;
+    }
+    let others = buffer.other_occurrences(target.clone(), 0..buffer.line_count());
+    let mut lines: Vec<usize> = others
+        .iter()
+        .map(|range| buffer.line_of(range.start))
+        .collect();
+    if !lines.is_empty() && caret_word {
+        lines.push(buffer.line_of(target.start));
+    }
+    lines.sort_unstable();
+    lines.dedup();
+    let lines: Arc<[usize]> = lines.into();
+    LAST.with(|last| *last.borrow_mut() = Some((key, lines.clone())));
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1235,43 +1274,4 @@ R
         app.workspace.active_editor_mut().unwrap().undo();
         assert_eq!(app.workspace.active_editor().unwrap().text(), "");
     }
-}
-
-/// The source lines where `target` appears in the whole document, plus its own
-/// line for a caret's word, or none when it appears nowhere else. Documents
-/// above 4 MiB and file-backed ones are skipped. The last answer is kept, so a
-/// repaint with the caret where it was costs nothing.
-fn occurrence_lines(
-    buffer: &loog_editor_core::text::TextBuffer,
-    pane: loog_editor_core::identity::PaneId,
-    target: &std::ops::Range<usize>,
-    caret_word: bool,
-) -> Arc<[usize]> {
-    type Key = (loog_editor_core::identity::PaneId, u64, usize, usize);
-    thread_local! {
-        static LAST: std::cell::RefCell<Option<(Key, Arc<[usize]>)>> =
-            const { std::cell::RefCell::new(None) };
-    }
-    if buffer.len() > 4 * 1024 * 1024 {
-        return Arc::from(Vec::new());
-    }
-    let key = (pane, buffer.version(), target.start, target.end);
-    if let Some((cached, lines)) = LAST.with(|last| last.borrow().clone())
-        && cached == key
-    {
-        return lines;
-    }
-    let others = buffer.other_occurrences(target.clone(), 0..buffer.line_count());
-    let mut lines: Vec<usize> = others
-        .iter()
-        .map(|range| buffer.line_of(range.start))
-        .collect();
-    if !lines.is_empty() && caret_word {
-        lines.push(buffer.line_of(target.start));
-    }
-    lines.sort_unstable();
-    lines.dedup();
-    let lines: Arc<[usize]> = lines.into();
-    LAST.with(|last| *last.borrow_mut() = Some((key, lines.clone())));
-    lines
 }

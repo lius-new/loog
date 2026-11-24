@@ -334,6 +334,11 @@
       "owner": "ui/explorer/state",
       "migrated_in": "multi-select"
     },
+    "selected_directory": {
+      "owner": "ui/explorer/state",
+      "migrated_in": "directory selection",
+      "reason": "The directory last activated, which replaces the open file's highlight"
+    },
     "selection_anchor": {
       "owner": "ui/explorer/state",
       "migrated_in": "multi-select"
@@ -610,6 +615,11 @@
       "owner": "ui/git/state",
       "migrated_in": "Git history branches",
       "reason": "The scrollable region under the pointer"
+    },
+    "history_files_tree": {
+      "owner": "ui/git/state",
+      "migrated_in": "Git history branches",
+      "reason": "The commit detail's files show as a tree or a flat list"
     },
     "history_files_scroll": {
       "owner": "ui/git/state",

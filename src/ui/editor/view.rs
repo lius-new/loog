@@ -2669,63 +2669,6 @@ pub(crate) fn page_lines(rect: UiRect) -> usize {
     (rect.height() / fonts::editor().line_h).floor().max(1.0) as usize
 }
 
-#[cfg(test)]
-mod card_placement_tests {
-    use super::*;
-
-    const AREA: UiRect = UiRect {
-        left: 0.0,
-        top: 0.0,
-        right: 800.0,
-        bottom: 600.0,
-    };
-
-    #[test]
-    fn a_link_tints_only_its_own_bytes_across_span_boundaries() {
-        let (a, b) = (Color(0x010203), Color(0x040506));
-        let tint = Color(0x090909);
-        let spans = vec![("let ".to_owned(), a), ("héllo_world".to_owned(), b)];
-        // "héllo" is bytes 4..10 of the line, which starts at byte 100.
-        let out = tint_range(spans, 100, &(104..110), tint);
-        assert_eq!(
-            out,
-            vec![
-                ("let ".to_owned(), a),
-                ("héllo".to_owned(), tint),
-                ("_world".to_owned(), b)
-            ]
-        );
-        let untouched = tint_range(vec![("abc".to_owned(), a)], 0, &(5..8), tint);
-        assert_eq!(untouched, vec![("abc".to_owned(), a)]);
-    }
-
-    #[test]
-    fn a_card_opens_below_and_to_the_right_of_its_underline() {
-        let anchor = UiRect::new(100.0, 200.0, 140.0, 220.0);
-        assert_eq!(card_origin(anchor, AREA, 300.0, 80.0), (100.0, 224.0));
-    }
-
-    #[test]
-    fn a_card_opens_above_when_the_space_below_is_too_short() {
-        let anchor = UiRect::new(100.0, 540.0, 140.0, 560.0);
-        assert_eq!(card_origin(anchor, AREA, 300.0, 80.0), (100.0, 456.0));
-    }
-
-    #[test]
-    fn a_card_ends_at_the_underline_when_the_space_to_the_right_is_too_narrow() {
-        let anchor = UiRect::new(600.0, 200.0, 700.0, 220.0);
-        assert_eq!(card_origin(anchor, AREA, 300.0, 80.0), (400.0, 224.0));
-    }
-
-    #[test]
-    fn a_card_that_fits_neither_way_stays_inside_the_editor() {
-        let anchor = UiRect::new(10.0, 290.0, 30.0, 310.0);
-        let (left, top) = card_origin(anchor, AREA, 900.0, 700.0);
-        assert_eq!(left, CARD_GAP.max(AREA.right - 900.0 - CARD_GAP));
-        assert_eq!(top, AREA.top);
-    }
-}
-
 /// Color of an indent guide: a brighter tone for the active block's guide, a
 /// dimmer one for the others, as in the file tree.
 fn guide_color(active: bool) -> lgui::prelude::Color {
@@ -2806,3 +2749,60 @@ fn occurrence_ruler(
 
 /// Opacity of an occurrence's tick on the overview ruler.
 const OCCURRENCE_RULER_ALPHA: u8 = 150;
+
+#[cfg(test)]
+mod card_placement_tests {
+    use super::*;
+
+    const AREA: UiRect = UiRect {
+        left: 0.0,
+        top: 0.0,
+        right: 800.0,
+        bottom: 600.0,
+    };
+
+    #[test]
+    fn a_link_tints_only_its_own_bytes_across_span_boundaries() {
+        let (a, b) = (Color(0x010203), Color(0x040506));
+        let tint = Color(0x090909);
+        let spans = vec![("let ".to_owned(), a), ("héllo_world".to_owned(), b)];
+        // "héllo" is bytes 4..10 of the line, which starts at byte 100.
+        let out = tint_range(spans, 100, &(104..110), tint);
+        assert_eq!(
+            out,
+            vec![
+                ("let ".to_owned(), a),
+                ("héllo".to_owned(), tint),
+                ("_world".to_owned(), b)
+            ]
+        );
+        let untouched = tint_range(vec![("abc".to_owned(), a)], 0, &(5..8), tint);
+        assert_eq!(untouched, vec![("abc".to_owned(), a)]);
+    }
+
+    #[test]
+    fn a_card_opens_below_and_to_the_right_of_its_underline() {
+        let anchor = UiRect::new(100.0, 200.0, 140.0, 220.0);
+        assert_eq!(card_origin(anchor, AREA, 300.0, 80.0), (100.0, 224.0));
+    }
+
+    #[test]
+    fn a_card_opens_above_when_the_space_below_is_too_short() {
+        let anchor = UiRect::new(100.0, 540.0, 140.0, 560.0);
+        assert_eq!(card_origin(anchor, AREA, 300.0, 80.0), (100.0, 456.0));
+    }
+
+    #[test]
+    fn a_card_ends_at_the_underline_when_the_space_to_the_right_is_too_narrow() {
+        let anchor = UiRect::new(600.0, 200.0, 700.0, 220.0);
+        assert_eq!(card_origin(anchor, AREA, 300.0, 80.0), (400.0, 224.0));
+    }
+
+    #[test]
+    fn a_card_that_fits_neither_way_stays_inside_the_editor() {
+        let anchor = UiRect::new(10.0, 290.0, 30.0, 310.0);
+        let (left, top) = card_origin(anchor, AREA, 900.0, 700.0);
+        assert_eq!(left, CARD_GAP.max(AREA.right - 900.0 - CARD_GAP));
+        assert_eq!(top, AREA.top);
+    }
+}

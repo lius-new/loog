@@ -383,22 +383,6 @@ mod tests {
     }
 
     #[test]
-    fn tree_chevrons_do_not_replace_the_applications_own_chevrons() {
-        // File icons are registered last, so a shared key would replace the
-        // chevron every other panel draws with that key.
-        let registry = crate::app::svg_icons();
-        for (tree, application) in [
-            (CHEVRON_RIGHT_ICON, "chevron-right"),
-            (CHEVRON_DOWN_ICON, "chevron-down"),
-        ] {
-            assert_ne!(tree, application);
-            let tree = registry.resolve(tree).expect("tree chevron");
-            let application = registry.resolve(application).expect("application chevron");
-            assert_ne!(tree, application);
-        }
-    }
-
-    #[test]
     fn registry_contains_every_tree_icon_key() {
         let registry = register(SvgIconRegistry::new());
         let keys = std::iter::once(FOLDER_ICON)

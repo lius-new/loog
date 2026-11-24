@@ -461,6 +461,27 @@ pub(super) fn local_rows_below(panel: &ExplorerPanelState, key: &str) -> usize {
     panel.model.rows_below(key)
 }
 
+/// The directory whose indent guide belongs to the active row: the row's own
+/// guide when it is an expanded directory, otherwise the guide of the directory
+/// that contains it. Found once per frame, so the tree pass only compares paths.
+pub(super) fn active_guide<'a>(
+    panel: &'a ExplorerPanelState,
+    frame: &Frame<'a>,
+) -> Option<&'a Path> {
+    let (row, is_directory) = match panel.ui.active_directory(frame.active_path) {
+        Some(directory) => (directory.as_path(), true),
+        None => (frame.active_path?, false),
+    };
+    if is_directory
+        && panel
+            .model
+            .is_expanded(&crate::features::explorer::tree::key(row))
+    {
+        return Some(row);
+    }
+    row.parent()
+}
+
 #[cfg(test)]
 mod skipping_tests {
     use super::*;
@@ -511,25 +532,4 @@ mod skipping_tests {
         assert_eq!(local_rows_below(&panel, &a.to_string_lossy()), 3);
         assert_eq!(local_rows_below(&panel, &hidden.to_string_lossy()), 0);
     }
-}
-
-/// The directory whose indent guide belongs to the active row: the row's own
-/// guide when it is an expanded directory, otherwise the guide of the directory
-/// that contains it. Found once per frame, so the tree pass only compares paths.
-pub(super) fn active_guide<'a>(
-    panel: &'a ExplorerPanelState,
-    frame: &Frame<'a>,
-) -> Option<&'a Path> {
-    let (row, is_directory) = match panel.ui.active_directory(frame.active_path) {
-        Some(directory) => (directory.as_path(), true),
-        None => (frame.active_path?, false),
-    };
-    if is_directory
-        && panel
-            .model
-            .is_expanded(&crate::features::explorer::tree::key(row))
-    {
-        return Some(row);
-    }
-    row.parent()
 }

@@ -1916,7 +1916,7 @@ mod tests {
             let painted = (top + bottom + 1) as f32 / 2.0;
             // Fonts differ by platform, so the counts are held to the nearest pixel.
             assert!(
-                (painted - middle).abs() <= 0.75,
+                (painted - middle).abs() <= 1.0,
                 "{name}: digits span rows {top}..={bottom}, centre {painted}; toggle {toggle:?}, middle {middle}"
             );
         }

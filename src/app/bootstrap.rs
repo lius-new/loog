@@ -231,3 +231,24 @@ fn native_window_options() -> Result<WinitWindowOptions, Box<dyn std::error::Err
         Ok(WinitWindowOptions::new().window_icon(window_icon))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::ui::file_icons::{CHEVRON_DOWN_ICON, CHEVRON_RIGHT_ICON};
+
+    #[test]
+    fn tree_chevrons_do_not_replace_the_applications_own_chevrons() {
+        // File icons are registered last, so a shared key would replace the
+        // chevron every other panel draws with that key.
+        let registry = super::svg_icons();
+        for (tree, application) in [
+            (CHEVRON_RIGHT_ICON, "chevron-right"),
+            (CHEVRON_DOWN_ICON, "chevron-down"),
+        ] {
+            assert_ne!(tree, application);
+            let tree = registry.resolve(tree).expect("tree chevron");
+            let application = registry.resolve(application).expect("application chevron");
+            assert_ne!(tree, application);
+        }
+    }
+}

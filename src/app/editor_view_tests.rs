@@ -5309,7 +5309,6 @@ fn the_active_block_is_a_band_on_the_overview_ruler() {
     });
     let mut session = UiSession::new();
     session.render_view(&view, rect, UiScale::ONE);
-    let line_h = crate::ui::fonts::editor().line_h;
     let band: Vec<UiRect> = session
         .tree()
         .nodes()
