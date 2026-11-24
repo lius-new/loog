@@ -663,6 +663,7 @@ pub(crate) fn render(
             }
         }
 
+        content = content.child(clip(code_viewport, -scroll_x, -scroll_y).child(code));
         // Only the editor that owns keyboard focus shows a caret.
         let editor_focused = s.focused && focused_pane;
         if editor_focused && visible_lines.contains(&cursor_line) {
@@ -730,20 +731,29 @@ pub(crate) fn render(
             // Every shape shares one caret element so mode switches keep the motion.
             // Selections (core or Vim visual) are painted immediately, so the caret
             // must not lag behind their edge.
-            code = code.child(super::caret::render(
+            let preedit = s.preedit_for(pane, id);
+            let blink = (!s.dragging && preedit.is_none()).then_some(super::caret::BlinkActivity {
+                document_version: document.stamp.version,
+                selection: document.selection,
+                shape,
+            });
+            // The retained animation reports damage in the layer's own coordinates.
+            // Keep the caret layers in viewport space even though the text scrolls.
+            let mut carets = clip(code_viewport, 0.0, 0.0).child(super::caret::render(
                 cursor_rect,
                 cell,
                 cursor_style,
                 super::caret::CaretContext {
                     pane,
                     document: id,
-                    viewport: rect,
+                    viewport: code_viewport,
                     scroll: (scroll_x, scroll_y),
                 },
                 s.smooth_caret
                     && !(s.dragging && s.caret_dragging)
                     && selections.is_empty()
-                    && s.preedit_for(pane, id).is_none(),
+                    && preedit.is_none(),
+                blink,
             ));
             for selection in &document.secondary {
                 let (x, y) = projection::caret(
@@ -757,14 +767,14 @@ pub(crate) fn render(
                 );
                 if y + fonts::editor().line_h >= scroll_y + rect.top && y <= scroll_y + rect.bottom
                 {
-                    code = code.child(super::caret::secondary_bar(
+                    carets = carets.child(super::caret::secondary_bar(
                         [x, y],
                         (scroll_x, scroll_y),
                         VisualStyle::filled(theme::c().accent),
                     ));
                 }
             }
-            if let Some(session) = s.preedit_for(pane, id) {
+            if let Some(session) = preedit {
                 let width = layout_line(&session.text, 0.0, 0.0, metrics.content_w)
                     .map_or(80.0, |l| l.width)
                     .max(2.0);
@@ -773,8 +783,9 @@ pub(crate) fn render(
                     cursor_y,
                     cursor_x + width + 4.0,
                     cursor_y + fonts::editor().line_h,
-                );
-                code = code.child(
+                )
+                .translate(-scroll_x, -scroll_y);
+                carets = carets.child(
                     panel(r, VisualStyle::filled(theme::c().surface))
                         .child(text(
                             r,
@@ -787,9 +798,9 @@ pub(crate) fn render(
                         )),
                 );
             }
+            content = content.child(carets);
         }
 
-        content = content.child(clip(code_viewport, -scroll_x, -scroll_y).child(code));
         // Above the code layer, which would otherwise take the pointer and
         // its text cursor away from the buttons.
         content = content.child(conflict_actions(

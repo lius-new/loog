@@ -1,9 +1,10 @@
-//! Animate only the painted insertion caret. Editing and IME use the logical position.
+//! Animate only the painted caret. Editing and IME use the logical position.
 use lgui::core::{
     CompositingLayerAnimation, CompositingLayerSpec, LayerTransform, UiElement, UiId, UiScale,
     animated_compositing_layer,
 };
 use lgui::prelude::{Element, UiRect, VisualStyle};
+use loog_editor_core::{text::Selection, vim::CursorShape};
 use std::time::Instant;
 
 use crate::domain::identity::PaneId;
@@ -12,6 +13,7 @@ use crate::ui::fonts;
 
 const DURATION_MS: f32 = 80.0;
 const FRAME_INTERVAL_MS: u64 = 8;
+const BLINK_INTERVAL_MS: f32 = 500.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct CaretContext {
@@ -19,6 +21,13 @@ pub(super) struct CaretContext {
     pub document: ViewId,
     pub viewport: UiRect,
     pub scroll: (f32, f32),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct BlinkActivity {
+    pub document_version: u64,
+    pub selection: Selection,
+    pub shape: CursorShape,
 }
 
 /// Paints `shape` and animates its character cell. Motion follows `cell`, the
@@ -30,12 +39,14 @@ pub(super) fn render(
     style: VisualStyle,
     context: CaretContext,
     animate: bool,
+    blink: Option<BlinkActivity>,
 ) -> Element {
     Element::new(move |cx| {
         let scale = cx.context.scale();
-        let target = scrolled_rect(shape, context.scroll, scale);
+        let target = viewport_rect(shape, context.scroll, scale);
+        let blink = blink.filter(|_| target.intersect(context.viewport).is_some());
         // Snap the cell like the painted rect, or the first frame jumps a subpixel.
-        let snap_scrolled = |value: f32, scroll: f32| snap(value - scroll, scale) + scroll;
+        let snap_scrolled = |value: f32, scroll: f32| snap(value - scroll, scale);
         let cell = [
             snap_scrolled(cell[0], context.scroll.0),
             snap_scrolled(cell[1], context.scroll.1),
@@ -52,13 +63,16 @@ pub(super) fn render(
             target.right + texel,
             target.bottom + texel,
         );
-        // The framework applies layer translations directly on animation frames,
-        // without executing the app view or rerasterizing the editor text.
+        // The framework applies layer transforms and opacity directly on
+        // animation frames, without executing the app view.
         cx.compile(
             animated_compositing_layer(target, move |motion: &mut CaretMotion| {
-                let animate = animate && motion.scale == Some(scale);
+                let scale_changed = motion.scale != Some(scale);
+                let changed =
+                    scale_changed || motion.context != Some(context) || motion.target != cell;
+                motion.blink.configure(blink, changed, Instant::now());
                 motion.scale = Some(scale);
-                motion.retarget(cell, context, animate);
+                motion.retarget(cell, context, animate && !scale_changed);
             })
             .child(Element::new(move |_| {
                 UiElement::group(id, target).child(UiElement::panel(fill_id, fill, style))
@@ -81,13 +95,51 @@ pub(super) fn bar(cell: [f32; 2]) -> UiRect {
 pub(super) fn secondary_bar(cell: [f32; 2], scroll: (f32, f32), style: VisualStyle) -> Element {
     let shape = bar(cell);
     Element::new(move |cx| {
-        let target = scrolled_rect(shape, scroll, cx.context.scale());
+        let target = viewport_rect(shape, scroll, cx.context.scale());
         UiElement::panel(cx.id, target, style)
     })
 }
 
-fn scrolled_rect(shape: UiRect, (x, y): (f32, f32), scale: UiScale) -> UiRect {
-    pixel_aligned(shape.translate(-x, -y), scale).translate(x, y)
+fn viewport_rect(shape: UiRect, (x, y): (f32, f32), scale: UiScale) -> UiRect {
+    pixel_aligned(shape.translate(-x, -y), scale)
+}
+
+#[derive(Clone, Default)]
+struct CaretBlink {
+    activity: Option<BlinkActivity>,
+    phase_ms: f32,
+    started_at: Option<Instant>,
+}
+
+impl CaretBlink {
+    fn configure(&mut self, activity: Option<BlinkActivity>, moved: bool, now: Instant) {
+        if self.activity != activity || moved {
+            self.activity = activity;
+            self.phase_ms = 0.0;
+            self.started_at = activity.map(|_| now);
+        }
+    }
+
+    fn visible(&self) -> bool {
+        self.phase_ms < BLINK_INTERVAL_MS
+    }
+
+    fn advance(&mut self, elapsed_ms: f32, now: Instant) -> bool {
+        if self.activity.is_none() {
+            return false;
+        }
+        let visible = self.visible();
+        // A pending window tick can predate the activity that restarted blinking.
+        let elapsed_ms = self.started_at.take().map_or(elapsed_ms, |started| {
+            elapsed_ms.min(now.saturating_duration_since(started).as_secs_f32() * 1000.0)
+        });
+        self.phase_ms = (self.phase_ms + elapsed_ms.max(0.0)) % (2.0 * BLINK_INTERVAL_MS);
+        visible != self.visible()
+    }
+
+    fn next_toggle_ms(&self) -> u64 {
+        (BLINK_INTERVAL_MS - self.phase_ms % BLINK_INTERVAL_MS).ceil() as u64
+    }
 }
 
 #[derive(Clone, Default)]
@@ -100,6 +152,7 @@ struct CaretMotion {
     elapsed_ms: f32,
     first_frame_at: Option<Instant>,
     moving: bool,
+    blink: CaretBlink,
 }
 
 impl CaretMotion {
@@ -125,8 +178,9 @@ impl CaretMotion {
 
 impl CaretMotion {
     fn advance_at(&mut self, elapsed_ms: f32, now: Instant) -> bool {
+        let blink_changed = self.blink.advance(elapsed_ms, now);
         if !self.moving {
-            return false;
+            return blink_changed;
         }
         // lgui's first tick includes time spent idle before this animation began.
         // Count only time since the latest target changed, then use frame deltas.
@@ -149,16 +203,22 @@ impl CaretMotion {
 impl CompositingLayerAnimation for CaretMotion {
     fn compositing_layer_spec(&self) -> CompositingLayerSpec {
         // Keep continuous coordinates in flight; the resting target is pixel aligned.
-        CompositingLayerSpec::new().transform(LayerTransform::identity().translation(
-            self.position[0] - self.target[0],
-            self.position[1] - self.target[1],
-        ))
+        CompositingLayerSpec::new()
+            .opacity(if self.blink.visible() { 1.0 } else { 0.0 })
+            .transform(LayerTransform::identity().translation(
+                self.position[0] - self.target[0],
+                self.position[1] - self.target[1],
+            ))
     }
     fn wants_frame(&self) -> bool {
-        self.moving
+        self.moving || self.blink.activity.is_some()
     }
     fn frame_interval_ms(&self) -> u64 {
-        FRAME_INTERVAL_MS
+        if self.moving || self.blink.activity.is_none() {
+            FRAME_INTERVAL_MS
+        } else {
+            self.blink.next_toggle_ms()
+        }
     }
     fn advance(&mut self, elapsed_ms: f32) -> bool {
         self.advance_at(elapsed_ms, Instant::now())
@@ -213,7 +273,7 @@ mod tests {
 
     fn caret_at(rect: UiRect, context: CaretContext) -> Element {
         let style = VisualStyle::filled(crate::ui::theme::c().accent);
-        render(rect, [rect.left, rect.top], style, context, true)
+        render(rect, [rect.left, rect.top], style, context, true, None)
     }
 
     fn context() -> CaretContext {
@@ -305,10 +365,8 @@ mod tests {
                 component(viewport, move |cx, _| {
                     let target = cx.state(UiRect::new(30.37, 8.63, 32.37, 32.63));
                     *output.lock().unwrap() = Some(target.clone());
-                    group(viewport).child(
-                        clip(viewport, -context.scroll.0, -context.scroll.1)
-                            .child(caret_at(target.get(), context)),
-                    )
+                    group(viewport)
+                        .child(clip(viewport, 0.0, 0.0).child(caret_at(target.get(), context)))
                 })
             });
             let mut session = UiSession::new();
@@ -365,8 +423,7 @@ mod tests {
                 let layer = session.tree().node(node.parent.as_ref().unwrap()).unwrap();
                 let expected = scale.physical_value(
                     node.layout_rect.left
-                        + layer.compositing_layer.unwrap().transform.translation_x()
-                        - context.scroll.0,
+                        + layer.compositing_layer.unwrap().transform.translation_x(),
                 ) as usize;
                 assert_eq!(
                     painted[0].0, expected,
@@ -404,12 +461,13 @@ mod tests {
                 let cell = [x + sx, 16.91 + sy];
                 let view: AppView = Arc::new(move |_| {
                     let accent = VisualStyle::filled(crate::ui::theme::c().accent);
-                    group(viewport).child(clip(viewport, -sx, -sy).child(render(
+                    group(viewport).child(clip(viewport, 0.0, 0.0).child(render(
                         bar(cell),
                         cell,
                         accent,
                         context,
                         false,
+                        None,
                     )))
                 });
                 let scene = session
@@ -435,6 +493,131 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn blink_restarts_visible_after_activity_and_can_be_paused() {
+        use std::time::Duration;
+
+        let start = Instant::now();
+        let mut blink = CaretBlink::default();
+        let mut activity = BlinkActivity {
+            document_version: 1,
+            selection: Selection::caret(7),
+            shape: CursorShape::Bar,
+        };
+        blink.configure(Some(activity), false, start);
+        assert!(!blink.advance(1000.0, start + Duration::from_millis(100)));
+        assert_eq!(blink.next_toggle_ms(), 400);
+        assert!(blink.advance(400.0, start + Duration::from_millis(500)));
+        assert!(!blink.visible());
+        blink.configure(Some(activity), false, start + Duration::from_millis(600));
+        assert!(!blink.visible(), "unchanged renders do not reset blinking");
+        activity.document_version += 1;
+        blink.configure(Some(activity), false, start + Duration::from_millis(600));
+        assert!(blink.visible());
+        assert_eq!(blink.next_toggle_ms(), 500);
+        blink.configure(None, false, start + Duration::from_millis(650));
+        assert!(!blink.advance(600.0, start + Duration::from_millis(1250)));
+        assert!(blink.visible());
+    }
+
+    #[test]
+    fn blinking_each_cursor_shape_only_repaints_the_scrolled_caret() {
+        use lgui::application::AppView;
+        use lgui::core::clip;
+        use lgui::prelude::{Color, component, panel};
+        use lgui::render_skia::SkiaSoftwareSurface;
+        use lgui::renderer::{FrameInfo, FrameReason};
+        use lgui::session::UiSession;
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+
+        let viewport = UiRect::new(0.0, 0.0, 192.0, 96.0);
+        let scale = UiScale::new(0.9);
+        let physical = scale.physical_rect(viewport);
+        let mut context = context();
+        context.viewport = viewport;
+        context.scroll = (96.83, 811.27);
+        let cell = [context.scroll.0 + 27.48, context.scroll.1 + 20.82];
+        let [x, y] = cell;
+        let line_h = fonts::editor().line_h;
+        for (shape, bounds) in [
+            (CursorShape::Bar, bar(cell)),
+            (
+                CursorShape::Block,
+                UiRect::new(x, y + 1.0, x + 8.0, y + line_h - 1.0),
+            ),
+            (
+                CursorShape::Underline,
+                UiRect::new(x, y + line_h - 3.0, x + 8.0, y + line_h - 1.0),
+            ),
+            (
+                CursorShape::HalfBlock,
+                UiRect::new(x, y + line_h / 2.0, x + 8.0, y + line_h - 1.0),
+            ),
+        ] {
+            let activity = BlinkActivity {
+                document_version: 1,
+                selection: Selection::caret(5),
+                shape,
+            };
+            let renders = Arc::new(AtomicUsize::new(0));
+            let counter = renders.clone();
+            let view: AppView = Arc::new(move |_| {
+                let counter = counter.clone();
+                component(viewport, move |_, _| {
+                    counter.fetch_add(1, Ordering::Relaxed);
+                    let style = VisualStyle::filled(Color(0x818cf8));
+                    let caret = render(bounds, cell, style, context, false, Some(activity));
+                    panel(viewport, VisualStyle::filled(Color(0x14161b)))
+                        .child(clip(viewport, 0.0, 0.0).child(caret))
+                })
+            });
+            let mut session = UiSession::new();
+            let mut surface = SkiaSoftwareSurface::new_opaque(1024 * 1024);
+            let first = session.render_view(&view, viewport, scale);
+            let frame = FrameInfo::new(physical, &[], scale, FrameReason::SceneChange, true);
+            surface
+                .draw(&first.scene.project_to_physical(scale), &frame)
+                .unwrap();
+            let expected = scale.physical_rect(viewport_rect(bounds, context.scroll, scale));
+            let pixel = (expected.top * physical.width() + expected.left) as usize * 4;
+            let original = surface.pixels().to_vec();
+            assert_eq!(&original[pixel..pixel + 3], &[0xf8, 0x8c, 0x81]);
+            assert_eq!(session.runtime().frame_interval_ms(), Some(500));
+            session.advance(0.0);
+            assert!(!session.advance(499.0).animation_changed);
+            assert_eq!(session.runtime().frame_interval_ms(), Some(1));
+            for (elapsed, color) in [(1.0, [0x1b, 0x16, 0x14]), (500.0, [0xf8, 0x8c, 0x81])] {
+                let tick = session.advance(elapsed);
+                let changed = tick.dirty_bounds.expect("blink must damage the caret");
+                assert_eq!(scale.physical_rect(changed), expected, "{shape:?}");
+                session.invalidations_mut().invalidate_rect(changed);
+                let commit = session.render_view(&view, viewport, scale);
+                assert!(!commit.damage.dirty.is_full());
+                let damage = commit
+                    .damage
+                    .dirty
+                    .effective_rects()
+                    .into_iter()
+                    .map(|rect| scale.physical_rect_outward(rect))
+                    .collect::<Vec<_>>();
+                let local = scale.physical_rect_outward(changed.inflate(2.0, 2.0));
+                assert_eq!(damage, [local], "{shape:?}");
+                let frame =
+                    FrameInfo::new(physical, &damage, scale, FrameReason::SceneChange, false);
+                surface
+                    .draw(&commit.scene.project_to_physical(scale), &frame)
+                    .unwrap();
+                assert!(!surface.painted_full_frame());
+                assert_eq!(&surface.pixels()[pixel..pixel + 3], &color);
+            }
+            assert_eq!(original, surface.pixels());
+            assert_eq!(renders.load(Ordering::Relaxed), 1);
         }
     }
 
