@@ -25,7 +25,7 @@ pub fn top_pixel(rect: UiRect, color: Color) -> Element {
 pub enum VerticalPlacement {
     Scrolled(f32, f32),
     /// Restore a guide over a row whose fill touches partial pixels at its edges.
-    Overlay,
+    Overlay(f32, f32),
 }
 
 pub fn vertical_pixel(
@@ -52,8 +52,7 @@ pub fn vertical_pixel_rect(
     scale: UiScale,
 ) -> Option<UiRect> {
     let (scroll_x, scroll_y) = match placement {
-        VerticalPlacement::Scrolled(x, y) => (x, y),
-        VerticalPlacement::Overlay => (0.0, 0.0),
+        VerticalPlacement::Scrolled(x, y) | VerticalPlacement::Overlay(x, y) => (x, y),
     };
     if start.x < viewport.left + scroll_x || start.x >= viewport.right + scroll_x {
         return None;
@@ -61,13 +60,14 @@ pub fn vertical_pixel_rect(
     let clip = scale.physical_ui_rect(viewport);
     let left = clip.left.ceil() as i32;
     let right = clip.right.floor() as i32;
+    let top = start.y - scroll_y;
+    let bottom = bottom - scroll_y;
     let (top, bottom) = match placement {
-        VerticalPlacement::Scrolled(..) => (
-            scale.physical_value(start.y - scroll_y),
-            scale.physical_value(bottom - scroll_y),
-        ),
-        VerticalPlacement::Overlay => (
-            (start.y * scale.factor()).floor() as i32,
+        VerticalPlacement::Scrolled(..) => {
+            (scale.physical_value(top), scale.physical_value(bottom))
+        }
+        VerticalPlacement::Overlay(..) => (
+            (top * scale.factor()).floor() as i32,
             (bottom * scale.factor()).ceil() as i32,
         ),
     };

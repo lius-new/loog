@@ -318,7 +318,7 @@ pub fn render(
                     Point::new(x, sticky.top),
                     sticky.top + ROW_H,
                     content_rect,
-                    divider::VerticalPlacement::Overlay,
+                    divider::VerticalPlacement::Overlay(0.0, 0.0),
                     guide_color(active),
                 ));
             }

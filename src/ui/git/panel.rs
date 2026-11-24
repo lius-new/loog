@@ -19,6 +19,7 @@ use crate::ui::components::scrollbar;
 use crate::ui::git::commands::{Binding, Command, Snapshot};
 use crate::ui::git::menu::{GitMenu, GitMenuTarget};
 use crate::ui::git::state::GitPanelState;
+use crate::ui::git::tree_guides::TreeGuides;
 use crate::ui::theme;
 
 pub(crate) const TOPLINE_H: f32 = 40.0;
@@ -390,6 +391,7 @@ fn render_local(
     );
     let max_scroll = (changes_height - content_rect.height()).max(0.0);
     let scroll = app.ui.scroll.clamp(0.0, max_scroll);
+    let guides = TreeGuides::new(content_rect, scroll, rect.left + 14.0, TREE_INDENT);
     let mut y = content_rect.top + 8.0;
     // Rows the pointer can hover, in content coordinates (before scrolling).
     let mut hover_targets = Vec::new();
@@ -436,7 +438,7 @@ fn render_local(
             CHANGE_ROW_H,
         );
         y += rows.len() as f32 * CHANGE_ROW_H;
-        for index in visible {
+        for index in visible.clone() {
             let row_y = rows_top + index as f32 * CHANGE_ROW_H;
             let row_rect = UiRect::new(rect.left, row_y, content_rect.right, row_y + CHANGE_ROW_H);
             match &rows[index] {
@@ -499,6 +501,15 @@ fn render_local(
                     ));
                 }
             }
+        }
+        if app.ui.tree_view {
+            guides.append(
+                &mut content,
+                visible
+                    .clone()
+                    .map(|index| (rows_top + index as f32 * CHANGE_ROW_H, rows[index].depth())),
+                rows_top + visible.end as f32 * CHANGE_ROW_H,
+            );
         }
         y += 10.0;
     }
@@ -1287,6 +1298,14 @@ enum OwnedChangeRow {
         path: PathBuf,
         depth: usize,
     },
+}
+
+impl OwnedChangeRow {
+    fn depth(&self) -> usize {
+        match self {
+            Self::Folder { depth, .. } | Self::File { depth, .. } => *depth,
+        }
+    }
 }
 
 pub(crate) enum ChangeRow<'a> {

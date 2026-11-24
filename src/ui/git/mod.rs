@@ -16,4 +16,5 @@ pub mod panel;
 pub mod stash_switch;
 pub mod state;
 pub(crate) mod tag_card;
+mod tree_guides;
 pub mod workbench;

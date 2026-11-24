@@ -19,6 +19,7 @@ use crate::ui::git::panel::{
     ROW_H, ScrollRegion, change_color, change_path_label, relative_time, scroll_region,
     wrap_text_sized,
 };
+use crate::ui::git::tree_guides::TreeGuides;
 use crate::ui::{tabs, theme};
 
 pub(crate) const WIDTH: f32 = 253.0;
@@ -511,6 +512,8 @@ fn file_tree(
     let max_scroll = (content_bottom - body.bottom).max(0.0);
     let scroll = scroll.clamp(0.0, max_scroll);
     let (view_top, view_bottom) = (body.top + scroll, body.bottom + scroll);
+    let visible = tops.partition_point(|&top| top + ROW_H < view_top)
+        ..tops.partition_point(|&top| top <= view_bottom);
     let kinds = rows
         .iter()
         .map(|row| (matches!(row, Item::Folder { .. }), row.depth()))
@@ -544,25 +547,33 @@ fn file_tree(
     };
     let rect_at = |top: f32| UiRect::new(body.left + 8.0, top, body.right - 8.0, top + ROW_H);
     let mut content = Vec::new();
-    for (index, item) in rows.iter().enumerate() {
-        let top = tops[index];
-        if top + ROW_H < view_top
-            || top > view_bottom
-            || pinned.iter().any(|(pinned, _)| *pinned == index)
-        {
+    for index in visible.clone() {
+        if pinned.iter().any(|(pinned, _)| *pinned == index) {
             continue;
         }
-        content.push(build(item.clone(), rect_at(top)));
+        content.push(build(rows[index].clone(), rect_at(tops[index])));
     }
+    let guides = TreeGuides::new(body, scroll, rect_at(body.top).left + 8.0, INDENT);
+    guides.append(
+        &mut content,
+        visible
+            .clone()
+            .map(|index| (tops[index], rows[index].depth())),
+        tops.get(visible.end).copied().unwrap_or(y),
+    );
     // Drawn last and opaque, so what scrolls beneath cannot show through.
     for (index, top) in pinned {
         let slot = rect_at(top);
         content.push(
-            panel(
-                UiRect::new(body.left, slot.top, body.right, slot.bottom),
-                VisualStyle::filled(theme::c().sidebar),
-            )
-            .child(build(rows[index].clone(), slot)),
+            guides.pinned(
+                panel(
+                    UiRect::new(body.left, slot.top, body.right, slot.bottom),
+                    VisualStyle::filled(theme::c().sidebar),
+                )
+                .child(build(rows[index].clone(), slot)),
+                slot,
+                rows[index].depth(),
+            ),
         );
     }
     scroll_region(

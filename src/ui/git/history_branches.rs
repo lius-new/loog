@@ -13,6 +13,7 @@ use crate::ui::git::commands::{Binding, Command, Snapshot};
 use crate::ui::git::menu::{GitMenu, GitMenuTarget};
 use crate::ui::git::panel::{ScrollRegion, scroll_region};
 use crate::ui::git::state::NavView;
+use crate::ui::git::tree_guides::TreeGuides;
 use crate::ui::{tabs, theme};
 
 /// The icon rail down the navigator's left edge.
@@ -334,6 +335,8 @@ pub(crate) fn render(
     let max_scroll = (content_bottom - body.bottom).max(0.0);
     let scroll = scroll.clamp(0.0, max_scroll);
     let (view_top, view_bottom) = (body.top + scroll, body.bottom + scroll);
+    let visible = tops.partition_point(|&top| top + ROW_H < view_top)
+        ..tops.partition_point(|&top| top <= view_bottom);
 
     // A folder scrolled past the top stays pinned there, below the folders
     // that contain it, for as long as its contents are in view.
@@ -399,13 +402,11 @@ pub(crate) fn render(
     };
 
     let mut content = Vec::new();
-    for (index, entry) in rows.iter().enumerate() {
+    for index in visible.clone() {
+        let entry = &rows[index];
         let top = tops[index];
         let height = entry.height();
-        if top + height < view_top
-            || top > view_bottom
-            || pinned.iter().any(|(pinned, _)| *pinned == index)
-        {
+        if pinned.iter().any(|(pinned, _)| *pinned == index) {
             continue;
         }
         content.push(build(
@@ -413,12 +414,24 @@ pub(crate) fn render(
             UiRect::new(list.left, top, list.right, top + height),
         ));
     }
+    let guides = TreeGuides::new(body, scroll, inner(body).left + 8.0, INDENT);
+    guides.append(
+        &mut content,
+        visible
+            .clone()
+            .map(|index| (tops[index], rows[index].depth())),
+        tops.get(visible.end).copied().unwrap_or(rows_bottom),
+    );
     // Drawn last and opaque, so what scrolls beneath cannot show through.
     for (index, top) in pinned {
         let slot = UiRect::new(list.left, top, list.right, top + ROW_H);
         content.push(
-            panel(slot, VisualStyle::filled(theme::c().sidebar))
-                .child(build(rows[index].clone(), slot)),
+            guides.pinned(
+                panel(slot, VisualStyle::filled(theme::c().sidebar))
+                    .child(build(rows[index].clone(), slot)),
+                slot,
+                rows[index].depth(),
+            ),
         );
     }
     panel(rect, VisualStyle::default())
