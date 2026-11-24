@@ -13,8 +13,8 @@
 use std::path::Path;
 
 use lgui::core::{
-    CursorIcon, EventPolicy, IconStyle, PointerButton, UiElement, UiEventKind, UiEventPayload,
-    UiId, WheelUnit, clip, precompiled,
+    CursorIcon, EventPolicy, IconStyle, Point, PointerButton, UiElement, UiEventKind,
+    UiEventPayload, UiId, WheelUnit, clip, precompiled,
 };
 use lgui::prelude::{Color, Element, TextAlign, UiRect, VisualStyle, panel, text};
 
@@ -23,8 +23,8 @@ use super::source::{self, Entry};
 use super::state::{ExplorerPanelState, ExplorerReveal, RowHover};
 use crate::features::explorer::ExplorerCreateKind;
 use crate::ui::components::input::{self, AccessInputOptions, InputBinding, InputStyle};
-use crate::ui::components::scrollbar;
 use crate::ui::components::state_access::StateAccess;
+use crate::ui::components::{divider, scrollbar};
 use crate::ui::drawer::drawer_icon;
 use crate::ui::theme;
 
@@ -133,6 +133,7 @@ struct TreeContext<'a> {
     commands: &'a Commands,
     input: &'a EditInput,
     rect: UiRect,
+    scroll: (f32, f32),
     content_right: f32,
     /// The directory whose guide is the active row's, found once per frame.
     active_guide: Option<&'a Path>,
@@ -213,6 +214,7 @@ pub fn render(
                 commands: &commands,
                 input: &input,
                 rect: content_rect,
+                scroll: (scroll_x, scroll_hint),
                 content_right,
                 active_guide,
                 visible: (
@@ -238,6 +240,7 @@ pub fn render(
             commands: &commands,
             input: &input,
             rect: content_rect,
+            scroll: (scroll_x, scroll),
             content_right,
             active_guide,
             visible: (0.0, 0.0),
@@ -303,14 +306,6 @@ pub fn render(
             // The pinned row hides the guides of the directories above it, so
             // they are drawn again over it. The rows of those directories come
             // after this one and stay on top of any guide they overlap.
-            let row_rect = UiRect::new(
-                content_rect.left,
-                sticky.top,
-                content_rect.right,
-                sticky.top + ROW_H,
-            );
-            let mut guides = clip(row_rect, 0.0, 0.0);
-            let mut any = false;
             for &above in &ancestors[index] {
                 let above = &stickies[above].directory;
                 let active = above.entry.guide_active(active_guide);
@@ -318,15 +313,14 @@ pub fn render(
                     continue;
                 }
                 let indent = content_rect.left + INDENT + above.depth as f32 * INDENT;
-                let x = (indent + TREE_ICON_SIZE / 2.0).round() - scroll_x;
-                guides = guides.child(panel(
-                    UiRect::new(x, row_rect.top, x + 1.0, row_rect.bottom),
-                    VisualStyle::filled(guide_color(active)),
+                let x = indent + TREE_ICON_SIZE / 2.0 - scroll_x;
+                bar = bar.child(divider::vertical_pixel(
+                    Point::new(x, sticky.top),
+                    sticky.top + ROW_H,
+                    content_rect,
+                    divider::VerticalPlacement::Overlay,
+                    guide_color(active),
                 ));
-                any = true;
-            }
-            if any {
-                bar = bar.child(guides);
             }
         }
 
@@ -1097,12 +1091,13 @@ fn build_tree(
         if *y > children_top && tree.row_visible(children_top, *y - children_top) {
             let active = entry.guide_active(tree.active_guide);
             if active || tree.panel.ui.hovered {
-                // A whole-pixel x keeps the 1px guide from being smeared over two
-                // pixel columns.
-                let guide_x = (indent + TREE_ICON_SIZE / 2.0).round();
-                elements.push(panel(
-                    UiRect::new(guide_x, children_top, guide_x + 1.0, *y),
-                    VisualStyle::filled(guide_color(active)),
+                let guide_x = indent + TREE_ICON_SIZE / 2.0;
+                elements.push(divider::vertical_pixel(
+                    Point::new(guide_x, children_top),
+                    *y,
+                    tree.rect,
+                    divider::VerticalPlacement::Scrolled(tree.scroll.0, tree.scroll.1),
+                    guide_color(active),
                 ));
             }
         }

@@ -542,19 +542,16 @@ pub(crate) fn render(
                     let active = active_guide.as_ref().is_some_and(|guide| {
                         guide.column == column && guide.lines.contains(&line_index)
                     });
-                    // A whole pixel keeps the 1px guide from being smeared over two
-                    // columns, whatever the width of a character.
-                    let x = (code_left
-                        + (column as f32 - source_row.column as f32) * fonts::editor().char_w)
-                        .round();
-                    if x >= code_left + scroll_x && x <= rect.right + scroll_x {
-                        code = code.child(
-                            panel(
-                                UiRect::new(x, y, x + 1.0, y + fonts::editor().line_h),
-                                VisualStyle::filled(guide_color(active)),
-                            )
-                            .semantics(Semantics::new(SemanticRole::Group).name("Indent guide")),
-                        );
+                    let x = code_left
+                        + (column as f32 - source_row.column as f32) * fonts::editor().char_w;
+                    if x >= code_left + scroll_x && x < rect.right + scroll_x {
+                        code = code.child(indent::guide(
+                            Point::new(x, y),
+                            y + fonts::editor().line_h,
+                            code_viewport,
+                            (scroll_x, scroll_y),
+                            guide_color(active),
+                        ));
                     }
                 }
             }

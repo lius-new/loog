@@ -4,7 +4,11 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::{Range, RangeInclusive};
 
+use lgui::core::{Point, SemanticRole, Semantics, UiElement};
+use lgui::prelude::{Color, Element, UiRect, VisualStyle};
 use loog_editor_core::{identity::ViewId, text::TextBuffer};
+
+use crate::ui::components::divider::{VerticalPlacement, vertical_pixel_rect};
 
 const NEIGHBOR_SCAN_LINES: usize = 64;
 const ACTIVE_GUIDE_SCAN_LINES: usize = 500;
@@ -113,6 +117,29 @@ pub(super) fn columns(buffer: &TextBuffer, line: usize) -> impl Iterator<Item = 
         })
 }
 
+/// Paint a guide in the editor's scrolling clip, aligned in screen pixels.
+pub(super) fn guide(
+    start: Point,
+    bottom: f32,
+    viewport: UiRect,
+    scroll: (f32, f32),
+    color: Color,
+) -> Element {
+    Element::new(move |cx| {
+        let Some(rect) = vertical_pixel_rect(
+            start,
+            bottom,
+            viewport,
+            VerticalPlacement::Scrolled(scroll.0, scroll.1),
+            cx.context.scale(),
+        ) else {
+            return UiElement::group(cx.id, UiRect::default());
+        };
+        UiElement::panel(cx.id, rect, VisualStyle::filled(color))
+            .semantics(Semantics::new(SemanticRole::Group).name("Indent guide"))
+    })
+}
+
 pub(super) struct ActiveGuide {
     pub(super) column: usize,
     pub(super) lines: RangeInclusive<usize>,
@@ -216,5 +243,79 @@ mod tests {
         assert_eq!(columns(&buffer, 0).collect::<Vec<_>>(), [0, 4]);
         assert_eq!(columns(&buffer, 2).collect::<Vec<_>>(), [0, 2, 4]);
         assert_eq!(columns(&buffer, 1).collect::<Vec<_>>(), [0, 4]);
+    }
+
+    #[test]
+    fn scrolled_guides_fill_one_column_without_a_seam_between_rows() {
+        use lgui::application::AppView;
+        use lgui::core::{UiScale, clip};
+        use lgui::prelude::panel;
+        use lgui::render_skia::SkiaSoftwareSurface;
+        use lgui::renderer::{FrameInfo, FrameReason};
+        use lgui::session::UiSession;
+        use std::sync::Arc;
+
+        const BG: Color = Color(0x14161b);
+        const GUIDE: Color = Color(0x262a35);
+        let canvas = UiRect::new(0.0, 0.0, 120.0, 80.0);
+        let viewport = UiRect::new(10.31, 7.35, 107.82, 60.31);
+        for factor in [0.8, 0.9, 1.0, 1.25, 1.5, 2.0] {
+            let scale = UiScale::new(factor);
+            let physical = scale.physical_rect(canvas);
+            for scroll in [(0.0_f32, 0.0_f32), (17.23, 11.47), (53.71, 33.29)] {
+                let columns = [
+                    viewport.left,
+                    24.57 + scroll.0.fract(),
+                    51.23,
+                    viewport.right - 0.01,
+                ];
+                let view: AppView = Arc::new(move |_| {
+                    let mut guides = clip(viewport, -scroll.0, -scroll.1);
+                    for x in columns {
+                        for (top, bottom) in [(5.17, 31.47), (31.47, 65.62)] {
+                            guides = guides.child(guide(
+                                Point::new(x + scroll.0, top + scroll.1),
+                                bottom + scroll.1,
+                                viewport,
+                                scroll,
+                                GUIDE,
+                            ));
+                        }
+                    }
+                    panel(canvas, VisualStyle::filled(BG)).child(guides)
+                });
+                let scene = UiSession::new()
+                    .render_view(&view, canvas, scale)
+                    .scene
+                    .project_to_physical(scale);
+                let mut surface = SkiaSoftwareSurface::new_opaque(1024 * 1024);
+                surface
+                    .draw(
+                        &scene,
+                        &FrameInfo::new(physical, &[], scale, FrameReason::SceneChange, true),
+                    )
+                    .unwrap();
+                let clip = scale.physical_ui_rect(viewport);
+                let left = clip.left.ceil() as i32;
+                let right = clip.right.floor() as i32;
+                let expected = columns.map(|x| scale.physical_value(x).clamp(left, right - 1));
+                let width = physical.width() as usize;
+                for y in clip.top.ceil() as usize..clip.bottom.floor() as usize {
+                    for x in left - 1..=right {
+                        let offset = (y * width + x as usize) * 4;
+                        let expected = if expected.contains(&x) {
+                            [0x35, 0x2a, 0x26]
+                        } else {
+                            [0x1b, 0x16, 0x14]
+                        };
+                        assert_eq!(
+                            &surface.pixels()[offset..offset + 3],
+                            &expected,
+                            "scale={factor}, scroll={scroll:?}, pixel=({x}, {y})"
+                        );
+                    }
+                }
+            }
+        }
     }
 }
