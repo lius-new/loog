@@ -143,7 +143,7 @@ fn layout(rect: UiRect, subject: Subject<'_>, details: Details<'_>) -> Layout {
     Layout { lines }
 }
 
-/// The scrolling file tree inside the detail pane `rect`.
+/// The scrolling changed-file list inside the detail pane `rect`.
 pub(crate) fn files_rect(rect: UiRect, summary_height: Option<f32>) -> UiRect {
     let top = (rect.top + FILES_TOP).min(rect.bottom);
     UiRect::new(
@@ -207,20 +207,51 @@ pub(crate) fn render(
         )));
     };
 
-    let summary_height = state.get().ui.history_summary_height;
+    let app = state.get();
+    let summary_height = app.ui.history_summary_height;
+    let is_commit = matches!(subject, Subject::Commit(_));
+    let grouped = !is_commit || app.ui.history_files_tree;
+    let show_toggle = is_commit && matches!(files, Some(Ok(files)) if !files.is_empty());
     let layout = layout(rect, subject, details);
     let heading = match files {
         None => String::new(),
         Some(Err(error)) => error.clone(),
         Some(Ok(files)) => plural(files.len(), "changed file"),
     };
+    let heading_right = if show_toggle {
+        (right - 24.0).max(left)
+    } else {
+        right
+    };
     let mut root = root.child(text(
-        UiRect::new(left, rect.top + 12.0, right, rect.top + FILES_TOP),
+        UiRect::new(left, rect.top + 12.0, heading_right, rect.top + FILES_TOP),
         heading,
         theme::mono(theme::c().text_ghost, theme::SMALL),
     ));
+    if show_toggle {
+        let (icon, action) = if grouped {
+            ("list-flat", "View as List")
+        } else {
+            ("list-tree", "Group by Folder")
+        };
+        let toggle = state.clone();
+        root = root.child(
+            icon_button(
+                UiRect::new(right - ROW_H, rect.top + 12.0, right, rect.top + FILES_TOP),
+                icon,
+                action,
+                move || {
+                    toggle.update(|app| {
+                        app.ui.history_files_tree = !app.ui.history_files_tree;
+                        app.ui.history_files_scroll = 0.0;
+                    });
+                },
+            )
+            .key("git-history-detail-file-layout"),
+        );
+    }
     if let Some(Ok(files)) = files {
-        root = root.child(file_tree(
+        root = root.child(file_list(
             files_rect(rect, summary_height),
             files,
             subject.oid(),
@@ -228,6 +259,7 @@ pub(crate) fn render(
             state,
             editor_focus,
             scroll,
+            grouped,
             collapsed,
         ));
     }
@@ -433,12 +465,11 @@ impl Dir {
         }
         let mut files = self.files.clone();
         files.sort_by(|a, b| a.0.cmp(&b.0));
-        out.extend(files.into_iter().map(|(name, kind, path)| Item::File {
-            name,
-            kind,
-            path,
-            depth,
-        }));
+        out.extend(
+            files
+                .into_iter()
+                .map(|(_, kind, path)| Item::File { kind, path, depth }),
+        );
     }
 }
 
@@ -452,7 +483,6 @@ enum Item {
         count: usize,
     },
     File {
-        name: String,
         kind: ChangeKind,
         path: PathBuf,
         depth: usize,
@@ -467,7 +497,17 @@ impl Item {
     }
 }
 
-fn items(files: &[(ChangeKind, PathBuf)], collapsed: &HashSet<String>) -> Vec<Item> {
+fn items(files: &[(ChangeKind, PathBuf)], grouped: bool, collapsed: &HashSet<String>) -> Vec<Item> {
+    if !grouped {
+        return files
+            .iter()
+            .map(|(kind, path)| Item::File {
+                kind: *kind,
+                path: path.clone(),
+                depth: 0,
+            })
+            .collect();
+    }
     let mut root = Dir::default();
     for (kind, path) in files {
         let folders = path
@@ -490,8 +530,8 @@ fn items(files: &[(ChangeKind, PathBuf)], collapsed: &HashSet<String>) -> Vec<It
     out
 }
 
-/// The file tree: scrolls under the header, with folders pinned at the top.
-fn file_tree(
+/// Changed files scroll under the header, with folders pinned in tree mode.
+fn file_list(
     body: UiRect,
     files: &[(ChangeKind, PathBuf)],
     oid: &str,
@@ -499,9 +539,10 @@ fn file_tree(
     state: &Binding,
     editor_focus: &UiFocusHandle,
     scroll: f32,
+    grouped: bool,
     collapsed: &HashSet<String>,
 ) -> Element {
-    let rows = items(files, collapsed);
+    let rows = items(files, grouped, collapsed);
     let mut tops = Vec::with_capacity(rows.len());
     let mut y = body.top;
     for _ in &rows {
@@ -514,11 +555,15 @@ fn file_tree(
     let (view_top, view_bottom) = (body.top + scroll, body.bottom + scroll);
     let visible = tops.partition_point(|&top| top + ROW_H < view_top)
         ..tops.partition_point(|&top| top <= view_bottom);
-    let kinds = rows
-        .iter()
-        .map(|row| (matches!(row, Item::Folder { .. }), row.depth()))
-        .collect::<Vec<_>>();
-    let pinned = pin_slots(&kinds, &tops, y, view_top, ROW_H);
+    let pinned = if grouped {
+        let kinds = rows
+            .iter()
+            .map(|row| (matches!(row, Item::Folder { .. }), row.depth()))
+            .collect::<Vec<_>>();
+        pin_slots(&kinds, &tops, y, view_top, ROW_H)
+    } else {
+        Vec::new()
+    };
 
     let build = |item: Item, row: UiRect| match item {
         Item::Folder {
@@ -528,18 +573,13 @@ fn file_tree(
             expanded,
             count,
         } => folder_row(row, key, name, depth, expanded, count, state),
-        Item::File {
-            name,
-            kind,
-            path,
-            depth,
-        } => file_row(
+        Item::File { kind, path, depth } => file_row(
             row,
             oid,
             kind,
-            &name,
             &path,
             depth,
+            !grouped,
             repository,
             state,
             editor_focus,
@@ -651,9 +691,9 @@ fn file_row(
     rect: UiRect,
     oid: &str,
     kind: ChangeKind,
-    name: &str,
     path: &Path,
     depth: usize,
+    show_folder: bool,
     repository: &Path,
     state: &Binding,
     editor_focus: &UiFocusHandle,
@@ -707,8 +747,8 @@ fn file_row(
             rect.right - 6.0,
             rect.bottom,
         ),
-        Path::new(name),
-        false,
+        path,
+        show_folder,
         kind,
     ))
 }
@@ -764,7 +804,13 @@ mod tests {
                     " ".repeat(*depth),
                     if *expanded { "" } else { " (folded)" }
                 ),
-                Item::File { name, depth, .. } => format!("{}{name}", " ".repeat(*depth)),
+                Item::File { path, depth, .. } => {
+                    format!(
+                        "{}{}",
+                        " ".repeat(*depth),
+                        path.file_name().unwrap().display()
+                    )
+                }
             })
             .collect()
     }
@@ -786,7 +832,7 @@ mod tests {
             "README.md",
         ]);
         assert_eq!(
-            shape(&items(&files, &HashSet::new())),
+            shape(&items(&files, true, &HashSet::new())),
             [
                 "scripts/architecture/ 1",
                 " policy.json",
@@ -890,6 +936,28 @@ Another body line."
     fn folded_folders_hide_their_files() {
         let files = changed(&["src/app/git.rs", "src/app/shell.rs"]);
         let collapsed = HashSet::from(["f:src/app".to_owned()]);
-        assert_eq!(shape(&items(&files, &collapsed)), ["src/app/ 2 (folded)"]);
+        assert_eq!(
+            shape(&items(&files, true, &collapsed)),
+            ["src/app/ 2 (folded)"]
+        );
+    }
+
+    #[test]
+    fn flat_changed_files_keep_full_paths_even_when_folders_are_folded() {
+        let files = changed(&["api/config.rs", "config.rs", "web/config.rs"]);
+        let collapsed = HashSet::from(["f:api".to_owned()]);
+        let flat = items(&files, false, &collapsed);
+        let paths: Vec<_> = flat
+            .iter()
+            .map(|item| match item {
+                Item::File {
+                    kind,
+                    path,
+                    depth: 0,
+                } => (*kind, path.clone()),
+                _ => panic!("flat mode must show only unindented files"),
+            })
+            .collect();
+        assert_eq!(paths, files);
     }
 }

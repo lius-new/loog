@@ -72,7 +72,9 @@ pub struct GitUiState {
     pub history_stash: Option<String>,
     /// The navigator shows one kind of reference at a time.
     pub history_nav: NavView,
-    /// Scroll of the detail pane's changed-file tree, and its scrollbar drag.
+    /// Group the commit detail's changed files by folder.
+    pub history_files_tree: bool,
+    /// Scroll of the detail pane's changed files, and its scrollbar drag.
     pub history_files_scroll: f32,
     pub files_scrollbar_dragging: bool,
     pub files_scrollbar_drag_offset: f32,
@@ -155,6 +157,7 @@ impl Default for GitUiState {
             history_branch_scroll: 0.0,
             history_stash: None,
             history_nav: NavView::default(),
+            history_files_tree: true,
             history_files_scroll: 0.0,
             files_scrollbar_dragging: false,
             files_scrollbar_drag_offset: 0.0,
