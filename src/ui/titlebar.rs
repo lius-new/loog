@@ -257,6 +257,10 @@ pub(crate) fn layout_toggle_rect(rect: UiRect) -> UiRect {
     )
 }
 
+pub(crate) fn bottom_border(rect: UiRect) -> Element {
+    crate::ui::components::divider::bottom(rect).inert(true)
+}
+
 pub fn render(rect: UiRect, state: TitleBinding, git_controls: Element) -> Element {
     let frame = state.frame();
     let maximized = frame.maximized;
@@ -427,9 +431,6 @@ pub fn render(rect: UiRect, state: TitleBinding, git_controls: Element) -> Eleme
             let _ = ctx.window().request_close();
         },
     ));
-
-    // Hairline bottom border
-    bar = bar.child(crate::ui::components::divider::bottom(rect));
 
     bar
 }

@@ -1703,6 +1703,9 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             super::chrome::status(statusbar_rect, state.clone())
         })
     });
+    // Content backgrounds can blend onto the same physical pixel row at
+    // fractional scales. Paint the title bar rule above them, before popups.
+    root = root.child(crate::ui::titlebar::bottom_border(titlebar_rect));
 
     if s.explorer.ui.menu.is_none()
         && s.editor.tabs.tab_context_menu.is_none()

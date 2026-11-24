@@ -468,7 +468,7 @@ mod tests {
         use std::sync::Arc;
 
         let viewport = UiRect::new(0.0, 0.0, 760.0, 100.0);
-        let title = UiRect::new(0.0, 0.0, 400.0, theme::TITLEBAR_H);
+        let title = UiRect::new(0.0, 0.0, viewport.right, theme::TITLEBAR_H);
         let strip = UiRect::new(0.0, title.bottom, 400.0, title.bottom + theme::TABS_H);
         let drawer = UiRect::new(440.0, title.bottom, 760.0, strip.bottom);
         let details = UiRect::new(
@@ -509,12 +509,19 @@ mod tests {
                     state,
                     cx.focus_handle(UiId::new("tab-border-test")),
                 ))
-                .child(crate::ui::drawer::header(
-                    drawer,
-                    crate::ui::drawer::DrawerMode::Files,
-                    Arc::new(|_| {}),
-                ))
+                .child(
+                    panel(
+                        UiRect::new(drawer.left, drawer.top, drawer.right, viewport.bottom),
+                        VisualStyle::filled(theme::c().sidebar),
+                    )
+                    .child(crate::ui::drawer::header(
+                        drawer,
+                        crate::ui::drawer::DrawerMode::Files,
+                        Arc::new(|_| {}),
+                    )),
+                )
                 .child(crate::ui::components::divider::top(details))
+                .child(crate::ui::titlebar::bottom_border(title))
         });
         let context = ApplicationContext::empty(Default::default());
         context
@@ -560,15 +567,14 @@ mod tests {
                         expected,
                         "scale={factor}, x={x}, row={row}",
                     );
-                    if factor.fract() == 0.0 && x < title.right {
-                        assert_eq!(
-                            pixel(
-                                scale.physical_value(x),
-                                scale.physical_value(title.bottom) - row
-                            ),
-                            expected,
-                        );
-                    }
+                    assert_eq!(
+                        pixel(
+                            scale.physical_value(x),
+                            scale.physical_value(title.bottom) - row
+                        ),
+                        expected,
+                        "title bar divider at scale={factor}, x={x}, row={row}",
+                    );
                 }
             }
             let accent = theme::c().accent.0;
