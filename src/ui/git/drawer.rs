@@ -12,7 +12,6 @@ use lgui::core::{
 };
 use lgui::prelude::{Element, UiRect, VisualStyle, panel, text};
 
-pub const HEADER_H: f32 = 40.0;
 const COMMIT_IDLE_FIELD_H: f32 = 36.0;
 const COMMIT_FIELD_H: f32 = 54.0;
 const COMMIT_BUTTON_H: f32 = 24.0;
@@ -83,56 +82,6 @@ pub fn checkbox(
             theme::c().on_accent,
         ));
     }
-    root
-}
-
-pub fn header(rect: UiRect, state: Binding, _store: Snapshot) -> Element {
-    let app = state.get();
-    let mut root = panel(rect, VisualStyle::default());
-    let title = UiRect::new(
-        rect.left + 16.0,
-        rect.top,
-        rect.right - 42.0,
-        rect.top + 40.0,
-    );
-    root = root.child(text(
-        title,
-        "Changes",
-        theme::sans_semibold(theme::c().text, 13.0),
-    ));
-    let grouped = app.ui.tree_view;
-    let toggle = state.clone();
-    root = root.child(
-        panel(
-            UiRect::new(
-                rect.right - 38.0,
-                rect.top + 7.0,
-                rect.right - 10.0,
-                rect.top + 35.0,
-            ),
-            VisualStyle::default().radius(4.0),
-        )
-        .key("git-group-by-folder")
-        .event_policy(EventPolicy::INTERACTIVE)
-        .cursor(CursorIcon::Pointer)
-        .semantics(Semantics::new(SemanticRole::Button).name(if grouped {
-            "View as List"
-        } else {
-            "Group by Folder"
-        }))
-        .on_click(move || toggle.update(|app| app.ui.tree_view = !app.ui.tree_view))
-        .child(crate::ui::drawer::drawer_icon(
-            "git-group-icon",
-            if grouped { "list-flat" } else { "list-tree" },
-            UiRect::new(
-                rect.right - 30.0,
-                rect.top + 13.0,
-                rect.right - 16.0,
-                rect.top + 27.0,
-            ),
-            theme::c().text_muted,
-        )),
-    );
     root
 }
 

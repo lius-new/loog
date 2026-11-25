@@ -215,6 +215,10 @@ pub enum Command {
         root: PathBuf,
     },
     Sync,
+    /// Pull only.
+    Pull,
+    /// Push only, or publish a branch without an upstream.
+    Push,
 }
 
 #[derive(Clone, Default)]

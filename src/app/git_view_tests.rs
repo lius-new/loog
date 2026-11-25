@@ -388,7 +388,7 @@ mod panel_virtualization_tests {
                 "{section} belongs to the Git panel"
             );
         }
-        assert!(named(&session, "UNSTAGED").is_some());
+        assert!(named(&session, "Changes").is_some());
         // Idle, the commit form is one quiet line with no button.
         let idle = named(&session, "Commit message").unwrap();
         assert!(idle.height() < 40.0 && idle.bottom <= viewport.bottom - 8.0);
@@ -747,6 +747,40 @@ mod panel_virtualization_tests {
         assert_eq!(
             *commands.lock().unwrap(),
             ["stage:src/ui/panel.rs", "unstage:src/ui/state.rs"]
+        );
+        // The header's controls act on their own and never collapse the section.
+        let grouped = state.get().ui.tree_view;
+        activate(
+            &mut session,
+            if grouped {
+                "View as List"
+            } else {
+                "Group by Folder"
+            },
+        );
+        assert_ne!(state.get().ui.tree_view, grouped);
+        assert!(
+            !state
+                .get()
+                .ui
+                .collapsed_sections
+                .contains(&crate::ui::git::panel::CHANGES)
+        );
+        activate(&mut session, "Changes");
+        assert!(
+            state
+                .get()
+                .ui
+                .collapsed_sections
+                .contains(&crate::ui::git::panel::CHANGES)
+        );
+        activate(&mut session, "Changes");
+        assert!(
+            !state
+                .get()
+                .ui
+                .collapsed_sections
+                .contains(&crate::ui::git::panel::CHANGES)
         );
         activate(&mut session, "Commit message");
         send(

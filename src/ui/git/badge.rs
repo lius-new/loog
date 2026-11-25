@@ -7,8 +7,8 @@ use lgui::core::{
 };
 use lgui::prelude::{Color, Element, TextStyle, UiRect, VisualStyle, panel, text};
 
+use crate::features::git::GitStoreSnapshot;
 use crate::features::git::actions::SyncPlan;
-use crate::features::git::{GitStoreSnapshot, RepositorySnapshot};
 use crate::ui::git::commands::{Binding, Command, Snapshot};
 use crate::ui::theme;
 
@@ -86,12 +86,8 @@ pub fn attach(
         } else {
             theme::c().text_ghost
         };
-        let (sync, sync_right) = badge_element(
-            rect,
-            right + ITEM_GAP,
-            sync_pieces(repository, plan, color),
-            false,
-        );
+        let (sync, sync_right) =
+            badge_element(rect, right + ITEM_GAP, sync_pieces(plan, color), false);
         right = sync_right;
         bar = bar.child(
             sync.event_policy(EventPolicy::INTERACTIVE)
@@ -223,13 +219,9 @@ pub(crate) fn badge_pieces(git: &GitStoreSnapshot) -> Vec<(f32, BadgePiece)> {
     pieces
 }
 
-/// The sync button's contents: a publish icon for a branch with no
-/// upstream, else the sync icon with the commits behind and ahead.
-pub(crate) fn sync_pieces(
-    repository: &RepositorySnapshot,
-    plan: SyncPlan,
-    color: Color,
-) -> Vec<(f32, BadgePiece)> {
+/// The sync button's contents: a publish icon for a branch with no upstream,
+/// else the sync icon. Pulling and pushing have their own buttons in Changes.
+pub(crate) fn sync_pieces(plan: SyncPlan, color: Color) -> Vec<(f32, BadgePiece)> {
     if plan == SyncPlan::Publish {
         return vec![(
             0.0,
@@ -240,30 +232,14 @@ pub(crate) fn sync_pieces(
             },
         )];
     }
-    let mut pieces = vec![(
+    vec![(
         0.0,
         BadgePiece::Icon {
             id: "titlebar.sync",
             key: "sync",
             color,
         },
-    )];
-    for (count, id, key) in [
-        (repository.behind, "titlebar.behind", "arrow-down"),
-        (repository.ahead, "titlebar.ahead", "arrow-up"),
-    ] {
-        if count > 0 {
-            pieces.push((ICON_GAP, BadgePiece::Icon { id, key, color }));
-            pieces.push((
-                1.0,
-                BadgePiece::Text {
-                    label: count.to_string(),
-                    style: theme::mono(color, theme::SMALL),
-                },
-            ));
-        }
-    }
-    pieces
+    )]
 }
 
 /// What the sync button says it will do, for assistive technology.

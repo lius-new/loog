@@ -241,6 +241,22 @@ struct SectionHeader {
     collapsed: bool,
     buttons: Vec<RowButton>,
     count: usize,
+    changes: Option<ChangesInfo>,
+}
+
+/// What the Changes header needs beyond a plain section header.
+struct ChangesInfo {
+    /// Every change is staged.
+    all_staged: bool,
+    /// Paths a click on the checkbox stages, or unstages when all are staged.
+    stage_paths: Vec<PathBuf>,
+    unstage_paths: Vec<PathBuf>,
+    enabled: bool,
+    ahead: u32,
+    behind: u32,
+    /// The branch has no upstream yet, so pushing publishes it.
+    publish: bool,
+    grouped: bool,
 }
 
 /// Paint headers above their rows, keeping each scrolled section in its own
@@ -261,15 +277,18 @@ fn append_section_headers(
             .max(viewport.top + scroll + index as f32 * SECTION_H);
         let rect = UiRect::new(header.rect.left, top, header.rect.right, top + SECTION_H);
         targets.push((rect, GitHover::Section(header.filter)));
-        let element = section_header(
-            rect,
-            header.filter,
-            header.title,
-            header.collapsed,
-            header.buttons,
-            header.count,
-            state.clone(),
-        );
+        let element = match header.changes {
+            Some(info) => changes_header(rect, header.collapsed, info, state.clone()),
+            None => section_header(
+                rect,
+                header.filter,
+                header.title,
+                header.collapsed,
+                header.buttons,
+                header.count,
+                state.clone(),
+            ),
+        };
         content.push(element);
     }
     targets.append(hover_targets);
@@ -301,16 +320,6 @@ fn render_local(
     let git = store.get();
     let mut root = panel(rect, VisualStyle::filled(theme::c().sidebar));
 
-    root = root.child(crate::ui::git::drawer::header(
-        UiRect::new(
-            rect.left,
-            rect.top,
-            rect.right,
-            (rect.top + crate::ui::git::drawer::HEADER_H).min(rect.bottom),
-        ),
-        state.clone(),
-        store.clone(),
-    ));
     let Some(repository) = git.active() else {
         let message = if git.initializing {
             "Detecting Git and scanning repositories…".to_owned()
@@ -323,9 +332,9 @@ fn render_local(
         root = root.child(text(
             UiRect::new(
                 rect.left + 14.0,
-                rect.top + crate::ui::git::drawer::HEADER_H + 18.0,
+                rect.top + 18.0,
                 rect.right - 14.0,
-                rect.top + crate::ui::git::drawer::HEADER_H + 58.0,
+                rect.top + 58.0,
             ),
             message,
             theme::sans(theme::c().text_dim, theme::UI_SIZE),
@@ -335,21 +344,41 @@ fn render_local(
 
     let prepared = git.presentation.repositories.get(&repository.id);
     let sections = prepared.map(|prepared| &prepared.sections);
-    let body_top = (rect.top + crate::ui::git::drawer::HEADER_H).min(rect.bottom);
-    let body_rect = UiRect::new(rect.left, body_top, rect.right, rect.bottom);
+    let body_rect = rect;
     let mut content = Vec::new();
     // Every section's rows, laid out before drawing so the content height
     // and scroll range are known.
     let show_section = |_filter: u8, empty: bool| !empty;
-    let change_sections = [
-        ("CONFLICTS", CONFLICTS),
-        ("STAGED", STAGED),
-        ("UNSTAGED", UNSTAGED),
-        ("UNTRACKED", UNTRACKED),
-    ]
-    .map(|(title, filter)| {
-        let files = sections.map_or(&[][..], |sections| sections[filter as usize].as_slice());
-        let files = files.to_vec();
+    // One list holds every change: conflicts first, then the rest by path. A
+    // file with both staged and unstaged changes shows once, as unstaged.
+    let mut kinds: std::collections::HashMap<PathBuf, u8> = std::collections::HashMap::new();
+    let mut all_files: Vec<PathBuf> = Vec::new();
+    if let Some(sections) = sections {
+        for filter in [CONFLICTS, UNSTAGED, UNTRACKED, STAGED] {
+            for path in &sections[filter as usize] {
+                if !kinds.contains_key(path) {
+                    kinds.insert(path.clone(), filter);
+                    all_files.push(path.clone());
+                }
+            }
+        }
+    }
+    all_files.sort_by(|a, b| (kinds[a] != CONFLICTS, a).cmp(&(kinds[b] != CONFLICTS, b)));
+    // Shift-click ranges stay inside one kind of change.
+    let orders: std::collections::HashMap<u8, std::sync::Arc<Vec<PathBuf>>> =
+        [CONFLICTS, STAGED, UNSTAGED, UNTRACKED]
+            .into_iter()
+            .map(|section| {
+                let paths = all_files
+                    .iter()
+                    .filter(|path| kinds[*path] == section)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                (section, std::sync::Arc::new(paths))
+            })
+            .collect();
+    let change_sections = [("CHANGES", CHANGES)].map(|(title, filter)| {
+        let files = all_files.clone();
         let rows = change_rows(&files, app.ui.tree_view, &|path| {
             app.ui
                 .change_collapsed
@@ -412,18 +441,31 @@ fn render_local(
         }
         let collapsed = app.ui.collapsed_sections.contains(&filter);
         let section_rect = UiRect::new(rect.left, y, content_rect.right, y + SECTION_H);
-        let buttons = if app.ui.hover == Some(GitHover::Section(filter)) {
-            group_buttons(filter, files.to_vec(), "section", &state, &store)
-        } else {
-            Vec::new()
+        let staged_paths = |staged: bool| {
+            files
+                .iter()
+                .filter(|path| (kinds[*path] == STAGED) == staged && kinds[*path] != CONFLICTS)
+                .cloned()
+                .collect::<Vec<_>>()
         };
         headers.push(SectionHeader {
             rect: section_rect,
             filter,
             title,
             collapsed,
-            buttons,
+            buttons: Vec::new(),
             count: files.len(),
+            changes: Some(ChangesInfo {
+                all_staged: files.iter().all(|path| kinds[path] == STAGED),
+                stage_paths: staged_paths(false),
+                unstage_paths: staged_paths(true),
+                enabled: git.operation.is_none(),
+                ahead: repository.ahead,
+                behind: repository.behind,
+                publish: repository.upstream.is_none()
+                    && matches!(repository.head, crate::features::git::HeadState::Branch(_)),
+                grouped: app.ui.tree_view,
+            }),
         });
         y += SECTION_H;
         if collapsed {
@@ -431,14 +473,6 @@ fn render_local(
             continue;
         }
         let rows_top = y;
-        let order = std::sync::Arc::new(
-            rows.iter()
-                .filter_map(|row| match row {
-                    OwnedChangeRow::File { path, .. } => Some(path.clone()),
-                    OwnedChangeRow::Folder { .. } => None,
-                })
-                .collect::<Vec<_>>(),
-        );
         let visible = visible_rows_with_height(
             rows_top,
             content_rect.top + scroll,
@@ -461,9 +495,11 @@ fn render_local(
                     let hover = GitHover::Folder(filter, path.clone());
                     let hovered = app.ui.hover.as_ref() == Some(&hover);
                     hover_targets.push((row_rect, hover));
+                    let actions = folder_actions_section(files.iter().map(|path| kinds[path]));
                     content.push(folder_row(
                         row_rect,
                         filter,
+                        actions,
                         path,
                         label,
                         *depth,
@@ -476,10 +512,11 @@ fn render_local(
                 }
                 OwnedChangeRow::File { path, depth } => {
                     let file_state = repository.files.get(path).cloned().unwrap_or_default();
-                    let hover = GitHover::File(filter, path.clone());
+                    let section = kinds[path];
+                    let hover = GitHover::File(section, path.clone());
                     let hovered = app.ui.hover.as_ref() == Some(&hover);
                     hover_targets.push((row_rect, hover));
-                    let target = match filter {
+                    let target = match section {
                         STAGED => DiffTarget::HeadToIndex,
                         CONFLICTS => DiffTarget::HeadToWorktree,
                         _ => DiffTarget::IndexToWorktree,
@@ -497,12 +534,12 @@ fn render_local(
                         path.clone(),
                         *depth,
                         file_state.clone(),
-                        filter,
+                        section,
                         target,
                         active,
                         hovered,
-                        app.ui.selection.contains(&(filter, path.clone())),
-                        order.clone(),
+                        app.ui.selection.contains(&(section, path.clone())),
+                        orders[&section].clone(),
                         repository.worktree_root.clone(),
                         state.clone(),
                         store.clone(),
@@ -980,6 +1017,8 @@ pub const STASHES: u8 = 4;
 pub const HISTORY: u8 = 5;
 pub const WORKTREES: u8 = 6;
 pub const TAGS: u8 = 7;
+/// The single section holding every change in the drawer.
+pub const CHANGES: u8 = 8;
 
 /// The drawer row under the pointer, which shows its action buttons.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1443,6 +1482,7 @@ pub(crate) fn group_buttons(
 pub(crate) fn folder_row(
     rect: UiRect,
     filter: u8,
+    actions: u8,
     path: &std::path::Path,
     label: &str,
     depth: usize,
@@ -1508,7 +1548,7 @@ pub(crate) fn folder_row(
         )),
     );
     if hovered {
-        let buttons = group_buttons(filter, files, &key, state, store);
+        let buttons = group_buttons(actions, files, &key, state, store);
         row = row_buttons(row, rect, rect.right - 8.0, buttons);
     }
     row
@@ -2445,7 +2485,7 @@ impl RowAction {
 
     /// Run a Git action on `paths` from `section`. Opening a file needs the
     /// editor, so rows handle it themselves.
-    pub(crate) fn run(self, state: &Binding, _store: &Snapshot, section: u8, paths: Vec<PathBuf>) {
+    pub(crate) fn run(self, state: &Binding, store: &Snapshot, section: u8, paths: Vec<PathBuf>) {
         match self {
             Self::OpenFile => {}
             Self::Stage => {
@@ -2461,10 +2501,15 @@ impl RowAction {
                 });
             }
             Self::Discard => {
-                state.dispatch(Command::RequestDiscard {
-                    tracked: paths,
-                    untracked: Vec::new(),
+                // A mixed list holds untracked files too, which are deleted, not restored.
+                let snapshot = store.get();
+                let (untracked, tracked): (Vec<_>, Vec<_>) = paths.into_iter().partition(|path| {
+                    snapshot
+                        .active()
+                        .and_then(|repository| repository.files.get(path))
+                        .is_some_and(|file| file.worktree == ChangeKind::Untracked)
                 });
+                state.dispatch(Command::RequestDiscard { tracked, untracked });
             }
             Self::KeepCurrent | Self::TakeIncoming => {
                 let side = if self == Self::KeepCurrent {
@@ -2583,12 +2628,12 @@ pub(crate) fn file_row(
         .collect::<Vec<_>>();
     // Reserve room for action buttons only while the row is hovered.
     let trailing_w = if hovered {
-        BUTTON_W * actions.len() as f32 + 32.0
+        BUTTON_W * actions.len() as f32 + 54.0
     } else {
-        32.0
+        54.0
     };
     let indent = depth as f32 * TREE_INDENT;
-    let name_left = rect.left + 58.0 + indent;
+    let name_left = rect.left + 32.0 + indent;
     let name_viewport = UiRect::new(name_left, rect.top, rect.right - trailing_w, rect.bottom);
     let row_key = format!("git-file-{target:?}-{}", path.display());
     let menu_state = state.clone();
@@ -2656,9 +2701,9 @@ pub(crate) fn file_row(
             &path.file_name().unwrap_or_default().to_string_lossy(),
         ),
         UiRect::new(
-            rect.left + 36.0 + indent,
+            rect.left + 10.0 + indent,
             rect.top + (rect.height() - 16.0) / 2.0,
-            rect.left + 52.0 + indent,
+            rect.left + 26.0 + indent,
             rect.top + (rect.height() + 16.0) / 2.0,
         ),
         theme::c().text_muted,
@@ -2674,12 +2719,7 @@ pub(crate) fn file_row(
     let stage_path = path.clone();
     let enabled = store.get().operation.is_none() && section != CONFLICTS;
     let mut row = row.child(crate::ui::git::drawer::checkbox(
-        UiRect::new(
-            rect.left + 10.0 + indent,
-            rect.top,
-            rect.left + 30.0 + indent,
-            rect.bottom,
-        ),
+        UiRect::new(rect.right - 26.0, rect.top, rect.right - 6.0, rect.bottom),
         format!("{row_key}-staged"),
         format!(
             "{} {}",
@@ -2707,7 +2747,7 @@ pub(crate) fn file_row(
         ));
     }
     row = row.child(text(
-        UiRect::new(rect.right - 24.0, rect.top, rect.right - 8.0, rect.bottom),
+        UiRect::new(rect.right - 50.0, rect.top, rect.right - 32.0, rect.bottom),
         indicator,
         theme::mono(indicator_color, 10.0),
     ));
@@ -2745,5 +2785,204 @@ pub(crate) fn file_row(
             }
         })
         .collect();
-    row_buttons(row, rect, rect.right - 32.0, buttons)
+    row_buttons(row, rect, rect.right - 54.0, buttons)
+}
+
+/// Which section's folder actions suit files of these kinds: unstaging when all
+/// are staged, discarding untracked files when all are untracked, else the
+/// unstaged actions.
+fn folder_actions_section(kinds: impl Iterator<Item = u8>) -> u8 {
+    let kinds = kinds.collect::<Vec<_>>();
+    let all = |kind: u8| kinds.iter().all(|&k| k == kind);
+    if all(STAGED) {
+        STAGED
+    } else if all(UNTRACKED) {
+        UNTRACKED
+    } else {
+        UNSTAGED
+    }
+}
+
+/// The single collapsible Changes header: a chevron, a checkbox that stages or
+/// unstages everything, the label and count, then the branch's unpushed and
+/// unpulled commits and the folder grouping toggle.
+fn changes_header(rect: UiRect, collapsed: bool, info: ChangesInfo, state: Binding) -> Element {
+    let ChangesInfo {
+        all_staged,
+        stage_paths,
+        unstage_paths,
+        enabled,
+        ahead,
+        behind,
+        publish,
+        grouped,
+    } = info;
+    let toggle_state = state.clone();
+    let stage_state = state.clone();
+    let group_state = state.clone();
+    let enabled = enabled && (all_staged || !stage_paths.is_empty());
+    let c = theme::c();
+    // The collapse target is its own layer under the controls: a click on a
+    // control must not also reach it, so the controls are siblings above it.
+    let collapse = panel(rect, VisualStyle::default())
+        .key(format!("git-section-{CHANGES}"))
+        .semantics({
+            let mut semantics = Semantics::new(SemanticRole::Button).name("Changes");
+            semantics.state.expanded = Some(!collapsed);
+            semantics
+        })
+        .event_policy(EventPolicy::INTERACTIVE)
+        .cursor(CursorIcon::Pointer)
+        .on_click(move || {
+            toggle_state.update(|app| {
+                if !app.ui.collapsed_sections.insert(CHANGES) {
+                    app.ui.collapsed_sections.remove(&CHANGES);
+                }
+            });
+        });
+    let mut section = panel(rect, VisualStyle::filled(c.sidebar))
+        .child(collapse)
+        .child(crate::ui::drawer::drawer_icon(
+            "git-section-changes-chevron",
+            if collapsed {
+                "chevron-right"
+            } else {
+                "chevron-down"
+            },
+            theme::icon_rect(UiRect::new(
+                rect.left + 6.0,
+                rect.top + 7.0,
+                rect.left + 18.0,
+                rect.top + 19.0,
+            )),
+            c.text_ghost,
+        ))
+        .child(crate::ui::git::drawer::checkbox(
+            UiRect::new(rect.right - 26.0, rect.top, rect.right - 6.0, rect.bottom),
+            "git-changes-staged".into(),
+            if all_staged {
+                "Unstage all changes".into()
+            } else {
+                "Stage all changes".into()
+            },
+            all_staged,
+            enabled,
+            move || {
+                stage_state.dispatch(if all_staged {
+                    Command::UnstagePaths {
+                        paths: unstage_paths.clone(),
+                    }
+                } else {
+                    Command::StagePaths {
+                        paths: stage_paths.clone(),
+                    }
+                });
+            },
+        ))
+        .child(text(
+            UiRect::new(rect.left + 24.0, rect.top, rect.right - 90.0, rect.bottom),
+            "Changes",
+            theme::sans(c.text_soft, 12.0),
+        ));
+    // The grouping toggle sits at the right edge; the unpulled and unpushed
+    // commit counts, each with its arrow, sit just left of it.
+    let toggle = UiRect::new(
+        rect.right - 52.0,
+        rect.top + 1.0,
+        rect.right - 28.0,
+        rect.bottom - 1.0,
+    );
+    let mut right = toggle.left - 4.0;
+    // Pull and push are separate buttons, each with its arrow and commit count.
+    let buttons = [
+        (
+            behind > 0,
+            "arrow-down",
+            behind.to_string(),
+            "git-changes-pull",
+            "Pull Changes",
+            true,
+        ),
+        (
+            ahead > 0 || publish,
+            if publish { "cloud-upload" } else { "arrow-up" },
+            if publish {
+                String::new()
+            } else {
+                ahead.to_string()
+            },
+            "git-changes-push",
+            if publish {
+                "Publish Branch"
+            } else {
+                "Push Changes"
+            },
+            false,
+        ),
+    ];
+    for (visible, icon, label, id, name, is_pull) in buttons.into_iter().rev() {
+        if !visible {
+            continue;
+        }
+        let width = 6.0
+            + 13.0
+            + if label.is_empty() {
+                0.0
+            } else {
+                2.0 + label.len() as f32 * 7.0
+            }
+            + 6.0;
+        let area = UiRect::new(right - width, rect.top + 1.0, right, rect.bottom - 1.0);
+        let click_state = state.clone();
+        let mut button = panel(area, VisualStyle::default().radius(4.0))
+            .key(id)
+            .event_policy(EventPolicy::INTERACTIVE)
+            .cursor(CursorIcon::Pointer)
+            .semantics(Semantics::new(SemanticRole::Button).name(name))
+            .on_click(move || {
+                click_state.dispatch(if is_pull {
+                    Command::Pull
+                } else {
+                    Command::Push
+                });
+            })
+            .child(crate::ui::drawer::drawer_icon(
+                UiId::owned(format!("{id}-icon")),
+                icon,
+                UiRect::new(
+                    area.left + 6.0,
+                    rect.top + (rect.height() - 13.0) / 2.0,
+                    area.left + 19.0,
+                    rect.top + (rect.height() + 13.0) / 2.0,
+                ),
+                c.text_muted,
+            ));
+        if !label.is_empty() {
+            button = button.child(text(
+                UiRect::new(area.left + 21.0, rect.top, area.right, rect.bottom),
+                label,
+                theme::mono(c.text_muted, theme::SMALL),
+            ));
+        }
+        section = section.child(button);
+        right = area.left - 2.0;
+    }
+    section.child(
+        panel(toggle, VisualStyle::default().radius(4.0))
+            .key("git-group-by-folder")
+            .event_policy(EventPolicy::INTERACTIVE)
+            .cursor(CursorIcon::Pointer)
+            .semantics(Semantics::new(SemanticRole::Button).name(if grouped {
+                "View as List"
+            } else {
+                "Group by Folder"
+            }))
+            .on_click(move || group_state.update(|app| app.ui.tree_view = !app.ui.tree_view))
+            .child(crate::ui::drawer::drawer_icon(
+                "git-group-icon",
+                if grouped { "list-flat" } else { "list-tree" },
+                theme::icon_rect(toggle),
+                c.text_muted,
+            )),
+    )
 }

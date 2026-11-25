@@ -220,6 +220,8 @@ pub(crate) fn run(state: &AppContext, store: &State<GitStoreSnapshot>, command: 
             true
         }
         Command::Sync => super::git::sync(state, store),
+        Command::Pull => super::git::pull(state, store),
+        Command::Push => super::git::push(state, store),
 
         Command::ResizeStart => {
             state.update(|app| app.source_control.resizing = true);

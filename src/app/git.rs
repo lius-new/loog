@@ -2001,10 +2001,35 @@ pub fn undo_last_commit(state: &AppContext, store: &State<GitStoreSnapshot>) -> 
 
 /// Run the active repository's [`SyncPlan`].
 pub fn sync(state: &AppContext, store: &State<GitStoreSnapshot>) -> bool {
+    run_plan(state, store, |plan| plan)
+}
+
+/// Pull only, whatever else the sync button would also do.
+pub fn pull(state: &AppContext, store: &State<GitStoreSnapshot>) -> bool {
+    run_plan(state, store, |_| SyncPlan::Pull { then_push: false })
+}
+
+/// Push only, or publish a branch that has no upstream yet.
+pub fn push(state: &AppContext, store: &State<GitStoreSnapshot>) -> bool {
+    run_plan(state, store, |plan| {
+        if plan == SyncPlan::Publish {
+            plan
+        } else {
+            SyncPlan::Push
+        }
+    })
+}
+
+fn run_plan(
+    state: &AppContext,
+    store: &State<GitStoreSnapshot>,
+    choose: fn(SyncPlan) -> SyncPlan,
+) -> bool {
     let Some(repository) = active_repository(store) else {
         return false;
     };
-    let (Some(plan), HeadState::Branch(branch)) = (sync_plan(&repository), repository.head.clone())
+    let (Some(plan), HeadState::Branch(branch)) =
+        (sync_plan(&repository).map(choose), repository.head.clone())
     else {
         return false;
     };
