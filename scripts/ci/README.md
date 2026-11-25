@@ -6,8 +6,8 @@ The extension host library tests resolve dependencies with Loog selected so the
 application tests can reuse the compiled dependencies. The application test
 command still builds the `fake_lsp` example used as a server fixture.
 Clippy runs in the Linux host job and reuses its native setup. There are no npm
-installs, tool self-tests, WASM installation tests, source-removal rebuilds,
-evidence uploads or release builds in the ordinary path.
+installs, tool self-tests, WASM installation tests, source-removal rebuilds or
+release builds in the ordinary path.
 
 Only main pushes, pull requests and manual dispatch trigger CI. Feature-branch
 pushes are covered by their PR. Main pushes do not force deep integration.
@@ -23,7 +23,6 @@ CI's own manual full input defaults to false.
 | Group | Selected changes |
 | --- | --- |
 | tooling | Script/test tooling and staged resources; self-tests once per OS |
-| evidence | Markdown, shared editor/domain, typography/settings and assets |
 | validator | Production language/manifest rules, validator sources and extension fixtures; CLI tests once per OS |
 | standalone | Language-source independence and host entry point |
 | package | PR packaging/staging changes and packaged resources |

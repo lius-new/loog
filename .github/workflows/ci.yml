@@ -23,7 +23,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       tooling: ${{ steps.scope.outputs.tooling }}
-      evidence: ${{ steps.scope.outputs.evidence }}
       validator: ${{ steps.scope.outputs.validator }}
       standalone: ${{ steps.scope.outputs.standalone }}
       package: ${{ steps.scope.outputs.package }}
@@ -149,7 +148,6 @@ jobs:
     uses: ./.github/workflows/validation.yml
     with:
       tooling: ${{ fromJSON(needs.changes.outputs.tooling) }}
-      evidence: ${{ fromJSON(needs.changes.outputs.evidence) }}
       validator: ${{ fromJSON(needs.changes.outputs.validator) }}
       standalone: ${{ fromJSON(needs.changes.outputs.standalone) }}
       package: ${{ fromJSON(needs.changes.outputs.package) }}

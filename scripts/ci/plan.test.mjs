@@ -30,19 +30,22 @@ test('packaging, licenses and staged resources activate packaging without unrela
     assert.deepEqual(pull([file]),selected(...(file.startsWith('scripts/') ? ['tooling','package'] : ['package'])),file);
   }
 });
-test('Markdown and shared typography changes select evidence; language changes select deep language verification', () => {
-  for (const file of ['src/app/markdown_render.rs','src/features/markdown.rs','src/ui/markdown/reader.rs','src/ui/fonts.rs','src/ui/theme.rs','src/domain/view.rs','tests/markdown/scene.json']) {
-    assert.deepEqual(pull([file]),selected(...(file.startsWith('tests/') ? ['tooling','evidence'] : file.startsWith('src/domain/') ? ['evidence','validator'] : ['evidence'])),file);
+test('Markdown, typography and theme code use the ordinary test matrix', () => {
+  for (const file of ['src/app/markdown_render.rs','src/features/markdown.rs','src/ui/markdown/reader.rs','src/ui/fonts.rs','src/ui/theme.rs','crates/markdown-tests/src/lib.rs']) {
+    assert.deepEqual(pull([file]),selected(),file);
   }
+});
+test('language changes retain deep language verification and assets retain packaging checks', () => {
   for (const file of ['src/features/syntax/treesitter.rs','src/infrastructure/language_packs.rs','tools/ext-validate/src/lib.rs','tools/ext-validate/tests/cli.rs','src/domain/language/registry.rs']) {
-    assert.deepEqual(pull([file]),selected(...(file.startsWith('tools/') ? ['tooling','evidence','validator','standalone'] : ['evidence','validator','standalone'])),file);
+    assert.deepEqual(pull([file]),selected(...(file.startsWith('tools/') ? ['tooling','validator','standalone'] : ['validator','standalone'])),file);
   }
-  assert.deepEqual(pull(['tests/fixtures/extensions/loog.lang.json/tree-sitter-json.wasm']),selected('tooling','evidence','validator','standalone'));
-  assert.deepEqual(pull(['icons/app.ico']),selected('tooling','package','evidence'));
+  assert.deepEqual(pull(['tests/fixtures/extensions/loog.lang.json/tree-sitter-json.wasm']),selected('tooling','validator','standalone'));
+  assert.deepEqual(pull(['icons/app.ico']),selected('tooling','package'));
   assert.deepEqual(pull(['src/main.rs']),selected('standalone'));
   assert.deepEqual(pull(['src/features/extensions/manifest.rs']),selected('validator'));
   assert.deepEqual(pull(['src/infrastructure/extensions/state.rs']),selected('validator'));
-  assert.deepEqual(pull(['crates/editor-core/src/text.rs']),selected('evidence','validator'));
+  assert.deepEqual(pull(['src/domain/view.rs']),selected('validator'));
+  assert.deepEqual(pull(['crates/editor-core/src/text.rs']),selected('validator'));
 });
 test('policy, dependency, unknown and invalid paths conservatively select every optional check', () => {
   for (const file of ['Cargo.toml','Cargo.lock','rust-toolchain.toml','build.rs','.github/workflows/ci.yml','.cargo/config.toml',
@@ -100,6 +103,6 @@ test('planner CLI produces literal boolean outputs and a summary for the event a
   fs.writeFileSync(eventPath,JSON.stringify({pull_request:{base:{sha:before},head:{sha:after}}}));
   execFileSync(process.execPath,[fileURLToPath(new URL('./plan.mjs',import.meta.url))],{cwd:f.cwd,
     env:{...process.env,GITHUB_EVENT_NAME:'pull_request',GITHUB_EVENT_PATH:eventPath,GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:summary}});
-  assert.equal(fs.readFileSync(output,'utf8'),'tooling=false\nevidence=false\nvalidator=false\nstandalone=false\npackage=false\nvalidation=false\n');
+  assert.equal(fs.readFileSync(output,'utf8'),'tooling=false\nvalidator=false\nstandalone=false\npackage=false\nvalidation=false\n');
   assert.match(fs.readFileSync(summary,'utf8'),/Three-platform host tests/);
 });

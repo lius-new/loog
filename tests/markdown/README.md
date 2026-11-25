@@ -9,8 +9,9 @@ screen-reader coverage, process RSS or native transient heap measurement.
 The inspected [rich screenshot](../../docs/images/markdown-preview.png) comes
 from that same production UI scene. Exact reproduction and cache/lifecycle
 boundaries are in [the architecture](../../docs/architecture/markdown.md).
-Three-platform CI uploads separate PNG/JSON artifacts; do not substitute this
-Windows observation for Linux or macOS measurements.
+The historical three-platform CI runs uploaded separate PNG/JSON artifacts.
+Use the opt-in command in the architecture guide to regenerate the evidence
+locally. The Windows observations apply only to Windows.
 
 
 ## Final cross-platform acceptance

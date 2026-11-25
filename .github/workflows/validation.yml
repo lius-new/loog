@@ -8,9 +8,6 @@ on:
       tooling:
         type: boolean
         default: false
-      evidence:
-        type: boolean
-        default: false
       validator:
         type: boolean
         default: false
@@ -28,10 +25,6 @@ on:
         default: true
       tooling:
         description: Run tooling validation
-        type: boolean
-        default: false
-      evidence:
-        description: Run evidence validation
         type: boolean
         default: false
       validator:
@@ -53,7 +46,7 @@ env:
 jobs:
   matrix:
     name: Validate ${{ matrix.label }}
-    if: inputs.full || inputs.tooling || inputs.evidence || inputs.validator || inputs.package
+    if: inputs.full || inputs.tooling || inputs.validator || inputs.package
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -77,7 +70,7 @@ jobs:
         with:
           toolchain: 1.97.1
       - name: Prepare native validation dependencies
-        if: inputs.full || inputs.tooling || inputs.evidence || inputs.validator || inputs.package
+        if: inputs.full || inputs.tooling || inputs.validator || inputs.package
         uses: ./.github/actions/dependencies
       - name: Run development-tool self-tests
         if: inputs.full || inputs.tooling
@@ -89,21 +82,8 @@ jobs:
         if: inputs.full || inputs.validator
         run: cargo test --locked --manifest-path tools/ext-validate/Cargo.toml --test cli
       - name: Install Linux native libraries
-        if: runner.os == 'Linux' && (inputs.full || inputs.evidence || inputs.package)
+        if: runner.os == 'Linux' && (inputs.full || inputs.package)
         uses: ./.github/actions/linux-build-dependencies
-      - name: Record production Markdown evidence
-        if: inputs.full || inputs.evidence
-        env:
-          LOOG_MARKDOWN_EVIDENCE_DIR: markdown-evidence
-        run: cargo test --locked -p loog app::markdown_tests::production_markdown_evidence -- --ignored --exact --nocapture
-      - name: Upload Markdown evidence
-        if: inputs.full || inputs.evidence
-        uses: actions/upload-artifact@v7
-        with:
-          name: Markdown-evidence-${{ matrix.target_name }}
-          path: markdown-evidence/
-          if-no-files-found: error
-          retention-days: 14
       - name: Read preview package version
         if: inputs.full || inputs.package
         run: node scripts/release/version.mjs --read-env

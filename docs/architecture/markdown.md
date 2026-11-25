@@ -173,14 +173,13 @@ node scripts/architecture/check.mjs
 node scripts/build/cargo.mjs test --locked --release -p loog app::markdown_tests::production_markdown_evidence -- --ignored --exact --nocapture
 ```
 
-The opt-in evidence test uses the production runtime, UiSession events and Skia
-software scene rendering, writes real README/rich-document PNGs and JSON latency
+The local opt-in evidence test uses the production runtime, UiSession events and
+Skia software scene rendering. It writes README/rich-document PNGs and JSON latency
 samples. It measures warm-font 64 KiB first-readable/edit-to-preview latency and
 UI projection plus software draw; it does not measure the desktop compositor,
 native event delivery, screen reader, process peak RSS or GPU presentation.
-CI runs the same production rules/native/UI tests on Windows, Linux and macOS,
-uploads the evidence, then builds/packages the host. Platform conclusions and
-build/run URLs are recorded in the implementation tracker and
+CI runs the usual functional tests on Windows, Linux and macOS. Historical
+three-platform evidence runs are documented in
 [CI validation](../../tests/markdown/ci-validation.json). Windows process-level
 memory observations are archived separately from retained cache accounting;
 they include native heaps and the harness, and do not establish a hard limit.

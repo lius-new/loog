@@ -111,8 +111,8 @@ checks.
 
 Daily CI checks formatting and architecture, runs independent crate tests once,
 and retains all host functional tests on Linux x64, Windows x64 and macOS.
-Clippy shares the Linux host environment. Expensive tool/integration/evidence
-and preview-package checks run only when selected by Additional validation.
+Clippy shares the Linux host environment. Tool self-tests, deeper integration
+checks and preview packaging run only when selected by Additional validation.
 Verified Cargo sources and tool archives are cached; native preparation never
 runs test suites. Universal macOS builds belong to release/preview packaging.
 

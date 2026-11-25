@@ -4,7 +4,7 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
-export const flags = ['tooling', 'evidence', 'validator', 'standalone', 'package'];
+export const flags = ['tooling', 'validator', 'standalone', 'package'];
 const all = () => Object.fromEntries(flags.map(flag => [flag, true]));
 const none = () => Object.fromEntries(flags.map(flag => [flag, false]));
 const starts = (file, prefixes) => prefixes.some(prefix => file.startsWith(prefix));
@@ -15,11 +15,6 @@ const language = ['src/domain/language','src/features/syntax','src/features/lang
   'tests/fixtures/language'];
 const validator = [...language, 'src/domain/', 'crates/editor-core/', 'src/features/extensions/',
   'src/infrastructure/extensions/state.rs', 'src/infrastructure/user_paths.rs', 'src/infrastructure/query_watcher.rs'];
-const markdown = ['src/app/markdown','src/features/markdown','src/ui/markdown',
-  'src/infrastructure/markdown','src/domain/','crates/editor-core/','crates/markdown-tests/',
-  'src/features/settings/','src/ui/theme.rs','src/ui/fonts.rs','src/ui/text_rendering.rs',
-  'tests/markdown/','assets/','icons/'];
-
 export function classify(files) {
   if (!Array.isArray(files)) return all();
   const plan = none();
@@ -36,7 +31,6 @@ export function classify(files) {
       plan.standalone = true;
     }
     if (starts(file, validator)) plan.validator = true;
-    if (starts(file, markdown) || starts(file, language)) plan.evidence = true;
     if (file === 'src/main.rs') plan.standalone = true;
   }
   return plan;

@@ -63,7 +63,7 @@ Malformed sections fail generation instead of silently dropping their contents.
    version into Cargo.toml and the root Loog entry in Cargo.lock. Only these two
    version fields may change. HEAD/tags/index remain unchanged; dependencies stay
    locked. Each platform then runs setup, compile, package and bundle once. It does not rerun
-   workspace tests, extension-validator tests, development-tool tests or evidence capture.
+   workspace tests, extension-validator tests or development-tool tests.
 4. Final product checks remain: staged Windows startup/normal close, Linux .deb
    installation, macOS .dmg/signature checks, and signed update manifest creation.
 5. Once all platform and validator jobs succeed, one writer downloads this run's artifacts,
@@ -93,7 +93,7 @@ errors are not polled. Failed publishing can be rerun without rebuilding the
 successful platform jobs, while their artifacts remain available. Reruns must
 retain the same verified tag/commit. A published release is left untouched.
 
-Portable preview packaging, evidence, tool self-tests and source-removal/WASM
+Portable preview packaging, tool self-tests and source-removal/WASM
 verification remain available through Additional validation. Production build
 dependencies and checksums stay verified even when tool tests are not selected.
 

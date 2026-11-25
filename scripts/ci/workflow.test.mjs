@@ -14,9 +14,9 @@ test('CI keeps main/PR triggers but ordinary and manual defaults do not request 
   assert.equal(ci.on.push.paths,undefined);assert.equal(ci.on.push['paths-ignore'],undefined);
   assert.equal(deep.on.workflow_dispatch.inputs.full.default,true);
 });
-test('daily CI has no npm install, tool self-tests, evidence, WASM rebuilds or packaging commands', () => {
+test('daily CI has no npm install, tool self-tests, WASM rebuilds or packaging commands', () => {
   const normal = ['changes','static','core','build','result'].map(id => JSON.stringify(ci.jobs[id])).join('\n');
-  assert.doesNotMatch(normal,/npm ci|test-tools|run-wasm|production_markdown_evidence|standalone-host|package\.mjs|startup-smoke\.test/);
+  assert.doesNotMatch(normal,/npm ci|test-tools|run-wasm|standalone-host|package\.mjs|startup-smoke\.test/);
   assert.doesNotMatch(JSON.stringify(ci.jobs.static),/actions\/dependencies|linux-build-dependencies/);
   assert.match(runs(ci.jobs.static),/cargo fmt --all -- --check/);
   assert.match(runs(ci.jobs.static),/node scripts\/architecture\/check\.mjs/);
@@ -46,6 +46,11 @@ test('three-platform functionality stays unconditional and Clippy shares the Lin
 test('additional validation is a scope-gated reusable workflow and tools run once per selected platform', () => {
   assert.equal(ci.jobs.validation.uses,'./.github/workflows/validation.yml');
   assert.equal(ci.jobs.validation.if,"needs.changes.outputs.validation == 'true'");
+  assert.deepEqual(Object.keys(ci.jobs.changes.outputs).sort(),['validation',...flags].sort());
+  assert.deepEqual(Object.keys(ci.jobs.validation.with).sort(),[...flags].sort());
+  for (const event of ['workflow_call','workflow_dispatch']) {
+    assert.deepEqual(Object.keys(deep.on[event].inputs).sort(),['full',...flags].sort());
+  }
   for (const flag of flags) assert.equal(ci.jobs.validation.with[flag],expr('fromJSON(needs.changes.outputs.' + flag + ')'));
   assert.match(deep.jobs.matrix.if,/inputs.tooling/);
   assert.equal(deep.jobs.matrix.steps.filter(step => (step.run || '').includes('test-tools.mjs')).length,1);
@@ -55,9 +60,12 @@ test('additional validation is a scope-gated reusable workflow and tools run onc
   assert.equal(validator.if,'inputs.full || inputs.validator');
   assert.match(deep.jobs.matrix.steps.find(step => step.uses === './.github/actions/dependencies').if,/inputs.validator/);
   assert.doesNotMatch(JSON.stringify(deep),/run-wasm\.mjs|inputs\.wasm|scripts\/language-packs/);
-  assert.match(runs(deep.jobs.matrix),/production_markdown_evidence/);
   assert.match(runs(deep.jobs.standalone),/standalone-host\.mjs/);
   assert.equal(deep.jobs.standalone.steps.find(step => step.uses === 'dtolnay/rust-toolchain@stable').with.components,'rustfmt');
+});
+test('CI keeps Markdown functional tests without collecting render artifacts', () => {
+  assert.match(runs(ci.jobs.core),/cargo test --locked -p loog-markdown-tests/);
+  assert.doesNotMatch(JSON.stringify([ci,deep]),/production_markdown_evidence|markdown-evidence|inputs\.evidence/i);
 });
 test('dependency setup caches verified archives and Cargo sources without running test suites', () => {
   const deps = load('.github/actions/dependencies/action.yml');
