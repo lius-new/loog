@@ -58,6 +58,10 @@ pub struct GitUiState {
     pub navigator_scrollbar_dragging: bool,
     pub navigator_scrollbar_drag_offset: f32,
     pub commit_input: InputState,
+    /// Whether the commit composer was last settled open, and how far it is
+    /// while animating between idle and open (None when settled).
+    pub composer_shown: bool,
+    pub composer_t: Option<f32>,
     /// Branches listed beside the history, for the repository they were read from.
     pub history_branches: Option<(PathBuf, Vec<BranchInfo>)>,
     /// The branch whose commits the history shows; None follows HEAD.
@@ -148,6 +152,8 @@ impl Default for GitUiState {
             navigator_scrollbar_dragging: false,
             navigator_scrollbar_drag_offset: 0.0,
             commit_input: InputState::default(),
+            composer_shown: false,
+            composer_t: None,
             history_branches: None,
             history_scope: None,
             history_file_scope: false,

@@ -279,6 +279,7 @@ pub(crate) fn observe(ctx: &AppContext, app: &mut AppState) {
     outline::observe(ctx, app);
     super::folding::observe(ctx, app);
     super::editor_scrollbar::observe(ctx, app);
+    super::git_composer::observe(ctx, app);
 }
 
 /// Ends what Escape ends: the hover card, the signature, a grown selection.

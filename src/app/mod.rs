@@ -4,9 +4,9 @@ pub(crate) mod editor;
 #[cfg(test)]
 mod editor_baseline_tests;
 pub(crate) mod editor_keys;
-pub(crate) mod editor_scrollbar;
 #[cfg(test)]
 mod editor_performance;
+pub(crate) mod editor_scrollbar;
 pub(crate) mod editor_view;
 pub(crate) mod editor_vim;
 #[cfg(test)]
@@ -17,6 +17,7 @@ pub(crate) mod explorer;
 pub(crate) mod explorer_view;
 pub(crate) mod extensions;
 pub(crate) mod git;
+mod git_composer;
 mod git_diff;
 mod git_poll;
 mod git_tasks;

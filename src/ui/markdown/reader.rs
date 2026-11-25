@@ -214,14 +214,7 @@ fn translated(
 /// Selection/copy remains a full-document logical range outside this scene.
 pub fn render(id: UiId, rect: UiRect, binding: Binding, focus: UiFocusHandle) -> Element {
     // A card sits on its own surface, so the reader adds no fill of its own.
-    render_in(
-        id,
-        rect,
-        rect,
-        VisualStyle::default(),
-        binding,
-        focus,
-    )
+    render_in(id, rect, rect, VisualStyle::default(), binding, focus)
 }
 /// `area` is the whole pane; `rect` is the (possibly narrower, centered)
 /// reading column. Wheel input and the vertical scrollbar use the pane edge.

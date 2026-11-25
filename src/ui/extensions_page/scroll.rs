@@ -84,14 +84,12 @@ fn thumb(
     };
     let track_top = track.top;
     let (down, drag, up) = (access.clone(), access.clone(), access.clone());
-    scrollbar::thumb(
-        UiRect::new(
-            track.left + scrollbar::INSET,
-            thumb_top,
-            track.right - scrollbar::INSET,
-            thumb_top + thumb_h,
-        ),
-    )
+    scrollbar::thumb(UiRect::new(
+        track.left + scrollbar::INSET,
+        thumb_top,
+        track.right - scrollbar::INSET,
+        thumb_top + thumb_h,
+    ))
     .key("ext-scrollbar-thumb")
     .event_policy(EventPolicy::INTERACTIVE)
     .on_pointer_down(move |_cx, p| {

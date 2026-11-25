@@ -1326,14 +1326,12 @@ fn vertical_scrollbar(rect: UiRect, content_bottom: f32, scroll: f32, state: Acc
     let st_down = state.clone();
     let st_move = state.clone();
     let st_up = state;
-    scrollbar::thumb(
-        UiRect::new(
-            track.left + scrollbar::INSET,
-            thumb_top,
-            track.right - scrollbar::INSET,
-            thumb_top + thumb_h,
-        ),
-    )
+    scrollbar::thumb(UiRect::new(
+        track.left + scrollbar::INSET,
+        thumb_top,
+        track.right - scrollbar::INSET,
+        thumb_top + thumb_h,
+    ))
     .key("file-tree-vertical-scrollbar-thumb")
     .event_policy(EventPolicy::INTERACTIVE)
     .on_pointer_down(move |_cx, p| {
@@ -1383,14 +1381,12 @@ fn horizontal_scrollbar(rect: UiRect, content_right: f32, scroll: f32, state: Ac
     let st_down = state.clone();
     let st_move = state.clone();
     let st_up = state;
-    scrollbar::thumb(
-        UiRect::new(
-            thumb_left,
-            track.top + scrollbar::INSET,
-            thumb_left + thumb_w,
-            track.bottom - scrollbar::INSET,
-        ),
-    )
+    scrollbar::thumb(UiRect::new(
+        thumb_left,
+        track.top + scrollbar::INSET,
+        thumb_left + thumb_w,
+        track.bottom - scrollbar::INSET,
+    ))
     .key("file-tree-horizontal-scrollbar-thumb")
     .event_policy(EventPolicy::INTERACTIVE)
     .on_pointer_down(move |_cx, p| {

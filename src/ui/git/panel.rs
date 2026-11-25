@@ -18,17 +18,19 @@ use crate::ui::components::input::{AccessInputOptions, InputBinding, InputState,
 use crate::ui::components::scrollbar;
 use crate::ui::git::commands::{Binding, Command, Snapshot};
 use crate::ui::git::menu::{GitMenu, GitMenuTarget};
-use crate::ui::git::state::GitPanelState;
+use crate::ui::git::state::{GitPanelState, GitUiState};
 use crate::ui::git::tree_guides::TreeGuides;
 use crate::ui::theme;
 
 pub(crate) const TOPLINE_H: f32 = 40.0;
 /// The commit composer while idle: one quiet line.
-pub(crate) const PROMPT_IDLE_H: f32 = 44.0;
+pub(crate) const PROMPT_IDLE_H: f32 = 52.0;
 /// The commit composer once it has focus or a message: the message box and its button.
 pub(crate) const PROMPT_EXPANDED_H: f32 = 102.0;
 /// The composer while an operation is unfinished: a title and one button.
 pub(crate) const OPERATION_PROMPT_H: f32 = 84.0;
+/// Opacity of the accent fill on a disabled commit button.
+const DISABLED_ALPHA: u8 = 0x55;
 pub(crate) const CHANGE_ROW_H: f32 = 24.0;
 /// How far each folder level of a grouped change section is indented.
 const TREE_INDENT: f32 = 14.0;
@@ -37,15 +39,21 @@ pub(crate) const ROW_H: f32 = 20.0;
 
 /// Whether the commit composer shows its message box and button: while it has
 /// focus, holds a message or an amend, or its options menu is open.
-pub(crate) fn commit_expanded(app: &GitPanelState) -> bool {
-    app.ui.commit_input.focused
-        || !app.ui.commit_input.text().is_empty()
-        || app.ui.commit_amend
-        || app
-            .ui
+pub(crate) fn commit_expanded(ui: &GitUiState) -> bool {
+    ui.commit_input.focused
+        || !ui.commit_input.text().is_empty()
+        || ui.commit_amend
+        || ui
             .menu
             .as_ref()
             .is_some_and(|menu| menu.target == GitMenuTarget::Submit)
+}
+
+/// How far open the composer is, 0 idle to 1 open, mid-way while it animates.
+pub(crate) fn composer_progress(ui: &GitUiState) -> f32 {
+    ui.composer_t
+        .unwrap_or(if commit_expanded(ui) { 1.0 } else { 0.0 })
+        .clamp(0.0, 1.0)
 }
 
 /// Keep the composer anchored below the scrolling changes.
@@ -53,14 +61,13 @@ pub(crate) fn drawer_regions(
     body: UiRect,
     _changes_height: f32,
     operation: bool,
-    expanded: bool,
+    progress: f32,
 ) -> (UiRect, UiRect) {
     let height = if operation {
         OPERATION_PROMPT_H
-    } else if expanded {
-        PROMPT_EXPANDED_H
     } else {
-        PROMPT_IDLE_H
+        let e = progress * progress * (3.0 - 2.0 * progress);
+        PROMPT_IDLE_H + (PROMPT_EXPANDED_H - PROMPT_IDLE_H) * e
     };
     let top = (body.bottom - height).max(body.top);
     (
@@ -389,7 +396,7 @@ fn render_local(
         body_rect,
         changes_height,
         crate::features::git::operation::operation_text(repository.repository_state).is_some(),
-        commit_expanded(&app),
+        composer_progress(&app.ui),
     );
     let max_scroll = (changes_height - content_rect.height()).max(0.0);
     let scroll = app.ui.scroll.clamp(0.0, max_scroll);
@@ -690,14 +697,12 @@ pub(crate) fn git_vertical_scrollbar(
     let drag_start = state.clone();
     let drag_move = state.clone();
     let drag_end = state;
-    scrollbar::thumb(
-        UiRect::new(
-            track.left + scrollbar::INSET,
-            thumb_top,
-            track.right - scrollbar::INSET,
-            thumb_top + thumb_h,
-        ),
-    )
+    scrollbar::thumb(UiRect::new(
+        track.left + scrollbar::INSET,
+        thumb_top,
+        track.right - scrollbar::INSET,
+        thumb_top + thumb_h,
+    ))
     .key(format!("{}-scrollbar-thumb", region.key()))
     .event_policy(EventPolicy::INTERACTIVE)
     .on_pointer_down(move |_cx, pointer| {
@@ -763,7 +768,7 @@ pub(crate) fn commit_input(
     let placeholder = if state.get().ui.commit_amend {
         "Amend message (empty keeps it)"
     } else {
-        "Commit message"
+        "Write a commit message…"
     };
     crate::ui::components::input::render_portable(
         rect,
@@ -814,11 +819,7 @@ pub(crate) fn commit_options_button(rect: UiRect, state: Binding, enabled: bool)
         if open {
             VisualStyle::filled(theme::c().active_line)
         } else {
-            VisualStyle::filled(if enabled {
-                theme::c().accent
-            } else {
-                theme::c().surface
-            })
+            VisualStyle::filled(theme::c().accent).alpha(if enabled { 255 } else { DISABLED_ALPHA })
         },
     )
     .key("git-commit-options")
@@ -841,7 +842,7 @@ pub(crate) fn commit_options_button(rect: UiRect, state: Binding, enabled: bool)
         if enabled {
             theme::c().on_accent
         } else {
-            theme::c().text_ghost
+            theme::c().text_soft
         },
     ))
 }
@@ -930,9 +931,14 @@ fn primary_button(
                 theme::c().accent
             }
         } else {
-            theme::c().surface
+            theme::c().accent
         };
-        UiElement::panel(cx.id, rect, VisualStyle::filled(fill)).children(cx.children)
+        UiElement::panel(
+            cx.id,
+            rect,
+            VisualStyle::filled(fill).alpha(if enabled { 255 } else { DISABLED_ALPHA }),
+        )
+        .children(cx.children)
     })
     .key(key)
     .event_policy(EventPolicy::INTERACTIVE)
@@ -954,7 +960,7 @@ fn primary_button(
             if enabled {
                 theme::c().on_accent
             } else {
-                theme::c().text_ghost
+                theme::c().text_soft
             },
             12.0,
         )

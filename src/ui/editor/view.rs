@@ -32,7 +32,8 @@ use loog_editor_core::vim::CursorShape;
 
 pub(crate) use crate::ui::components::scrollbar::SIZE as SCROLLBAR_SIZE;
 use crate::ui::components::scrollbar::{
-    INSET as SCROLLBAR_INSET, MIN_THUMB_LENGTH, square_thumb as scrollbar_thumb, track as scrollbar_track,
+    INSET as SCROLLBAR_INSET, MIN_THUMB_LENGTH, square_thumb as scrollbar_thumb,
+    track as scrollbar_track,
 };
 const TRAILING_CODE_SPACE: f32 = 32.0;
 /// The shortest change mark on the scrollbar, so one line stays visible.

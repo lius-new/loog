@@ -13,7 +13,8 @@ use lgui::core::{
 use lgui::prelude::{Element, UiRect, VisualStyle, panel, text};
 
 pub const HEADER_H: f32 = 40.0;
-const COMMIT_FIELD_H: f32 = 46.0;
+const COMMIT_IDLE_FIELD_H: f32 = 36.0;
+const COMMIT_FIELD_H: f32 = 54.0;
 const COMMIT_BUTTON_H: f32 = 24.0;
 const COMMIT_MAIN_W: f32 = 72.0;
 const COMMIT_OPTIONS_W: f32 = 24.0;
@@ -163,8 +164,10 @@ pub fn commit_reason(
             .files
             .values()
             .any(|file| file.index != crate::features::git::ChangeKind::Unmodified);
-    if !staged && !app.ui.commit_amend {
-        return Some("No staged changes");
+    // Committing with nothing staged offers to stage the changed files.
+    let changed = staged || sections.is_some_and(|s| !s[git_panel::UNSTAGED as usize].is_empty());
+    if !changed && !app.ui.commit_amend {
+        return Some("No changes to commit");
     }
     if app.ui.commit_input.text().trim().is_empty() && !app.ui.commit_amend {
         return Some("Enter a commit message");
@@ -191,7 +194,9 @@ pub fn composer(
     }
     // Quiet until the message is wanted: one line while idle, and the message
     // box with its commit button once it has focus or content.
-    let expanded = git_panel::commit_expanded(&app);
+    let t = git_panel::composer_progress(&app.ui);
+    // Ease the height and the message box between idle and open.
+    let e = t * t * (3.0 - 2.0 * t);
     let c = theme::c();
     let root = panel(rect, VisualStyle::filled(c.sidebar));
     let inner = UiRect::new(
@@ -200,92 +205,62 @@ pub fn composer(
         (rect.right - 10.0).max(rect.left + 10.0),
         (rect.bottom - 8.0).max(rect.top + 8.0),
     );
-    let field_box = theme::bordered(
-        inner,
-        if expanded { c.surface } else { c.bg },
-        if expanded { c.accent } else { c.border },
-        6.0,
-        1.0,
+    let field_box = theme::bordered(inner, c.bg, c.border, 6.0, 1.0);
+    // The input pads its own text, so its rect spans the whole box.
+    let field = UiRect::new(
+        inner.left + 1.0,
+        inner.top,
+        (inner.right - 1.0 - 27.0 * (1.0 - e)).max(inner.left + 1.0),
+        (inner.top + COMMIT_IDLE_FIELD_H + (COMMIT_FIELD_H - COMMIT_IDLE_FIELD_H) * e)
+            .min(inner.bottom),
     );
-    if !expanded {
-        let field = UiRect::new(
-            inner.left + 9.0,
-            inner.top + 5.0,
-            (inner.right - 28.0).max(inner.left + 9.0),
-            inner.bottom - 5.0,
-        );
-        return clip(rect, 0.0, 0.0).child(
-            root.child(
-                field_box
-                    .child(git_panel::commit_input(field, state, focus, id))
-                    .child(crate::ui::drawer::drawer_icon(
-                        "git-commit-enter",
-                        "enter",
-                        UiRect::new(
-                            inner.right - 23.0,
-                            inner.top + 8.0,
-                            inner.right - 10.0,
-                            inner.top + 21.0,
-                        ),
-                        c.text_ghost,
-                    )),
+    let mut field_box = field_box.child(git_panel::commit_input(field, state.clone(), focus, id));
+    if e < 0.3 {
+        field_box = field_box.child(crate::ui::drawer::drawer_icon(
+            "git-commit-enter",
+            "enter",
+            UiRect::new(
+                inner.right - 23.0,
+                inner.top + 11.0,
+                inner.right - 10.0,
+                inner.top + 24.0,
             ),
+            c.text_ghost,
+        ));
+    }
+    // The button waits until the box has nearly finished opening.
+    if e >= 0.8 {
+        let button_bottom = inner.bottom - 6.0;
+        let button_top = button_bottom - COMMIT_BUTTON_H;
+        let options = UiRect::new(
+            (inner.right - 6.0 - COMMIT_OPTIONS_W).max(inner.left),
+            button_top,
+            (inner.right - 6.0).max(inner.left),
+            button_bottom,
+        );
+        let main = UiRect::new(
+            (options.left - COMMIT_MAIN_W).max(inner.left),
+            button_top,
+            options.left,
+            button_bottom,
+        );
+        let enabled = commit_reason(&app, &git).is_none();
+        let group = UiRect::new(main.left, button_top, options.right, button_bottom);
+        field_box = field_box.child(
+            clip_path(group, rounded_rect(group, 4.0))
+                .child(git_panel::commit_button(main, state.clone(), store))
+                .child(git_panel::commit_options_button(options, state, enabled))
+                .child(panel(
+                    UiRect::new(options.left, button_top, options.left + 0.5, button_bottom),
+                    if enabled {
+                        VisualStyle::filled(c.on_accent).alpha(70)
+                    } else {
+                        VisualStyle::filled(c.border)
+                    },
+                )),
         );
     }
-    let field = UiRect::new(
-        inner.left + 9.0,
-        inner.top + 7.0,
-        (inner.right - 9.0).max(inner.left + 9.0),
-        inner.top + 7.0 + COMMIT_FIELD_H,
-    );
-    let button_bottom = inner.bottom - 6.0;
-    let button_top = button_bottom - COMMIT_BUTTON_H;
-    let staged = git
-        .active()
-        .and_then(|r| git.presentation.repositories.get(&r.id))
-        .map_or(0, |p| p.sections[git_panel::STAGED as usize].len());
-    let options = UiRect::new(
-        (inner.right - 6.0 - COMMIT_OPTIONS_W).max(inner.left),
-        button_top,
-        (inner.right - 6.0).max(inner.left),
-        button_bottom,
-    );
-    let main = UiRect::new(
-        (options.left - COMMIT_MAIN_W).max(inner.left),
-        button_top,
-        options.left,
-        button_bottom,
-    );
-    let enabled = commit_reason(&app, &git).is_none();
-    let group = UiRect::new(main.left, button_top, options.right, button_bottom);
-    let footer = clip_path(group, rounded_rect(group, 4.0))
-        .child(git_panel::commit_button(main, state.clone(), store))
-        .child(git_panel::commit_options_button(options, state.clone(), enabled))
-        .child(panel(
-            UiRect::new(options.left, button_top, options.left + 0.5, button_bottom),
-            if enabled {
-                VisualStyle::filled(c.on_accent).alpha(70)
-            } else {
-                VisualStyle::filled(c.border)
-            },
-        ));
-    clip(rect, 0.0, 0.0).child(
-        root.child(
-            field_box
-                .child(git_panel::commit_input(field, state, focus, id))
-                .child(text(
-                    UiRect::new(
-                        inner.left + 9.0,
-                        button_top,
-                        (main.left - 6.0).max(inner.left + 9.0),
-                        button_bottom,
-                    ),
-                    format!("{staged} staged"),
-                    theme::sans(c.text_muted, 10.0),
-                ))
-                .child(footer),
-        ),
-    )
+    clip(rect, 0.0, 0.0).child(root.child(field_box))
 }
 
 /// The composer while Git waits on an operation: its title and the button that

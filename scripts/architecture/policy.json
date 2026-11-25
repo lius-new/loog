@@ -680,6 +680,16 @@
       "migrated_in": "Git history branches",
       "reason": "Scroll position of the history branch list"
     },
+    "composer_shown": {
+      "owner": "ui/git/state",
+      "migrated_in": "commit composer animation",
+      "reason": "The composer state the animation last settled on"
+    },
+    "composer_t": {
+      "owner": "ui/git/state",
+      "migrated_in": "commit composer animation",
+      "reason": "Progress of the composer opening or closing, driven by app/git_composer"
+    },
     "commit_amend": {
       "owner": "ui/git/state",
       "migrated_in": "R6.3",

@@ -541,14 +541,12 @@ fn vertical_scrollbar(
     };
 
     let (thumb_down, thumb_drag, thumb_up) = (commands.clone(), commands.clone(), commands.clone());
-    let thumb_hit = scrollbar::thumb(
-        UiRect::new(
-            track.left + scrollbar::INSET,
-            start,
-            track.right - scrollbar::INSET,
-            start + thumb,
-        ),
-    )
+    let thumb_hit = scrollbar::thumb(UiRect::new(
+        track.left + scrollbar::INSET,
+        start,
+        track.right - scrollbar::INSET,
+        start + thumb,
+    ))
     .event_policy(EventPolicy::INTERACTIVE)
     .on_pointer_down_with_button(move |cx, pointer, button| {
         if button != PointerButton::Left {

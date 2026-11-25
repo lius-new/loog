@@ -43,10 +43,11 @@ pub(crate) fn observe(ctx: &AppContext, app: &mut AppState) {
     };
     let timed = ctx.clone();
     app.editor.scrollbar_reveal.shown = Some(pane);
-    app.editor.scrollbar_reveal.timer = Some(Arc::new(ui_timer::after(application, REVEAL, move || {
-        timed.update(|app| {
-            app.editor.scrollbar_reveal.shown = None;
-            app.editor.scrollbar_reveal.timer = None;
-        });
-    })));
+    app.editor.scrollbar_reveal.timer =
+        Some(Arc::new(ui_timer::after(application, REVEAL, move || {
+            timed.update(|app| {
+                app.editor.scrollbar_reveal.shown = None;
+                app.editor.scrollbar_reveal.timer = None;
+            });
+        })));
 }

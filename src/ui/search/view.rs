@@ -956,9 +956,12 @@ fn results(
         let drag = state.clone();
         let up = state;
         root = root.child(
-            scrollbar::thumb(
-                UiRect::new(rect.right - 9.0, top, rect.right - 2.0, top + thumb_h),
-            )
+            scrollbar::thumb(UiRect::new(
+                rect.right - 9.0,
+                top,
+                rect.right - 2.0,
+                top + thumb_h,
+            ))
             .on_pointer_down(move |cx, p| {
                 down.update(|app| app.ui.scrollbar_drag = Some((p.point.y, scroll)));
                 cx.stop_propagation();
