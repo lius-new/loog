@@ -9,6 +9,7 @@ use lgui::core::{
 use lgui::prelude::{Color, Element, ShadowStyle, UiRect, VisualStyle, panel, text};
 use lgui::services::ServicesContextExt;
 
+use crate::features::git::actions::{Checkout, StashMode};
 use crate::features::git::operation::operation_text;
 use crate::features::git::{ConflictSide, DiffRequest, DiffTarget, GitStoreSnapshot};
 use crate::ui::git::commands::{Binding, Command, Snapshot};
@@ -41,11 +42,10 @@ pub enum GitMenuTarget {
         repository: PathBuf,
         name: String,
     },
-    /// A branch's linked worktree.
-    Worktree {
+    Branch {
         repository: PathBuf,
-        path: PathBuf,
-        removable: bool,
+        /// None when the branch is already current.
+        checkout: Option<Checkout>,
     },
     TagPushRemotes {
         repository: PathBuf,
@@ -113,6 +113,7 @@ pub(crate) enum MenuAction {
     DeleteTag,
     ChooseTagRemote,
     PushTag(usize),
+    SwitchBranch,
     OpenWorktree,
     AddWorktree,
     RemoveWorktree,
@@ -258,19 +259,37 @@ pub(crate) fn entries(
             Entry::Separator,
             item("Delete Tag…", MenuAction::DeleteTag),
         ],
-        GitMenuTarget::Worktree { removable, .. } => {
-            let mut entries = vec![
-                item("Open Worktree", MenuAction::OpenWorktree),
-                item("Add to Workspace", MenuAction::AddWorktree),
-            ];
-            if *removable {
-                entries.extend([
+        GitMenuTarget::Branch {
+            repository,
+            checkout,
+        } => match checkout {
+            None => vec![Entry::Message("Switch Branch (Current Branch)".into())],
+            Some(Checkout::OpenWorktree { path, .. }) => {
+                let mut entries = vec![
+                    Entry::Message("Switch Branch (Checked Out in Worktree)".into()),
                     Entry::Separator,
-                    item("Delete Worktree…", MenuAction::RemoveWorktree),
-                ]);
+                    item("Open Worktree", MenuAction::OpenWorktree),
+                    item("Add to Workspace", MenuAction::AddWorktree),
+                ];
+                let removable = git
+                    .repositories
+                    .values()
+                    .find(|snapshot| snapshot.worktree_root == *repository)
+                    .is_some_and(|snapshot| {
+                        snapshot.worktrees.iter().skip(1).any(|worktree| {
+                            worktree.path == *path && !worktree.bare && worktree.locked.is_none()
+                        })
+                    });
+                if removable {
+                    entries.extend([
+                        Entry::Separator,
+                        item("Delete Worktree…", MenuAction::RemoveWorktree),
+                    ]);
+                }
+                entries
             }
-            entries
-        }
+            Some(_) => vec![item("Switch Branch", MenuAction::SwitchBranch)],
+        },
         GitMenuTarget::TagPushRemotes { remotes, .. } => match remotes {
             None => vec![Entry::Message("Loading remotes…".into())],
             Some(Err(error)) => vec![Entry::Message(error.clone())],
@@ -425,6 +444,7 @@ pub(crate) fn perform(
             | MenuAction::CreateTag
             | MenuAction::ChooseTagRemote
             | MenuAction::PushTag(_)
+            | MenuAction::SwitchBranch
             | MenuAction::OpenWorktree
             | MenuAction::AddWorktree
             | MenuAction::RemoveWorktree
@@ -432,18 +452,29 @@ pub(crate) fn perform(
         }
         return;
     }
-    if let GitMenuTarget::Worktree {
-        repository, path, ..
+    if let GitMenuTarget::Branch {
+        repository,
+        checkout,
     } = target
     {
-        match action {
-            MenuAction::OpenWorktree => {
+        match (action, checkout) {
+            (
+                MenuAction::SwitchBranch,
+                Some(checkout @ (Checkout::Switch(_) | Checkout::Track(_))),
+            ) => {
+                state.dispatch(Command::Checkout {
+                    root: repository.clone(),
+                    checkout: checkout.clone(),
+                    mode: StashMode::Refuse,
+                });
+            }
+            (MenuAction::OpenWorktree, Some(Checkout::OpenWorktree { path, .. })) => {
                 state.dispatch(Command::OpenWorktree { path: path.clone() });
             }
-            MenuAction::AddWorktree => {
+            (MenuAction::AddWorktree, Some(Checkout::OpenWorktree { path, .. })) => {
                 state.dispatch(Command::AddWorktreeFolder { path: path.clone() });
             }
-            MenuAction::RemoveWorktree => {
+            (MenuAction::RemoveWorktree, Some(Checkout::OpenWorktree { path, .. })) => {
                 state.dispatch(Command::RequestRemoveWorktree {
                     repository: repository.clone(),
                     path: path.clone(),

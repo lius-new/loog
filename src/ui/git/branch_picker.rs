@@ -117,16 +117,18 @@ pub fn checkout_for(row: &Row, branches: &[BranchInfo]) -> Option<Checkout> {
             path: worktree.path.clone(),
         }),
         Row::Create(name) => Some(Checkout::Create(name.clone())),
-        Row::Branch(branch) if !branch.remote => local_checkout(branch),
-        Row::Branch(remote) => {
-            // Prefer a local branch already tracking it, then one named
-            // like it, before creating a new tracking branch.
-            let local = tracking_local(remote, branches);
-            match local {
-                Some(local) => local_checkout(local),
-                None => Some(Checkout::Track(remote.name.clone())),
-            }
-        }
+        Row::Branch(branch) => checkout_branch(branch, branches),
+    }
+}
+
+pub(crate) fn checkout_branch(branch: &BranchInfo, branches: &[BranchInfo]) -> Option<Checkout> {
+    if !branch.remote {
+        return local_checkout(branch);
+    }
+    // Prefer an existing local branch before creating a tracking branch.
+    match tracking_local(branch, branches) {
+        Some(local) => local_checkout(local),
+        None => Some(Checkout::Track(branch.name.clone())),
     }
 }
 

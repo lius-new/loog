@@ -559,10 +559,10 @@ fn branch_row(
     let name = (!branch.current).then(|| branch.name.clone());
     let click_state = state.clone();
     // Another checkout of this branch: open it, add it, or delete it.
-    let worktree = branch
+    let has_worktree = branch
         .worktree_path
-        .clone()
-        .filter(|path| *path != repository.worktree_root);
+        .as_ref()
+        .is_some_and(|path| *path != repository.worktree_root);
     let indented = UiRect::new(
         inner.left + depth as f32 * INDENT,
         inner.top,
@@ -575,8 +575,44 @@ fn branch_row(
         &branch.name,
         display,
         selected,
-        if worktree.is_some() { 18.0 } else { 0.0 },
+        if has_worktree { 18.0 } else { 0.0 },
     );
+    let open_menu = {
+        let state = state.clone();
+        let repository = root.clone();
+        let name = branch.name.clone();
+        let remote = branch.remote;
+        move |x: f32, y: f32| {
+            state.try_update(|app| {
+                let Some((_, branches)) = app
+                    .ui
+                    .history_branches
+                    .as_ref()
+                    .filter(|(root, _)| *root == repository)
+                else {
+                    return false;
+                };
+                let Some(branch) = branches
+                    .iter()
+                    .find(|branch| branch.name == name && branch.remote == remote)
+                else {
+                    return false;
+                };
+                let checkout = crate::ui::git::branch_picker::checkout_branch(branch, branches);
+                app.ui.clear_hover_cards();
+                app.ui.menu = Some(GitMenu {
+                    pos: (x, y),
+                    target: GitMenuTarget::Branch {
+                        repository: repository.clone(),
+                        checkout,
+                    },
+                    hover: None,
+                });
+                true
+            });
+        }
+    };
+    let worktree_menu = has_worktree.then(|| open_menu.clone());
     let mut element = row(
         format!("git-history-branch-{}", branch.name),
         inner,
@@ -589,65 +625,39 @@ fn branch_row(
             });
         },
     )
+    .on_pointer_down_with_button(move |cx, pointer, button| {
+        if button == PointerButton::Right {
+            open_menu(pointer.point.x, pointer.point.y);
+            cx.stop_propagation();
+        }
+    })
     .child(icon)
     .child(text_element);
-    if let Some(path) = worktree {
-        let removable = repository
-            .worktrees
-            .iter()
-            .position(|worktree| worktree.path == path)
-            .is_some_and(|index| index > 0 && repository.worktrees[index].locked.is_none());
-        let target = GitMenuTarget::Worktree {
-            repository: repository.worktree_root.clone(),
-            path,
-            removable,
-        };
-        let open = {
-            let state = state.clone();
-            move |x: f32, y: f32| {
-                let target = target.clone();
-                state.update(move |app| {
-                    app.ui.clear_hover_cards();
-                    app.ui.menu = Some(GitMenu {
-                        pos: (x, y),
-                        target,
-                        hover: None,
-                    });
-                });
-            }
-        };
+    if let Some(open_menu) = worktree_menu {
         let icon_rect = UiRect::new(
             inner.right - 20.0,
             inner.top + 2.0,
             inner.right - 2.0,
             inner.bottom - 2.0,
         );
-        let button_open = open.clone();
-        element = element
-            .on_pointer_down_with_button(move |cx, pointer, button| {
-                if button == PointerButton::Right {
-                    open(pointer.point.x, pointer.point.y);
-                    cx.stop_propagation();
-                }
-            })
-            .child(
-                panel(icon_rect, VisualStyle::default().radius(3.0))
-                    .key(format!("git-history-worktree-{}", branch.name))
-                    .event_policy(EventPolicy::INTERACTIVE)
-                    .animation(HOVER_FRAME)
-                    .semantics(
-                        Semantics::new(SemanticRole::Button)
-                            .name(format!("Worktree of {}", branch.name)),
-                    )
-                    .cursor(CursorIcon::Pointer)
-                    .on_click(move || button_open(icon_rect.left, icon_rect.bottom))
-                    .child(crate::ui::drawer::drawer_icon(
-                        UiId::owned(format!("git-history-worktree-icon-{}", branch.name)),
-                        "folder",
-                        theme::icon_rect(icon_rect),
-                        theme::c().text_faint,
-                    )),
-            );
+        element = element.child(
+            panel(icon_rect, VisualStyle::default().radius(3.0))
+                .key(format!("git-history-worktree-{}", branch.name))
+                .event_policy(EventPolicy::INTERACTIVE)
+                .animation(HOVER_FRAME)
+                .semantics(
+                    Semantics::new(SemanticRole::Button)
+                        .name(format!("Worktree of {}", branch.name)),
+                )
+                .cursor(CursorIcon::Pointer)
+                .on_click(move || open_menu(icon_rect.left, icon_rect.bottom))
+                .child(crate::ui::drawer::drawer_icon(
+                    UiId::owned(format!("git-history-worktree-icon-{}", branch.name)),
+                    "folder",
+                    theme::icon_rect(icon_rect),
+                    theme::c().text_faint,
+                )),
+        );
     }
     element
 }
