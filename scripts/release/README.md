@@ -65,7 +65,7 @@ Malformed sections fail generation instead of silently dropping their contents.
    workspace tests, extension-validator tests, development-tool tests or evidence capture.
 4. Final product checks remain: staged Windows startup/normal close, Linux .deb
    installation, macOS .dmg/signature checks, and signed update manifest creation.
-5. Once all platform jobs succeed, one writer downloads this run's artifacts,
+5. Once all platform and validator jobs succeed, one writer downloads this run's artifacts,
    checks every platform package/checksum/update record, creates or reuses the
    draft and uploads the complete set. It never changes existing draft notes,
    creates/moves tags, or publishes the release publicly.
@@ -77,7 +77,9 @@ or failed CI stops before builds; finish/rerun CI and rerun Release. There is no
 cross-workflow polling or background CI rerun.
 
 Each application release also includes `loog-ext-validate` for Windows x64,
-Linux x64 and macOS arm64. It uses the application's production manifest rules,
+Linux x64 and macOS arm64. The Windows validator builds in parallel with the
+Windows application, after the same release verification job. The validator
+uses the application's production manifest rules,
 language loader and query compilers; see [the validator](../../tools/ext-validate/README.md).
 After the release is published, pin its validator URLs and SHA-256 digests in
 `tools/validator.lock` in the extensions repository. Do not pin a local build or

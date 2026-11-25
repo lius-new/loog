@@ -136,6 +136,7 @@ jobs:
           RELEASE_SHA: ${{ needs.verify.outputs.sha }}
         run: node scripts/release/package.mjs
       - name: Build loog-ext-validate
+        if: matrix.platform != 'windows'
         shell: bash
         env:
           PLATFORM: ${{ matrix.platform }}
@@ -144,7 +145,6 @@ jobs:
           # loaders and query compilers the application uses. macOS runners are arm64.
           node scripts/build/cargo.mjs build --release --locked --manifest-path tools/ext-validate/Cargo.toml --bin loog-ext-validate
           case "$PLATFORM" in
-            windows) built=loog-ext-validate.exe; name=loog-ext-validate-windows-x86_64.exe ;;
             linux) built=loog-ext-validate; name=loog-ext-validate-linux-x86_64 ;;
             macos) built=loog-ext-validate; name=loog-ext-validate-macos-aarch64 ;;
           esac
@@ -199,11 +199,41 @@ jobs:
       - name: Remove signing keychain
         if: ${{ always() && matrix.platform == 'macos' }}
         run: security delete-keychain "$RUNNER_TEMP/loog-signing.keychain-db" 2>/dev/null || true
+  windows-validator:
+    name: Build Windows extension validator
+    needs: verify
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.97.1
+      - name: Restore build inputs
+        uses: ./.github/actions/dependencies
+        with:
+          prepare: "false"
+          # Keep this job from saving a release cache without the installer tools.
+          variant: release-validator
+      - name: Build loog-ext-validate
+        shell: bash
+        run: |
+          node scripts/build/cargo.mjs build --release --locked --manifest-path tools/ext-validate/Cargo.toml --bin loog-ext-validate
+          mkdir -p .packaging/dist
+          cp tools/ext-validate/target/release/loog-ext-validate.exe .packaging/dist/loog-ext-validate-windows-x86_64.exe
+      - name: Upload Windows validator artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Loog-${{ needs.verify.outputs.version }}-windows-validator
+          path: .packaging/dist/loog-ext-validate-windows-x86_64.exe
+          if-no-files-found: error
   publish:
     name: Create draft and upload all platforms
     needs:
       - verify
       - package
+      - windows-validator
     if: github.event_name == 'push' || inputs.publish
     runs-on: ubuntu-24.04
     permissions:

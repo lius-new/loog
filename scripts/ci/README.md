@@ -2,6 +2,9 @@
 
 The everyday CI path contains formatting/architecture checks, independent crate
 tests once on Linux, and all host functional tests on Linux, Windows and macOS.
+The extension host library tests resolve dependencies with Loog selected so the
+application tests can reuse the compiled dependencies. The application test
+command still builds the `fake_lsp` example used as a server fixture.
 Clippy runs in the Linux host job and reuses its native setup. There are no npm
 installs, tool self-tests, WASM installation tests, source-removal rebuilds,
 evidence uploads or release builds in the ordinary path.

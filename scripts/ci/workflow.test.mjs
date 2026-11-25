@@ -33,6 +33,11 @@ test('three-platform functionality stays unconditional and Clippy shares the Lin
   const build = ci.jobs.build;
   assert.equal(build.if,undefined);assert.equal(build.strategy['fail-fast'],false);
   assert.deepEqual(build.strategy.matrix.include.map(row => row.os).sort(),['macos-15','ubuntu-24.04','windows-2025']);
+  const hostTests = build.steps.findIndex(step => step.name === 'Test extension host and authenticated AOT loader');
+  const appTests = build.steps.findIndex(step => step.name === 'Run tests');
+  assert.ok(hostTests >= 0 && appTests > hostTests);
+  assert.equal(build.steps[hostTests].if,undefined);
+  assert.equal(build.steps[hostTests].run,'cargo test --locked -p loog -p loog-extension-host --lib');
   assert.equal(build.steps.find(step => step.name === 'Run tests').run,'cargo test --locked -p loog');
   assert.equal(build.steps.find(step => step.name === 'Run tests').if,undefined);
   assert.equal(build.steps.find(step => step.name === 'Run Clippy').if,"runner.os == 'Linux'");
@@ -107,9 +112,32 @@ test('release validates the entire notes range before extensions or platform bui
   assert.match(steps[notes].run, /--version "\$VERSION" --ref "\$RELEASE_SHA" --repo "\$GITHUB_REPOSITORY"/);
   assert.equal(release.jobs.package.needs, 'verify');
 });
+
+test('Windows packages and the validator can build in parallel for the same verified commit', () => {
+  const pack = release.jobs.package;
+  const validator = release.jobs['windows-validator'];
+  const command = 'node scripts/build/cargo.mjs build --release --locked --manifest-path tools/ext-validate/Cargo.toml --bin loog-ext-validate';
+  const platformValidator = pack.steps.find(step => step.run?.includes(command));
+  assert.equal(platformValidator.if, "matrix.platform != 'windows'");
+  assert.match(platformValidator.run, /loog-ext-validate-linux-x86_64/);
+  assert.match(platformValidator.run, /loog-ext-validate-macos-aarch64/);
+  assert.equal(validator['runs-on'], 'windows-2025');
+  assert.equal(validator.needs, 'verify');
+  assert.equal(validator.steps[0].with.ref, pack.steps[0].with.ref);
+  const restore = job => job.steps.find(step => step.uses === './.github/actions/dependencies').with;
+  assert.notEqual(restore(validator).variant, restore(pack).variant);
+  assert.ok(runs(validator).includes(command));
+  const upload = validator.steps.find(step => step.uses === 'actions/upload-artifact@v7');
+  const download = release.jobs.publish.steps.find(step => step.uses === 'actions/download-artifact@v7');
+  assert.equal(upload.with.name, download.with.pattern.replace('*', 'windows-validator'));
+  assert.match(runs(validator), /cp \S+\/loog-ext-validate\.exe \.packaging\/dist\/loog-ext-validate-windows-x86_64\.exe/);
+  assert.equal(upload.with.path, '.packaging/dist/loog-ext-validate-windows-x86_64.exe');
+  assert.equal(upload.with['if-no-files-found'], 'error');
+});
+
 test('only the final job can create/upload a draft, after every platform artifact is verified', () => {
   const publish = release.jobs.publish;
-  assert.deepEqual(publish.needs,['verify','package']);
+  assert.deepEqual(publish.needs,['verify','package','windows-validator']);
   assert.equal(publish.permissions.contents,'write');
   assert.equal(release.permissions.contents,'read');
   assert.match(runs(publish),/--publish-draft/);

@@ -117,7 +117,9 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets -- -D warnings -A clippy::redundant_closure_call -A clippy::collapsible_if -A clippy::too_many_arguments -A clippy::let_and_return -A clippy::manual_div_ceil
         if: runner.os == 'Linux'
       - name: Test extension host and authenticated AOT loader
-        run: cargo test --locked -p loog-extension-host --lib
+        # Resolve dependencies with Loog's features so the next step can reuse
+        # them. Only the extension host has a library target to test.
+        run: cargo test --locked -p loog -p loog-extension-host --lib
       - name: Run tests
         run: cargo test --locked -p loog
   result:
