@@ -706,7 +706,6 @@ pub(crate) fn commits_header(
     );
     let mut root = panel(header, VisualStyle::filled(theme::c().sidebar))
         .key("commits-panel-header")
-        .child(crate::ui::components::divider::top(rect))
         .child(category)
         .child(header::rule(header, right + 12.0))
         .child(toolbar(UiRect::new(
