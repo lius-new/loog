@@ -2,12 +2,10 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::time::Instant;
 
 use lgui::core::{
-    Color, CompositingLayerAnimation, CompositingLayerSpec, CursorIcon, EventPolicy, IconStyle,
-    LayerTransform, PhysicalRect, Point, PointerButton, Signal, UiElement, UiFocusHandle, UiId,
-    WheelUnit, animated_compositing_layer, clip, precompiled,
+    Color, CursorIcon, EventPolicy, IconStyle, PhysicalRect, Point, PointerButton, Signal,
+    UiElement, UiFocusHandle, UiId, WheelUnit, clip, precompiled,
 };
 use lgui::prelude::{Element, TextStyle, UiRect, VisualStyle, panel, text};
 use lgui::text::{self, TextLayoutRequest};
@@ -18,7 +16,7 @@ use crate::domain::pane_layout::{Direction, PaneId};
 use crate::domain::workspace::AppPage;
 use crate::ui::chrome::tab_state::TabDrop;
 use crate::ui::chrome::tabs_binding::{Binding, Command, Frame};
-use crate::ui::components::tab_tooltip;
+use crate::ui::components::{tab_motion, tab_tooltip};
 use crate::ui::tab_layout::{self, TabLayoutInput, TabLayoutResult};
 use crate::ui::theme;
 
@@ -719,7 +717,7 @@ fn selected_tab_edge(pill: UiRect) -> Element {
     })
 }
 
-pub(crate) fn render_dragged_tab(app: &Frame<'_>, pointer: Signal<Point>) -> Option<Element> {
+pub(crate) fn render_dragged_tab(app: &Frame<'_>, pointer_x: Signal<f32>) -> Option<Element> {
     let drag = app
         .editor
         .tabs
@@ -738,108 +736,21 @@ pub(crate) fn render_dragged_tab(app: &Frame<'_>, pointer: Signal<Point>) -> Opt
     );
     let width = drag.preview_width;
     let grab = drag.grab;
-    let rect = UiRect::new(0.0, 0.0, width, theme::TABS_H);
-    let transform = move |point: Point| {
-        CompositingLayerSpec::new().transform(
-            LayerTransform::identity().translation(point.x - grab.x * width, point.y - grab.y),
-        )
-    };
-    let initial = transform(pointer.get());
+    let top = drag.origin.y - grab.y;
+    let rect = UiRect::new(0.0, top, width, top + theme::TABS_H);
     let face = face
         .render(panel(rect, active_tab_style()), rect, "editor-dragged-tab")
         .child(tab_close_icon(rect, "editor-dragged-tab"));
     Some(
-        Element::new(move |cx| {
-            UiElement::compositing_layer(UiId::new("editor-dragged-tab"), rect, initial)
-                .hit_rect(UiRect::default())
-                .children(cx.children)
-        })
-        .key("editor-dragged-tab")
-        .event_policy(EventPolicy::NONE)
-        .bind(&pointer, move |point, node| {
-            node.compositing_layer = Some(transform(*point));
-        })
-        // Include the strip color under the translucent selected-tab fill.
-        .child(
-            panel(rect, VisualStyle::filled(theme::c().sidebar))
-                .child(face)
-                .child(tab_right_edge(rect))
-                .child(selected_tab_edge(rect)),
-        ),
+        tab_motion::floating("editor-dragged-tab", rect, grab.x * width, pointer_x)
+            // Include the strip color under the translucent selected-tab fill.
+            .child(
+                panel(rect, VisualStyle::filled(theme::c().sidebar))
+                    .child(face)
+                    .child(tab_right_edge(rect))
+                    .child(selected_tab_edge(rect)),
+            ),
     )
-}
-
-/// The layer only moves horizontally. Its tab contents and layout stay retained
-/// while animation frames repaint the previous and current positions.
-#[derive(Clone, Default)]
-struct TabSlide {
-    offset: f32,
-    from: f32,
-    target: f32,
-    started: Option<Instant>,
-}
-
-impl TabSlide {
-    fn retarget(&mut self, target: f32) {
-        if self.target != target {
-            self.from = self.offset;
-            self.target = target;
-            self.started = (self.offset != target).then(Instant::now);
-        }
-    }
-}
-
-impl CompositingLayerAnimation for TabSlide {
-    fn advance(&mut self, _elapsed_ms: f32) -> bool {
-        let Some(started) = self.started else {
-            return false;
-        };
-        let t = (started.elapsed().as_secs_f32() / 0.12).min(1.0);
-        self.offset = self.target + (self.from - self.target) * (1.0 - t).powi(3);
-        if t >= 1.0 {
-            self.started = None;
-        }
-        true
-    }
-
-    fn compositing_layer_spec(&self) -> CompositingLayerSpec {
-        CompositingLayerSpec::new()
-            .transform(LayerTransform::identity().translation(self.offset, 0.0))
-    }
-
-    fn wants_frame(&self) -> bool {
-        self.started.is_some()
-    }
-}
-
-fn tab_motion(pill: UiRect, scroll_x: f32, target: Option<f32>) -> Element {
-    Element::new(move |cx| {
-        if let Some(target) = target {
-            let scale = cx.context.scale();
-            // Snap the layer's screen-space origin and size to device pixels.
-            // Otherwise offscreen text shaping and texture sampling can shift
-            // the glyphs when the layer is first mounted.
-            let screen = pill.translate(-scroll_x, 0.0);
-            let bounds = scale
-                .logical_rect(scale.physical_rect_outward(screen))
-                .translate(scroll_x, 0.0);
-            let layer = cx.compile(animated_compositing_layer(
-                bounds,
-                move |motion: &mut TabSlide| motion.retarget(target),
-            ));
-            let offset = layer
-                .node()
-                .compositing_layer
-                .map_or(0.0, |spec| spec.transform.translation_x());
-            if target != 0.0 || offset != 0.0 {
-                return layer.children(cx.children);
-            }
-        }
-        // A stationary tab keeps the normal direct text paint path.
-        UiElement::group(cx.id, pill)
-            .hit_rect(UiRect::default())
-            .children(cx.children)
-    })
 }
 
 pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusHandle) -> Element {
@@ -1012,7 +923,7 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
             // Pointer drag events invalidate its paint bounds, so keep them empty.
             let no_paint = UiRect::new(pill.left, pill.top, pill.left, pill.top);
             tab_layer = tab_layer.child(
-                tab_motion(pill, scroll_x, None)
+                tab_motion::slide(pill, scroll_x, None)
                     .key(motion_key)
                     .child(tab_el.paint_bounds(no_paint)),
             );
@@ -1058,7 +969,7 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
                 .map_or(0.0, |(_, offset)| *offset)
         });
         tab_layer = tab_layer.child(
-            tab_motion(pill, scroll_x, offset)
+            tab_motion::slide(pill, scroll_x, offset)
                 .key(motion_key)
                 .child(tab_el)
                 .child(separator),

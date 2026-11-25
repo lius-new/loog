@@ -8,20 +8,21 @@ use super::bindings::{
 };
 use super::find;
 use super::header;
-use super::layout_binding::{MapBinding, MapCommand};
+use super::layout_binding::{FloatingTab, MapBinding, MapCommand};
 use super::state::TerminalTabMenuKind;
 use super::strip;
 
 use lgui::core::{
     CursorIcon, EventPolicy, IconStyle, PhysicalRect, Point, PointerButton, SemanticRole,
-    Semantics, UiElement, UiEventKind, UiEventPayload, UiFocusHandle, UiId, WheelUnit, clip,
+    Semantics, Signal, UiElement, UiEventKind, UiEventPayload, UiFocusHandle, UiId, UiScale,
+    WheelUnit, clip,
 };
 use lgui::prelude::{Color, Element, UiRect, VisualStyle, component, group, panel, text};
 use lgui::services::ServicesContextExt;
 
 use crate::features::terminal::SessionId;
 use crate::features::terminal::{TerminalRun, TerminalSize};
-use crate::ui::components::{scrollbar, tab_tooltip};
+use crate::ui::components::{scrollbar, tab_motion, tab_tooltip};
 use crate::ui::editor::view::{scroll_from_thumb, thumb_geometry};
 use crate::ui::fonts;
 use crate::ui::tabs::{GAP as TAB_CONTENT_GAP, PAD as TAB_PAD, TEXT_MARGIN, ellipsize, measure};
@@ -518,6 +519,8 @@ pub(crate) fn render_view(
     );
     let tab_strip_element = render_terminal_tabs(
         tab_strip,
+        header,
+        region_view.as_ref().map(|view| view.0),
         &tab_items,
         active_tab_id,
         terminal_tabs.clone(),
@@ -559,12 +562,7 @@ pub(crate) fn render_view(
         ));
     }
 
-    // Paint one full-width rule after the clipped tab contents and session surfaces.
-    terminal = terminal
-        .child(tab_strip_element.contents)
-        .child(tab_header_rule(header))
-        // The list button and tooltips sit outside the strip's clip.
-        .child(tab_strip_element.extras);
+    terminal = terminal.child(tab_strip_element);
 
     // Add handles after all session surfaces so they win hit testing.
     for index in 0..sessions.len().saturating_sub(1) {
@@ -1103,16 +1101,29 @@ fn vertical_scrollbar(
         .child(thumb)
 }
 
-pub(crate) struct TabStrip {
-    pub(crate) contents: Element,
-    /// What belongs outside the strip's clip: the full-list button and the
-    /// hover tooltips.
-    pub(crate) extras: Element,
+struct TabStrip {
+    contents: Element,
+    extras: Element,
+}
+
+#[derive(PartialEq)]
+struct TabStripFrame {
+    rect: UiRect,
+    header: UiRect,
+    region: Option<u64>,
+    tabs: Vec<TerminalTab>,
+    active_id: u64,
+    scroll: f32,
+    renaming: Option<u64>,
+    menu: Option<TerminalTabMenuKind>,
+    theme: theme::ThemeId,
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_terminal_tabs(
     rect: UiRect,
+    header: UiRect,
+    region: Option<u64>,
     tabs: &[TerminalTab],
     active_id: u64,
     terminal_tabs: Sessions,
@@ -1121,7 +1132,58 @@ pub(crate) fn render_terminal_tabs(
     terminal_focus: UiFocusHandle,
     editor_focus: UiFocusHandle,
     application: FrameRequest,
+) -> Element {
+    let ui = state.get().ui;
+    let frame = TabStripFrame {
+        rect,
+        header,
+        region,
+        tabs: tabs.to_vec(),
+        active_id,
+        scroll: tabs.first().map_or(0.0, |tab| ui.tab_scroll(tab.id)),
+        renaming: ui.terminal_rename.as_ref().map(|editor| editor.target),
+        menu: ui.terminal_tab_context_menu.as_ref().map(|menu| menu.kind),
+        theme: theme::current(),
+    };
+    component(frame, move |cx, frame| {
+        let rect = frame.rect;
+        // Slot changes invalidate only this strip. Pointer-only motion is
+        // applied by the retained floating layer.
+        let floating = cx.use_observable(map.observable(), move |signal| {
+            signal.floating.filter(|floating| floating.strip == rect)
+        });
+        let _scope = header::Scope::enter(frame.region);
+        let strip = render_tab_strip(
+            frame,
+            floating,
+            terminal_tabs,
+            state,
+            map,
+            terminal_focus,
+            editor_focus,
+            application,
+        );
+        group(UiRect::default())
+            .child(strip.contents)
+            .child(tab_header_rule(frame.header))
+            .child(strip.extras)
+    })
+    .key("terminal-tab-strip")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_tab_strip(
+    frame: &TabStripFrame,
+    floating: Option<FloatingTab>,
+    terminal_tabs: Sessions,
+    state: Binding,
+    map: MapBinding,
+    terminal_focus: UiFocusHandle,
+    editor_focus: UiFocusHandle,
+    application: FrameRequest,
 ) -> TabStrip {
+    let (rect, tabs, active_id, renaming) =
+        (frame.rect, &frame.tabs, frame.active_id, frame.renaming);
     let mut strip = panel(rect, VisualStyle::filled(theme::c().sidebar));
     if tabs.is_empty() || rect.width() <= 0.0 {
         return TabStrip {
@@ -1130,7 +1192,6 @@ pub(crate) fn render_terminal_tabs(
         };
     }
 
-    let labels = tabs.iter().map(TerminalTab::label).collect::<Vec<_>>();
     let close_width = measure("✕", theme::SMALL, 400);
     // A tab is as wide as its name asks, between the minimum and the maximum
     // width. The name leaves out the running program, so selecting, hovering or
@@ -1143,18 +1204,7 @@ pub(crate) fn render_terminal_tabs(
         .collect::<Vec<_>>();
     let metrics = strip::layout(rect.width(), &naturals, TAB_STRIP_PAD, TAB_STRIP_GAP);
     let strip_key = tabs[0].id;
-    let scroll = state
-        .get()
-        .ui
-        .tab_scroll(strip_key)
-        .clamp(0.0, metrics.max_scroll);
-    // The tab being renamed holds a text field instead of its name.
-    let renaming = state
-        .get()
-        .ui
-        .terminal_rename
-        .as_ref()
-        .map(|editor| editor.target);
+    let scroll = frame.scroll.clamp(0.0, metrics.max_scroll);
     let widths = metrics.widths.clone();
     let viewport = UiRect::new(
         rect.left,
@@ -1174,66 +1224,45 @@ pub(crate) fn render_terminal_tabs(
                 slot
             })
             .collect();
-        StripDrag { rect, tabs: slots }
+        StripDrag {
+            rect,
+            viewport,
+            tabs: slots,
+        }
     };
-    // Lines that join the members of a split group across the gap between their
-    // rounded blocks; added after the tabs.
-    let mut links: Vec<Element> = Vec::new();
+    let pointer_x = map.pointer_x();
+    let floating = floating.filter(|_| pointer_x.is_some()).and_then(|drag| {
+        let from = tabs.iter().position(|tab| tab.id == drag.session)?;
+        let to = drag.index.min(tabs.len() - 1);
+        let distance = widths[from] + TAB_STRIP_GAP;
+        Some((drag, from, to, distance))
+    });
+    let preview_links = floating.map(|(_, from, to, _)| {
+        let mut order = (0..tabs.len()).collect::<Vec<_>>();
+        order.remove(from);
+        order.insert(to, from);
+        let mut links = vec![false; tabs.len()];
+        for pair in order.windows(2) {
+            let (left, right) = (pair[0], pair[1]);
+            links[left] =
+                left != from && right != from && tabs[left].group_id == tabs[right].group_id;
+        }
+        links
+    });
+    let mut preview = None;
     let mut left = rect.left + TAB_STRIP_PAD - scroll;
     for (index, tab) in tabs.iter().enumerate() {
-        let name = &labels[index];
         let active = tab.id == active_id;
         let tab_width = widths[index];
         let tab_rect = UiRect::new(left, rect.top, left + tab_width, rect.bottom);
-        let joins_next = tabs
-            .get(index + 1)
-            .is_some_and(|next| next.group_id == tab.group_id);
-        // The rounded block, centred in the strip and shorter than it.
-        let block_inset = ((tab_rect.height() - TAB_BLOCK_H) / 2.0).max(0.0);
-        let block_rect = UiRect::new(
-            tab_rect.left,
-            tab_rect.top + block_inset,
-            tab_rect.right,
-            tab_rect.bottom - block_inset,
-        );
-        if joins_next {
-            let link_id = tab.id;
-            links.push(
-                Element::new(move |cx| {
-                    let scale = cx.context.scale();
-                    let middle = scale.physical_value((block_rect.top + block_rect.bottom) / 2.0);
-                    let line = scale.logical_rect(PhysicalRect::new(
-                        scale.physical_value(block_rect.right),
-                        middle,
-                        scale.physical_value(block_rect.right + TAB_STRIP_GAP),
-                        middle + scale.physical_length(1.0),
-                    ));
-                    UiElement::panel(
-                        UiId::owned(format!("terminal-tab-link-{link_id}")),
-                        line,
-                        VisualStyle::filled(theme::c().text_faint),
-                    )
-                    .hit_rect(UiRect::new(line.left, line.top, line.left, line.top))
-                })
-                .key(format!("terminal-tab-link-{link_id}")),
-            );
-        }
-        let name_left = tab_rect.left + TAB_PAD + GLYPH + GLYPH_GAP;
+        let lifted = floating.is_some_and(|(_, from, _, _)| from == index);
+        let block_rect = tab_block(tab_rect);
         let close_left = tab_rect.right - TAB_PAD - close_width;
         let close_rect = UiRect::new(
             close_left,
             tab_rect.top,
             tab_rect.right - TAB_PAD,
             tab_rect.bottom,
-        );
-        let name_slot_width = (close_left - TAB_CONTENT_GAP - name_left).max(0.0);
-        // A long name is cut to the same slot in every tab, active or not; the
-        // tooltip shows it in full.
-        let display_name = ellipsize(
-            name,
-            (name_slot_width - TEXT_MARGIN).max(0.0),
-            theme::UI_SIZE,
-            400,
         );
         if tab_rect.right > viewport.left && tab_rect.left < viewport.right {
             let tip_id = UiId::owned(format!("terminal-tab-tip-{}", tab.id));
@@ -1244,47 +1273,7 @@ pub(crate) fn render_terminal_tabs(
                 tab_tooltip(tip_id, rect, tab_rect, tab),
             ));
         }
-        let label_rect = UiRect::new(
-            name_left,
-            tab_rect.top,
-            name_left + name_slot_width,
-            tab_rect.bottom,
-        );
-        let mut visual = panel(tab_rect, VisualStyle::default());
         let editing = renaming == Some(tab.id);
-        if editing {
-            visual = visual.child(theme::bordered(
-                block_rect,
-                theme::c().active_tab,
-                theme::c().accent,
-                TAB_BLOCK_RADIUS,
-                1.0,
-            ));
-        }
-        // Editing a name leaves only the field inside a focus border.
-        if !editing {
-            let glyph_top = tab_rect.top + (tab_rect.height() - GLYPH) / 2.0;
-            let glyph_left = tab_rect.left + TAB_PAD;
-            visual = visual.child(session_glyph(
-                tab.id,
-                UiRect::new(glyph_left, glyph_top, glyph_left + GLYPH, glyph_top + GLYPH),
-                tab.activity == crate::features::terminal::activity::CommandActivity::Running,
-            ));
-        }
-        if !editing {
-            visual = visual.child(text(
-                label_rect,
-                display_name,
-                theme::mono(
-                    if active {
-                        theme::c().text_bright
-                    } else {
-                        theme::c().text_muted
-                    },
-                    theme::UI_SIZE,
-                ),
-            ));
-        }
         let select_tabs = terminal_tabs.clone();
         let select_focus = terminal_focus.clone();
         let press_state = state.clone();
@@ -1297,6 +1286,17 @@ pub(crate) fn render_terminal_tabs(
         let select_node_id = UiId::owned(format!("terminal-tab-select-{tab_id}"));
         let mut tab_element = Element::new(move |cx| {
             let id = UiId::owned(format!("terminal-tab-{tab_id}"));
+            let panel = UiElement::panel(id.clone(), tab_rect, VisualStyle::default());
+            if lifted {
+                return panel
+                    .paint_bounds(UiRect::new(
+                        tab_rect.left,
+                        tab_rect.top,
+                        tab_rect.left,
+                        tab_rect.top,
+                    ))
+                    .children(cx.children);
+            }
             let hovered = cx.context.interaction_flags(&id).hovered
                 || cx.context.interaction_flags(&select_node_id).hovered
                 || cx.context.interaction_flags(&close_node_id).hovered;
@@ -1310,23 +1310,14 @@ pub(crate) fn render_terminal_tabs(
             } else {
                 (theme::c().active_line, TAB_BLOCK_REST_ALPHA)
             };
-            let scale = cx.context.scale();
-            UiElement::panel(id, tab_rect, VisualStyle::default())
-                .child(
-                    UiElement::panel(
-                        UiId::owned(format!("terminal-tab-background-{tab_id}")),
-                        scale.logical_rect(scale.physical_rect(block_rect)),
-                        VisualStyle::filled(fill)
-                            .alpha(alpha)
-                            .radius(TAB_BLOCK_RADIUS),
-                    )
-                    .hit_rect(UiRect::new(
-                        block_rect.left,
-                        block_rect.top,
-                        block_rect.left,
-                        block_rect.top,
-                    )),
-                )
+            panel
+                .child(tab_block_node(
+                    UiId::owned(format!("terminal-tab-background-{tab_id}")),
+                    block_rect,
+                    cx.context.scale(),
+                    fill,
+                    alpha,
+                ))
                 .children(cx.children)
         })
         .key(format!("terminal-tab-{tab_id}"))
@@ -1351,23 +1342,56 @@ pub(crate) fn render_terminal_tabs(
                 });
                 cx.stop_propagation();
             }
-        })
-        .child(visual);
+        });
+        let offset = floating.map(|(_, from, to, distance)| {
+            if from < index && index <= to {
+                -distance
+            } else if to <= index && index < from {
+                distance
+            } else {
+                0.0
+            }
+        });
+        let linked = preview_links.as_ref().map_or_else(
+            || {
+                tabs.get(index + 1)
+                    .is_some_and(|next| next.group_id == tab.group_id)
+            },
+            |links| links[index],
+        );
+        let link = linked.then(|| tab_link(tab_id, block_rect));
+        let mut bounds = tab_rect;
+        if link.is_some() {
+            bounds.right += TAB_STRIP_GAP;
+        }
+        let motion =
+            tab_motion::slide(bounds, 0.0, offset).key(format!("terminal-tab-motion-{tab_id}"));
         if renaming == Some(tab_id) {
             // Renaming replaces selecting and closing: the field fills the tab.
-            tab_element = tab_element.child(super::rename::input(
-                UiRect::new(
-                    tab_rect.left + 6.0,
-                    tab_rect.top + 4.0,
-                    tab_rect.right - 6.0,
-                    tab_rect.bottom - 4.0,
-                ),
-                state.clone(),
-                terminal_focus.clone(),
-            ));
-            strip = strip.child(tab_element);
+            tab_element = tab_element
+                .child(theme::bordered(
+                    block_rect,
+                    theme::c().active_tab,
+                    theme::c().accent,
+                    TAB_BLOCK_RADIUS,
+                    1.0,
+                ))
+                .child(super::rename::input(
+                    UiRect::new(
+                        tab_rect.left + 6.0,
+                        tab_rect.top + 4.0,
+                        tab_rect.right - 6.0,
+                        tab_rect.bottom - 4.0,
+                    ),
+                    state.clone(),
+                    terminal_focus.clone(),
+                ));
+            strip = strip.child(motion.child(tab_element).content(link));
             left += tab_width + TAB_STRIP_GAP;
             continue;
+        }
+        if !lifted {
+            tab_element = tab_element.child(tab_face(tab, tab_rect, close_left, active));
         }
         let select_rect = UiRect::new(
             tab_rect.left,
@@ -1378,46 +1402,78 @@ pub(crate) fn render_terminal_tabs(
         // The pressed handle owns the cursor while dragging. As its own
         // component it follows the map's cursor without re-rendering the strip.
         tab_element = tab_element.child(
-            component(select_rect, move |cx, &select_rect| {
-                let cursor = cx.use_observable(
-                    select_map.observable(),
-                    |s: &super::layout_binding::MapSignal| s.cursor,
-                );
-                let capture_map = select_map.clone();
-                Element::new(move |cx| {
-                    let id = UiId::owned(format!("terminal-tab-select-{tab_id}"));
-                    if capture_map
-                        .with(|d| d.is_some_and(|d| d.session == tab_id && d.release.is_none()))
-                        && !cx.context.interaction_flags(&id).pressed
-                    {
-                        capture_map.cancel();
-                    }
-                    UiElement::panel(id, select_rect, VisualStyle::default()).children(cx.children)
-                })
-                .key(format!("terminal-tab-select-{tab_id}"))
-                .event_policy(EventPolicy {
-                    hover: true,
-                    press: true,
-                    focus: false,
-                })
-                .cursor(cursor)
-                .on_pointer_down_with_button(move |cx, pointer, button| {
-                    if button == PointerButton::Left {
-                        if !commands::select(&press_state, &select_tabs, tab_id) {
-                            return;
+            component(
+                (select_rect, lifted, select_strip),
+                move |cx, (select_rect, lifted, select_strip)| {
+                    let (select_rect, lifted, select_strip) =
+                        (*select_rect, *lifted, select_strip.clone());
+                    let cursor = cx.use_observable(
+                        select_map.observable(),
+                        |s: &super::layout_binding::MapSignal| s.cursor,
+                    );
+                    let capture_map = select_map.clone();
+                    Element::new(move |cx| {
+                        let id = UiId::owned(format!("terminal-tab-select-{tab_id}"));
+                        if capture_map
+                            .with(|d| d.is_some_and(|d| d.session == tab_id && d.release.is_none()))
+                            && !cx.context.interaction_flags(&id).pressed
+                        {
+                            capture_map.cancel();
                         }
-                        select_focus.focus();
-                        select_map.run(MapCommand::Begin {
-                            session: tab_id,
-                            point: pointer.point,
-                            strip: Some(select_strip.clone()),
-                        });
-                        cx.stop_propagation();
-                    }
-                })
-            })
+                        let node = UiElement::panel(id, select_rect, VisualStyle::default())
+                            .children(cx.children);
+                        if lifted {
+                            node.paint_bounds(UiRect::new(
+                                select_rect.left,
+                                select_rect.top,
+                                select_rect.left,
+                                select_rect.top,
+                            ))
+                        } else {
+                            node
+                        }
+                    })
+                    .key(format!("terminal-tab-select-{tab_id}"))
+                    .event_policy(EventPolicy {
+                        hover: true,
+                        press: true,
+                        focus: false,
+                    })
+                    .cursor(cursor)
+                    .on_pointer_down_with_button(
+                        move |cx, pointer, button| {
+                            if button == PointerButton::Left {
+                                if !commands::select(&press_state, &select_tabs, tab_id) {
+                                    return;
+                                }
+                                select_focus.focus();
+                                select_map.run(MapCommand::Begin {
+                                    session: tab_id,
+                                    point: pointer.point,
+                                    strip: Some(select_strip.clone()),
+                                });
+                                cx.stop_propagation();
+                            }
+                        },
+                    )
+                },
+            )
             .key(format!("terminal-tab-select-component-{tab_id}")),
         );
+
+        if lifted && let Some(((drag, _, _, _), pointer_x)) = floating.zip(pointer_x.as_ref()) {
+            let local = UiRect::new(0.0, tab_rect.top, tab_width, tab_rect.bottom);
+            preview = Some(render_floating_tab(
+                tab,
+                local,
+                close_width,
+                drag.grab_x,
+                pointer_x.clone(),
+            ));
+            strip = strip.child(motion.child(tab_element));
+            left += tab_width + TAB_STRIP_GAP;
+            continue;
+        }
 
         let close_tabs = terminal_tabs.clone();
         let close_state = state.clone();
@@ -1448,23 +1504,11 @@ pub(crate) fn render_terminal_tabs(
                     close_terminal_focus.focus();
                 }
             })
-            .child(text(
-                UiRect::new(
-                    close_left,
-                    tab_rect.top,
-                    close_left + close_width + TEXT_MARGIN,
-                    tab_rect.bottom,
-                ),
-                "✕",
-                theme::mono(theme::c().text_dim, theme::SMALL),
-            )),
+            .child(tab_close_text(close_rect)),
         );
 
-        strip = strip.child(tab_element);
+        strip = strip.child(motion.child(tab_element).content(link));
         left += tab_width + TAB_STRIP_GAP;
-    }
-    for link in links {
-        strip = strip.child(link);
     }
 
     if metrics.scrolls() {
@@ -1533,12 +1577,7 @@ pub(crate) fn render_terminal_tabs(
             rect.bottom - 3.0,
         );
         let list_state = state.clone();
-        let list_open = state
-            .get()
-            .ui
-            .terminal_tab_context_menu
-            .as_ref()
-            .is_some_and(|menu| menu.kind == TerminalTabMenuKind::Sessions);
+        let list_open = frame.menu == Some(TerminalTabMenuKind::Sessions);
         extras = extras.child(header::button(
             "terminal-sessions",
             button,
@@ -1556,7 +1595,7 @@ pub(crate) fn render_terminal_tabs(
             },
         ));
     }
-    let tips_allowed = renaming.is_none() && state.get().ui.terminal_tab_context_menu.is_none();
+    let tips_allowed = renaming.is_none() && frame.menu.is_none();
     let hover_ids = tips
         .iter()
         .map(|(select, close, tip, _)| (select.clone(), close.clone(), tip.clone()))
@@ -1587,11 +1626,122 @@ pub(crate) fn render_terminal_tabs(
         tooltips = tooltips.child(tip);
     }
     extras = extras.child(tooltips);
+    if let Some(preview) = preview {
+        extras = extras.child(preview);
+    }
 
     TabStrip {
         contents: clip(viewport, 0.0, 0.0).child(strip),
         extras,
     }
+}
+
+fn tab_block(rect: UiRect) -> UiRect {
+    let inset = ((rect.height() - TAB_BLOCK_H) / 2.0).max(0.0);
+    UiRect::new(rect.left, rect.top + inset, rect.right, rect.bottom - inset)
+}
+
+fn tab_block_node(id: UiId, block: UiRect, scale: UiScale, fill: Color, alpha: u8) -> UiElement {
+    UiElement::panel(
+        id,
+        scale.logical_rect(scale.physical_rect(block)),
+        VisualStyle::filled(fill)
+            .alpha(alpha)
+            .radius(TAB_BLOCK_RADIUS),
+    )
+    .hit_rect(UiRect::new(block.left, block.top, block.left, block.top))
+}
+
+fn tab_face(tab: &TerminalTab, rect: UiRect, close_left: f32, active: bool) -> Element {
+    let glyph_top = rect.top + (rect.height() - GLYPH) / 2.0;
+    let glyph_left = rect.left + TAB_PAD;
+    let name_left = glyph_left + GLYPH + GLYPH_GAP;
+    let name_width = (close_left - TAB_CONTENT_GAP - name_left).max(0.0);
+    let display_name = ellipsize(
+        &tab.title,
+        (name_width - TEXT_MARGIN).max(0.0),
+        theme::UI_SIZE,
+        400,
+    );
+    group(rect)
+        .child(session_glyph(
+            tab.id,
+            UiRect::new(glyph_left, glyph_top, glyph_left + GLYPH, glyph_top + GLYPH),
+            tab.activity == crate::features::terminal::activity::CommandActivity::Running,
+        ))
+        .child(text(
+            UiRect::new(name_left, rect.top, name_left + name_width, rect.bottom),
+            display_name,
+            theme::mono(
+                if active {
+                    theme::c().text_bright
+                } else {
+                    theme::c().text_muted
+                },
+                theme::UI_SIZE,
+            ),
+        ))
+}
+
+fn tab_close_text(close: UiRect) -> Element {
+    text(
+        UiRect::new(
+            close.left,
+            close.top,
+            close.right + TEXT_MARGIN,
+            close.bottom,
+        ),
+        "✕",
+        theme::mono(theme::c().text_dim, theme::SMALL),
+    )
+    .into()
+}
+
+fn render_floating_tab(
+    tab: &TerminalTab,
+    rect: UiRect,
+    close_width: f32,
+    grab_x: f32,
+    pointer_x: Signal<f32>,
+) -> Element {
+    let close = UiRect::new(
+        rect.right - TAB_PAD - close_width,
+        rect.top,
+        rect.right - TAB_PAD,
+        rect.bottom,
+    );
+    tab_motion::floating("terminal-dragged-tab", rect, grab_x, pointer_x)
+        .child(Element::new(move |cx| {
+            tab_block_node(
+                cx.id,
+                tab_block(rect),
+                cx.context.scale(),
+                theme::c().active_tab,
+                255,
+            )
+        }))
+        .child(tab_face(tab, rect, close.left, true))
+        .child(tab_close_text(close))
+}
+
+fn tab_link(id: u64, block: UiRect) -> Element {
+    Element::new(move |cx| {
+        let scale = cx.context.scale();
+        let middle = scale.physical_value((block.top + block.bottom) / 2.0);
+        let line = scale.logical_rect(PhysicalRect::new(
+            scale.physical_value(block.right),
+            middle,
+            scale.physical_value(block.right + TAB_STRIP_GAP),
+            middle + scale.physical_length(1.0),
+        ));
+        UiElement::panel(
+            UiId::owned(format!("terminal-tab-link-{id}")),
+            line,
+            VisualStyle::filled(theme::c().text_faint),
+        )
+        .hit_rect(UiRect::new(line.left, line.top, line.left, line.top))
+    })
+    .key(format!("terminal-tab-link-{id}"))
 }
 
 /// The name that decides a tab's width: the user's name or the shell's label,

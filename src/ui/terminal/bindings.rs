@@ -9,7 +9,7 @@ use lgui::services::{Clipboard, ClipboardError};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct SessionFrame {
     pub id: SessionId,
     pub group_id: u64,

@@ -1,5 +1,7 @@
 use crate::domain::application_layout::{Content, DropPlan, Placement, RegionId, Visibility};
-use lgui::core::CursorIcon;
+use lgui::core::{CursorIcon, Observable, Point, Signal};
+use lgui::prelude::UiRect;
+use std::sync::Arc;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Zone {
     pub rect: UiRect,
@@ -22,8 +24,9 @@ pub struct MapScene {
 #[derive(Clone, Debug, PartialEq)]
 pub struct StripDrag {
     pub rect: UiRect,
+    pub viewport: UiRect,
     /// Session id with the left and right edge of its tab, in strip order.
-    pub tabs: Vec<(u64, f32, f32)>,
+    pub tabs: Arc<[(u64, f32, f32)]>,
 }
 /// Vertical slack around the strip before a drag counts as leaving it.
 const STRIP_SLACK: f32 = crate::ui::tabs::DRAG_REORDER_SLACK;
@@ -36,11 +39,11 @@ impl StripDrag {
     }
     /// Final index of `session` when dropped at `x`: how many other tabs have
     /// their centre left of the pointer.
-    pub fn target(&self, session: u64, x: f32) -> usize {
-        self.tabs
-            .iter()
-            .filter(|(id, left, right)| *id != session && (left + right) / 2.0 < x)
-            .count()
+    pub fn target(&self, source: usize, x: f32) -> usize {
+        let crossed = self
+            .tabs
+            .partition_point(|(_, left, right)| (left + right) / 2.0 < x);
+        crossed - usize::from(source < crossed)
     }
     /// Where the insertion marker sits for a final index of `session`, on the
     /// edge the tab would move across. None when the tab would stay where it is.
@@ -60,6 +63,9 @@ pub struct TerminalDrag {
     pub strip: Option<StripDrag>,
     /// Final tab index while the drag reorders within its own strip.
     pub reorder: Option<usize>,
+    pub floating: bool,
+    pub grab_x: f32,
+    pub source_index: usize,
     pub origin: Point,
     pub point: Point,
     pub active: bool,
@@ -69,17 +75,23 @@ pub struct TerminalDrag {
     /// event is also delivered as PointerUp, but clears all hovered nodes.
     pub release: Option<Point>,
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FloatingTab {
+    pub strip: UiRect,
+    pub session: u64,
+    pub index: usize,
+    pub grab_x: f32,
+}
+
 /// What subscribers observe: a change counter and the cursor it implies.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MapSignal {
     pub revision: u64,
     pub cursor: CursorIcon,
+    pub floating: Option<FloatingTab>,
 }
 
 use crate::domain::application_layout::Divider;
-use lgui::core::{Observable, Point};
-use lgui::prelude::UiRect;
-use std::sync::Arc;
 pub enum MapCommand {
     Begin {
         session: u64,
@@ -114,6 +126,7 @@ type Inspect = dyn Fn(&mut dyn FnMut(Option<&TerminalDrag>)) + Send + Sync;
 pub struct MapBinding {
     inspect: Arc<Inspect>,
     signal: Arc<dyn Fn() -> Observable<MapSignal> + Send + Sync>,
+    pointer_x: Option<Signal<f32>>,
     run: Arc<dyn Fn(MapCommand) -> MapOutcome + Send + Sync>,
     sash: Arc<dyn Fn(&Divider) -> bool + Send + Sync>,
 }
@@ -121,12 +134,14 @@ impl MapBinding {
     pub fn new(
         inspect: impl Fn(&mut dyn FnMut(Option<&TerminalDrag>)) + Send + Sync + 'static,
         signal: impl Fn() -> Observable<MapSignal> + Send + Sync + 'static,
+        pointer_x: Option<Signal<f32>>,
         run: impl Fn(MapCommand) -> MapOutcome + Send + Sync + 'static,
         sash: impl Fn(&Divider) -> bool + Send + Sync + 'static,
     ) -> Self {
         Self {
             inspect: Arc::new(inspect),
             signal: Arc::new(signal),
+            pointer_x,
             run: Arc::new(run),
             sash: Arc::new(sash),
         }
@@ -144,6 +159,9 @@ impl MapBinding {
     }
     pub fn observable(&self) -> Observable<MapSignal> {
         (self.signal)()
+    }
+    pub fn pointer_x(&self) -> Option<Signal<f32>> {
+        self.pointer_x.clone()
     }
     pub fn is_active(&self) -> bool {
         self.with(|d| d.is_some_and(|d| d.active))

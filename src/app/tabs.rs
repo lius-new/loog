@@ -170,8 +170,8 @@ pub fn render_tooltip(
     crate::ui::tabs::render_tooltip(viewport, strips, &frame(app), allowed)
 }
 
-pub(crate) fn render_dragged_tab(app: &AppState, pointer: Signal<Point>) -> Option<Element> {
-    crate::ui::tabs::render_dragged_tab(&frame(app), pointer)
+pub(crate) fn render_dragged_tab(app: &AppState, pointer_x: Signal<f32>) -> Option<Element> {
+    crate::ui::tabs::render_dragged_tab(&frame(app), pointer_x)
 }
 fn set_tab_scroll_x(app: &mut AppState, pane: PaneId, value: f32) -> bool {
     if (tab_scroll_x(app, pane) - value).abs() <= f32::EPSILON {
@@ -185,7 +185,7 @@ pub(crate) fn track_pointer(
     root: Element,
     state: &AppContext,
     regions: &[PaneRegion],
-    motion: Signal<Point>,
+    motion: Signal<f32>,
 ) -> Element {
     let regions: Arc<[PaneRegion]> = regions.into();
     let hover_regions = regions.clone();
@@ -271,7 +271,7 @@ fn update_drag(
     regions: &[PaneRegion],
     layouts: &mut DragLayouts,
     pointer: Point,
-    motion: Option<&Signal<Point>>,
+    motion: Option<&Signal<f32>>,
 ) -> bool {
     let Some(mut drag) = app.editor.tabs.tab_drag.take() else {
         return false;
@@ -301,7 +301,7 @@ fn update_drag(
         if drag.floating
             && let Some(motion) = motion
         {
-            motion.set(pointer);
+            motion.set(pointer.x);
         }
     }
     app.editor.tabs.tab_drag = Some(drag);
@@ -367,15 +367,12 @@ fn drag_drop_target(
             let slot_at =
                 |x| tab_layout::reorder_slot(&layout.items[..count], drag.source_index, x);
             let target = if drag.floating {
-                // Keep the live preview steady near the midpoint at which
-                // the center of the floating tab crosses a neighbor.
-                const HYSTERESIS: f32 = 4.0;
                 let center_x = content_x + (0.5 - drag.grab.x) * drag.preview_width;
-                slot_at(center_x - HYSTERESIS)
-                    .filter(|index| *index > drag.target_index)
-                    .or_else(|| {
-                        slot_at(center_x + HYSTERESIS).filter(|index| *index < drag.target_index)
-                    })
+                crate::ui::components::tab_motion::reorder_slot(
+                    drag.target_index,
+                    center_x,
+                    slot_at,
+                )
             } else {
                 slot_at(content_x)
             };
@@ -1092,7 +1089,7 @@ mod tests {
                 *capture.lock().unwrap() = Some(state.clone());
                 let app = state.get();
                 let pane = app.workspace.active_pane();
-                let motion = cx.signal(Point::default());
+                let motion = cx.signal(0.0_f32);
                 let focus = cx.focus_handle(UiId::new("drag-test-editor"));
                 let root = crate::app::shell::window_root(viewport).child(component(strip, {
                     let state = state.clone();
@@ -1244,13 +1241,25 @@ mod tests {
                 .transform
                 .translation_x()
         };
+        let float_y = |session: &UiSession| {
+            let tab = session.tree().node(&ghost).unwrap();
+            tab.layout_rect.top + tab.compositing_layer.unwrap().transform.translation_y()
+        };
         let first_x = float_x(&session);
+        assert!((float_y(&session) - strip.top).abs() < 0.001);
+        send(
+            &mut session,
+            InputEvent::PointerMove(PointerData::mouse(Point::new(center(0) + 12.0, y - 4.0))),
+        );
+        assert_eq!(float_x(&session), first_x);
+        assert!((float_y(&session) - strip.top).abs() < 0.001);
         let rendered = renders.load(Ordering::Relaxed);
         let commit = send(
             &mut session,
-            InputEvent::PointerMove(pointer(center(0) + 22.0)),
+            InputEvent::PointerMove(PointerData::mouse(Point::new(center(0) + 22.0, y - 4.0))),
         );
         assert_eq!(float_x(&session), first_x + 10.0);
+        assert!((float_y(&session) - strip.top).abs() < 0.001);
         assert_eq!(renders.load(Ordering::Relaxed), rendered);
         assert!(!commit.damage.dirty.is_empty());
         assert!(!commit.damage.dirty.is_full());

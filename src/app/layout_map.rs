@@ -5,10 +5,12 @@ use crate::app::state::AppState;
 use crate::app::terminal_binding::TerminalTabs;
 use crate::domain::application_layout::{ApplicationLayout, Content, Placement, Visibility};
 use crate::domain::pane_layout::{Axis, Direction};
-use crate::ui::terminal::layout_binding::{MapScene, MapSignal, StripDrag, TerminalDrag, Zone};
+use crate::ui::terminal::layout_binding::{
+    FloatingTab, MapScene, MapSignal, StripDrag, TerminalDrag, Zone,
+};
 #[cfg(test)]
 use crate::ui::theme;
-use lgui::core::{CursorIcon, Observable, ObservableListener, Point};
+use lgui::core::{CursorIcon, Observable, ObservableListener, Point, Signal};
 #[cfg(test)]
 use lgui::core::{LogicalKey, NamedKey};
 #[cfg(test)]
@@ -38,9 +40,17 @@ struct MapInner {
     revision: AtomicU64,
     listeners: Mutex<Vec<(u64, ObservableListener)>>,
     next_listener: AtomicU64,
+    pointer_x: Option<Signal<f32>>,
 }
 
 impl MapStore {
+    pub fn with_pointer_x(pointer_x: Signal<f32>) -> Self {
+        Self(Arc::new(MapInner {
+            pointer_x: Some(pointer_x),
+            ..MapInner::default()
+        }))
+    }
+
     pub fn with<R>(&self, f: impl FnOnce(Option<&TerminalDrag>) -> R) -> R {
         f(self.0.drag.lock().expect("map store poisoned").as_ref())
     }
@@ -84,6 +94,15 @@ impl MapStore {
             move || MapSignal {
                 revision: read.0.revision.load(Ordering::Acquire),
                 cursor: drag_cursor(&read),
+                floating: read.with(|drag| {
+                    let drag = drag.filter(|drag| drag.floating)?;
+                    Some(FloatingTab {
+                        strip: drag.strip.as_ref()?.rect,
+                        session: drag.session,
+                        index: drag.reorder?,
+                        grab_x: drag.grab_x,
+                    })
+                }),
             },
             move |listener| {
                 let inner = subscribe.0.clone();
@@ -107,7 +126,7 @@ impl MapStore {
 /// Borrow the app state without invalidating it.
 fn with_app<R>(state: &AppContext, f: impl FnOnce(&mut AppState) -> R) -> R {
     let mut out = None;
-    state.try_update(|app| {
+    state.model().try_update(|app| {
         out = Some(f(app));
         false
     });
@@ -127,11 +146,20 @@ pub fn begin(
     point: Point,
     strip: Option<StripDrag>,
 ) {
+    let source = strip.as_ref().and_then(|strip| {
+        let index = strip.tabs.iter().position(|(id, _, _)| *id == session)?;
+        let (_, left, right) = strip.tabs[index];
+        Some((index, (point.x - left).clamp(0.0, right - left)))
+    });
+    let (source_index, grab_x) = source.unwrap_or_default();
     map.update(|d| {
         *d = Some(TerminalDrag {
             session,
-            strip,
+            strip: strip.filter(|_| source.is_some()),
             reorder: None,
+            floating: false,
+            grab_x,
+            source_index,
             origin: point,
             point,
             active: false,
@@ -368,12 +396,12 @@ pub fn refresh(app: &AppState, map: &MapStore, viewport: UiRect, sessions: Vec<u
         stale || changed
     })
 }
-pub fn update_pointer(
+fn update_pointer(
     app: &AppState,
     map: &MapStore,
     point: Point,
     viewport: UiRect,
-    sessions: Vec<u64>,
+    sessions: impl FnOnce() -> Vec<u64>,
 ) -> bool {
     // Only a visible change notifies the overlay; plain movement inside the
     // same zone is recorded silently.
@@ -382,26 +410,48 @@ pub fn update_pointer(
             return false;
         };
         drag.point = point;
-        if drag.active {
-            return false;
-        }
-        let moved = (point.x - drag.origin.x).hypot(point.y - drag.origin.y) >= 5.0;
-        // Staying inside the pressed strip reorders its tabs; the map only
-        // opens once the pointer leaves it.
-        if let Some(strip) = drag.strip.as_ref().filter(|s| s.holds(point)) {
+        let moved = (point.x - drag.origin.x).hypot(point.y - drag.origin.y)
+            >= crate::ui::tabs::DRAG_THRESHOLD;
+        // Once the map is open, return to the reorder preview when the
+        // pointer enters the tab strip itself. Before that, retain the
+        // legacy drop tolerance around the strip.
+        if let Some(strip) = drag
+            .strip
+            .as_ref()
+            .filter(|s| s.viewport.contains(point) || (!drag.active && s.holds(point)))
+        {
             if drag.reorder.is_none() && !moved {
                 return false;
             }
-            let target = Some(strip.target(drag.session, point.x));
-            let changed = drag.reorder != target;
-            drag.reorder = target;
+            let floating = strip.viewport.contains(point);
+            let current = drag.reorder.unwrap_or(drag.source_index);
+            let slot_at = |x| strip.target(drag.source_index, x);
+            let target = if floating {
+                let (_, left, right) = strip.tabs[drag.source_index];
+                let center = point.x - drag.grab_x + (right - left) / 2.0;
+                if let Some(pointer_x) = &map.0.pointer_x {
+                    pointer_x.set(point.x);
+                }
+                crate::ui::components::tab_motion::reorder_slot(current, center, |x| {
+                    Some(slot_at(x))
+                })
+                .unwrap_or(current)
+            } else {
+                slot_at(point.x)
+            };
+            let changed = drag.active || drag.reorder != Some(target) || drag.floating != floating;
+            drag.active = false;
+            drag.reorder = Some(target);
+            drag.floating = floating;
             return changed;
         }
-        if moved {
+        if moved && !drag.active {
             drag.reorder = None;
+            drag.floating = false;
             drag.active = true;
+            return true;
         }
-        moved
+        false
     });
     let (pending, reordering) = map.with(|d| {
         (
@@ -409,7 +459,7 @@ pub fn update_pointer(
             d.is_some_and(|d| d.reorder.is_some()),
         )
     });
-    pending && ((!reordering && refresh(app, map, viewport, sessions)) | activated)
+    pending && ((!reordering && refresh(app, map, viewport, sessions())) | activated)
 }
 /// Return whether a drag was consumed and which session should receive focus.
 pub fn finish(
@@ -452,6 +502,7 @@ pub fn finish(
 }
 pub fn drag_cursor(map: &MapStore) -> CursorIcon {
     map.with(|d| match d.filter(|d| d.active || d.reorder.is_some()) {
+        Some(d) if d.floating => CursorIcon::Pointer,
         Some(d) if d.reorder.is_some() => CursorIcon::Move,
         Some(d)
             if d.scene
@@ -481,13 +532,16 @@ pub(crate) fn binding(
     MapBinding::new(
         move |read| inspect.with(read),
         move || observed.observable(),
+        map.0.pointer_x.clone(),
         move |command| {
-            let ids = sessions
-                .get()
-                .tabs()
-                .iter()
-                .map(|t| t.id)
-                .collect::<Vec<_>>();
+            let ids = || {
+                sessions
+                    .get()
+                    .tabs()
+                    .iter()
+                    .map(|tab| tab.id)
+                    .collect::<Vec<_>>()
+            };
             let result = match command {
                 MapCommand::Cancel => {
                     return MapOutcome {
@@ -500,7 +554,7 @@ pub(crate) fn binding(
                     point,
                     strip,
                 } => {
-                    if sessions.get().tabs().iter().any(|tab| tab.id == session) {
+                    if ids().contains(&session) {
                         target.update(|app| {
                             if app.layout.application_layout.is_some() {
                                 begin(app, &operated, session, point, strip);
@@ -511,7 +565,7 @@ pub(crate) fn binding(
                 }
                 MapCommand::Pointer { point, viewport } => {
                     with_app(&target, |app| {
-                        update_pointer(app, &operated, point, viewport, ids.clone());
+                        update_pointer(app, &operated, point, viewport, ids);
                     });
                     return MapOutcome {
                         consumed: operated.is_active(),
@@ -531,7 +585,7 @@ pub(crate) fn binding(
                         // A reorder changes the layout, so it must invalidate the app.
                         let mut result = (true, None);
                         target.update(|app| {
-                            result = finish(app, &operated, point, viewport, &ids.clone());
+                            result = finish(app, &operated, point, viewport, &ids());
                         });
                         if let Some(id) = result.1 {
                             sessions.update(|tabs| tabs.select(id));
@@ -542,7 +596,7 @@ pub(crate) fn binding(
                         };
                     } else {
                         with_app(&target, |app| {
-                            finish(app, &operated, point, viewport, &ids.clone())
+                            finish(app, &operated, point, viewport, &ids())
                         })
                     }
                 }
@@ -559,7 +613,7 @@ pub(crate) fn binding(
                     }
                     let mut result = (true, None);
                     target.try_update(|app| {
-                        result = finish(app, &operated, point, viewport, &ids.clone());
+                        result = finish(app, &operated, point, viewport, &ids());
                         result.1.is_some()
                     });
                     result
@@ -648,6 +702,7 @@ pub(crate) fn render_divider(
     let map = crate::ui::terminal::layout_binding::MapBinding::new(
         |read| read(None),
         || MapStore::default().observable(),
+        None,
         move |command| {
             use crate::ui::terminal::layout_binding::MapCommand;
             match command {
@@ -724,7 +779,7 @@ mod tests {
         app.layout.application_layout = Some(layout);
         let map = MapStore::default();
         begin(&mut app, &map, 1, Point::new(10.0, 600.0), None);
-        update_pointer(&app, &map, center(r), r, vec![1, 2]);
+        update_pointer(&app, &map, center(r), r, || vec![1, 2]);
         (app, map, r)
     }
     fn scene_of(map: &MapStore) -> MapScene {
@@ -772,10 +827,10 @@ mod tests {
         let revision = || map.observable().read().revision;
         let scene = scene_of(&map);
         let body = center(scene.zones.iter().find(|z| z.center).unwrap().rect);
-        update_pointer(&app, &map, body, r, vec![1, 2]);
+        update_pointer(&app, &map, body, r, || vec![1, 2]);
         let before = revision();
         let nudge = Point::new(body.x + 1.0, body.y + 1.0);
-        assert!(!update_pointer(&app, &map, nudge, r, vec![1, 2]));
+        assert!(!update_pointer(&app, &map, nudge, r, || vec![1, 2]));
         assert_eq!(revision(), before);
         assert_eq!(map.snapshot().unwrap().point, nudge);
         let edge = scene
@@ -784,7 +839,7 @@ mod tests {
             .find(|z| z.placement == Placement::Outer(Direction::Left))
             .unwrap()
             .rect;
-        assert!(update_pointer(&app, &map, center(edge), r, vec![1, 2]));
+        assert!(update_pointer(&app, &map, center(edge), r, || vec![1, 2]));
         assert_eq!(revision(), before + 1);
         assert_eq!(drag_cursor(&map), CursorIcon::Move);
     }
@@ -798,7 +853,7 @@ mod tests {
             .find(|z| z.placement == Placement::Side(3, Direction::Right))
             .unwrap()
             .clone();
-        update_pointer(&app, &map, center(target.rect), r, vec![1, 2]);
+        update_pointer(&app, &map, center(target.rect), r, || vec![1, 2]);
         assert_eq!(app.layout.application_layout, original);
         let elsewhere = scene_of(&map)
             .zones
@@ -835,7 +890,7 @@ mod tests {
                 .unwrap()
                 .rect;
             let point = center(zone);
-            update_pointer(&app, &map, point, r, vec![1, 2]);
+            update_pointer(&app, &map, point, r, || vec![1, 2]);
             let (point, ids) = match mode {
                 0 => (Point::new(20.0, 20.0), vec![1, 2]),
                 2 => (point, vec![2]),
@@ -856,7 +911,7 @@ mod tests {
         assert_ne!(&before.unwrap().cells, &after.cells);
         assert_eq!(after.viewport, resized);
         begin(&mut app, &map, 1, Point::new(10.0, 10.0), None);
-        update_pointer(&app, &map, Point::new(12.0, 12.0), r, vec![1, 2]);
+        update_pointer(&app, &map, Point::new(12.0, 12.0), r, || vec![1, 2]);
         assert!(!map.snapshot().unwrap().active);
         assert!(map.snapshot().unwrap().scene.is_some());
         assert_eq!(
@@ -880,7 +935,7 @@ mod tests {
             .unwrap();
         app.layout.application_layout = Some(plan.layout);
         begin(&mut app, &map, 2, Point::new(30.0, 600.0), None);
-        update_pointer(&app, &map, center(r), r, vec![1, 2]);
+        update_pointer(&app, &map, center(r), r, || vec![1, 2]);
         let scene = scene_of(&map);
         let nested = scene.zones.iter().find(|z| matches!(z.placement, Placement::Between { split, .. } if split != 5 && split != 6)).unwrap();
         let junction = Point::new(
@@ -900,9 +955,11 @@ mod tests {
         let mut layout = ApplicationLayout::initial(r.into(), 220.0, 220.0, 240.0);
         layout.sync(&[(1, 1), (2, 2), (3, 3)], Some(1));
         app.layout.application_layout = Some(layout);
+        let rect = UiRect::new(0.0, 600.0, 400.0, 630.0);
         let strip = StripDrag {
-            rect: UiRect::new(0.0, 600.0, 400.0, 630.0),
-            tabs: vec![(1, 10.0, 110.0), (2, 114.0, 214.0), (3, 218.0, 318.0)],
+            rect,
+            viewport: rect,
+            tabs: [(1, 10.0, 110.0), (2, 114.0, 214.0), (3, 218.0, 318.0)].into(),
         };
         (app, r, strip)
     }
@@ -920,14 +977,14 @@ mod tests {
         let map = MapStore::default();
         begin(&mut app, &map, 1, Point::new(50.0, 615.0), Some(strip));
         // Below the threshold nothing happens, so a click stays a click.
-        update_pointer(&app, &map, Point::new(52.0, 615.0), r, vec![1, 2, 3]);
+        update_pointer(&app, &map, Point::new(52.0, 615.0), r, || vec![1, 2, 3]);
         assert_eq!(map.snapshot().unwrap().reorder, None);
         // Past tab 2's centre but short of tab 3's: final index 1.
-        update_pointer(&app, &map, Point::new(170.0, 640.0), r, vec![1, 2, 3]);
+        update_pointer(&app, &map, Point::new(170.0, 640.0), r, || vec![1, 2, 3]);
         let drag = map.snapshot().unwrap();
         assert!(!drag.active);
         assert_eq!(drag.reorder, Some(1));
-        update_pointer(&app, &map, Point::new(350.0, 615.0), r, vec![1, 2, 3]);
+        update_pointer(&app, &map, Point::new(350.0, 615.0), r, || vec![1, 2, 3]);
         assert_eq!(map.snapshot().unwrap().reorder, Some(2));
         assert_eq!(
             finish(&mut app, &map, Point::new(350.0, 615.0), r, &[1, 2, 3]),
@@ -955,9 +1012,9 @@ mod tests {
         let (mut app, r, strip) = strip_app();
         let map = MapStore::default();
         begin(&mut app, &map, 1, Point::new(50.0, 615.0), Some(strip));
-        update_pointer(&app, &map, Point::new(170.0, 615.0), r, vec![1, 2, 3]);
+        update_pointer(&app, &map, Point::new(170.0, 615.0), r, || vec![1, 2, 3]);
         assert_eq!(map.snapshot().unwrap().reorder, Some(1));
-        update_pointer(&app, &map, Point::new(170.0, 300.0), r, vec![1, 2, 3]);
+        update_pointer(&app, &map, Point::new(170.0, 300.0), r, || vec![1, 2, 3]);
         let drag = map.snapshot().unwrap();
         assert!(drag.active);
         assert_eq!(drag.reorder, None);
@@ -972,7 +1029,7 @@ mod tests {
         let version = app.layout.application_layout.as_ref().unwrap().version;
         let map = MapStore::default();
         begin(&mut app, &map, 2, Point::new(160.0, 615.0), Some(strip));
-        update_pointer(&app, &map, Point::new(175.0, 615.0), r, vec![1, 2, 3]);
+        update_pointer(&app, &map, Point::new(175.0, 615.0), r, || vec![1, 2, 3]);
         assert_eq!(map.snapshot().unwrap().reorder, Some(1));
         finish(&mut app, &map, Point::new(175.0, 615.0), r, &[1, 2, 3]);
         let layout = app.layout.application_layout.as_ref().unwrap();
@@ -1009,7 +1066,7 @@ mod tests {
         layout = plan.layout;
         app.layout.application_layout = Some(layout);
         begin(&mut app, &map, 1, Point::new(30.0, 575.0), None);
-        update_pointer(&app, &map, center(r), r, vec![1, 2]);
+        update_pointer(&app, &map, center(r), r, || vec![1, 2]);
         let scene = scene_of(&map);
         let terminals = scene
             .cells
@@ -1037,13 +1094,17 @@ mod tests {
         use std::sync::{Arc, Mutex};
         let viewport = UiRect::new(0.0, 0.0, 1200.0, 800.0);
         let exposed = Arc::new(Mutex::new(
-            None::<(AppContext, crate::app::terminal_binding::TerminalStore)>,
+            None::<(
+                AppContext,
+                crate::app::terminal_binding::TerminalStore,
+                MapStore,
+            )>,
         ));
         let output = exposed.clone();
         let application = Arc::new(lgui::ApplicationHandle::new(|task| task(), || {}));
-        let map = MapStore::default();
-        let view_map = map.clone();
         let view: AppView = Arc::new(move |cx| {
+            let pointer_x = cx.signal(0.0_f32);
+            let view_map = cx.state_with(|| MapStore::with_pointer_x(pointer_x)).get();
             let tabs = crate::app::terminal_binding::test_store(cx, None, || {
                 let mut t = TerminalTabs::new();
                 t.split(1);
@@ -1062,7 +1123,7 @@ mod tests {
                 ));
                 a
             }));
-            *output.lock().unwrap() = Some((state.clone(), tabs.clone()));
+            *output.lock().unwrap() = Some((state.clone(), tabs.clone(), view_map.clone()));
             let t = tabs.get();
             let ids = t.tabs().iter().map(|t| t.id).collect::<Vec<_>>();
             state.update(|app| {
@@ -1167,20 +1228,24 @@ mod tests {
         });
         let mut session = UiSession::new();
         session.render_view(&view, viewport, UiScale::ONE);
-        let (state, tabs) = exposed.lock().unwrap().clone().unwrap();
+        let (state, tabs, map) = exposed.lock().unwrap().clone().unwrap();
         let context = ApplicationContext::empty(Default::default());
         let send = |session: &mut UiSession, input| {
-            dispatch_runtime_output(
+            let output = dispatch_runtime_output(
                 session.handle_input(input),
                 &context,
                 &lgui::window::WindowId::new("layout-test"),
                 |a| session.handle_default_action(a),
                 |_| {},
             );
-            session.render_view(&view, viewport, UiScale::ONE);
+            if let Some(bounds) = output.dirty_bounds {
+                session.invalidations_mut().invalidate_rect(bounds);
+            }
+            let commit = session.render_view(&view, viewport, UiScale::ONE);
             // The release frame distinguishes normal Up from the framework's
             // synthetic Up on cancellation, then paints the committed model.
             session.render_view(&view, viewport, UiScale::ONE);
+            commit
         };
         let down = |p| InputEvent::PointerDown {
             pointer: PointerData::mouse(p),
@@ -1262,6 +1327,85 @@ mod tests {
             (select.left + select.right) / 2.0,
             (select.top + select.bottom) / 2.0,
         );
+        let floating_id = UiId::new("terminal-dragged-tab");
+        let tab2 = UiId::new("terminal-tab-2");
+        let other_bounds = session.tree().node(&tab2).unwrap().layout_rect;
+        let move_to = |point| InputEvent::PointerMove(PointerData::mouse(point));
+        send(&mut session, down(header));
+        send(&mut session, move_to(Point::new(header.x + 8.0, header.y)));
+        let floating_x = |session: &UiSession| {
+            session
+                .tree()
+                .node(&floating_id)
+                .unwrap()
+                .compositing_layer
+                .unwrap()
+                .transform
+                .translation_x()
+        };
+        let x = floating_x(&session);
+        let floating_y = |session: &UiSession| {
+            let tab = session.tree().node(&floating_id).unwrap();
+            tab.layout_rect.top + tab.compositing_layer.unwrap().transform.translation_y()
+        };
+        assert_eq!(floating_y(&session), select.top);
+        let other_layer = |session: &UiSession| {
+            let tab = session.tree().node(&tab2).unwrap();
+            session
+                .tree()
+                .node(tab.parent.as_ref().unwrap())
+                .unwrap()
+                .compositing_layer
+        };
+        assert!(
+            other_layer(&session).is_none(),
+            "stationary tabs keep direct text painting"
+        );
+        let styling = theme::c().active_tab;
+        let floating = session.tree().node(&floating_id).unwrap();
+        let background = session.tree().node(&floating.children[0]).unwrap();
+        assert_eq!(background.style.fill, Some(styling));
+        send(
+            &mut session,
+            move_to(Point::new(header.x + 8.0, header.y - 4.0)),
+        );
+        assert_eq!(floating_x(&session), x);
+        assert_eq!(floating_y(&session), select.top);
+        let motion = send(
+            &mut session,
+            move_to(Point::new(header.x + 18.0, header.y - 4.0)),
+        );
+        assert_eq!(floating_x(&session), x + 10.0);
+        assert_eq!(floating_y(&session), select.top);
+        assert!(!motion.damage.dirty.is_empty() && !motion.damage.dirty.is_full());
+
+        let swap_at = Point::new(other_bounds.right - 12.0, header.y);
+        send(&mut session, move_to(swap_at));
+        assert_eq!(map.snapshot().unwrap().reorder, Some(1));
+        assert_eq!(strip_order(&state.get()), vec![1, 2]);
+        std::thread::sleep(std::time::Duration::from_millis(130));
+        assert!(session.advance(130.0).animation_changed);
+        session.render_view(&view, viewport, UiScale::ONE);
+        assert!(other_layer(&session).unwrap().transform.translation_x() < 0.0);
+
+        send(&mut session, move_to(Point::new(600.0, 400.0)));
+        assert!(map.is_active());
+        assert!(session.tree().node(&floating_id).is_none());
+        send(&mut session, move_to(swap_at));
+        assert!(!map.is_active());
+        assert!(session.tree().node(&floating_id).is_some());
+        send(&mut session, up(swap_at));
+        assert_eq!(strip_order(&state.get()), vec![2, 1]);
+        assert!(session.tree().node(&floating_id).is_none());
+        state.update(|app| {
+            app.layout
+                .application_layout
+                .as_mut()
+                .unwrap()
+                .reorder_terminal(1, 0);
+        });
+        session.render_view(&view, viewport, UiScale::ONE);
+
         // An ordinary click retains text-input focus without invoking layout.
         send(&mut session, down(header));
         send(&mut session, up(header));

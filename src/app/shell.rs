@@ -12,7 +12,7 @@ use std::thread;
 use std::time::Duration;
 
 use lgui::ApplicationHandle;
-use lgui::core::{Point, UiElement, UiEventKind, UiEventPayload, UiId};
+use lgui::core::{UiElement, UiEventKind, UiEventPayload, UiId};
 use lgui::prelude::{Element, RenderCx, UiRect, VisualStyle, component, group};
 use lgui::services::ServicesContextExt;
 use lgui::window::WindowFocusChanged;
@@ -44,10 +44,13 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         .with_runtime(&runtime);
     let git_store = cx.state_with(GitStoreSnapshot::default);
     // Never updated through `State`, so map changes never re-render the app.
-    let layout_map_store = cx.state_with(layout_map::MapStore::default).get();
+    let terminal_drag_x = cx.signal(0.0_f32);
+    let layout_map_store = cx
+        .state_with(|| layout_map::MapStore::with_pointer_x(terminal_drag_x))
+        .get();
     // The tree row under the pointer: a signal, so moving between rows re-renders nothing.
     let explorer_hover = cx.signal(None::<String>);
-    let tab_drag_pointer = cx.signal(Point::default());
+    let tab_drag_x = cx.signal(0.0_f32);
     let git_poll_control = runtime.git_poll_control();
     let terminal_tabs = cx.state_with(|| terminal_effects::restored(workspace_persistence::load()));
     let terminal_tabs = terminal_effects::bind(terminal_tabs, &runtime, &state);
@@ -1320,7 +1323,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         }
     });
 
-    root = super::tabs::track_pointer(root, &state, &regions, tab_drag_pointer.clone());
+    root = super::tabs::track_pointer(root, &state, &regions, tab_drag_x.clone());
 
     // A release that never arrived must not drop a stale file on the next
     // click; a file row press records a fresh drag after this runs.
@@ -2018,7 +2021,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         );
     }
 
-    if let Some(tab) = super::tabs::render_dragged_tab(&s, tab_drag_pointer) {
+    if let Some(tab) = super::tabs::render_dragged_tab(&s, tab_drag_x) {
         drag_feedback = drag_feedback.child(tab);
     }
     root = root.child(drag_feedback);
