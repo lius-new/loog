@@ -153,6 +153,9 @@ fn paint(
             .hit_rect(UiRect::new(0.0, 0.0, 0.0, 0.0))
             .children(cx.children)
     });
+    let selection = git
+        .map(|commands| commands.get().ui.commit_selection)
+        .unwrap_or_default();
     let mut targets = Vec::new();
     let mut anchors = clip(rect, 0.0, 0.0);
     let mut preview = None;
@@ -240,20 +243,21 @@ fn paint(
             if let Some(git) = git
                 && let Some(&block) = item.document.blocks.get(block_index)
             {
+                // Staging is gone: a box right of the revert arrow chooses the block
+                // for the next commit.
+                let chooses = item.document.target == DiffTarget::HeadToWorktree;
                 let actions: &[(BlockAction, &str, &str)] =
                     if item.document.target == DiffTarget::HeadToIndex {
-                        &[(BlockAction::Unstage, "←", "Unstage change")]
+                        &[]
                     } else {
-                        &[
-                            (BlockAction::Discard, "←", "Revert change"),
-                            (BlockAction::Stage, "→", "Stage change"),
-                        ]
+                        &[(BlockAction::Discard, "←", "Revert change")]
                     };
+                let slots = actions.len() + usize::from(chooses);
                 let top =
                     ((ends[0].0 + ends[0].1 + ends[1].0 + ends[1].1) / 4.0 - 10.0).max(rect.top);
                 for (index, &(action, arrow, label)) in actions.iter().enumerate() {
                     let left = columns.bridge.left
-                        + (columns.bridge.width() - actions.len() as f32 * 22.0) / 2.0
+                        + (columns.bridge.width() - slots as f32 * 22.0) / 2.0
                         + index as f32 * 22.0;
                     let button = UiRect::new(left, top, left + 20.0, top + 20.0);
                     let bordered =
@@ -305,6 +309,28 @@ fn paint(
                                 theme::mono(theme::c().text_soft, theme::SMALL).centered(),
                             )),
                     );
+                }
+                if chooses {
+                    let left = columns.bridge.left
+                        + (columns.bridge.width() - slots as f32 * 22.0) / 2.0
+                        + actions.len() as f32 * 22.0;
+                    let path = item.document.path.clone();
+                    let blocks = item.document.blocks.clone();
+                    let taken = selection.takes_block(&path, false, &block);
+                    let choose_commands = git.clone();
+                    actions_layer = actions_layer.child(crate::ui::diff_editor::block_check(
+                        UiRect::new(left, top, left + 20.0, top + 20.0),
+                        format!("diff-block-{}-{block_index}-choose", item.index),
+                        taken,
+                        move || {
+                            let (path, blocks) = (path.clone(), blocks.clone());
+                            choose_commands.update(move |app| {
+                                app.ui
+                                    .commit_selection
+                                    .toggle_block(path, false, block, &blocks)
+                            });
+                        },
+                    ));
                 }
             }
             let hovered = controls.as_ref().is_some_and(|controls| {

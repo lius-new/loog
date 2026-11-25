@@ -325,7 +325,7 @@ fn progressive_diff_actual_open_publishes_selected_file_before_completion() {
     let selected = DiffRequest {
         repository_root: root,
         path: "a.txt".into(),
-        target: DiffTarget::IndexToWorktree,
+        target: DiffTarget::HeadToWorktree,
     };
     open_changes(&harness.state, selected.clone(), false, snapshot);
     harness.wait(|app| app.workspace.active_diff().is_some());

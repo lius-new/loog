@@ -403,6 +403,18 @@ mod panel_virtualization_tests {
         let (state, store) = exposed.lock().unwrap().clone().unwrap();
         state.update(|app| app.git.ui.commit_input.set_text("feat"));
         session.render_view(&view, viewport, UiScale::ONE);
+        // The Changes header stays where it is while the rows scroll beneath it.
+        let header = named(&session, "Changes").unwrap();
+        state.update(|app| app.git.ui.scroll = 400.0);
+        session.render_view(&view, viewport, UiScale::ONE);
+        assert_eq!(named(&session, "Changes").unwrap(), header);
+        state.update(|app| app.git.ui.tree_view = true);
+        state.update(|app| app.git.ui.scroll = 300.0);
+        session.render_view(&view, viewport, UiScale::ONE);
+        save_drawer_preview(&session, &context, viewport, "git-drawer-sticky");
+        state.update(|app| app.git.ui.tree_view = false);
+        state.update(|app| app.git.ui.scroll = 0.0);
+        session.render_view(&view, viewport, UiScale::ONE);
         let input = named(&session, "Commit message").unwrap();
         assert!(input.height() >= 50.0);
         assert_eq!(
@@ -528,6 +540,7 @@ mod panel_virtualization_tests {
                         active,
                         hovered,
                         false,
+                        crate::features::git::commit_selection::CheckState::Unchecked,
                         Default::default(),
                         "loog".into(),
                         binding.clone(),
@@ -742,11 +755,26 @@ mod panel_virtualization_tests {
                 send(session, event);
             }
         };
-        activate(&mut session, "Stage src/ui/panel.rs");
-        activate(&mut session, "Unstage src/ui/state.rs");
+        // The boxes choose what is committed and run no Git command.
+        activate(&mut session, "Leave out of commit src/ui/panel.rs");
+        assert!(commands.lock().unwrap().is_empty());
         assert_eq!(
-            *commands.lock().unwrap(),
-            ["stage:src/ui/panel.rs", "unstage:src/ui/state.rs"]
+            state
+                .get()
+                .ui
+                .commit_selection
+                .choice(std::path::Path::new("src/ui/panel.rs"), false),
+            crate::features::git::commit_selection::CommitChoice::Excluded
+        );
+        activate(&mut session, "Include in commit src/ui/panel.rs");
+        assert!(
+            state
+                .get()
+                .ui
+                .commit_selection
+                .targets([(std::path::Path::new("src/ui/panel.rs"), false)].into_iter())
+                .whole
+                == [PathBuf::from("src/ui/panel.rs")]
         );
         // The header's controls act on their own and never collapse the section.
         let grouped = state.get().ui.tree_view;
@@ -2882,6 +2910,7 @@ mod panel_action_tests {
                         false,
                         true,
                         false,
+                        crate::features::git::commit_selection::CheckState::Unchecked,
                         Default::default(),
                         "repo".into(),
                         crate::app::git_view::binding(&state, &store),
@@ -3182,11 +3211,9 @@ mod panel_action_tests {
 
     #[test]
     fn each_section_offers_its_actions() {
-        assert_eq!(section_actions(STAGED), [RowAction::Unstage]);
-        assert_eq!(
-            section_actions(UNSTAGED),
-            [RowAction::Discard, RowAction::Stage]
-        );
+        // Nothing stages from the list: the checkboxes choose what is committed.
+        assert!(section_actions(STAGED).is_empty());
+        assert_eq!(section_actions(UNSTAGED), [RowAction::Discard]);
         assert!(section_actions(CONFLICTS).is_empty());
         assert_eq!(
             file_actions(CONFLICTS),
@@ -3768,19 +3795,14 @@ mod menu_tests {
     fn file_menus_offer_the_section_actions() {
         let app = AppState::new();
         assert!(
-            labels(&file(STAGED), &app)
-                .iter()
-                .any(|label| label == "Unstage Changes")
-        );
-        assert!(
             !labels(&file(STAGED), &app)
                 .iter()
-                .any(|label| label == "Discard Changes")
+                .any(|label| label == "Discard Changes" || label.contains("Stage"))
         );
         let unstaged = labels(&file(UNSTAGED), &app);
         assert!(
-            unstaged.iter().any(|label| label == "Stage Changes")
-                && unstaged.iter().any(|label| label == "Discard Changes")
+            unstaged.iter().any(|label| label == "Discard Changes")
+                && !unstaged.iter().any(|label| label.contains("Stage"))
         );
         assert!(
             labels(&file(UNTRACKED), &app)

@@ -680,6 +680,11 @@
       "migrated_in": "Git history branches",
       "reason": "Scroll position of the history branch list"
     },
+    "commit_selection": {
+      "owner": "ui/git/state",
+      "migrated_in": "commit targets",
+      "reason": "The files and change blocks the next commit takes"
+    },
     "composer_shown": {
       "owner": "ui/git/state",
       "migrated_in": "commit composer animation",

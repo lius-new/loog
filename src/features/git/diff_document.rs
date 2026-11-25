@@ -390,12 +390,13 @@ impl DiffDocument {
 
         let split_rows = build_split_rows(&rows);
         let metrics = DiffMetrics::new(&rows, &split_rows);
-        // Only the index and worktree can take a single change back.
+        // Only the index and worktree can take a single change back, and the
+        // commit chooses blocks of the change against HEAD.
         let blocks = if !binary
             && !encoded
             && matches!(
                 target,
-                DiffTarget::HeadToIndex | DiffTarget::IndexToWorktree
+                DiffTarget::HeadToIndex | DiffTarget::IndexToWorktree | DiffTarget::HeadToWorktree
             ) {
             change_blocks(&rows)
         } else {
@@ -584,7 +585,7 @@ impl DiffDocument {
 
 /// A run of changed lines, numbered as a zero-context hunk header numbers
 /// it: an empty side starts at the line before the change.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ChangeBlock {
     pub old_start: usize,
     pub old_lines: usize,

@@ -227,22 +227,21 @@ impl RepositorySnapshot {
         let mut entries = Vec::new();
         for (group, target) in [
             (ChangeGroup::Conflicts, DiffTarget::HeadToWorktree),
-            (ChangeGroup::Staged, DiffTarget::HeadToIndex),
-            (ChangeGroup::Unstaged, DiffTarget::IndexToWorktree),
+            // Every tracked change shows once, against HEAD, as the commit sees it.
+            (ChangeGroup::Unstaged, DiffTarget::HeadToWorktree),
             (ChangeGroup::Untracked, DiffTarget::IndexToWorktree),
         ] {
             entries.extend(self.files.iter().filter_map(|(path, file)| {
                 let included = match group {
                     ChangeGroup::Conflicts => file.conflict.is_some(),
-                    ChangeGroup::Staged => {
-                        file.conflict.is_none() && file.index != ChangeKind::Unmodified
-                    }
+                    ChangeGroup::Staged => false,
                     ChangeGroup::Unstaged => {
                         file.conflict.is_none()
-                            && !matches!(
-                                file.worktree,
-                                ChangeKind::Unmodified | ChangeKind::Untracked
-                            )
+                            && (file.index != ChangeKind::Unmodified
+                                || !matches!(
+                                    file.worktree,
+                                    ChangeKind::Unmodified | ChangeKind::Untracked
+                                ))
                     }
                     ChangeGroup::Untracked => file.worktree == ChangeKind::Untracked,
                     ChangeGroup::Commit => false,

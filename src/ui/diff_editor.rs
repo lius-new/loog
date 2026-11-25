@@ -685,13 +685,13 @@ fn block_buttons(
     _state: &Binding,
     git_commands: &GitBinding,
 ) -> Element {
+    // Staging is gone: a box beside Discard chooses the block for the next commit.
     let actions: &[(BlockAction, &str)] = match document.target {
-        DiffTarget::HeadToIndex => &[(BlockAction::Unstage, "Unstage")],
-        _ => &[
-            (BlockAction::Discard, "Discard"),
-            (BlockAction::Stage, "Stage"),
-        ],
+        DiffTarget::HeadToIndex => &[],
+        _ => &[(BlockAction::Discard, "Discard")],
     };
+    let chooses = document.target == DiffTarget::HeadToWorktree;
+    let selection = git_commands.get().ui.commit_selection;
     let mut layer = clip(rect, 0.0, 0.0);
     for (&row, &block) in starts.iter().zip(&document.blocks) {
         let top = rect.top + row as f32 * row_h() - scroll_y;
@@ -734,6 +734,30 @@ fn block_buttons(
                     })
                     .child(text(button, label, style)),
             );
+        }
+        if chooses {
+            let path = document.path.clone();
+            let blocks = document.blocks.clone();
+            let taken = selection.takes_block(&path, false, &block);
+            let choose_commands = git_commands.clone();
+            layer = layer.child(block_check(
+                UiRect::new(
+                    right - (row_h() - 4.0),
+                    top + 2.0,
+                    right,
+                    top + row_h() - 2.0,
+                ),
+                format!("diff-block-{}-{row}-choose", document.path.display()),
+                taken,
+                move || {
+                    let (path, blocks) = (path.clone(), blocks.clone());
+                    choose_commands.update(move |app| {
+                        app.ui
+                            .commit_selection
+                            .toggle_block(path, false, block, &blocks)
+                    });
+                },
+            ));
         }
     }
     layer
@@ -1166,4 +1190,49 @@ pub(crate) fn current_change_number(starts: &[usize], current_line: usize) -> Op
             .rposition(|start| *start <= current_line)
             .map_or(1, |index| index + 1),
     )
+}
+
+/// The box that chooses a change block for the next commit. It is built the
+/// way the Discard and revert buttons beside it are, a one pixel border round a
+/// face, on the very same rect, so it is exactly their height (and, in the
+/// split view, their width). Chosen, the face is the accent colour.
+pub(crate) fn block_check(
+    rect: UiRect,
+    key: String,
+    taken: bool,
+    action: impl Fn() + Send + Sync + 'static,
+) -> Element {
+    let c = theme::c();
+    let mut semantics =
+        Semantics::new(SemanticRole::CheckBox).name("Include this change in the commit");
+    semantics.state.checked = Some(taken);
+    let mut button = theme::bordered(
+        rect,
+        if taken { c.accent } else { c.bg },
+        c.border,
+        3.0,
+        1.0,
+    )
+    .key(key.clone())
+    .event_policy(EventPolicy::INTERACTIVE)
+    .semantics(semantics)
+    .cursor(CursorIcon::Pointer)
+    .on_click(move |cx: &mut lgui::core::UiEventContext| {
+        action();
+        cx.stop_propagation();
+    });
+    if taken {
+        button = button.child(crate::ui::drawer::drawer_icon(
+            UiId::owned(format!("{key}-check")),
+            "check",
+            UiRect::new(
+                rect.left + 3.0,
+                rect.top + 3.0,
+                rect.right - 3.0,
+                rect.bottom - 3.0,
+            ),
+            c.on_accent,
+        ));
+    }
+    button
 }

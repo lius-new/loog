@@ -47,7 +47,6 @@ pub enum GitConfirmAction {
         tracked: Vec<PathBuf>,
         untracked: Vec<PathBuf>,
     },
-    StageAllAndCommit,
     StageConflicted {
         paths: Vec<PathBuf>,
     },
@@ -147,9 +146,6 @@ pub(crate) fn resolve(state: &Binding, confirmed: bool) {
                 tracked,
                 untracked,
             });
-        }
-        GitConfirmAction::StageAllAndCommit => {
-            state.dispatch(Command::CommitAll);
         }
         GitConfirmAction::StageConflicted { paths } => {
             state.dispatch(Command::StageConflicted { paths });

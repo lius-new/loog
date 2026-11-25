@@ -9,6 +9,7 @@ use lgui::core::{
 };
 use lgui::prelude::{Element, UiRect, VisualStyle, panel, text};
 
+use crate::features::git::commit_selection::{CheckState, CommitChoice};
 use crate::features::git::model::{ExpandedCommit, GitHistory};
 use crate::features::git::{
     ChangeKind, CommitSummary, ConflictSide, DiffTarget, FileState, RepositorySnapshot,
@@ -35,6 +36,9 @@ pub(crate) const CHANGE_ROW_H: f32 = 24.0;
 /// How far each folder level of a grouped change section is indented.
 const TREE_INDENT: f32 = 14.0;
 pub(crate) const SECTION_H: f32 = 26.0;
+/// Space above the Changes header and between it and the first row.
+const HEADER_TOP_PAD: f32 = 4.0;
+const LIST_TOP_PAD: f32 = 2.0;
 pub(crate) const ROW_H: f32 = 20.0;
 
 /// Whether the commit composer shows its message box and button: while it has
@@ -234,65 +238,17 @@ pub(crate) fn scroll_region(
     viewport
 }
 
-struct SectionHeader {
-    rect: UiRect,
-    filter: u8,
-    title: &'static str,
-    collapsed: bool,
-    buttons: Vec<RowButton>,
-    count: usize,
-    changes: Option<ChangesInfo>,
-}
-
 /// What the Changes header needs beyond a plain section header.
 struct ChangesInfo {
-    /// Every change is staged.
-    all_staged: bool,
-    /// Paths a click on the checkbox stages, or unstages when all are staged.
-    stage_paths: Vec<PathBuf>,
-    unstage_paths: Vec<PathBuf>,
-    enabled: bool,
+    /// How much of what the list shows the next commit takes.
+    check: CheckState,
+    /// Every file the box stands for, with whether it is new to Git.
+    files: Vec<(PathBuf, bool)>,
     ahead: u32,
     behind: u32,
     /// The branch has no upstream yet, so pushing publishes it.
     publish: bool,
     grouped: bool,
-}
-
-/// Paint headers above their rows, keeping each scrolled section in its own
-/// stacked slot. Hover targets use the same content-space rectangles.
-fn append_section_headers(
-    viewport: UiRect,
-    scroll: f32,
-    headers: Vec<SectionHeader>,
-    content: &mut Vec<Element>,
-    hover_targets: &mut Vec<(UiRect, GitHover)>,
-    state: &Binding,
-) {
-    let mut targets = Vec::with_capacity(headers.len() + hover_targets.len());
-    for (index, header) in headers.into_iter().enumerate() {
-        let top = header
-            .rect
-            .top
-            .max(viewport.top + scroll + index as f32 * SECTION_H);
-        let rect = UiRect::new(header.rect.left, top, header.rect.right, top + SECTION_H);
-        targets.push((rect, GitHover::Section(header.filter)));
-        let element = match header.changes {
-            Some(info) => changes_header(rect, header.collapsed, info, state.clone()),
-            None => section_header(
-                rect,
-                header.filter,
-                header.title,
-                header.collapsed,
-                header.buttons,
-                header.count,
-                state.clone(),
-            ),
-        };
-        content.push(element);
-    }
-    targets.append(hover_targets);
-    *hover_targets = targets;
 }
 
 pub fn render(
@@ -408,66 +364,84 @@ fn render_local(
         (title, filter, files, rows)
     });
     let section_height = |filter: u8, rows: usize| {
-        SECTION_H
-            + if app.ui.collapsed_sections.contains(&filter) {
-                0.0
-            } else {
-                rows as f32 * CHANGE_ROW_H
-            }
+        if app.ui.collapsed_sections.contains(&filter) {
+            0.0
+        } else {
+            rows as f32 * CHANGE_ROW_H
+        }
     };
-    let changes_height = 8.0
+    let changes_height = LIST_TOP_PAD
         + change_sections
             .iter()
             .filter(|(_, filter, files, _)| show_section(*filter, files.is_empty()))
             .map(|(_, filter, _, rows)| section_height(*filter, rows.len()) + 10.0)
             .sum::<f32>();
-    let (content_rect, prompt_rect) = drawer_regions(
+    let (area_rect, prompt_rect) = drawer_regions(
         body_rect,
         changes_height,
         crate::features::git::operation::operation_text(repository.repository_state).is_some(),
         composer_progress(&app.ui),
     );
+    // The Changes header stays put; only the rows below it scroll.
+    let header_rect = UiRect::new(
+        area_rect.left,
+        (area_rect.top + HEADER_TOP_PAD).min(area_rect.bottom),
+        area_rect.right,
+        (area_rect.top + HEADER_TOP_PAD + SECTION_H).min(area_rect.bottom),
+    );
+    let content_rect = UiRect::new(
+        area_rect.left,
+        header_rect.bottom,
+        area_rect.right,
+        area_rect.bottom,
+    );
     let max_scroll = (changes_height - content_rect.height()).max(0.0);
     let scroll = app.ui.scroll.clamp(0.0, max_scroll);
     let guides = TreeGuides::new(content_rect, scroll, rect.left + 14.0, TREE_INDENT);
-    let mut y = content_rect.top + 8.0;
+    let mut y = content_rect.top + LIST_TOP_PAD;
     // Rows the pointer can hover, in content coordinates (before scrolling).
     let mut hover_targets = Vec::new();
-    let mut headers = Vec::new();
+    let mut fixed_header = None;
+    let mut sticky = Vec::new();
     for (title, filter, files, rows) in &change_sections {
         let (title, filter) = (*title, *filter);
         if !show_section(filter, files.is_empty()) {
             continue;
         }
         let collapsed = app.ui.collapsed_sections.contains(&filter);
-        let section_rect = UiRect::new(rect.left, y, content_rect.right, y + SECTION_H);
-        let staged_paths = |staged: bool| {
-            files
-                .iter()
-                .filter(|path| (kinds[*path] == STAGED) == staged && kinds[*path] != CONFLICTS)
-                .cloned()
-                .collect::<Vec<_>>()
+        let chosen = files
+            .iter()
+            .filter(|path| kinds[*path] != CONFLICTS)
+            .map(|path| (path.clone(), kinds[path] == UNTRACKED))
+            .collect::<Vec<_>>();
+        let taken = chosen
+            .iter()
+            .filter(|(path, untracked)| {
+                app.ui.commit_selection.choice(path, *untracked) == CommitChoice::Included
+            })
+            .count();
+        let check = if chosen.is_empty() || taken == 0 {
+            CheckState::Unchecked
+        } else if taken == chosen.len() {
+            CheckState::Checked
+        } else {
+            CheckState::Partial
         };
-        headers.push(SectionHeader {
-            rect: section_rect,
-            filter,
-            title,
+        let _ = title;
+        fixed_header = Some(changes_header(
+            header_rect,
             collapsed,
-            buttons: Vec::new(),
-            count: files.len(),
-            changes: Some(ChangesInfo {
-                all_staged: files.iter().all(|path| kinds[path] == STAGED),
-                stage_paths: staged_paths(false),
-                unstage_paths: staged_paths(true),
-                enabled: git.operation.is_none(),
+            ChangesInfo {
+                check,
+                files: chosen,
                 ahead: repository.ahead,
                 behind: repository.behind,
                 publish: repository.upstream.is_none()
                     && matches!(repository.head, crate::features::git::HeadState::Branch(_)),
                 grouped: app.ui.tree_view,
-            }),
-        });
-        y += SECTION_H;
+            },
+            state.clone(),
+        ));
         if collapsed {
             y += 10.0;
             continue;
@@ -481,6 +455,40 @@ fn render_local(
             CHANGE_ROW_H,
         );
         y += rows.len() as f32 * CHANGE_ROW_H;
+        if app.ui.tree_view {
+            for (index, top) in sticky_folders(rows, rows_top, content_rect.top, scroll) {
+                let OwnedChangeRow::Folder {
+                    path,
+                    label,
+                    depth,
+                    expanded,
+                    files,
+                } = &rows[index]
+                else {
+                    continue;
+                };
+                let row_rect = UiRect::new(rect.left, top, content_rect.right, top + CHANGE_ROW_H);
+                let actions = folder_actions_section(files.iter().map(|path| kinds[path]));
+                // Parents last, so they stay above a child sliding under them.
+                sticky.insert(
+                    0,
+                    panel(row_rect, VisualStyle::filled(theme::c().sidebar)).child(folder_row(
+                        row_rect,
+                        filter,
+                        actions,
+                        path,
+                        label,
+                        *depth,
+                        *expanded,
+                        files.clone(),
+                        false,
+                        true,
+                        &state,
+                        &store,
+                    )),
+                );
+            }
+        }
         for index in visible.clone() {
             let row_y = rows_top + index as f32 * CHANGE_ROW_H;
             let row_rect = UiRect::new(rect.left, row_y, content_rect.right, row_y + CHANGE_ROW_H);
@@ -506,6 +514,7 @@ fn render_local(
                         *expanded,
                         files.clone(),
                         hovered,
+                        false,
                         &state,
                         &store,
                     ));
@@ -516,10 +525,10 @@ fn render_local(
                     let hover = GitHover::File(section, path.clone());
                     let hovered = app.ui.hover.as_ref() == Some(&hover);
                     hover_targets.push((row_rect, hover));
+                    // Every change shows against HEAD; a new file has nothing there.
                     let target = match section {
-                        STAGED => DiffTarget::HeadToIndex,
-                        CONFLICTS => DiffTarget::HeadToWorktree,
-                        _ => DiffTarget::IndexToWorktree,
+                        UNTRACKED => DiffTarget::IndexToWorktree,
+                        _ => DiffTarget::HeadToWorktree,
                     };
                     let active = [frame.active_diff.as_ref(), frame.active_diff_focus.as_ref()]
                         .into_iter()
@@ -539,6 +548,10 @@ fn render_local(
                         active,
                         hovered,
                         app.ui.selection.contains(&(section, path.clone())),
+                        app.ui
+                            .commit_selection
+                            .choice(path, section == UNTRACKED)
+                            .check_state(),
                         orders[&section].clone(),
                         repository.worktree_root.clone(),
                         state.clone(),
@@ -578,14 +591,6 @@ fn render_local(
         );
     }
     let changes_bottom = y;
-    append_section_headers(
-        content_rect,
-        scroll,
-        std::mem::take(&mut headers),
-        &mut content,
-        &mut hover_targets,
-        &state,
-    );
     let changes_content = std::mem::take(&mut content);
     let changes_hover = std::mem::take(&mut hover_targets);
     let changes_rect = content_rect;
@@ -660,6 +665,13 @@ fn render_local(
         state.clone(),
         ScrollRegion::Changes,
     ));
+    // Pinned folders and the header sit above the rows that scroll beneath them.
+    for element in sticky {
+        root = root.child(element);
+    }
+    if let Some(header) = fixed_header {
+        root = root.child(header);
+    }
     root = root.child(crate::ui::git::drawer::composer(
         prompt_rect,
         state.clone(),
@@ -1489,10 +1501,16 @@ pub(crate) fn folder_row(
     expanded: bool,
     files: Vec<PathBuf>,
     hovered: bool,
+    // Drawn pinned over the scrolled rows, so it needs ids of its own.
+    sticky: bool,
     state: &Binding,
     store: &Snapshot,
 ) -> Element {
-    let key = format!("folder-{}", path.display());
+    let key = if sticky {
+        format!("sticky-folder-{}", path.display())
+    } else {
+        format!("folder-{}", path.display())
+    };
     let left = rect.left + depth as f32 * TREE_INDENT;
     let toggle = state.clone();
     let toggle_key = (filter, path.to_path_buf());
@@ -2427,8 +2445,8 @@ pub(crate) enum RowAction {
 /// Buttons on a section header, left to right.
 pub(crate) fn section_actions(section: u8) -> &'static [RowAction] {
     match section {
-        STAGED => &[RowAction::Unstage],
-        UNSTAGED | UNTRACKED => &[RowAction::Discard, RowAction::Stage],
+        STAGED => &[],
+        UNSTAGED | UNTRACKED => &[RowAction::Discard],
         // Marking every conflict resolved at once is too easy to regret.
         _ => &[],
     }
@@ -2437,14 +2455,14 @@ pub(crate) fn section_actions(section: u8) -> &'static [RowAction] {
 /// Buttons on a file row, left to right.
 pub(crate) fn file_actions(section: u8) -> &'static [RowAction] {
     match section {
-        STAGED => &[RowAction::OpenFile, RowAction::Unstage],
+        STAGED => &[RowAction::OpenFile],
         CONFLICTS => &[
             RowAction::OpenFile,
             RowAction::KeepCurrent,
             RowAction::TakeIncoming,
             RowAction::Stage,
         ],
-        _ => &[RowAction::OpenFile, RowAction::Discard, RowAction::Stage],
+        _ => &[RowAction::OpenFile, RowAction::Discard],
     }
 }
 
@@ -2597,6 +2615,7 @@ pub(crate) fn file_row(
     // Picked with Ctrl/Shift-click, together with `order`: the section's
     // visible files in row order, for Shift range selection.
     selected: bool,
+    check: CheckState,
     order: std::sync::Arc<Vec<PathBuf>>,
     repository_root: PathBuf,
     state: Binding,
@@ -2715,29 +2734,27 @@ pub(crate) fn file_row(
         depth == 0,
         side_kind,
     ));
-    let stage_state = state.clone();
-    let stage_path = path.clone();
-    let enabled = store.get().operation.is_none() && section != CONFLICTS;
-    let mut row = row.child(crate::ui::git::drawer::checkbox(
+    // The box only chooses what the next commit takes; nothing is staged here.
+    let choose_state = state.clone();
+    let choose_path = path.clone();
+    let untracked = section == UNTRACKED;
+    let mut row = row.child(crate::ui::git::drawer::check_box(
         UiRect::new(rect.right - 26.0, rect.top, rect.right - 6.0, rect.bottom),
         format!("{row_key}-staged"),
         format!(
             "{} {}",
-            if staged { "Unstage" } else { "Stage" },
+            if check == CheckState::Checked {
+                "Leave out of commit"
+            } else {
+                "Include in commit"
+            },
             path.display()
         ),
-        staged,
-        enabled,
+        check,
+        section != CONFLICTS,
         move || {
-            stage_state.dispatch(if staged {
-                Command::UnstagePaths {
-                    paths: vec![stage_path.clone()],
-                }
-            } else {
-                Command::StagePaths {
-                    paths: vec![stage_path.clone()],
-                }
-            });
+            let path = choose_path.clone();
+            choose_state.update(move |app| app.ui.commit_selection.toggle_file(path, untracked));
         },
     ));
     if active {
@@ -2808,10 +2825,8 @@ fn folder_actions_section(kinds: impl Iterator<Item = u8>) -> u8 {
 /// unpulled commits and the folder grouping toggle.
 fn changes_header(rect: UiRect, collapsed: bool, info: ChangesInfo, state: Binding) -> Element {
     let ChangesInfo {
-        all_staged,
-        stage_paths,
-        unstage_paths,
-        enabled,
+        check,
+        files,
         ahead,
         behind,
         publish,
@@ -2820,7 +2835,6 @@ fn changes_header(rect: UiRect, collapsed: bool, info: ChangesInfo, state: Bindi
     let toggle_state = state.clone();
     let stage_state = state.clone();
     let group_state = state.clone();
-    let enabled = enabled && (all_staged || !stage_paths.is_empty());
     let c = theme::c();
     // The collapse target is its own layer under the controls: a click on a
     // control must not also reach it, so the controls are siblings above it.
@@ -2857,25 +2871,26 @@ fn changes_header(rect: UiRect, collapsed: bool, info: ChangesInfo, state: Bindi
             )),
             c.text_ghost,
         ))
-        .child(crate::ui::git::drawer::checkbox(
+        .child(crate::ui::git::drawer::check_box(
             UiRect::new(rect.right - 26.0, rect.top, rect.right - 6.0, rect.bottom),
             "git-changes-staged".into(),
-            if all_staged {
-                "Unstage all changes".into()
+            if check == CheckState::Checked {
+                "Leave all changes out of the commit".into()
             } else {
-                "Stage all changes".into()
+                "Include all changes in the commit".into()
             },
-            all_staged,
-            enabled,
+            check,
+            !files.is_empty(),
             move || {
-                stage_state.dispatch(if all_staged {
-                    Command::UnstagePaths {
-                        paths: unstage_paths.clone(),
-                    }
-                } else {
-                    Command::StagePaths {
-                        paths: stage_paths.clone(),
-                    }
+                let all = check != CheckState::Checked;
+                let files = files.clone();
+                stage_state.update(move |app| {
+                    app.ui.commit_selection.set_all(
+                        files
+                            .iter()
+                            .map(|(path, untracked)| (path.as_path(), *untracked)),
+                        all,
+                    )
                 });
             },
         ))
@@ -2985,4 +3000,130 @@ fn changes_header(rect: UiRect, collapsed: bool, info: ChangesInfo, state: Bindi
                 c.text_muted,
             )),
     )
+}
+
+/// Every changed file of the active repository that a commit may take, with
+/// whether it is new to Git. Conflicted files are left out: they are resolved,
+/// not chosen.
+pub(crate) fn changed_files(git: &crate::features::git::GitStoreSnapshot) -> Vec<(PathBuf, bool)> {
+    let Some(repository) = git.active() else {
+        return Vec::new();
+    };
+    let Some(sections) = git
+        .presentation
+        .repositories
+        .get(&repository.id)
+        .map(|prepared| &prepared.sections)
+    else {
+        return Vec::new();
+    };
+    let conflicts = sections[CONFLICTS as usize]
+        .iter()
+        .collect::<std::collections::HashSet<_>>();
+    let mut seen = std::collections::HashSet::new();
+    let mut files = Vec::new();
+    for filter in [UNSTAGED, UNTRACKED, STAGED] {
+        for path in &sections[filter as usize] {
+            if !conflicts.contains(path) && seen.insert(path) {
+                files.push((path.clone(), filter == UNTRACKED));
+            }
+        }
+    }
+    files
+}
+
+/// The folder rows of a grouped list that stay pinned at the top while their
+/// contents scroll: the folders around the first row in sight, outermost first,
+/// as `(row index, top)`. The innermost slides up as its folder ends.
+fn sticky_folders(
+    rows: &[OwnedChangeRow],
+    rows_top: f32,
+    viewport_top: f32,
+    scroll: f32,
+) -> Vec<(usize, f32)> {
+    if scroll <= 0.0 {
+        return Vec::new();
+    }
+    let row_y = |index: usize| rows_top + index as f32 * CHANGE_ROW_H - scroll;
+    let mut stack: Vec<usize> = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        let depth = row.depth();
+        while stack.last().is_some_and(|&top| rows[top].depth() >= depth) {
+            stack.pop();
+        }
+        // The first row not hidden under the pinned folders above it.
+        if row_y(index) >= viewport_top + stack.len() as f32 * CHANGE_ROW_H - 0.5 {
+            break;
+        }
+        if matches!(row, OwnedChangeRow::Folder { .. }) {
+            stack.push(index);
+        }
+    }
+    stack
+        .iter()
+        .enumerate()
+        .map(|(slot, &folder)| {
+            let slot_top = viewport_top + slot as f32 * CHANGE_ROW_H;
+            let depth = rows[folder].depth();
+            let ends = rows
+                .iter()
+                .enumerate()
+                .skip(folder + 1)
+                .find(|(_, row)| row.depth() <= depth)
+                .map(|(index, _)| row_y(index) - CHANGE_ROW_H);
+            (folder, ends.map_or(slot_top, |end| slot_top.min(end)))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod sticky_tests {
+    use super::*;
+
+    fn folder(name: &str, depth: usize) -> OwnedChangeRow {
+        OwnedChangeRow::Folder {
+            path: name.into(),
+            label: name.into(),
+            depth,
+            expanded: true,
+            files: Vec::new(),
+        }
+    }
+
+    fn file(name: &str, depth: usize) -> OwnedChangeRow {
+        OwnedChangeRow::File {
+            path: name.into(),
+            depth,
+        }
+    }
+
+    #[test]
+    fn folders_around_the_first_visible_row_stay_pinned_and_slide_out() {
+        let rows = [
+            folder("src", 1),
+            folder("ui", 2),
+            file("a", 3),
+            file("b", 3),
+            file("c", 2),
+            file("readme", 1),
+        ];
+        let row = CHANGE_ROW_H;
+        // Nothing is pinned until the list scrolls.
+        assert!(sticky_folders(&rows, 0.0, 0.0, 0.0).is_empty());
+        // Row `b` leads the view, under both folders that hold it.
+        let pinned = sticky_folders(&rows, 0.0, 0.0, row);
+        assert_eq!(
+            pinned.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+            [0, 1]
+        );
+        assert_eq!(pinned[0].1, 0.0);
+        // Once the first row in sight is `c`, only `src` still holds it.
+        let pinned = sticky_folders(&rows, 0.0, 0.0, 2.0 * row);
+        assert_eq!(
+            pinned.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+            [0]
+        );
+        // A row outside every folder leaves nothing pinned.
+        assert!(sticky_folders(&rows, 0.0, 0.0, 4.5 * row).is_empty());
+    }
 }

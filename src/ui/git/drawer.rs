@@ -1,5 +1,6 @@
 //! Controls shared by the Git drawer's filter, file rows and commit composer.
 use crate::features::git::GitStoreSnapshot;
+use crate::features::git::commit_selection::CheckState;
 use crate::features::git::operation::{operation_text, primary_reason, title};
 use crate::ui::git::{
     commands::{Binding, Snapshot},
@@ -26,9 +27,38 @@ pub fn checkbox(
     enabled: bool,
     action: impl Fn() + Send + Sync + 'static,
 ) -> Element {
-    let size = 12.0_f32
-        .min(rect.height().max(0.0))
-        .min(rect.width().max(0.0));
+    let state = if checked {
+        CheckState::Checked
+    } else {
+        CheckState::Unchecked
+    };
+    check_box(rect, key, label, state, enabled, action)
+}
+
+/// A checkbox that can also show that only part of what it stands for is chosen.
+pub fn check_box(
+    rect: UiRect,
+    key: String,
+    label: String,
+    state: CheckState,
+    enabled: bool,
+    action: impl Fn() + Send + Sync + 'static,
+) -> Element {
+    check_box_sized(rect, key, label, state, enabled, 12.0, action)
+}
+
+/// [`check_box`] with a box of `size`, for a row of controls of one size.
+pub fn check_box_sized(
+    rect: UiRect,
+    key: String,
+    label: String,
+    state: CheckState,
+    enabled: bool,
+    size: f32,
+    action: impl Fn() + Send + Sync + 'static,
+) -> Element {
+    let checked = state != CheckState::Unchecked;
+    let size = size.min(rect.height().max(0.0)).min(rect.width().max(0.0));
     let top = rect.top + (rect.height() - size) / 2.0;
     let square = UiRect::new(
         rect.left + (rect.width() - size) / 2.0,
@@ -37,7 +67,7 @@ pub fn checkbox(
         top + size,
     );
     let mut semantics = Semantics::new(SemanticRole::CheckBox).name(label);
-    semantics.state.checked = Some(checked);
+    semantics.state.checked = Some(state == CheckState::Checked);
     semantics.state.disabled = !enabled;
     let mut root = panel(rect, VisualStyle::default())
         .key(key.clone())
@@ -77,7 +107,11 @@ pub fn checkbox(
     if checked {
         root = root.child(crate::ui::drawer::drawer_icon(
             UiId::owned(format!("{key}-check")),
-            "check",
+            if state == CheckState::Partial {
+                "minus"
+            } else {
+                "check"
+            },
             square,
             theme::c().on_accent,
         ));
@@ -108,15 +142,15 @@ pub fn commit_reason(
     {
         return Some("Resolve conflicts before committing");
     }
-    let staged = sections.is_some_and(|s| !s[git_panel::STAGED as usize].is_empty())
-        || repository
-            .files
-            .values()
-            .any(|file| file.index != crate::features::git::ChangeKind::Unmodified);
-    // Committing with nothing staged offers to stage the changed files.
-    let changed = staged || sections.is_some_and(|s| !s[git_panel::UNSTAGED as usize].is_empty());
-    if !changed && !app.ui.commit_amend {
-        return Some("No changes to commit");
+    // A commit takes what is ticked in the Changes list.
+    let files = git_panel::changed_files(git);
+    let targets = app.ui.commit_selection.targets(
+        files
+            .iter()
+            .map(|(path, untracked)| (path.as_path(), *untracked)),
+    );
+    if targets.is_empty() && !app.ui.commit_amend {
+        return Some("Select the changes to commit");
     }
     if app.ui.commit_input.text().trim().is_empty() && !app.ui.commit_amend {
         return Some("Enter a commit message");

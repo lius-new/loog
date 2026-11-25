@@ -38,6 +38,8 @@ pub struct GitCommand {
     pub timeout: Option<Duration>,
     /// Exit codes besides 0 that report a result rather than a failure.
     pub accepted_exit_codes: Vec<i32>,
+    /// Extra environment for the process. Local repositories only.
+    pub envs: Vec<(OsString, OsString)>,
 }
 
 impl GitCommand {
@@ -50,6 +52,7 @@ impl GitCommand {
             allow_prompt: false,
             timeout: None,
             accepted_exit_codes: Vec::new(),
+            envs: Vec::new(),
         }
     }
 
@@ -95,6 +98,12 @@ impl GitCommand {
     /// when it finds something.
     pub fn accept_exit_code(mut self, code: i32) -> Self {
         self.accepted_exit_codes.push(code);
+        self
+    }
+
+    /// Sets an environment variable of the process.
+    pub fn env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
+        self.envs.push((key.into(), value.into()));
         self
     }
 
@@ -221,6 +230,9 @@ impl GitCommandRunner {
             if templates.is_dir() {
                 process.env("GIT_TEMPLATE_DIR", templates);
             }
+        }
+        for (key, value) in &command.envs {
+            process.env(key, value);
         }
         if !command.allow_prompt {
             process

@@ -21,3 +21,4 @@ pub use self::error::{GitError, GitResult};
 pub use self::snapshot::{GitStoreSnapshot, PollTarget};
 pub use self::types::*;
 pub mod clone_url;
+pub mod commit_selection;

@@ -222,13 +222,12 @@ pub fn render(peek: &HunkPeek, cx: PeekContext<'_>, state: &Binding) -> Element 
     }
 
     if let Some(hunk) = hunk {
+        // Nothing stages from here; the commit takes what is ticked in the Changes
+        // list and in the full diff.
         let actions: &[(BlockAction, &'static str)] = if hunk.target == DiffTarget::HeadToIndex {
-            &[(BlockAction::Unstage, "Unstage")]
+            &[]
         } else {
-            &[
-                (BlockAction::Stage, "Stage"),
-                (BlockAction::Discard, "Discard"),
-            ]
+            &[(BlockAction::Discard, "Discard")]
         };
         for &(action, label) in actions.iter().rev() {
             let width = crate::ui::tabs::measure(label, theme::SMALL, 400) + 16.0;
@@ -342,7 +341,7 @@ mod tests {
     use crate::features::git::diff::parse_unified;
 
     #[test]
-    fn stage_click_emits_a_hunk_command_without_an_application_root() {
+    fn discard_click_emits_a_hunk_command_without_an_application_root() {
         use crate::ui::git::state::GitPanelState;
         use lgui::application::{AppView, ApplicationContext};
         use lgui::core::{
@@ -404,7 +403,7 @@ mod tests {
             .tree()
             .nodes()
             .iter()
-            .find(|node| node.semantics.as_ref().and_then(|s| s.name.as_deref()) == Some("Stage"))
+            .find(|node| node.semantics.as_ref().and_then(|s| s.name.as_deref()) == Some("Discard"))
             .unwrap()
             .hit_rect;
         let point = Point::new(
@@ -432,7 +431,7 @@ mod tests {
         }
         let commands = recorded.lock().unwrap();
         assert!(
-            matches!(commands.as_slice(),[Command::ClosePeek,Command::ApplyBlock{root,path,target:DiffTarget::IndexToWorktree,block:actual,action:BlockAction::Stage}] if root==Path::new("repo") && path==Path::new("f.rs") && *actual==block)
+            matches!(commands.as_slice(),[Command::ClosePeek,Command::RequestDiscardBlock{root,path,block:actual}] if root==Path::new("repo") && path==Path::new("f.rs") && *actual==block)
         );
     }
 

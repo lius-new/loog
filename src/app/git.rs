@@ -446,8 +446,7 @@ pub fn discard_paths(
     )
 }
 
-/// Commit the staged changes. With nothing staged, offer to stage every
-/// tracked change first; amending needs no staged changes.
+/// Commit the changes ticked in the Changes list; amending needs none.
 pub fn commit(state: &AppContext, store: &State<GitStoreSnapshot>) -> bool {
     // Mid-operation the commit button is Continue, and so is its shortcut.
     if let Some(repository) = active_repository(store)
@@ -489,58 +488,33 @@ fn request_commit(state: &AppContext, store: &State<GitStoreSnapshot>, push: boo
     let Some(repository) = active_repository(store) else {
         return false;
     };
-    let [conflicts, staged, unstaged, untracked] = sections(store, &repository);
+    let [conflicts, ..] = sections(store, &repository);
     if !conflicts.is_empty() {
         state.update(|app| app.show_toast("Resolve and stage the conflicted files first."));
         return false;
     }
-    if staged.is_empty() && !amend {
-        if unstaged.is_empty() {
-            let hint = if untracked.is_empty() {
-                "There are no changes to commit."
-            } else {
-                "Stage the new files you want to commit."
-            };
-            state.update(move |app| app.show_toast(hint));
-            return false;
-        }
-        let count = unstaged.len();
-        state.update(move |app| {
-            app.git.ui.confirm = Some(GitConfirm {
-                title: "Commit all changes?".into(),
-                message: format!(
-                    "Nothing is staged. Stage the {count} changed file{} and commit? Untracked \
-                     files are not included.",
-                    if count == 1 { "" } else { "s" }
-                ),
-                confirm_label: "Stage and Commit",
-                destructive: false,
-                action: GitConfirmAction::StageAllAndCommit,
-                restore_terminal: app.terminal.ui.terminal_focused,
-            });
-        });
+    let app = state.get();
+    let files = crate::ui::git::panel::changed_files(&store.get());
+    let targets = app.git.ui.commit_selection.targets(
+        files
+            .iter()
+            .map(|(path, untracked)| (path.as_path(), *untracked)),
+    );
+    drop(app);
+    if targets.is_empty() && !amend {
+        state.update(|app| app.show_toast("Select the changes to commit."));
         return false;
     }
-    commit_paths(state, store, repository, message, Vec::new(), push)
+    commit_paths(state, store, repository, message, targets, push)
 }
 
-/// Stage every tracked change, then commit.
-pub fn commit_all(state: &AppContext, store: &State<GitStoreSnapshot>) -> bool {
-    let message = state.get().git.ui.commit_input.text().trim().to_owned();
-    let Some(repository) = active_repository(store) else {
-        return false;
-    };
-    let [_, _, unstaged, _] = sections(store, &repository);
-    commit_paths(state, store, repository, message, unstaged, false)
-}
-
-/// Stage `stage`, then commit with the drawer's options.
+/// Add the chosen files and blocks, and commit just them, with the drawer's options.
 fn commit_paths(
     state: &AppContext,
     store: &State<GitStoreSnapshot>,
     repository: RepositorySnapshot,
     message: String,
-    stage: Vec<PathBuf>,
+    targets: crate::features::git::commit_selection::CommitTargets,
     push: bool,
 ) -> bool {
     let app = state.get();
@@ -564,8 +538,14 @@ fn commit_paths(
         },
         move |service, root| {
             service.write(root, |backend| {
-                backend.stage(root, &stage)?;
-                backend.commit(root, &message, amend, signoff)?;
+                backend.commit_selection(
+                    root,
+                    &targets.whole,
+                    &targets.blocks,
+                    &message,
+                    amend,
+                    signoff,
+                )?;
                 // A rejected push must not turn a successful local commit into
                 // a failed commit or leave its message ready for duplication.
                 let push_error = if push {
@@ -597,6 +577,7 @@ fn commit_paths(
         },
         |app, push_error| {
             app.git.ui.commit_amend = false;
+            app.git.ui.commit_selection.clear();
             if let Some(error) = push_error {
                 app.show_error(format!("Committed locally, but push failed: {error}"));
             }

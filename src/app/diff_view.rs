@@ -1122,9 +1122,9 @@ mod tests {
                 node.semantics
                     .as_ref()
                     .and_then(|semantics| semantics.name.as_deref())
-                    == Some("Stage change")
+                    == Some("Revert change")
             })
-            .expect("the working diff has a stage button");
+            .expect("the working diff has a revert button");
         let button = stage.layout_rect;
         let point = lgui::core::Point::new(
             (button.left + button.right) / 2.0,
@@ -1456,6 +1456,108 @@ mod tests {
             assert!(rendered.contains(&expected), "rendered text: {rendered:?}");
         }
         assert!(rendered.iter().all(|text| !text.contains('\t')));
+    }
+
+    #[test]
+    fn a_change_against_head_offers_a_commit_checkbox_in_both_views() {
+        use crate::features::git::commit_selection::CommitChoice;
+        use crate::features::git::diff::parse_unified;
+        use crate::features::git::{ChangeDiff, DiffContent};
+        use crate::features::git::{ChangeGroup, DiffRequest, DiffTarget};
+        use lgui::application::{AppView, ApplicationContext};
+        use lgui::core::{InputEvent, Point, PointerButton, PointerData, UiScale};
+        use lgui::session::UiSession;
+        use std::sync::{Arc, Mutex};
+
+        for split in [false, true] {
+            let exposed = Arc::new(Mutex::new(None::<AppContext>));
+            let output = exposed.clone();
+            let viewport = UiRect::new(0.0, 0.0, 700.0, 300.0);
+            let view: AppView = Arc::new(move |cx| {
+                let state = AppContext::detached(cx.state_with(|| {
+                    let mut app = AppState::new();
+                    app.git.ui.split_diff = split;
+                    app.workspace.open_diff(DiffDocument::from_content(
+                        DiffRequest {
+                            repository_root: "repo".into(),
+                            path: PathBuf::new(),
+                            target: DiffTarget::Changes,
+                        },
+                        DiffContent::Changes(vec![ChangeDiff {
+                            path: "a.txt".into(),
+                            target: DiffTarget::HeadToWorktree,
+                            group: ChangeGroup::Unstaged,
+                            content: Ok(DiffContent::Unified(
+                                parse_unified(
+                                    "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n one\n-two\n+three\n",
+                                )
+                                .unwrap(),
+                            )),
+                        }]),
+                    ));
+                    app
+                }));
+                *output.lock().unwrap() = Some(state.clone());
+                let id = cx.use_stable_id();
+                let focus = cx.focus_handle(id);
+                render(
+                    PaneId::new(1),
+                    viewport,
+                    state,
+                    cx.state(crate::features::git::GitStoreSnapshot::default()),
+                    focus,
+                )
+            });
+            let mut session = UiSession::new();
+            session.render_view(&view, viewport, UiScale::ONE);
+            let find = |session: &UiSession| {
+                session
+                    .tree()
+                    .nodes()
+                    .iter()
+                    .find(|node| {
+                        node.semantics.as_ref().and_then(|s| s.name.as_deref())
+                            == Some("Include this change in the commit")
+                    })
+                    .map(|node| node.hit_rect)
+            };
+            let rect = find(&session).unwrap_or_else(|| panic!("no checkbox, split={split}"));
+            let point = Point::new(
+                (rect.left + rect.right) / 2.0,
+                (rect.top + rect.bottom) / 2.0,
+            );
+            let context = ApplicationContext::empty(Default::default());
+            for event in [
+                InputEvent::PointerDown {
+                    pointer: PointerData::mouse(point),
+                    button: PointerButton::Left,
+                },
+                InputEvent::PointerUp {
+                    pointer: PointerData::mouse(point),
+                    button: PointerButton::Left,
+                },
+            ] {
+                lgui::core::dispatch_runtime_output(
+                    session.handle_input(event),
+                    &context,
+                    &lgui::window::WindowId::new("diff-choose-test"),
+                    |action| session.handle_default_action(action),
+                    |_| {},
+                );
+            }
+            // One block, so unticking it leaves the file out of the commit.
+            let state = exposed.lock().unwrap().clone().unwrap();
+            assert_eq!(
+                state
+                    .get()
+                    .git
+                    .ui
+                    .commit_selection
+                    .choice(std::path::Path::new("a.txt"), false),
+                CommitChoice::Excluded,
+                "split={split}"
+            );
+        }
     }
 
     #[test]

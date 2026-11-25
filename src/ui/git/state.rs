@@ -58,6 +58,8 @@ pub struct GitUiState {
     pub navigator_scrollbar_dragging: bool,
     pub navigator_scrollbar_drag_offset: f32,
     pub commit_input: InputState,
+    /// Which changes the next commit takes; ticking boxes stages nothing.
+    pub commit_selection: crate::features::git::commit_selection::CommitSelection,
     /// Whether the commit composer was last settled open, and how far it is
     /// while animating between idle and open (None when settled).
     pub composer_shown: bool,
@@ -152,6 +154,7 @@ impl Default for GitUiState {
             navigator_scrollbar_dragging: false,
             navigator_scrollbar_drag_offset: 0.0,
             commit_input: InputState::default(),
+            commit_selection: Default::default(),
             composer_shown: false,
             composer_t: None,
             history_branches: None,

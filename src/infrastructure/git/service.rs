@@ -432,8 +432,7 @@ impl GitService {
         let mut files = Vec::new();
         for (group, target) in [
             (ChangeGroup::Conflicts, DiffTarget::HeadToWorktree),
-            (ChangeGroup::Staged, DiffTarget::HeadToIndex),
-            (ChangeGroup::Unstaged, DiffTarget::IndexToWorktree),
+            (ChangeGroup::Unstaged, DiffTarget::HeadToWorktree),
             (ChangeGroup::Untracked, DiffTarget::IndexToWorktree),
         ] {
             let paths: Vec<_> = entries

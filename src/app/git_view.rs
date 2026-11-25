@@ -192,7 +192,6 @@ pub(crate) fn run(state: &AppContext, store: &State<GitStoreSnapshot>, command: 
             tracked,
             untracked,
         } => super::git::discard_paths(state, store, &root, tracked, untracked),
-        Command::CommitAll => super::git::commit_all(state, store),
         Command::AbortOperation { root, operation } => {
             super::git::abort_operation(state, store, &root, operation)
         }

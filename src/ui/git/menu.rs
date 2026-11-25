@@ -159,12 +159,6 @@ pub(crate) fn entries(
             // A multi-selection offers only what applies to every file.
             let items = batch_items(app, *section, path).unwrap_or_default();
             let mut entries = Vec::new();
-            if items.iter().any(|(section, _)| *section != STAGED) {
-                entries.push(item("Stage Changes", MenuAction::Stage));
-            }
-            if items.iter().any(|(section, _)| *section == STAGED) {
-                entries.push(item("Unstage Changes", MenuAction::Unstage));
-            }
             if items
                 .iter()
                 .any(|(section, _)| matches!(*section, UNSTAGED | UNTRACKED))
@@ -180,14 +174,13 @@ pub(crate) fn entries(
                 Entry::Separator,
             ];
             match *section {
-                STAGED => entries.push(item("Unstage Changes", MenuAction::Unstage)),
+                STAGED => {}
                 CONFLICTS => entries.extend([
                     item("Keep Current (Ours)", MenuAction::KeepCurrent),
                     item("Take Incoming (Theirs)", MenuAction::TakeIncoming),
                     item("Mark as Resolved", MenuAction::Stage),
                 ]),
                 _ => {
-                    entries.push(item("Stage Changes", MenuAction::Stage));
                     entries.push(item(
                         if *section == UNTRACKED {
                             "Delete File"
@@ -377,9 +370,8 @@ pub(crate) fn perform(
                             repository_root: repository.clone(),
                             path: path.clone(),
                             target: match *section {
-                                STAGED => DiffTarget::HeadToIndex,
-                                CONFLICTS => DiffTarget::HeadToWorktree,
-                                _ => DiffTarget::IndexToWorktree,
+                                UNTRACKED => DiffTarget::IndexToWorktree,
+                                _ => DiffTarget::HeadToWorktree,
                             },
                         },
                         untracked: *section == UNTRACKED,

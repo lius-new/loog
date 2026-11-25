@@ -3,12 +3,13 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::command::{CancellationToken, GitCommand, GitCommandRunner, nul_pathspec};
+use super::command::{CancellationToken, GitCommand, GitCommandRunner, GitOutput, nul_pathspec};
 use super::discovery::{self, DiscoveredRepository};
 use super::remote;
 use super::repo_fs;
 use super::runtime::GitRuntime;
 use crate::features::git::diff::{DiffLine, FileDiff, UnifiedDiff, parse_unified};
+use crate::features::git::diff_document::ChangeBlock;
 use crate::features::git::error::{GitError, GitErrorKind, GitResult};
 use crate::features::git::parser::{parse_branches, parse_log, parse_numstat, parse_porcelain_v2};
 use crate::features::git::types::*;
@@ -578,6 +579,181 @@ impl CliGitBackend {
             command = command.stdin(message.as_bytes().to_vec());
         }
         self.runner.run(command)?.stdout_text()
+    }
+
+    /// Commit exactly `whole` files and the chosen `blocks` of other files,
+    /// whatever else is staged. The commit is cut from a private copy of the
+    /// index, so anything staged elsewhere stays staged, and afterwards the real
+    /// index is brought up to the new commit for the committed paths only.
+    pub fn commit_selection(
+        &self,
+        repository: &Path,
+        whole: &[PathBuf],
+        blocks: &[(PathBuf, Vec<ChangeBlock>)],
+        message: &str,
+        amend: bool,
+        signoff: bool,
+    ) -> GitResult<String> {
+        // COMPAT(environment-index-file): a repository in a provider environment
+        // runs Git elsewhere, where a private index path set here does not
+        // reach. It keeps the older commit of the whole index, with the chosen
+        // whole files added first and no block choices. Retained for as long
+        // as environment executors cannot pass an environment; no removal
+        // version is scheduled.
+        if remote::locate(repository).is_some() {
+            if !blocks.is_empty() {
+                return Err(GitError::new(
+                    GitErrorKind::Unsupported,
+                    "Committing part of a file is not available in this environment.",
+                ));
+            }
+            self.stage(repository, whole)?;
+            return self.commit(repository, message, amend, signoff);
+        }
+        let index = self.private_index(repository)?;
+        let _cleanup = RemoveOnDrop(index.clone());
+        let git = |args: Vec<OsString>, stdin: Vec<u8>| -> GitResult<GitOutput> {
+            self.runner.run(
+                GitCommand::new()
+                    .cwd(repository)
+                    .args(args)
+                    .stdin(stdin)
+                    .env("GIT_INDEX_FILE", index.as_os_str()),
+            )
+        };
+        let has_head = self
+            .runner
+            .run(
+                GitCommand::new()
+                    .cwd(repository)
+                    .args(["rev-parse", "--verify", "-q", "HEAD"])
+                    .read_only()
+                    .accept_exit_code(1),
+            )?
+            .code
+            == Some(0);
+        git(
+            if has_head {
+                vec!["read-tree".into(), "HEAD".into()]
+            } else {
+                vec!["read-tree".into(), "--empty".into()]
+            },
+            Vec::new(),
+        )?;
+        // In batches, so a long list stays within the command line limit.
+        for batch in whole.chunks(200) {
+            let mut args: Vec<OsString> = vec!["add".into(), "-A".into(), "--".into()];
+            args.extend(batch.iter().map(|path| path.as_os_str().to_owned()));
+            git(args, Vec::new())?;
+        }
+        for (path, chosen) in blocks {
+            let raw = self.zero_context_diff(repository, DiffTarget::HeadToWorktree, path)?;
+            let diff = crate::features::git::diff::split_raw_diff(&raw)?;
+            let mut patches = Vec::new();
+            for block in chosen {
+                let hunk = diff
+                    .hunks
+                    .iter()
+                    .find(|hunk| {
+                        (
+                            hunk.old_start,
+                            hunk.old_lines,
+                            hunk.new_start,
+                            hunk.new_lines,
+                        ) == (
+                            block.old_start,
+                            block.old_lines,
+                            block.new_start,
+                            block.new_lines,
+                        )
+                    })
+                    .ok_or_else(|| {
+                        GitError::new(
+                            GitErrorKind::Conflict,
+                            "A selected change moved since it was chosen. Select it again.",
+                        )
+                    })?;
+                let patch = diff.patch(hunk).ok_or_else(|| {
+                    GitError::new(
+                        GitErrorKind::Unsupported,
+                        "New, deleted and renamed files are committed as a whole.",
+                    )
+                })?;
+                patches.push((hunk.old_start, patch));
+            }
+            // Bottom first: each patch is numbered against HEAD, so applying
+            // the lower ones first keeps the numbers of the upper ones true.
+            patches.sort_by_key(|(start, _)| std::cmp::Reverse(*start));
+            for (_, patch) in patches {
+                git(
+                    [
+                        "apply",
+                        "--cached",
+                        "--unidiff-zero",
+                        "--whitespace=nowarn",
+                        "-",
+                    ]
+                    .map(OsString::from)
+                    .to_vec(),
+                    patch.into_bytes(),
+                )?;
+            }
+        }
+        // Amending with no new message keeps the commit's own.
+        let keep_message = amend && message.trim().is_empty();
+        let mut args: Vec<OsString> = vec![
+            "commit".into(),
+            if keep_message {
+                "--no-edit"
+            } else {
+                "--file=-"
+            }
+            .into(),
+        ];
+        if amend {
+            args.push("--amend".into());
+        }
+        if signoff {
+            args.push("--signoff".into());
+        }
+        let output = git(
+            args,
+            if keep_message {
+                Vec::new()
+            } else {
+                message.as_bytes().to_vec()
+            },
+        )?
+        .stdout_text()?;
+        // The real index still holds the old entries of the committed paths.
+        let committed = whole
+            .iter()
+            .cloned()
+            .chain(blocks.iter().map(|(path, _)| path.clone()))
+            .collect::<Vec<_>>();
+        let _ = self.pathspec_command(repository, &["reset", "-q"], &committed);
+        Ok(output)
+    }
+
+    /// Where the private index of a commit goes: inside the Git directory.
+    fn private_index(&self, repository: &Path) -> GitResult<PathBuf> {
+        let output = self
+            .runner
+            .run(
+                GitCommand::new()
+                    .cwd(repository)
+                    .args(["rev-parse", "--git-path", "loog-commit-index"])
+                    .read_only(),
+            )?
+            .stdout_text()?;
+        let path = PathBuf::from(output.trim());
+        let path = if path.is_relative() {
+            repository.join(path)
+        } else {
+            path
+        };
+        let _ = std::fs::remove_file(&path);
+        Ok(path)
     }
 
     /// Undo the last commit, keeping its changes staged. Returns the undone
@@ -2602,13 +2778,7 @@ X2
                 .find(|section| section.document.path == Path::new(path) && section.group == group)
                 .unwrap()
         };
-        assert!(
-            file("both.txt", ChangeGroup::Staged)
-                .document
-                .rows
-                .iter()
-                .any(|row| row.text == "staged")
-        );
+        // Every tracked change shows once, against HEAD.
         assert!(
             file("both.txt", ChangeGroup::Unstaged)
                 .document
@@ -2628,7 +2798,7 @@ X2
                 .document
                 .binary
         );
-        assert!(file("renamed.txt", ChangeGroup::Staged).error.is_none());
+        assert!(file("renamed.txt", ChangeGroup::Unstaged).error.is_none());
         std::fs::remove_file(root.join("drafts/中文.txt")).unwrap();
         std::fs::write(root.join("later.txt"), "added later\n").unwrap();
         let next = service.refresh(std::slice::from_ref(&root), None).unwrap();
@@ -2648,6 +2818,90 @@ X2
                 .any(|section| section.document.path == Path::new("drafts/中文.txt"))
         );
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_selected_commit_takes_chosen_files_and_blocks_and_leaves_other_staging() {
+        use crate::features::git::diff_document::ChangeBlock;
+        let Some((root, backend)) = repository() else {
+            return;
+        };
+        let text = |edit: &[(usize, &str)]| {
+            let mut lines = (1..=20).map(|n| format!("line {n}")).collect::<Vec<_>>();
+            for (line, value) in edit {
+                lines[line - 1] = (*value).to_owned();
+            }
+            lines.join("\n") + "\n"
+        };
+        std::fs::write(root.join("a.txt"), text(&[])).unwrap();
+        std::fs::write(root.join("b.txt"), "b\n").unwrap();
+        backend
+            .stage(&root, &["a.txt".into(), "b.txt".into()])
+            .unwrap();
+        backend.commit(&root, "initial", false, false).unwrap();
+        std::fs::write(root.join("a.txt"), text(&[(2, "TWO"), (18, "EIGHTEEN")])).unwrap();
+        std::fs::write(root.join("b.txt"), "b changed\n").unwrap();
+        std::fs::write(root.join("c.txt"), "new\n").unwrap();
+        // Staged outside the selection: it must stay staged.
+        backend.stage(&root, &["b.txt".into()]).unwrap();
+        let raw = backend
+            .zero_context_diff(&root, DiffTarget::HeadToWorktree, Path::new("a.txt"))
+            .unwrap();
+        let diff = crate::features::git::diff::split_raw_diff(&raw).unwrap();
+        assert_eq!(diff.hunks.len(), 2);
+        let first = &diff.hunks[0];
+        let block = ChangeBlock {
+            old_start: first.old_start,
+            old_lines: first.old_lines,
+            new_start: first.new_start,
+            new_lines: first.new_lines,
+        };
+        backend
+            .commit_selection(
+                &root,
+                &["c.txt".into()],
+                &[("a.txt".into(), vec![block])],
+                "partial",
+                false,
+                false,
+            )
+            .unwrap();
+        let show = |spec: &str| {
+            backend
+                .runner()
+                .run(
+                    GitCommand::new()
+                        .cwd(&root)
+                        .args(["show", spec])
+                        .read_only(),
+                )
+                .unwrap()
+                .stdout_text()
+                .unwrap()
+        };
+        assert_eq!(show("HEAD:a.txt"), text(&[(2, "TWO")]));
+        assert_eq!(show("HEAD:c.txt"), "new\n");
+        assert_eq!(show("HEAD:b.txt"), "b\n");
+        let names = |args: &[&str]| {
+            backend
+                .runner()
+                .run(
+                    GitCommand::new()
+                        .cwd(&root)
+                        .args(args.iter().copied())
+                        .read_only(),
+                )
+                .unwrap()
+                .stdout_text()
+                .unwrap()
+        };
+        assert_eq!(names(&["diff", "--cached", "--name-only"]).trim(), "b.txt");
+        assert_eq!(names(&["diff", "--name-only"]).trim(), "a.txt");
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.txt")).unwrap(),
+            text(&[(2, "TWO"), (18, "EIGHTEEN")])
+        );
+        assert!(!root.join(".git").join("loog-commit-index").exists());
     }
 
     #[test]
@@ -2897,5 +3151,14 @@ X2
             GitCommand::new().timeout(explicit).read_only().timeout,
             Some(explicit)
         );
+    }
+}
+
+/// Removes a file when dropped, so a private index never outlives its commit.
+struct RemoveOnDrop(PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
     }
 }

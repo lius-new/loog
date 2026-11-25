@@ -184,7 +184,6 @@ pub enum Command {
         tracked: Vec<PathBuf>,
         untracked: Vec<PathBuf>,
     },
-    CommitAll,
     AbortOperation {
         root: PathBuf,
         operation: RepositoryState,
