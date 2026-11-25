@@ -4,7 +4,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use lgui::core::{
-    CursorIcon, EventPolicy, PointerButton, SemanticRole, Semantics, UiElement, UiId,
+    AnimProperty, AnimationBinding, CursorIcon, EventPolicy, PointerButton, SemanticRole,
+    Semantics, UiElement, UiId,
 };
 use lgui::prelude::{Color, Element, UiRect, VisualStyle, panel, text};
 
@@ -23,6 +24,11 @@ const ROW_H: f32 = 22.0;
 const HEADING_H: f32 = 24.0;
 const PAD: f32 = 8.0;
 const INDENT: f32 = 12.0;
+
+// Native windows schedule hover redraws through animation bindings. The fill
+// reads the hover flag directly, so it changes on the next frame without a fade.
+const HOVER_FRAME: AnimationBinding =
+    AnimationBinding::new(AnimProperty::Hover, 0.0, 1.0).duration(1.0, 1.0);
 
 /// The prefix that marks a tag in `GitUiState::history_scope`.
 pub(crate) const TAG_PREFIX: &str = "tag:";
@@ -469,21 +475,30 @@ fn row(
     let mut semantics = Semantics::new(SemanticRole::Button).name(name);
     semantics.state.selected = selected;
     Element::new(move |cx| {
-        let hovered = cx.context.interaction_flags(&cx.id).hovered;
-        let fill = if selected {
-            VisualStyle::filled(theme::c().active_line).radius(3.0)
-        } else if hovered {
-            VisualStyle::filled(theme::c().surface).radius(3.0)
-        } else {
-            VisualStyle::default().radius(3.0)
-        };
-        UiElement::panel(cx.id, rect, fill).children(cx.children)
+        let hovered = cx.context.interaction_flags(&cx.id).hovered
+            || cx.children.iter().any(|child| {
+                let node = child.node();
+                node.event_policy.hover && cx.context.interaction_flags(&node.id).hovered
+            });
+        UiElement::panel(cx.id, rect, hover_fill(hovered, selected).radius(3.0))
+            .children(cx.children)
     })
     .key(key)
     .event_policy(EventPolicy::INTERACTIVE)
+    .animation(HOVER_FRAME)
     .semantics(semantics)
     .cursor(CursorIcon::Pointer)
     .on_click(on_click)
+}
+
+fn hover_fill(hovered: bool, selected: bool) -> VisualStyle {
+    if hovered {
+        VisualStyle::filled(theme::c().surface)
+    } else if selected {
+        VisualStyle::filled(theme::c().active_line)
+    } else {
+        VisualStyle::default()
+    }
 }
 
 fn color(selected: bool) -> Color {
@@ -619,6 +634,7 @@ fn branch_row(
                 panel(icon_rect, VisualStyle::default().radius(3.0))
                     .key(format!("git-history-worktree-{}", branch.name))
                     .event_policy(EventPolicy::INTERACTIVE)
+                    .animation(HOVER_FRAME)
                     .semantics(
                         Semantics::new(SemanticRole::Button)
                             .name(format!("Worktree of {}", branch.name)),
@@ -813,6 +829,7 @@ fn heading_row(
         })
         .key(format!("git-history-create-{title}"))
         .event_policy(EventPolicy::INTERACTIVE)
+        .animation(HOVER_FRAME)
         .semantics(semantics)
         .cursor(if enabled {
             CursorIcon::Pointer
@@ -865,8 +882,10 @@ fn rail(rect: UiRect, view: NavView, counts: [usize; 3], state: &Binding) -> Ele
     let mut rail = panel(rect, VisualStyle::default());
     for (index, ((nav, icon, name), count)) in views.into_iter().zip(counts).enumerate() {
         let selected = nav == view;
-        let top = rect.top + PAD + index as f32 * 32.0;
-        let button = UiRect::new(rect.left + 3.0, top, rect.right - 3.0, top + 28.0);
+        let size = rect.width() - 6.0;
+        let center_y = rect.top + PAD + 14.0 + index as f32 * 32.0;
+        let top = center_y - size / 2.0;
+        let button = UiRect::new(rect.left + 3.0, top, rect.right - 3.0, top + size);
         let color = if selected {
             theme::c().accent
         } else {
@@ -878,17 +897,12 @@ fn rail(rect: UiRect, view: NavView, counts: [usize; 3], state: &Binding) -> Ele
         rail = rail.child(
             Element::new(move |cx| {
                 let hovered = cx.context.interaction_flags(&cx.id).hovered;
-                let fill = if selected {
-                    VisualStyle::filled(theme::c().active_line).radius(4.0)
-                } else if hovered {
-                    VisualStyle::filled(theme::c().surface).radius(4.0)
-                } else {
-                    VisualStyle::default().radius(4.0)
-                };
-                UiElement::panel(cx.id, button, fill).children(cx.children)
+                UiElement::panel(cx.id, button, hover_fill(hovered, selected).radius(4.0))
+                    .children(cx.children)
             })
             .key(format!("git-history-nav-{name}"))
             .event_policy(EventPolicy::INTERACTIVE)
+            .animation(HOVER_FRAME)
             .semantics(semantics)
             .cursor(CursorIcon::Pointer)
             .on_click(move || {
@@ -900,12 +914,7 @@ fn rail(rect: UiRect, view: NavView, counts: [usize; 3], state: &Binding) -> Ele
             .child(crate::ui::drawer::drawer_icon(
                 UiId::owned(format!("git-history-nav-icon-{name}")),
                 icon,
-                theme::icon_rect(UiRect::new(
-                    button.left,
-                    button.top,
-                    button.right,
-                    button.bottom,
-                )),
+                theme::icon_rect(button),
                 color,
             )),
         );

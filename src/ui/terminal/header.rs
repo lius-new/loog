@@ -44,8 +44,6 @@ const ROOMY: Metrics = Metrics {
 const ROOMY_MIN_W: f32 = 560.0;
 /// Narrower headers show the dock's tabs as icons without their names.
 const ICON_ONLY_BELOW_W: f32 = 1100.0;
-/// Space before the category switch on the header's left.
-const INSET: f32 = 8.0;
 const RULE_H: f32 = 14.0;
 
 /// Centre the dock controls between its two edges, including the painted rules.
@@ -248,11 +246,13 @@ pub(super) fn category(
     };
     let widths = PanelTab::ALL.map(slot_w);
     let track_h = 22.0;
-    let top = header.top + (header.height() - track_h) / 2.0;
+    let inset = (header.height() - track_h) / 2.0;
+    let left = header.left + inset;
+    let top = header.top + inset;
     let track = UiRect::new(
-        header.left + INSET,
+        left,
         top,
-        header.left + INSET + 4.0 + widths.iter().sum::<f32>() + 2.0 * widths.len() as f32,
+        left + 4.0 + widths.iter().sum::<f32>() + 2.0 * widths.len() as f32,
         top + track_h,
     );
     let mut root = Element::new(move |cx| {
