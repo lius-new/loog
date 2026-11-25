@@ -1167,18 +1167,6 @@
       "owner": "ui/chrome/tab_state UiState",
       "migrated_in": "R8.4"
     },
-    "tab_scrollbar_drag_offset": {
-      "owner": "ui/chrome/tab_state UiState",
-      "migrated_in": "R8.4"
-    },
-    "tab_scrollbar_dragging": {
-      "owner": "ui/chrome/tab_state UiState",
-      "migrated_in": "R8.4"
-    },
-    "tab_strip_hovered": {
-      "owner": "ui/chrome/tab_state UiState",
-      "migrated_in": "R8.4"
-    },
     "last_tab_click": {
       "owner": "ui/chrome/tab_state UiState",
       "migrated_in": "R8.4"

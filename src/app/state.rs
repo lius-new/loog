@@ -659,7 +659,6 @@ impl AppState {
                 self.editor.tabs.file_drag = None;
                 self.editor.sash_drag = None;
                 self.layout.application_sash_drag = None;
-                self.editor.tabs.tab_scrollbar_dragging = None;
                 if !self.git.model.cloning() {
                     self.git.ui.clone_visible = false;
                     self.git.ui.clone_input_focused = false;

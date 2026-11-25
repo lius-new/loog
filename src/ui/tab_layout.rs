@@ -26,7 +26,6 @@ pub struct TabLayoutItem {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TabLayoutResult {
     pub items: Vec<TabLayoutItem>,
-    pub content_width: f32,
     pub viewport_width: f32,
     pub max_scroll_x: f32,
     pub scroll_x: f32,
@@ -75,7 +74,6 @@ pub fn calculate(input: TabLayoutInput<'_>) -> TabLayoutResult {
 
     TabLayoutResult {
         items,
-        content_width,
         viewport_width,
         max_scroll_x,
         scroll_x,
@@ -161,7 +159,6 @@ mod tests {
         let result = layout(&[], 500.0, 80.0, None, false);
 
         assert!(result.items.is_empty());
-        assert_eq!(result.content_width, 0.0);
         assert_eq!(result.max_scroll_x, 0.0);
         assert_eq!(result.scroll_x, 0.0);
     }
@@ -170,7 +167,7 @@ mod tests {
     fn one_and_two_tabs_use_bounded_natural_widths() {
         let one = layout(&[80.0], 500.0, 0.0, Some(0), false);
         assert_eq!(one.items[0].width, MIN);
-        assert_eq!(one.content_width, PAD + MIN + PAD);
+        assert_eq!(one.items[0].right, PAD + MIN);
 
         let two = layout(&[180.0, 400.0], 500.0, 0.0, Some(0), false);
         assert_eq!(two.items[0].width, 180.0);
@@ -183,7 +180,6 @@ mod tests {
         let widths = vec![160.0; 20];
         let result = layout(&widths, 600.0, 0.0, Some(0), false);
 
-        assert!(result.content_width > result.viewport_width);
         assert!(result.max_scroll_x > 0.0);
         assert!(
             result
@@ -199,7 +195,6 @@ mod tests {
         let result = layout(&widths, 320.0, f32::INFINITY, Some(99), false);
 
         assert_eq!(result.items.len(), 100);
-        assert!(result.content_width.is_finite());
         assert!(result.max_scroll_x.is_finite());
         assert_eq!(result.scroll_x, 0.0);
     }

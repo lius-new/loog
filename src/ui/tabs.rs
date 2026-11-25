@@ -1,5 +1,4 @@
-//! Editor tab strip: buffer tabs with language badges, a close button, and
-//! the scrollbar.
+//! Scrollable editor tabs with language badges and close buttons.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -48,9 +47,6 @@ pub(crate) const DRAG_REORDER_SLACK: f32 = 16.0;
 /// Insertion marker inset from the strip's top and bottom edges.
 pub(crate) const REORDER_MARKER_INSET: f32 = 4.0;
 pub(crate) const DRAG_SCROLL_STEP: f32 = 18.0;
-const TAB_SCROLLBAR_H: f32 = 4.0;
-const TAB_SCROLLBAR_HIT_H: f32 = 8.0;
-const TAB_SCROLLBAR_MIN_THUMB_W: f32 = 28.0;
 /// Extra distance beyond each viewport edge whose tabs are still built, so a
 /// wheel step never reveals an empty gap before the next frame.
 const RENDER_OVERSCAN: f32 = 240.0;
@@ -401,61 +397,6 @@ pub fn tab_scroll_x(app: &Frame<'_>, pane: PaneId) -> f32 {
 
 pub fn active_visible_scroll(rect: UiRect, app: &Frame<'_>, pane: PaneId) -> f32 {
     tab_layout(rect, app, pane, true).scroll_x
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct TabScrollbarGeometry {
-    pub(crate) track: UiRect,
-    pub(crate) thumb_left: f32,
-    pub(crate) thumb_width: f32,
-    pub(crate) travel: f32,
-    pub(crate) max_scroll_x: f32,
-}
-
-pub(crate) fn scrollbar_geometry(
-    rect: UiRect,
-    layout: &TabLayoutResult,
-) -> Option<TabScrollbarGeometry> {
-    if layout.max_scroll_x <= 0.0 || layout.content_width <= 0.0 {
-        return None;
-    }
-    let track = UiRect::new(
-        rect.left + TABS_PAD,
-        rect.bottom - TAB_SCROLLBAR_HIT_H,
-        rect.left + layout.viewport_width - TABS_PAD,
-        rect.bottom,
-    );
-    if track.width() <= 0.0 {
-        return None;
-    }
-    let thumb_width = (track.width() * layout.viewport_width / layout.content_width)
-        .max(TAB_SCROLLBAR_MIN_THUMB_W)
-        .min(track.width());
-    let travel = (track.width() - thumb_width).max(0.0);
-    let thumb_left = if layout.max_scroll_x <= 0.0 {
-        track.left
-    } else {
-        track.left + travel * (layout.scroll_x / layout.max_scroll_x)
-    };
-    Some(TabScrollbarGeometry {
-        track,
-        thumb_left,
-        thumb_width,
-        travel,
-        max_scroll_x: layout.max_scroll_x,
-    })
-}
-
-pub(crate) fn scroll_from_pointer(
-    pointer_x: f32,
-    offset: f32,
-    geometry: TabScrollbarGeometry,
-) -> f32 {
-    if geometry.travel <= 0.0 {
-        return 0.0;
-    }
-    let thumb_left = (pointer_x - geometry.track.left - offset).clamp(0.0, geometry.travel);
-    thumb_left / geometry.travel * geometry.max_scroll_x
 }
 
 pub(crate) fn point_inside(rect: UiRect, x: f32, y: f32) -> bool {
@@ -1011,61 +952,7 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
         }
     }
 
-    if (s.editor.tabs.tab_strip_hovered == Some(pane)
-        || s.editor.tabs.tab_scrollbar_dragging == Some(pane))
-        && let Some(geometry) = scrollbar_geometry(rect, &layout)
-    {
-        let visual_track = UiRect::new(
-            geometry.track.left,
-            geometry.track.bottom - TAB_SCROLLBAR_H - 1.0,
-            geometry.track.right,
-            geometry.track.bottom - 1.0,
-        );
-        let thumb_rect = UiRect::new(
-            geometry.thumb_left,
-            visual_track.top,
-            geometry.thumb_left + geometry.thumb_width,
-            visual_track.bottom,
-        );
-        let track_state = state.clone();
-        let thumb_state = state.clone();
-        let scrollbar = panel(geometry.track, VisualStyle::default())
-            .key(format!("tabs-horizontal-scrollbar-{}", pane.get()))
-            .event_policy(EventPolicy::INTERACTIVE)
-            .on_pointer_down_with_button(move |cx, pointer, button| {
-                if button != PointerButton::Left {
-                    return;
-                }
-                let offset = geometry.thumb_width / 2.0;
-                let next = scroll_from_pointer(pointer.point.x, offset, geometry);
-                track_state.run(Command::Track(pane, next, offset));
-                cx.stop_propagation();
-            })
-            .child(panel(
-                visual_track,
-                VisualStyle::filled(theme::c().scrollbar).radius(TAB_SCROLLBAR_H / 2.0),
-            ))
-            .child(
-                panel(
-                    thumb_rect,
-                    VisualStyle::filled(theme::c().text_dim).radius(TAB_SCROLLBAR_H / 2.0),
-                )
-                .key(format!("tabs-horizontal-scrollbar-thumb-{}", pane.get()))
-                .event_policy(EventPolicy::INTERACTIVE)
-                .on_pointer_down_with_button(move |cx, pointer, button| {
-                    if button != PointerButton::Left {
-                        return;
-                    }
-                    let offset = pointer.point.x - geometry.thumb_left;
-                    thumb_state.run(Command::Thumb(pane, offset));
-                    cx.stop_propagation();
-                }),
-            );
-        bar = bar.child(scrollbar);
-    }
-
-    // Paint the 1px separator after all backgrounds,
-    // fades and scrollbar layers so they cannot tint or cover the edge.
+    // Paint the separator after the backgrounds and fades to keep the edge crisp.
     bar = bar.child(crate::ui::components::divider::bottom(rect));
     if let Some(active) = active_rect {
         // Decoration only: a hit-testable clip over the whole viewport would

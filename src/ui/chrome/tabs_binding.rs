@@ -47,8 +47,6 @@ pub enum Command {
     Menu(PaneId, ViewId, (f32, f32)),
     Close(PaneId, ViewId),
     CancelPending(u64),
-    Track(PaneId, f32, f32),
-    Thumb(PaneId, f32),
 }
 #[derive(Clone)]
 pub struct Binding {

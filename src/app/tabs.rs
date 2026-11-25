@@ -125,17 +125,6 @@ pub fn run(state: &AppContext, command: Command) {
                 crate::app::file_loading::cancel(app);
             }
         }
-        Command::Track(pane, next, offset) => {
-            set_tab_scroll_x(app, pane, next);
-            app.editor.tabs.tab_scrollbar_dragging = Some(pane);
-            app.editor.tabs.tab_scrollbar_drag_offset = offset;
-            app.editor.tabs.tab_drag = None;
-        }
-        Command::Thumb(pane, offset) => {
-            app.editor.tabs.tab_scrollbar_dragging = Some(pane);
-            app.editor.tabs.tab_scrollbar_drag_offset = offset;
-            app.editor.tabs.tab_drag = None;
-        }
         Command::Close(..) => {}
     });
 }
@@ -193,9 +182,8 @@ fn set_tab_scroll_x(app: &mut AppState, pane: PaneId, value: f32) -> bool {
     true
 }
 
-/// Track tab hover across every pane's strip and, only for an actual
-/// `PointerDrag`, advance scrollbar or tab drag gestures. Ordinary hover
-/// movement must never promote a pending click into a drag.
+/// Track tab hover across every pane's strip. Only a `PointerDrag` advances
+/// tab drag gestures; ordinary hover must not promote a pending click.
 pub fn update_pointer(
     app: &mut AppState,
     regions: &[PaneRegion],
@@ -203,12 +191,7 @@ pub fn update_pointer(
     pointer_y: f32,
     is_pointer_drag: bool,
 ) -> bool {
-    let inside = regions
-        .iter()
-        .find(|region| point_inside(region.strip, pointer_x, pointer_y))
-        .map(|region| region.pane);
-    let mut changed = app.editor.tabs.tab_strip_hovered != inside;
-    app.editor.tabs.tab_strip_hovered = inside;
+    let mut changed = false;
 
     if is_pointer_drag && let Some(mut drag) = app.editor.tabs.tab_drag.take() {
         let moved = (pointer_x - drag.pointer_origin_x).hypot(pointer_y - drag.pointer_origin_y);
@@ -227,35 +210,23 @@ pub fn update_pointer(
         app.editor.tabs.tab_drag = Some(drag);
     }
 
-    let mut hovered = None;
-    for region in regions {
-        let (pane, rect) = (region.pane, region.strip);
-        let mut layout = tab_layout(rect, app, pane, false);
-        if is_pointer_drag
-            && app.editor.tabs.tab_scrollbar_dragging == Some(pane)
-            && let Some(geometry) = scrollbar_geometry(rect, &layout)
-        {
-            let next = scroll_from_pointer(
-                pointer_x,
-                app.editor.tabs.tab_scrollbar_drag_offset,
-                geometry,
-            );
-            if set_tab_scroll_x(app, pane, next) {
-                changed = true;
-                layout = tab_layout(rect, app, pane, false);
+    let hovered = regions
+        .iter()
+        .find(|region| point_inside(region.strip, pointer_x, pointer_y))
+        .and_then(|region| {
+            let (pane, rect) = (region.pane, region.strip);
+            let layout = tab_layout(rect, app, pane, false);
+            if pointer_x > rect.left + layout.viewport_width {
+                return None;
             }
-        }
-        let viewport_right = rect.left + layout.viewport_width;
-        if inside == Some(pane) && pointer_x <= viewport_right {
             let content_x = pointer_x - rect.left + layout.scroll_x;
-            hovered = layout
+            layout
                 .items
                 .iter()
                 .find(|item| content_x >= item.left && content_x <= item.right)
                 .and_then(|item| pane_items(app, pane).get(item.index).copied())
-                .map(|id| (pane, id));
-        }
-    }
+                .map(|id| (pane, id))
+        });
     if app.editor.tabs.tab_hovered != hovered {
         app.editor.tabs.tab_hovered = hovered;
         changed = true;
@@ -376,14 +347,11 @@ pub fn update_file_drag(
 /// Commit a completed tab drag and release all tab pointer state. Holding
 /// Ctrl (Alt on macOS) copies a file into the target pane instead of moving.
 pub fn finish_pointer_interaction(app: &mut AppState) -> bool {
-    let mut changed = app.editor.tabs.tab_scrollbar_dragging.is_some();
-    app.editor.tabs.tab_scrollbar_dragging = None;
     let Some(drag) = app.editor.tabs.tab_drag.take() else {
-        return changed;
+        return false;
     };
-    changed = true;
     if !drag.active {
-        return changed;
+        return true;
     }
     let copy = if cfg!(target_os = "macos") {
         app.editor.modifiers.alt()
@@ -419,20 +387,16 @@ pub fn finish_pointer_interaction(app: &mut AppState) -> bool {
             workspace.split_with_item(from, id, pane, direction, copy);
         }
     }
-    changed
+    true
 }
 
 /// Cancel transient pointer state without applying a pending reorder.
 pub fn cancel_pointer_interaction(app: &mut AppState) -> bool {
-    let changed = app.editor.tabs.tab_scrollbar_dragging.is_some()
-        || app.editor.tabs.tab_drag.is_some()
+    let changed = app.editor.tabs.tab_drag.is_some()
         || app.editor.tabs.file_drag.is_some()
-        || app.editor.tabs.tab_strip_hovered.is_some()
         || app.editor.tabs.tab_hovered.is_some();
-    app.editor.tabs.tab_scrollbar_dragging = None;
     app.editor.tabs.tab_drag = None;
     app.editor.tabs.file_drag = None;
-    app.editor.tabs.tab_strip_hovered = None;
     app.editor.tabs.tab_hovered = None;
     changed
 }
@@ -489,7 +453,6 @@ mod tests {
                 app.workspace.set_active(first);
                 let pane = app.workspace.active_pane();
                 app.editor.tabs.tab_scroll.insert(pane, 10.0);
-                app.editor.tabs.tab_strip_hovered = Some(pane);
                 app
             }));
             let pane = state.get().workspace.active_pane();
@@ -640,18 +603,82 @@ mod tests {
     }
 
     #[test]
-    fn scrollbar_pointer_mapping_reaches_both_ends() {
-        let geometry = TabScrollbarGeometry {
-            track: UiRect::new(10.0, 0.0, 210.0, 8.0),
-            thumb_left: 10.0,
-            thumb_width: 40.0,
-            travel: 160.0,
-            max_scroll_x: 800.0,
+    fn overflowing_tabs_scroll_and_accept_clicks_at_the_bottom_edge() {
+        use lgui::application::{AppView, ApplicationContext};
+        use lgui::core::dispatch_runtime_output;
+        use lgui::core::{
+            InputEvent, Point, PointerButton, PointerData, UiId, UiScale, WheelDelta,
         };
+        use lgui::session::UiSession;
+        use std::sync::{Arc, Mutex};
 
-        assert_eq!(scroll_from_pointer(10.0, 0.0, geometry), 0.0);
-        assert_eq!(scroll_from_pointer(170.0, 0.0, geometry), 800.0);
-        assert_eq!(scroll_from_pointer(90.0, 0.0, geometry), 400.0);
+        let strip = UiRect::new(0.0, 0.0, 360.0, theme::TABS_H);
+        let y = strip.bottom - 4.0;
+        let exposed = Arc::new(Mutex::new(None));
+        let output = exposed.clone();
+        let view: AppView = Arc::new(move |cx| {
+            let state = AppContext::detached(cx.state_with(|| {
+                let mut app = AppState::new();
+                for index in 0..8 {
+                    app.workspace
+                        .test_open_view(PathBuf::from(format!("file{index}.rs")), String::new());
+                }
+                let first = app.workspace.active_items()[0];
+                app.workspace.set_active(first);
+                let pane = app.workspace.active_pane();
+                update_pointer(&mut app, &[region(pane, strip)], 60.0, y, false);
+                app
+            }));
+            *output.lock().unwrap() = Some(state.clone());
+            let pane = state.get().workspace.active_pane();
+            render(
+                pane,
+                strip,
+                state,
+                cx.focus_handle(UiId::new("overflowing-editor-tabs")),
+            )
+        });
+        let mut session = UiSession::new();
+        session.render_view(&view, strip, UiScale::ONE);
+        let state = exposed.lock().unwrap().clone().unwrap();
+        let context = ApplicationContext::empty(Default::default());
+        let mut send = |input| {
+            dispatch_runtime_output(
+                session.handle_input(input),
+                &context,
+                &lgui::window::WindowId::new("overflowing-editor-tabs"),
+                |action| session.handle_default_action(action),
+                |_| {},
+            );
+            session.render_view(&view, strip, UiScale::ONE);
+        };
+        let pane = state.get().workspace.active_pane();
+        send(InputEvent::Wheel {
+            point: Point::new(60.0, y),
+            delta: WheelDelta::lines(0.0, -100.0),
+        });
+        let app = state.get();
+        let layout = tab_layout(strip, &app, pane, false);
+        assert!(layout.scroll_x > 0.0);
+        assert_eq!(layout.scroll_x, layout.max_scroll_x);
+        let last = *app.workspace.active_items().last().unwrap();
+        let point = Point::new(
+            layout.items.last().unwrap().left - layout.scroll_x + 20.0,
+            y,
+        );
+        send(InputEvent::PointerDown {
+            pointer: PointerData::mouse(point),
+            button: PointerButton::Right,
+        });
+        assert_eq!(
+            state.get().editor.tabs.tab_context_menu.unwrap().target,
+            last
+        );
+        send(InputEvent::PointerDown {
+            pointer: PointerData::mouse(point),
+            button: PointerButton::Left,
+        });
+        assert_eq!(state.get().workspace.active(), Some(last));
     }
 
     #[test]
@@ -764,14 +791,18 @@ mod tests {
         });
         let rect = UiRect::new(0.0, 0.0, 700.0, theme::TABS_H);
         let pane = app.workspace.active_pane();
+        let layout = tab_layout(rect, &app, pane, false);
+        let second_tab = layout.items[1];
+        let hover_x = rect.left + (second_tab.left + second_tab.right) / 2.0 - layout.scroll_x;
 
         assert!(update_pointer(
             &mut app,
             &[region(pane, rect)],
-            500.0,
+            hover_x,
             10.0,
             false
         ));
+        assert_eq!(app.editor.tabs.tab_hovered, Some((pane, second)));
         assert!(!app.editor.tabs.tab_drag.as_ref().unwrap().active);
         assert!(finish_pointer_interaction(&mut app));
         assert_eq!(app.workspace.active_items(), &[first, second]);

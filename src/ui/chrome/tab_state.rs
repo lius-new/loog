@@ -64,8 +64,5 @@ pub struct UiState {
     pub tab_drag: Option<TabDragState>,
     pub tab_hovered: Option<(PaneId, ViewId)>,
     pub tab_scroll: HashMap<PaneId, f32>,
-    pub tab_scrollbar_drag_offset: f32,
-    pub tab_scrollbar_dragging: Option<PaneId>,
-    pub tab_strip_hovered: Option<PaneId>,
     pub last_tab_click: Option<(Instant, ViewId, f32, f32, u8)>,
 }
