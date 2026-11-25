@@ -958,7 +958,6 @@ pub(crate) fn render_session(
             terminal_focus,
             session_id,
             application,
-            emphasized,
         ));
     }
     terminal
@@ -972,7 +971,6 @@ fn vertical_scrollbar(
     focus: UiFocusHandle,
     session: SessionId,
     application: FrameRequest,
-    emphasized: bool,
 ) -> Element {
     let track = UiRect::new(
         body.right - scrollbar::SIZE,
@@ -995,7 +993,6 @@ fn vertical_scrollbar(
         scroll,
     );
     let travel = track.height() - geometry.length;
-    let alpha = if emphasized { 0xb8 } else { 0x68 };
     // Keep the pressed node alive until release if a program switches screens
     // or clears history during the drag. An empty rect paints no scrollbar.
     let thumb_rect = if history == 0 {
@@ -1084,7 +1081,7 @@ fn vertical_scrollbar(
         })
         .on_pointer_drag(move |cx, pointer| track_drag(cx, pointer.point.y))
         .on_pointer_up(move |cx, _| track_release(cx));
-    let thumb = scrollbar::thumb(thumb_rect, alpha)
+    let thumb = scrollbar::thumb(thumb_rect)
         .key(format!("terminal-scrollbar-thumb-{session}"))
         .event_policy(policy)
         .on_pointer_down_with_button(move |cx, pointer, button| {

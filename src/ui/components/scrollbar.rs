@@ -17,16 +17,31 @@ pub fn track(rect: UiRect) -> Element {
     .cursor(CursorIcon::Default)
 }
 
-pub fn thumb(rect: UiRect, alpha: u8) -> Element {
+/// Idle thumb opacity: a faint block over the content, as in VS Code.
+const THUMB_ALPHA: u8 = 0x50;
+/// Thumb opacity while it is pressed or dragged. Hovering changes nothing.
+const THUMB_PRESSED_ALPHA: u8 = 0xa0;
+
+/// A scrollbar thumb with two states: idle and pressed.
+pub fn thumb(rect: UiRect) -> Element {
+    thumb_with_radius(rect, 2.0)
+}
+
+/// The same two-state thumb with square corners, for the editor.
+pub fn square_thumb(rect: UiRect) -> Element {
+    thumb_with_radius(rect, 0.0)
+}
+
+fn thumb_with_radius(rect: UiRect, radius: f32) -> Element {
     Element::new(move |cx| {
-        let flags = cx.context.interaction_flags(&cx.id);
-        let style = if flags.hovered || flags.pressed {
-            VisualStyle::filled(theme::c().text_soft).radius(2.0)
+        let alpha = if cx.context.interaction_flags(&cx.id).pressed {
+            THUMB_PRESSED_ALPHA
         } else {
-            VisualStyle::filled(theme::c().text_dim)
-                .alpha(alpha)
-                .radius(2.0)
+            THUMB_ALPHA
         };
+        let style = VisualStyle::filled(theme::c().text_dim)
+            .alpha(alpha)
+            .radius(radius);
         UiElement::panel(cx.id, rect, style).children(cx.children)
     })
     .cursor(CursorIcon::Default)

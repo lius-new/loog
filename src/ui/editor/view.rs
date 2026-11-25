@@ -32,7 +32,7 @@ use loog_editor_core::vim::CursorShape;
 
 pub(crate) use crate::ui::components::scrollbar::SIZE as SCROLLBAR_SIZE;
 use crate::ui::components::scrollbar::{
-    INSET as SCROLLBAR_INSET, MIN_THUMB_LENGTH, thumb as scrollbar_thumb, track as scrollbar_track,
+    INSET as SCROLLBAR_INSET, MIN_THUMB_LENGTH, square_thumb as scrollbar_thumb, track as scrollbar_track,
 };
 const TRAILING_CODE_SPACE: f32 = 32.0;
 /// The shortest change mark on the scrollbar, so one line stays visible.
@@ -1016,11 +1016,12 @@ pub(crate) fn render(
 
         let dragging = focused_pane
             && (s.editor_vertical_scrollbar_dragging || s.editor_horizontal_scrollbar_dragging);
-        let emphasized = s.editor_hovered == Some(pane) || dragging;
-        // Like the file drawer, the scrollbars show only while the pointer is
-        // over the pane, the pane has keyboard focus, or a thumb is dragged.
+        // Like VS Code, the scrollbars show only while the pointer is over the
+        // pane, a thumb is dragged, or the text just scrolled by other means,
+        // such as the caret moving. Keyboard focus alone does not keep them.
         // They overlay the text, so hiding them does not move it.
-        let show_scrollbars = emphasized || editor_focused;
+        let show_scrollbars =
+            s.editor_hovered == Some(pane) || dragging || s.scrollbar_revealed == Some(pane);
         if buffer.options().indent_guides
             && let Some(lines) = indent::block_span(&buffer, id, cursor_line)
         {
@@ -1095,7 +1096,6 @@ pub(crate) fn render(
                 metrics,
                 scroll_y,
                 has_horizontal,
-                emphasized,
                 state.clone(),
             ));
         }
@@ -1107,7 +1107,6 @@ pub(crate) fn render(
                 metrics,
                 scroll_x,
                 has_vertical,
-                emphasized,
                 state.clone(),
             ));
         }
@@ -1880,7 +1879,6 @@ pub(crate) fn vertical_scrollbar(
     metrics: ScrollMetrics,
     scroll: f32,
     has_horizontal: bool,
-    emphasized: bool,
     state: Binding,
 ) -> Element {
     let corner = if has_horizontal { SCROLLBAR_SIZE } else { 0.0 };
@@ -1898,7 +1896,6 @@ pub(crate) fn vertical_scrollbar(
         scroll,
     );
     let travel = track.height() - geometry.length;
-    let alpha = if emphasized { 0xb8 } else { 0x68 };
 
     let st_track_down = state.clone();
     let st_track_move = state.clone();
@@ -1938,7 +1935,7 @@ pub(crate) fn vertical_scrollbar(
     let st_thumb_down = state.clone();
     let st_thumb_move = state.clone();
     let st_thumb_up = state;
-    let thumb = scrollbar_thumb(thumb_rect, alpha)
+    let thumb = scrollbar_thumb(thumb_rect)
         .key(format!("editor-vertical-scrollbar-thumb-{}", pane.get()))
         .event_policy(EventPolicy::INTERACTIVE)
         .on_pointer_down(move |_cx, pointer| {
@@ -1988,7 +1985,6 @@ pub(crate) fn horizontal_scrollbar(
     metrics: ScrollMetrics,
     scroll: f32,
     has_vertical: bool,
-    emphasized: bool,
     state: Binding,
 ) -> Element {
     let corner = if has_vertical { SCROLLBAR_SIZE } else { 0.0 };
@@ -2006,7 +2002,6 @@ pub(crate) fn horizontal_scrollbar(
         scroll,
     );
     let travel = track.width() - geometry.length;
-    let alpha = if emphasized { 0xb8 } else { 0x68 };
 
     let st_track_down = state.clone();
     let st_track_move = state.clone();
@@ -2046,7 +2041,7 @@ pub(crate) fn horizontal_scrollbar(
     let st_thumb_down = state.clone();
     let st_thumb_move = state.clone();
     let st_thumb_up = state;
-    let thumb = scrollbar_thumb(thumb_rect, alpha)
+    let thumb = scrollbar_thumb(thumb_rect)
         .key(format!("editor-horizontal-scrollbar-thumb-{}", pane.get()))
         .event_policy(EventPolicy::INTERACTIVE)
         .on_pointer_down(move |_cx, pointer| {

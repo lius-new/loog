@@ -958,7 +958,6 @@ fn results(
         root = root.child(
             scrollbar::thumb(
                 UiRect::new(rect.right - 9.0, top, rect.right - 2.0, top + thumb_h),
-                100,
             )
             .on_pointer_down(move |cx, p| {
                 down.update(|app| app.ui.scrollbar_drag = Some((p.point.y, scroll)));

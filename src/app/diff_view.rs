@@ -23,6 +23,7 @@ pub fn binding(state: &AppContext) -> Binding {
                 editor: EditorFrame {
                     diff_split: app.editor.diff_split,
                     editor_hovered: app.editor.editor_hovered,
+                    scrollbar_revealed: app.editor.scrollbar_reveal.shown,
                     focused: app.editor.focused,
                     editor_vertical_scrollbar_dragging: app
                         .editor
@@ -1485,8 +1486,9 @@ mod tests {
         let view: AppView = Arc::new(move |cx| {
             let state = AppContext::detached(cx.state_with(|| {
                 let mut app = AppState::new();
-                // The scrollbars show only for a focused or hovered editor.
+                // The scrollbars show only for a hovered editor.
                 app.editor.focused = true;
+                app.editor.editor_hovered = Some(PaneId::new(1));
                 app.git.ui.split_diff = split;
                 app.workspace.open_diff(DiffDocument::added(
                     "test-repo".into(),

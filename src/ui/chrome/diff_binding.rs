@@ -47,6 +47,7 @@ impl ChangeFocus {
 pub struct EditorFrame {
     pub diff_split: DiffSplit,
     pub editor_hovered: Option<PaneId>,
+    pub scrollbar_revealed: Option<PaneId>,
     /// The editor owns keyboard focus.
     pub focused: bool,
     pub editor_vertical_scrollbar_dragging: bool,

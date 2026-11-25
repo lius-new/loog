@@ -43,8 +43,7 @@ pub fn facts(app: &AppState) -> ContextFacts {
                 || app.search.ui.exclude.focused
                 || app.search.ui.results_focused),
         search_results: app.search.ui.results_focused,
-        other_input: app.git.ui.file_filter.focused
-            || app.explorer.ui.create_input.focused
+        other_input: app.explorer.ui.create_input.focused
             || (app.keymap_ui.search.focused && app.main_surface() == MainSurface::Keymap)
             || (app.extensions_ui.search.focused && app.main_surface() == MainSurface::Extensions),
         terminal: app.terminal.ui.terminal_focused,

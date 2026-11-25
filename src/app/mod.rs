@@ -4,6 +4,7 @@ pub(crate) mod editor;
 #[cfg(test)]
 mod editor_baseline_tests;
 pub(crate) mod editor_keys;
+pub(crate) mod editor_scrollbar;
 #[cfg(test)]
 mod editor_performance;
 pub(crate) mod editor_view;

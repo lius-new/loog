@@ -91,7 +91,6 @@ fn thumb(
             track.right - scrollbar::INSET,
             thumb_top + thumb_h,
         ),
-        0xb8,
     )
     .key("ext-scrollbar-thumb")
     .event_policy(EventPolicy::INTERACTIVE)

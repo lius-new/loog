@@ -15,7 +15,7 @@ use lgui::ApplicationHandle;
 use lgui::core::{UiElement, UiEventKind, UiEventPayload, UiId};
 use lgui::prelude::{Element, RenderCx, UiRect, VisualStyle, component, group};
 use lgui::services::ServicesContextExt;
-use lgui::window::WindowFocusChanged;
+use lgui::window::{WindowFocusChanged, WindowPointerLeft};
 
 use crate::app::key_actions::{self, KeyEnv, TerminalEnv};
 use crate::app::state::{AppState, CloseContinuation, CloseRequest, MainSurface, TabDrop};
@@ -277,6 +277,26 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                     window_focus_application.clone(),
                 );
             }
+        }
+    });
+    // The pointer leaving through the window edge sends no further moves, so
+    // every pointer-driven overlay (scrollbars, hover rows) is dropped here.
+    let pointer_leave_state = state.clone();
+    cx.use_event_once::<WindowPointerLeft>(move |event| {
+        if event.window_id.as_str() == "loog" {
+            pointer_leave_state.try_update(|app| {
+                let mut changed = std::mem::take(&mut app.explorer.ui.hovered);
+                changed |= std::mem::take(&mut app.git.ui.hovered);
+                changed |= app.git.ui.scroll_hover.take().is_some();
+                changed |= app.git.ui.hover.take().is_some();
+                changed |= app.editor.editor_hovered.take().is_some();
+                changed |= std::mem::take(&mut app.log_panel.hovered);
+                changed |= app.terminal.ui.hovered_terminal.take().is_some();
+                let outline = &mut app.editor.language.outline;
+                changed |= std::mem::take(&mut outline.pointer_inside);
+                changed |= outline.hovered.take().is_some();
+                changed
+            });
         }
     });
     let close_state = state.clone();
@@ -1555,7 +1575,6 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             editor_focus.clone(),
             commit_input_focus,
             commit_input_id,
-            cx.focus_handle(UiId::new(crate::ui::git::drawer::FILTER_ID)),
         ));
     }
     let explorer_services = super::explorer_view::Services {

@@ -320,6 +320,7 @@ pub(crate) fn snapshot(
         editor_gutter_hover: state.editor_gutter_hover,
         editor_diagnostic_hover: state.editor_diagnostic_hover.clone(),
         editor_hovered: state.editor_hovered,
+        scrollbar_revealed: state.scrollbar_reveal.shown,
         editor_vertical_scrollbar_dragging: state.editor_vertical_scrollbar_dragging,
         editor_horizontal_scrollbar_dragging: state.editor_horizontal_scrollbar_dragging,
         line_changes,

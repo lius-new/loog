@@ -23,7 +23,10 @@ use crate::ui::git::tree_guides::TreeGuides;
 use crate::ui::theme;
 
 pub(crate) const TOPLINE_H: f32 = 40.0;
-pub(crate) const PROMPT_H: f32 = 196.0;
+/// The commit composer while idle: one quiet line.
+pub(crate) const PROMPT_IDLE_H: f32 = 44.0;
+/// The commit composer once it has focus or a message: the message box and its button.
+pub(crate) const PROMPT_EXPANDED_H: f32 = 102.0;
 /// The composer while an operation is unfinished: a title and one button.
 pub(crate) const OPERATION_PROMPT_H: f32 = 84.0;
 pub(crate) const CHANGE_ROW_H: f32 = 24.0;
@@ -32,16 +35,32 @@ const TREE_INDENT: f32 = 14.0;
 pub(crate) const SECTION_H: f32 = 26.0;
 pub(crate) const ROW_H: f32 = 20.0;
 
-/// Keep the multiline composer anchored below the scrolling changes.
+/// Whether the commit composer shows its message box and button: while it has
+/// focus, holds a message or an amend, or its options menu is open.
+pub(crate) fn commit_expanded(app: &GitPanelState) -> bool {
+    app.ui.commit_input.focused
+        || !app.ui.commit_input.text().is_empty()
+        || app.ui.commit_amend
+        || app
+            .ui
+            .menu
+            .as_ref()
+            .is_some_and(|menu| menu.target == GitMenuTarget::Submit)
+}
+
+/// Keep the composer anchored below the scrolling changes.
 pub(crate) fn drawer_regions(
     body: UiRect,
     _changes_height: f32,
     operation: bool,
+    expanded: bool,
 ) -> (UiRect, UiRect) {
     let height = if operation {
         OPERATION_PROMPT_H
+    } else if expanded {
+        PROMPT_EXPANDED_H
     } else {
-        PROMPT_H
+        PROMPT_IDLE_H
     };
     let top = (body.bottom - height).max(body.top);
     (
@@ -257,17 +276,8 @@ pub fn render(
     editor_focus: UiFocusHandle,
     commit_focus: UiFocusHandle,
     commit_id: UiId,
-    filter_focus: UiFocusHandle,
 ) -> Element {
-    render_local(
-        rect,
-        state,
-        store,
-        editor_focus,
-        commit_focus,
-        commit_id,
-        filter_focus,
-    )
+    render_local(rect, state, store, editor_focus, commit_focus, commit_id)
 }
 
 fn render_local(
@@ -277,7 +287,6 @@ fn render_local(
     editor_focus: UiFocusHandle,
     commit_focus: UiFocusHandle,
     commit_id: UiId,
-    filter_focus: UiFocusHandle,
 ) -> Element {
     let app = state.get();
     let frame = state.frame();
@@ -294,7 +303,6 @@ fn render_local(
         ),
         state.clone(),
         store.clone(),
-        filter_focus,
     ));
     let Some(repository) = git.active() else {
         let message = if git.initializing {
@@ -325,7 +333,6 @@ fn render_local(
     let mut content = Vec::new();
     // Every section's rows, laid out before drawing so the content height
     // and scroll range are known.
-    let query = app.ui.file_filter.text().to_lowercase();
     let show_section = |_filter: u8, empty: bool| !empty;
     let change_sections = [
         ("CONFLICTS", CONFLICTS),
@@ -335,13 +342,7 @@ fn render_local(
     ]
     .map(|(title, filter)| {
         let files = sections.map_or(&[][..], |sections| sections[filter as usize].as_slice());
-        let files = files
-            .iter()
-            .filter(|path| {
-                query.is_empty() || path.to_string_lossy().to_lowercase().contains(&query)
-            })
-            .cloned()
-            .collect::<Vec<_>>();
+        let files = files.to_vec();
         let rows = change_rows(&files, app.ui.tree_view, &|path| {
             app.ui
                 .change_collapsed
@@ -388,6 +389,7 @@ fn render_local(
         body_rect,
         changes_height,
         crate::features::git::operation::operation_text(repository.repository_state).is_some(),
+        commit_expanded(&app),
     );
     let max_scroll = (changes_height - content_rect.height()).max(0.0);
     let scroll = app.ui.scroll.clamp(0.0, max_scroll);
@@ -525,11 +527,7 @@ fn render_local(
                     rect.right - 12.0,
                     content_rect.top + 34.0,
                 ),
-                if !query.is_empty() {
-                    "No matching files."
-                } else {
-                    "Working tree clean."
-                },
+                "Working tree clean.",
                 theme::sans(theme::c().text_ghost, 11.0),
             )
             .into(),
@@ -699,7 +697,6 @@ pub(crate) fn git_vertical_scrollbar(
             track.right - scrollbar::INSET,
             thumb_top + thumb_h,
         ),
-        0xb8,
     )
     .key(format!("{}-scrollbar-thumb", region.key()))
     .event_policy(EventPolicy::INTERACTIVE)

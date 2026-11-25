@@ -548,7 +548,6 @@ fn vertical_scrollbar(
             track.right - scrollbar::INSET,
             start + thumb,
         ),
-        0xb8,
     )
     .event_policy(EventPolicy::INTERACTIVE)
     .on_pointer_down_with_button(move |cx, pointer, button| {

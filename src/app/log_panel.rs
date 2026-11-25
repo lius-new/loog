@@ -726,11 +726,6 @@ fn scrollbar(
         scroll,
     );
     let travel = track.height() - geometry.length;
-    let alpha = if panel_state.hovered || dragging {
-        0xb8
-    } else {
-        0x68
-    };
     // The thumb stays in the tree while it is dragged, even if the list shrinks
     // under it; an empty rectangle paints nothing.
     let thumb_rect = if max_scroll <= 0.0 {
@@ -795,7 +790,7 @@ fn scrollbar(
         })
         .on_pointer_drag(move |cx, pointer| track_drag(cx, pointer.point.y))
         .on_pointer_up(move |cx, _| track_release(cx));
-    let thumb = bar::thumb(thumb_rect, alpha)
+    let thumb = bar::thumb(thumb_rect)
         .key("log-scrollbar-thumb")
         .event_policy(policy)
         .on_pointer_down_with_button(move |cx, pointer, button| {

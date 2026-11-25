@@ -139,6 +139,10 @@
       "owner": "app/state/editor: inline Git peek interaction, rendered by ui/git/hunk_peek and loaded by app/git_peek",
       "migrated_in": "R6.6"
     },
+    "scrollbar_reveal": {
+      "owner": "app/state/editor: scrollbars shown briefly after keyboard scrolling, see app/editor_scrollbar",
+      "migrated_in": "scrollbar visibility"
+    },
     "editor_vertical_scrollbar_drag_offset": {
       "owner": "app/state/editor",
       "migrated_in": "R3"
@@ -675,11 +679,6 @@
       "owner": "ui/git/state",
       "migrated_in": "Git history branches",
       "reason": "Scroll position of the history branch list"
-    },
-    "file_filter": {
-      "owner": "ui/git/state",
-      "migrated_in": "Git drawer design",
-      "reason": "Keep the changed-file filter text, caret and focus"
     },
     "commit_amend": {
       "owner": "ui/git/state",

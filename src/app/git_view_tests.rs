@@ -177,7 +177,6 @@ mod panel_virtualization_tests {
                 cx.focus_handle(UiId::new("git-test-editor")),
                 cx.focus_handle(UiId::new("git-test-commit")),
                 UiId::new("git-test-commit"),
-                cx.focus_handle(UiId::new(crate::ui::git::drawer::FILTER_ID)),
             ));
             if let Some(panel) = panel_rect {
                 root = root.child(crate::ui::git::workbench::render(
@@ -390,14 +389,20 @@ mod panel_virtualization_tests {
             );
         }
         assert!(named(&session, "UNSTAGED").is_some());
-        // The commit form stays at the bottom below a long change list.
+        // Idle, the commit form is one quiet line with no button.
+        let idle = named(&session, "Commit message").unwrap();
+        assert!(idle.height() < 30.0 && idle.bottom <= viewport.bottom - 8.0);
+        assert!(named(&session, "Commit changes").is_none());
+        // A message opens the box and its button, still at the bottom below a long change list.
+        let (state, store) = exposed.lock().unwrap().clone().unwrap();
+        state.update(|app| app.git.ui.commit_input.set_text("feat"));
+        session.render_view(&view, viewport, UiScale::ONE);
         let input = named(&session, "Commit message").unwrap();
-        assert!(input.height() >= 70.0);
+        assert!(input.height() >= 40.0);
         assert_eq!(
             named(&session, "Commit changes").unwrap().bottom,
-            viewport.bottom - 10.0
+            viewport.bottom - 14.0
         );
-        let (state, store) = exposed.lock().unwrap().clone().unwrap();
         store.update(|snapshot| {
             Arc::make_mut(&mut snapshot.presentation)
                 .repositories
@@ -665,7 +670,6 @@ mod panel_virtualization_tests {
                 focus.clone(),
                 cx.focus_handle(UiId::new("drawer-test-commit")),
                 UiId::new("drawer-test-commit"),
-                cx.focus_handle(UiId::new(crate::ui::git::drawer::FILTER_ID)),
             );
             if let Some(menu) = state.get().ui.menu {
                 root = root.child(crate::ui::git::menu::render(
@@ -692,7 +696,7 @@ mod panel_virtualization_tests {
         session.render_view(&view, viewport, UiScale::ONE);
         let (state, store) = exposed.lock().unwrap().clone().unwrap();
         let input_before = named(&session, "Commit message").unwrap();
-        assert!(input_before.height() > 70.0);
+        assert!(input_before.height() < 30.0);
         let send = |session: &mut UiSession, event| {
             dispatch_runtime_output(
                 session.handle_input(event),
@@ -738,13 +742,6 @@ mod panel_virtualization_tests {
             *commands.lock().unwrap(),
             ["stage:src/ui/panel.rs", "unstage:src/ui/state.rs"]
         );
-        state.update(|app| app.ui.file_filter.set_text("GIT.MD"));
-        session.render_view(&view, viewport, UiScale::ONE);
-        assert!(named(&session, "Stage docs/git.md").is_some());
-        assert!(named(&session, "Stage src/ui/panel.rs").is_none());
-        assert_eq!(named(&session, "Commit message").unwrap(), input_before);
-        state.update(|app| app.ui.file_filter.clear());
-        session.render_view(&view, viewport, UiScale::ONE);
         activate(&mut session, "Commit message");
         send(
             &mut session,
@@ -759,6 +756,7 @@ mod panel_virtualization_tests {
             }),
         );
         send(&mut session, InputEvent::TextInput("正文说明".into()));
+        assert!(named(&session, "Commit message").unwrap().height() >= 40.0);
         assert_eq!(
             state.get().ui.commit_input.text(),
             "feat: Git drawer\n正文说明"
@@ -788,6 +786,8 @@ mod panel_virtualization_tests {
         state.update(|app| {
             app.ui.menu = None;
             app.ui.commit_input.clear();
+            // An empty message with focus keeps the box and its disabled button.
+            app.ui.commit_input.focused = true;
         });
         session.render_view(&view, viewport, UiScale::ONE);
         let button = session
@@ -1864,7 +1864,6 @@ mod panel_virtualization_tests {
                 cx.focus_handle(UiId::new("tag-hover-editor")),
                 cx.focus_handle(UiId::new("tag-hover-commit")),
                 UiId::new("tag-hover-commit"),
-                cx.focus_handle(UiId::new(crate::ui::git::drawer::FILTER_ID)),
             ));
             root = root.child(crate::ui::git::workbench::render(
                 panel_rect,
@@ -2084,7 +2083,6 @@ mod panel_virtualization_tests {
                 focus.clone(),
                 cx.focus_handle(UiId::new("tag-menu-commit")),
                 UiId::new("tag-menu-commit"),
-                cx.focus_handle(UiId::new(crate::ui::git::drawer::FILTER_ID)),
             )
             .child(crate::ui::git::workbench::render(
                 UiRect::new(

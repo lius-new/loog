@@ -213,13 +213,11 @@ fn translated(
 /// Only visible paragraphs and bounded visible glyph rectangles enter the scene.
 /// Selection/copy remains a full-document logical range outside this scene.
 pub fn render(id: UiId, rect: UiRect, binding: Binding, focus: UiFocusHandle) -> Element {
-    let emphasized = false;
     // A card sits on its own surface, so the reader adds no fill of its own.
     render_in(
         id,
         rect,
         rect,
-        emphasized,
         VisualStyle::default(),
         binding,
         focus,
@@ -231,7 +229,6 @@ pub fn render_in(
     id: UiId,
     area: UiRect,
     rect: UiRect,
-    emphasized: bool,
     background: VisualStyle,
     binding: Binding,
     focus: UiFocusHandle,
@@ -735,7 +732,6 @@ pub fn render_in(
                         track.width(),
                         current,
                         max,
-                        emphasized,
                         binding.clone(),
                         focus.clone(),
                     )),
@@ -757,7 +753,6 @@ pub fn render_in(
             track.height(),
             frame.viewport.top,
             max,
-            emphasized,
             binding.clone(),
             focus.clone(),
         ));
@@ -920,7 +915,6 @@ fn axis_scrollbar(
     viewport: f32,
     scroll: f32,
     max: f32,
-    emphasized: bool,
     binding: Binding,
     focus: UiFocusHandle,
 ) -> Element {
@@ -999,7 +993,7 @@ fn axis_scrollbar(
         )
     };
     let (down, drag, up) = (binding.clone(), binding.clone(), binding);
-    let thumb_hit = scrollbar::thumb(rect, if emphasized { 0xb8 } else { 0x68 })
+    let thumb_hit = scrollbar::thumb(rect)
         .key("thumb")
         .semantics(Semantics::new(SemanticRole::Group).name(if vertical {
             "Markdown vertical scrollbar thumb"

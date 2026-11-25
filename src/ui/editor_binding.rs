@@ -65,6 +65,7 @@ pub(crate) struct ViewState {
     pub editor_gutter_hover: Option<(PaneId, usize)>,
     pub editor_diagnostic_hover: Option<(PaneId, Range<usize>)>,
     pub editor_hovered: Option<PaneId>,
+    pub scrollbar_revealed: Option<PaneId>,
     pub editor_vertical_scrollbar_dragging: bool,
     pub editor_horizontal_scrollbar_dragging: bool,
     pub line_changes: BTreeMap<usize, LineChange>,

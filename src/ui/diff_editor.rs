@@ -365,11 +365,11 @@ pub fn render(
     let dragging = app.workspace.active_pane() == pane
         && (app.editor.editor_vertical_scrollbar_dragging
             || app.editor.editor_horizontal_scrollbar_dragging);
-    let emphasized = app.editor.editor_hovered == Some(pane) || dragging;
-    // As in the text editor and the file drawer, the scrollbars show only while
-    // the pointer is over the pane, the pane has keyboard focus, or a thumb is
-    // dragged.
-    let show_scrollbars = emphasized || (app.editor.focused && app.workspace.active_pane() == pane);
+    // As in the text editor, the scrollbars show only while the pointer is over
+    // the pane, a thumb is dragged, or the text just scrolled by other means.
+    let show_scrollbars = app.editor.editor_hovered == Some(pane)
+        || dragging
+        || app.editor.scrollbar_revealed == Some(pane);
     if !split && document.sections.is_none() {
         let marks = document.inline_change_marks();
         if !marks.is_empty() && marks.len() <= 10_000 {
@@ -394,7 +394,6 @@ pub fn render(
                     metrics,
                     scroll_y,
                     max_x > 0.0,
-                    emphasized,
                     scrollbars.clone(),
                 )
                 .key(format!("diff-old-scrollbar-{}", pane.get())),
@@ -406,7 +405,6 @@ pub fn render(
             metrics,
             scroll_y,
             max_x > 0.0,
-            emphasized,
             scrollbars.clone(),
         ));
     }
@@ -418,7 +416,6 @@ pub fn render(
             metrics,
             scroll_x,
             max_y > 0.0,
-            emphasized,
             scrollbars.clone(),
         ));
     }

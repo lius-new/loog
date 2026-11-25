@@ -1333,7 +1333,6 @@ fn vertical_scrollbar(rect: UiRect, content_bottom: f32, scroll: f32, state: Acc
             track.right - scrollbar::INSET,
             thumb_top + thumb_h,
         ),
-        0xb8,
     )
     .key("file-tree-vertical-scrollbar-thumb")
     .event_policy(EventPolicy::INTERACTIVE)
@@ -1391,7 +1390,6 @@ fn horizontal_scrollbar(rect: UiRect, content_right: f32, scroll: f32, state: Ac
             thumb_left + thumb_w,
             track.bottom - scrollbar::INSET,
         ),
-        0xb8,
     )
     .key("file-tree-horizontal-scrollbar-thumb")
     .event_policy(EventPolicy::INTERACTIVE)

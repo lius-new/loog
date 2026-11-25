@@ -179,7 +179,6 @@ pub fn render(
     };
     let mut body = rect;
     let body_area = body;
-    let app_hovered = app.editor.editor_hovered == Some(pane);
     let margin =
         ((body.width() - app.preferences.values().markdown.max_width as f32) * 0.5).max(0.0);
     body.left += margin;
@@ -277,7 +276,6 @@ pub fn render(
                 id,
                 UiRect::new(body_area.left, body.top, body_area.right, body.bottom),
                 body,
-                app_hovered,
                 VisualStyle::filled(theme::c().bg),
                 binding,
                 focus,
