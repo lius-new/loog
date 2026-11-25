@@ -1,6 +1,7 @@
 //! Tab pointer/drag/menu values, independent of the root application.
 use crate::domain::identity::{PaneId, ViewId};
 use crate::domain::pane_layout::Direction;
+use lgui::core::Point;
 use std::{collections::HashMap, path::PathBuf, time::Instant};
 /// Where a dragged tab lands outside its own strip.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -18,13 +19,35 @@ pub enum TabDrop {
 pub struct TabDragState {
     pub pane: PaneId,
     pub source: ViewId,
-    pub pointer_origin_x: f32,
-    pub pointer_origin_y: f32,
+    pub origin: Point,
+    /// Horizontal fraction and vertical offset of the pointer within the pressed tab.
+    pub grab: Point,
+    pub source_index: usize,
+    pub preview_width: f32,
     /// Final index while reordering within the source strip.
     pub target_index: usize,
     pub active: bool,
+    /// The pointer is inside the source tab strip and uses live reorder feedback.
+    pub floating: bool,
     /// Set while the pointer is outside the source strip over a drop target.
     pub drop: Option<TabDrop>,
+}
+
+impl TabDragState {
+    pub fn new(pane: PaneId, source: ViewId, index: usize, origin: Point, grab: Point) -> Self {
+        Self {
+            pane,
+            source,
+            origin,
+            grab,
+            source_index: index,
+            target_index: index,
+            preview_width: 0.0,
+            active: false,
+            floating: false,
+            drop: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -12,7 +12,7 @@ use std::thread;
 use std::time::Duration;
 
 use lgui::ApplicationHandle;
-use lgui::core::{UiElement, UiEventKind, UiEventPayload, UiId};
+use lgui::core::{Point, UiElement, UiEventKind, UiEventPayload, UiId};
 use lgui::prelude::{Element, RenderCx, UiRect, VisualStyle, component, group};
 use lgui::services::ServicesContextExt;
 use lgui::window::WindowFocusChanged;
@@ -47,6 +47,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let layout_map_store = cx.state_with(layout_map::MapStore::default).get();
     // The tree row under the pointer: a signal, so moving between rows re-renders nothing.
     let explorer_hover = cx.signal(None::<String>);
+    let tab_drag_pointer = cx.signal(Point::default());
     let git_poll_control = runtime.git_poll_control();
     let terminal_tabs = cx.state_with(|| terminal_effects::restored(workspace_persistence::load()));
     let terminal_tabs = terminal_effects::bind(terminal_tabs, &runtime, &state);
@@ -1319,42 +1320,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         }
     });
 
-    let st_tabs_pointer = state.clone();
-    let pointer_regions = regions.clone();
-    root = root.on_event_capture(UiEventKind::PointerMove, move |_ctx, payload| {
-        if let UiEventPayload::PointerMove { pointer } = payload {
-            st_tabs_pointer.try_update(|app| {
-                super::tabs::update_pointer(
-                    app,
-                    &pointer_regions,
-                    pointer.point.x,
-                    pointer.point.y,
-                    false,
-                )
-            });
-        }
-    });
-
-    let st_tabs_drag = state.clone();
-    let drag_regions = regions.clone();
-    root = root.on_event_capture(UiEventKind::PointerDrag, move |_ctx, payload| {
-        if let UiEventPayload::PointerDrag { pointer } = payload {
-            st_tabs_drag.try_update(|app| {
-                super::tabs::update_pointer(
-                    app,
-                    &drag_regions,
-                    pointer.point.x,
-                    pointer.point.y,
-                    true,
-                )
-            });
-        }
-    });
-
-    let st_tabs_pointer_up = state.clone();
-    root = root.on_event_capture(UiEventKind::PointerUp, move |_ctx, _payload| {
-        st_tabs_pointer_up.try_update(super::tabs::finish_pointer_interaction);
-    });
+    root = super::tabs::track_pointer(root, &state, &regions, tab_drag_pointer.clone());
 
     // A release that never arrived must not drop a stale file on the next
     // click; a file row press records a fresh drag after this runs.
@@ -2000,9 +1966,9 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         super::presentation::dismiss_toast(state.clone()),
     ));
 
-    // Drag feedback goes last: inserting it earlier would shift the index of
-    // the elements after it and drop the pressed element's pointer capture.
-    // Preview where a dragged tab or drawer file would land on a pane.
+    // Keep the overlays in a fixed child slot so adding a preview only damages
+    // the feedback itself, even when window-wide overlays follow it.
+    let mut drag_feedback = group(UiRect::default()).key("drag-feedback");
     let file_drop = s
         .editor
         .tabs
@@ -2020,7 +1986,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         .or(file_drop)
         && let Some(region) = regions.iter().find(|region| region.pane == pane)
     {
-        root = root.child(lgui::prelude::panel(
+        drag_feedback = drag_feedback.child(lgui::prelude::panel(
             tabs::drop_preview(region.body, split),
             VisualStyle::filled(theme::c().accent).alpha(40),
         ));
@@ -2036,7 +2002,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         let left = (drag.point.0 + 12.0).min(vp.right - width - 4.0);
         let top = (drag.point.1 + 8.0).min(vp.bottom - 28.0);
         let label = UiRect::new(left, top, left + width, top + 24.0);
-        root = root.child(
+        drag_feedback = drag_feedback.child(
             theme::bordered(label, theme::c().surface, theme::c().border, 4.0, 1.0).child(
                 lgui::prelude::text(
                     UiRect::new(
@@ -2051,6 +2017,11 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             ),
         );
     }
+
+    if let Some(tab) = super::tabs::render_dragged_tab(&s, tab_drag_pointer) {
+        drag_feedback = drag_feedback.child(tab);
+    }
+    root = root.child(drag_feedback);
 
     root = root.child(crate::ui::extension_widgets::overlays(vp));
     let ui_state = state.clone();
@@ -2091,11 +2062,18 @@ fn pane_body_rect(pane: UiRect) -> UiRect {
     UiRect::new(pane.left, pane.top + theme::TABS_H, pane.right, pane.bottom)
 }
 
-fn window_root(rect: UiRect) -> Element {
+pub(super) fn window_root(rect: UiRect) -> Element {
     // Antialiased fractional pane edges leave translucent pixels between surfaces.
     // Back them with an opaque fill: software presentation copies premultiplied RGB
     // without alpha, which would otherwise turn those pixels into dark seams.
-    lgui::prelude::panel(rect, VisualStyle::filled(theme::c().bg))
+    // Keep the fill on a separate node so hovering the event root does not
+    // damage the entire background.
+    group(rect)
+        .paint_bounds(UiRect::default())
+        .child(lgui::prelude::panel(
+            rect,
+            VisualStyle::filled(theme::c().bg),
+        ))
 }
 
 #[cfg(test)]

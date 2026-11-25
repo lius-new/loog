@@ -1,6 +1,7 @@
 //! Read-only document/layout snapshot and tab command port.
 use crate::domain::identity::{PaneId, ViewId};
 use crate::ui::chrome::tab_state::UiState;
+use lgui::core::Point;
 use std::path::PathBuf;
 use std::sync::Arc;
 pub type Core = crate::domain::workspace::Workspace<
@@ -43,7 +44,7 @@ impl Snapshot {
 }
 pub enum Command {
     Wheel(PaneId, f32, f32),
-    Press(PaneId, ViewId, usize, f32, f32),
+    Press(PaneId, ViewId, usize, Point, Point),
     Menu(PaneId, ViewId, (f32, f32)),
     Close(PaneId, ViewId),
     CancelPending(u64),

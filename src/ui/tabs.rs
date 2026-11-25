@@ -2,10 +2,12 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::time::Instant;
 
 use lgui::core::{
-    Color, CursorIcon, EventPolicy, IconStyle, PointerButton, UiElement, UiFocusHandle, UiId,
-    WheelUnit, clip, precompiled,
+    Color, CompositingLayerAnimation, CompositingLayerSpec, CursorIcon, EventPolicy, IconStyle,
+    LayerTransform, PhysicalRect, Point, PointerButton, Signal, UiElement, UiFocusHandle, UiId,
+    WheelUnit, animated_compositing_layer, clip, precompiled,
 };
 use lgui::prelude::{Element, TextStyle, UiRect, VisualStyle, panel, text};
 use lgui::text::{self, TextLayoutRequest};
@@ -584,6 +586,262 @@ fn tab_panel(id: UiId, bounds: UiRect, style: VisualStyle) -> Element {
         .key(key.as_str())
 }
 
+struct TabFace<'a> {
+    label: &'a str,
+    badge: TabBadge,
+    mark: Option<(&'static str, Color)>,
+    loading: bool,
+    active: bool,
+    preview: bool,
+}
+
+impl<'a> TabFace<'a> {
+    fn new(
+        app: &Frame<'_>,
+        pane: PaneId,
+        id: ViewId,
+        meta: &'a FileMeta,
+        label: Option<&'a String>,
+        active: bool,
+    ) -> Self {
+        Self {
+            label: label.map_or(meta.name.as_str(), String::as_str),
+            badge: tab_badge(app, id, meta),
+            mark: tab_state_mark(app, id),
+            loading: app
+                .workspace
+                .view_document(id)
+                .is_some_and(|id| app.workspace.loading_indicator(id)),
+            active,
+            preview: app.workspace.pane(pane).is_some_and(|p| p.is_preview(id)),
+        }
+    }
+
+    fn render(self, tab: Element, pill: UiRect, key: &str) -> Element {
+        let badge_left = pill.left + PAD;
+        let name_left = badge_left + self.badge.width() + GAP;
+        let close_left = tab_close_bounds(pill).left;
+        let mark_width = self
+            .mark
+            .map_or(0.0, |(mark, _)| measure(mark, theme::SMALL, 400));
+        let mark_left = close_left - GAP - mark_width;
+        let name_right = if self.mark.is_some() {
+            mark_left - GAP
+        } else {
+            close_left - GAP
+        };
+        let name_width = (name_right - name_left).max(0.0);
+        let name = if self.active && measure_sans(self.label, theme::UI_SIZE, 400) <= name_width {
+            self.label.to_owned()
+        } else {
+            ellipsize_sans(
+                self.label,
+                (name_width - TEXT_MARGIN).max(0.0),
+                theme::UI_SIZE,
+                400,
+            )
+        };
+        let badge = if self.loading {
+            let top = pill.top + (pill.height() - BADGE_ICON) / 2.0;
+            crate::ui::components::loading_indicator::render(
+                UiRect::new(badge_left, top, badge_left + BADGE_ICON, top + BADGE_ICON),
+                theme::c().text_muted,
+                format!("tabs.restore.{key}"),
+            )
+        } else {
+            self.badge.render(badge_left, pill, key)
+        };
+        let mut tab = tab.child(badge).child(text(
+            UiRect::new(name_left, pill.top, name_left + name_width, pill.bottom),
+            name,
+            tab_name_style(self.active, self.preview),
+        ));
+        if let Some((mark, color)) = self.mark {
+            tab = tab.child(text(
+                UiRect::new(
+                    mark_left,
+                    pill.top,
+                    mark_left + mark_width + TEXT_MARGIN,
+                    pill.bottom,
+                ),
+                mark,
+                theme::mono_bold(color, theme::SMALL),
+            ));
+        }
+        tab
+    }
+}
+
+fn tab_close_bounds(pill: UiRect) -> UiRect {
+    UiRect::new(
+        pill.right - PAD - CLOSE_ICON,
+        pill.top,
+        pill.right - PAD,
+        pill.bottom,
+    )
+}
+
+fn tab_close_icon(pill: UiRect, key: &str) -> Element {
+    close_glyph(
+        UiId::owned(format!("tabs.close.{key}")),
+        tab_close_bounds(pill),
+        theme::c().text_dim,
+    )
+}
+
+fn tab_right_edge(pill: UiRect) -> Element {
+    Element::new(move |cx| {
+        let scale = cx.context.scale();
+        let edge = scale.physical_value(pill.right) - scale.physical_length(1.0);
+        let line = scale.logical_rect(PhysicalRect::new(
+            edge,
+            scale.physical_value(pill.top),
+            edge + scale.physical_length(1.0),
+            scale.physical_value(pill.bottom),
+        ));
+        UiElement::panel(cx.id, line, VisualStyle::filled(theme::c().border))
+            .hit_rect(UiRect::default())
+    })
+}
+
+fn selected_tab_edge(pill: UiRect) -> Element {
+    Element::new(move |cx| {
+        let scale = cx.context.scale();
+        let top = scale.physical_value(pill.top);
+        let edge = scale.logical_rect(PhysicalRect::new(
+            scale.physical_value(pill.left),
+            top,
+            scale.physical_value(pill.right),
+            top + scale.physical_length(2.0),
+        ));
+        UiElement::panel(cx.id, edge, VisualStyle::filled(theme::c().accent))
+            .hit_rect(UiRect::default())
+    })
+}
+
+pub(crate) fn render_dragged_tab(app: &Frame<'_>, pointer: Signal<Point>) -> Option<Element> {
+    let drag = app
+        .editor
+        .tabs
+        .tab_drag
+        .as_ref()
+        .filter(|drag| drag.floating)?;
+    let meta = app.workspace.view_meta(drag.source)?;
+    let labels = app.workspace.tab_labels(drag.pane);
+    let face = TabFace::new(
+        app,
+        drag.pane,
+        drag.source,
+        meta,
+        labels.get(&drag.source),
+        true,
+    );
+    let width = drag.preview_width;
+    let grab = drag.grab;
+    let rect = UiRect::new(0.0, 0.0, width, theme::TABS_H);
+    let transform = move |point: Point| {
+        CompositingLayerSpec::new().transform(
+            LayerTransform::identity().translation(point.x - grab.x * width, point.y - grab.y),
+        )
+    };
+    let initial = transform(pointer.get());
+    let face = face
+        .render(panel(rect, active_tab_style()), rect, "editor-dragged-tab")
+        .child(tab_close_icon(rect, "editor-dragged-tab"));
+    Some(
+        Element::new(move |cx| {
+            UiElement::compositing_layer(UiId::new("editor-dragged-tab"), rect, initial)
+                .hit_rect(UiRect::default())
+                .children(cx.children)
+        })
+        .key("editor-dragged-tab")
+        .event_policy(EventPolicy::NONE)
+        .bind(&pointer, move |point, node| {
+            node.compositing_layer = Some(transform(*point));
+        })
+        // Include the strip color under the translucent selected-tab fill.
+        .child(
+            panel(rect, VisualStyle::filled(theme::c().sidebar))
+                .child(face)
+                .child(tab_right_edge(rect))
+                .child(selected_tab_edge(rect)),
+        ),
+    )
+}
+
+/// The layer only moves horizontally. Its tab contents and layout stay retained
+/// while animation frames repaint the previous and current positions.
+#[derive(Clone, Default)]
+struct TabSlide {
+    offset: f32,
+    from: f32,
+    target: f32,
+    started: Option<Instant>,
+}
+
+impl TabSlide {
+    fn retarget(&mut self, target: f32) {
+        if self.target != target {
+            self.from = self.offset;
+            self.target = target;
+            self.started = (self.offset != target).then(Instant::now);
+        }
+    }
+}
+
+impl CompositingLayerAnimation for TabSlide {
+    fn advance(&mut self, _elapsed_ms: f32) -> bool {
+        let Some(started) = self.started else {
+            return false;
+        };
+        let t = (started.elapsed().as_secs_f32() / 0.12).min(1.0);
+        self.offset = self.target + (self.from - self.target) * (1.0 - t).powi(3);
+        if t >= 1.0 {
+            self.started = None;
+        }
+        true
+    }
+
+    fn compositing_layer_spec(&self) -> CompositingLayerSpec {
+        CompositingLayerSpec::new()
+            .transform(LayerTransform::identity().translation(self.offset, 0.0))
+    }
+
+    fn wants_frame(&self) -> bool {
+        self.started.is_some()
+    }
+}
+
+fn tab_motion(pill: UiRect, scroll_x: f32, target: Option<f32>) -> Element {
+    Element::new(move |cx| {
+        if let Some(target) = target {
+            let scale = cx.context.scale();
+            // Snap the layer's screen-space origin and size to device pixels.
+            // Otherwise offscreen text shaping and texture sampling can shift
+            // the glyphs when the layer is first mounted.
+            let screen = pill.translate(-scroll_x, 0.0);
+            let bounds = scale
+                .logical_rect(scale.physical_rect_outward(screen))
+                .translate(scroll_x, 0.0);
+            let layer = cx.compile(animated_compositing_layer(
+                bounds,
+                move |motion: &mut TabSlide| motion.retarget(target),
+            ));
+            let offset = layer
+                .node()
+                .compositing_layer
+                .map_or(0.0, |spec| spec.transform.translation_x());
+            if target != 0.0 || offset != 0.0 {
+                return layer.children(cx.children);
+            }
+        }
+        // A stationary tab keeps the normal direct text paint path.
+        UiElement::group(cx.id, pill)
+            .hit_rect(UiRect::default())
+            .children(cx.children)
+    })
+}
+
 pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusHandle) -> Element {
     let snapshot = state.snapshot();
     let s = snapshot.frame();
@@ -648,33 +906,49 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
     // even when edge auto-scroll moves it away so its keyed element survives
     // until the gesture ends.
     let open_files = pane_items(&s, pane);
-    // Same as the terminal tabs: a pointer while idle, a move cursor for the
-    // whole drag.
-    let tab_cursor = if s
-        .editor
-        .tabs
-        .tab_drag
-        .as_ref()
-        .is_some_and(|drag| drag.active)
-    {
+    let drag = s.editor.tabs.tab_drag.as_ref();
+    let active_drag = drag.filter(|drag| drag.active);
+    let floating_source = active_drag.filter(|drag| drag.floating && drag.pane == pane);
+    let tab_cursor = if active_drag.is_some_and(|drag| !drag.floating) {
         CursorIcon::Move
     } else {
         CursorIcon::Pointer
     };
+    let source_index = drag
+        .filter(|drag| drag.pane == pane)
+        .and_then(|drag| open_files.iter().position(|id| *id == drag.source));
+    let shift = floating_source.zip(source_index).and_then(|(drag, index)| {
+        let width = layout.items.get(index)?.width + TAB_GAP;
+        let target = drag.target_index.min(open_files.len().saturating_sub(1));
+        if target < index {
+            Some((target..index, width))
+        } else {
+            Some((index + 1..target + 1, -width))
+        }
+    });
     let visible = tab_layout::visible_range(
         &layout.items,
         layout.scroll_x,
         layout.viewport_width,
         RENDER_OVERSCAN,
     );
-    let drag_source_index = s
-        .editor
-        .tabs
-        .tab_drag
-        .as_ref()
-        .and_then(|drag| open_files.iter().position(|id| *id == drag.source))
-        .filter(|index| !visible.contains(index));
-    for index in visible.chain(drag_source_index) {
+    let shifted_into_view = shift.iter().flat_map(|(indices, offset)| {
+        let visible = visible.clone();
+        tab_layout::visible_range(
+            &layout.items,
+            layout.scroll_x - offset,
+            layout.viewport_width,
+            RENDER_OVERSCAN,
+        )
+        .filter(move |index| indices.contains(index) && !visible.contains(index))
+    });
+    let pressed_outside_view = source_index.filter(|index| !visible.contains(index));
+    let scroll_x = layout.scroll_x;
+    for index in visible
+        .clone()
+        .chain(shifted_into_view)
+        .chain(pressed_outside_view)
+    {
         let Some(&id) = open_files.get(index) else {
             continue;
         };
@@ -684,11 +958,6 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
         let Some(layout_item) = layout.items.get(index) else {
             continue;
         };
-        let badge = tab_badge(&s, id, m);
-        let badge_w = badge.width();
-        let state_mark = tab_state_mark(&s, id);
-        let state_mark_w = state_mark.map_or(0.0, |(mark, _)| measure(mark, theme::SMALL, 400));
-        let close_w = CLOSE_ICON;
         let tab_w = layout_item.width;
         let x = rect.left + layout_item.left;
 
@@ -698,37 +967,13 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
             x + tab_w,
             rect.bottom - PILL_INSET,
         );
-        let name_style = tab_name_style(
-            Some(id) == active,
-            s.workspace.pane(pane).is_some_and(|p| p.is_preview(id)),
-        );
-
-        let badge_left = pill.left + PAD;
-        let name_left = badge_left + badge_w + GAP;
-        let close_left = pill.right - PAD - close_w;
-        let state_mark_left = close_left - GAP - state_mark_w;
-        let name_right = if state_mark.is_some() {
-            state_mark_left - GAP
-        } else {
-            close_left - GAP
-        };
-        let name_slot_w = (name_right - name_left).max(0.0);
-        let label = labels.get(&id).cloned().unwrap_or_else(|| m.name.clone());
-        let display_name = if Some(id) == active {
-            label
-        } else {
-            ellipsize_sans(
-                &label,
-                (name_slot_w - TEXT_MARGIN).max(0.0),
-                theme::UI_SIZE,
-                400,
-            )
-        };
-
         let st = state.clone();
         let focus = editor_focus.clone();
         // The active tab uses a neutral background and an accent bottom edge.
-        let style = if Some(id) == active {
+        let lifted = source_index == Some(index) && floating_source.is_some();
+        let style = if lifted {
+            VisualStyle::default()
+        } else if Some(id) == active {
             active_rect = Some(pill);
             active_tab_style()
         } else {
@@ -740,9 +985,12 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
             .on_pointer_down_with_button(move |cx, pointer, button| {
                 match button {
                     PointerButton::Left => {
-                        let pointer_x = pointer.point.x;
-                        let pointer_y = pointer.point.y;
-                        st.run(Command::Press(pane, id, index, pointer_x, pointer_y));
+                        let point = pointer.point;
+                        let grab = Point::new(
+                            ((point.x - pill.left + scroll_x) / pill.width()).clamp(0.0, 1.0),
+                            point.y - pill.top,
+                        );
+                        st.run(Command::Press(pane, id, index, point, grab));
                         focus.focus();
                     }
                     PointerButton::Middle => {
@@ -757,39 +1005,23 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
                 }
                 cx.stop_propagation();
             });
-
-        tab_el = tab_el.child(
-            if s.workspace
-                .view_document(id)
-                .is_some_and(|id| s.workspace.loading_indicator(id))
-            {
-                let top = pill.top + (pill.height() - BADGE_ICON) / 2.0;
-                crate::ui::components::loading_indicator::render(
-                    UiRect::new(badge_left, top, badge_left + BADGE_ICON, top + BADGE_ICON),
-                    theme::c().text_muted,
-                    format!("tabs.restore.{}-{id:?}", pane.get()),
-                )
-            } else {
-                badge.render(badge_left, pill, &format!("{}-{id:?}", pane.get()))
-            },
-        );
-        tab_el = tab_el.child(text(
-            UiRect::new(name_left, pill.top, name_left + name_slot_w, pill.bottom),
-            display_name,
-            name_style,
-        ));
-        if let Some((mark, color)) = state_mark {
-            tab_el = tab_el.child(text(
-                UiRect::new(
-                    state_mark_left,
-                    pill.top,
-                    state_mark_left + state_mark_w + TEXT_MARGIN,
-                    pill.bottom,
-                ),
-                mark,
-                theme::mono_bold(color, theme::SMALL),
-            ));
+        let motion_key = format!("editor-tab-slide-{}-{id:?}", pane.get());
+        if lifted {
+            // The original hit node still owns the gesture, even when its
+            // visuals have moved to the window overlay or it scrolls out.
+            // Pointer drag events invalidate its paint bounds, so keep them empty.
+            let no_paint = UiRect::new(pill.left, pill.top, pill.left, pill.top);
+            tab_layer = tab_layer.child(
+                tab_motion(pill, scroll_x, None)
+                    .key(motion_key)
+                    .child(tab_el.paint_bounds(no_paint)),
+            );
+            continue;
         }
+
+        let visual_key = format!("{}-{id:?}", pane.get());
+        let face = TabFace::new(&s, pane, id, m, labels.get(&id), Some(id) == active);
+        tab_el = face.render(tab_el, pill, &visual_key);
 
         // The close slot is always reserved by the layout, but the control is
         // only painted and hit-testable for the active or hovered tab.
@@ -799,7 +1031,7 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
             tab_el = tab_el.child(
                 tab_panel(
                     tab_close_id(pane, id),
-                    UiRect::new(close_left, pill.top, pill.right - PAD, pill.bottom),
+                    tab_close_bounds(pill),
                     VisualStyle::default(),
                 )
                 .event_policy(EventPolicy::INTERACTIVE)
@@ -812,36 +1044,25 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
                     st.run(Command::Close(pane, id));
                     focus.focus();
                 })
-                .child(icon(
-                    UiId::owned(format!("tabs.close.{}-{id:?}", pane.get())),
-                    "close",
-                    UiRect::new(
-                        close_left,
-                        pill.top + (pill.height() - CLOSE_ICON) / 2.0,
-                        close_left + CLOSE_ICON,
-                        pill.top + (pill.height() + CLOSE_ICON) / 2.0,
-                    ),
-                    theme::c().text_dim,
-                )),
+                .child(tab_close_icon(pill, &visual_key)),
             );
         }
 
-        tab_layer = tab_layer.child(tab_el);
         // Tabs are divided by a 1px edge on their right side, snapped to
         // physical pixels so fractional tab widths never blur it.
-        let (right, top, bottom) = (pill.right, pill.top, pill.bottom);
-        tab_layer = tab_layer.child(Element::new(move |cx| {
-            let scale = cx.context.scale();
-            let edge = scale.physical_value(right) - scale.physical_length(1.0);
-            let line = scale.logical_rect(lgui::core::PhysicalRect::new(
-                edge,
-                scale.physical_value(top),
-                edge + scale.physical_length(1.0),
-                scale.physical_value(bottom),
-            ));
-            UiElement::panel(cx.id, line, VisualStyle::filled(theme::c().border))
-                .hit_rect(UiRect::new(0.0, 0.0, 0.0, 0.0))
-        }));
+        let separator = tab_right_edge(pill);
+        let offset = floating_source.map(|_| {
+            shift
+                .as_ref()
+                .filter(|(indices, _)| indices.contains(&index))
+                .map_or(0.0, |(_, offset)| *offset)
+        });
+        tab_layer = tab_layer.child(
+            tab_motion(pill, scroll_x, offset)
+                .key(motion_key)
+                .child(tab_el)
+                .child(separator),
+        );
     }
 
     // The target tab reserves its icon slot immediately; only that icon changes
@@ -930,8 +1151,8 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
     }
     bar = bar.child(tab_layer);
 
-    // Insertion marker: a reorder within this strip, or a tab dragged in
-    // from another pane.
+    // Tab drags outside their source strip and files from the drawer use the
+    // insertion marker when the drop target is a tab strip.
     let file_drop = s
         .editor
         .tabs
@@ -939,20 +1160,15 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
         .as_ref()
         .filter(|drag| drag.active)
         .and_then(|drag| drag.drop);
-    let marker = s
-        .editor
-        .tabs
-        .tab_drag
-        .as_ref()
-        .filter(|drag| drag.active)
+    let marker = active_drag
+        .filter(|drag| !drag.floating)
         .map(|drag| (Some(drag), drag.drop))
         .or(file_drop.map(|drop| (None, Some(drop))))
         .and_then(|(drag, drop)| match drop {
-            None if drag.is_some_and(|drag| drag.pane == pane) => {
-                let drag = drag?;
-                let source_index = open_files.iter().position(|id| *id == drag.source)?;
+            None => {
+                let (drag, index) = drag.zip(source_index)?;
                 let target = layout.items.get(drag.target_index)?;
-                (drag.target_index != source_index).then_some(if drag.target_index < source_index {
+                (drag.target_index != index).then_some(if drag.target_index < index {
                     target.left
                 } else {
                     target.right
@@ -1010,28 +1226,14 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
         // Decoration only: a hit-testable clip over the whole viewport would
         // sit in front of the tabs and hide their cursor.
         let scroll_x = layout.scroll_x;
-        bar = bar.child(Element::new(move |cx| {
-            let no_hit = UiRect::new(0.0, 0.0, 0.0, 0.0);
-            let scale = cx.context.scale();
-            let top = scale.physical_value(active.top);
-            let underline = scale.logical_rect(lgui::core::PhysicalRect::new(
-                scale.physical_value(active.left),
-                top,
-                scale.physical_value(active.right),
-                top + scale.physical_length(2.0),
-            ));
-            let underline_id = cx.auto_id();
-            UiElement::clip(cx.id, tab_viewport, -scroll_x, 0.0)
-                .hit_rect(no_hit)
-                .children(vec![
-                    UiElement::panel(
-                        underline_id,
-                        underline,
-                        VisualStyle::filled(theme::c().accent),
-                    )
-                    .hit_rect(no_hit),
-                ])
-        }));
+        bar = bar.child(
+            Element::new(move |cx| {
+                UiElement::clip(cx.id, tab_viewport, -scroll_x, 0.0)
+                    .hit_rect(UiRect::default())
+                    .children(cx.children)
+            })
+            .child(selected_tab_edge(active)),
+        );
     }
 
     bar

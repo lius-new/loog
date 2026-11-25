@@ -84,7 +84,7 @@ pub fn calculate(input: TabLayoutInput<'_>) -> TabLayoutResult {
 /// coordinates: how many other tabs have their center left of the pointer.
 /// Crossing another tab's center is what changes the reorder target.
 pub fn reorder_slot(items: &[TabLayoutItem], source: usize, pointer_x: f32) -> Option<usize> {
-    if items.is_empty() {
+    if source >= items.len() {
         return None;
     }
     let pointer_x = if pointer_x.is_finite() {
@@ -92,12 +92,8 @@ pub fn reorder_slot(items: &[TabLayoutItem], source: usize, pointer_x: f32) -> O
     } else {
         0.0
     };
-    Some(
-        items
-            .iter()
-            .filter(|item| item.index != source && (item.left + item.right) / 2.0 < pointer_x)
-            .count(),
-    )
+    let crossed = items.partition_point(|item| (item.left + item.right) / 2.0 < pointer_x);
+    Some(crossed - usize::from(source < crossed))
 }
 
 /// Indices of the tabs that intersect the viewport, widened by `overscan` on
