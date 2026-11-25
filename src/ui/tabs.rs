@@ -16,6 +16,7 @@ use crate::domain::pane_layout::{Direction, PaneId};
 use crate::domain::workspace::AppPage;
 use crate::ui::chrome::tab_state::TabDrop;
 use crate::ui::chrome::tabs_binding::{Binding, Command, Frame};
+use crate::ui::components::tab_tooltip;
 use crate::ui::tab_layout::{self, TabLayoutInput, TabLayoutResult};
 use crate::ui::theme;
 
@@ -491,8 +492,45 @@ pub fn render_tooltip(
     viewport: UiRect,
     strips: &[(PaneId, UiRect)],
     app: &Frame<'_>,
+    allowed: bool,
+) -> Element {
+    let candidate =
+        if allowed && app.editor.tabs.tab_drag.is_none() && app.editor.tabs.file_drag.is_none() {
+            app.editor.tabs.tab_hovered.and_then(|(pane, view)| {
+                tooltip(viewport, strips, app, pane, view).map(|tooltip| (pane, view, tooltip))
+            })
+        } else {
+            None
+        };
+    let target = candidate
+        .as_ref()
+        .map(|&(pane, view, _)| (tab_id(pane, view), tab_close_id(pane, view)));
+    let mut layer = Element::new(move |mut cx| {
+        let hovered = target
+            .filter(|(tab, close)| tab_tooltip::is_hovered(&cx, tab, close))
+            .map(|(tab, _)| tab);
+        let children = if tab_tooltip::ready(&cx, hovered).is_some() {
+            cx.compile_deferred_children()
+        } else {
+            Vec::new()
+        };
+        UiElement::group(cx.id, UiRect::default()).children(children)
+    })
+    .defer_children_compile()
+    .key("editor-tab-tooltip");
+    if let Some((_, _, tooltip)) = candidate {
+        layer = layer.child(tooltip);
+    }
+    layer
+}
+
+fn tooltip(
+    viewport: UiRect,
+    strips: &[(PaneId, UiRect)],
+    app: &Frame<'_>,
+    pane: PaneId,
+    hovered: ViewId,
 ) -> Option<Element> {
-    let (pane, hovered) = app.editor.tabs.tab_hovered?;
     let rect = strips.iter().find(|(id, _)| *id == pane)?.1;
     let meta = app.workspace.view_meta(hovered)?;
     let path = meta
@@ -528,8 +566,22 @@ pub fn render_tooltip(
     )
 }
 
-fn active_tab_background(rect: UiRect) -> Element {
-    panel(rect, VisualStyle::filled(theme::c().active_tab).alpha(51))
+fn active_tab_style() -> VisualStyle {
+    VisualStyle::filled(theme::c().active_tab).alpha(51)
+}
+
+fn tab_id(pane: PaneId, view: ViewId) -> UiId {
+    UiId::owned(format!("editor-tab-{}-{view:?}", pane.get()))
+}
+
+fn tab_close_id(pane: PaneId, view: ViewId) -> UiId {
+    UiId::owned(format!("editor-tab-close-{}-{view:?}", pane.get()))
+}
+
+fn tab_panel(id: UiId, bounds: UiRect, style: VisualStyle) -> Element {
+    let key = id.clone();
+    Element::new(move |cx| UiElement::panel(id, bounds, style).children(cx.children))
+        .key(key.as_str())
 }
 
 pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusHandle) -> Element {
@@ -586,7 +638,7 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
             rect.bottom - PILL_INSET,
         );
         active_rect = Some(pill);
-        tab_layer = tab_layer.child(active_tab_background(pill).child(text(
+        tab_layer = tab_layer.child(panel(pill, active_tab_style()).child(text(
             UiRect::new(pill.left + PAD, pill.top, pill.right - PAD, pill.bottom),
             label,
             theme::mono(theme::c().text_bright, theme::UI_SIZE),
@@ -676,35 +728,35 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
         let st = state.clone();
         let focus = editor_focus.clone();
         // The active tab uses a neutral background and an accent bottom edge.
-        let mut tab_el = if Some(id) == active {
+        let style = if Some(id) == active {
             active_rect = Some(pill);
-            active_tab_background(pill)
+            active_tab_style()
         } else {
-            panel(pill, VisualStyle::default().radius(2.0))
-        }
-        .key(format!("editor-tab-{}-{id:?}", pane.get()))
-        .event_policy(EventPolicy::INTERACTIVE)
-        .cursor(tab_cursor)
-        .on_pointer_down_with_button(move |cx, pointer, button| {
-            match button {
-                PointerButton::Left => {
-                    let pointer_x = pointer.point.x;
-                    let pointer_y = pointer.point.y;
-                    st.run(Command::Press(pane, id, index, pointer_x, pointer_y));
-                    focus.focus();
+            VisualStyle::default().radius(2.0)
+        };
+        let mut tab_el = tab_panel(tab_id(pane, id), pill, style)
+            .event_policy(EventPolicy::INTERACTIVE)
+            .cursor(tab_cursor)
+            .on_pointer_down_with_button(move |cx, pointer, button| {
+                match button {
+                    PointerButton::Left => {
+                        let pointer_x = pointer.point.x;
+                        let pointer_y = pointer.point.y;
+                        st.run(Command::Press(pane, id, index, pointer_x, pointer_y));
+                        focus.focus();
+                    }
+                    PointerButton::Middle => {
+                        st.run(Command::Close(pane, id));
+                        focus.focus();
+                    }
+                    PointerButton::Right => {
+                        let position = (pointer.point.x, pointer.point.y);
+                        st.run(Command::Menu(pane, id, position));
+                    }
+                    _ => return,
                 }
-                PointerButton::Middle => {
-                    st.run(Command::Close(pane, id));
-                    focus.focus();
-                }
-                PointerButton::Right => {
-                    let position = (pointer.point.x, pointer.point.y);
-                    st.run(Command::Menu(pane, id, position));
-                }
-                _ => return,
-            }
-            cx.stop_propagation();
-        });
+                cx.stop_propagation();
+            });
 
         tab_el = tab_el.child(
             if s.workspace
@@ -745,11 +797,11 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
             let st = state.clone();
             let focus = editor_focus.clone();
             tab_el = tab_el.child(
-                panel(
+                tab_panel(
+                    tab_close_id(pane, id),
                     UiRect::new(close_left, pill.top, pill.right - PAD, pill.bottom),
                     VisualStyle::default(),
                 )
-                .key(format!("editor-tab-close-{}-{id:?}", pane.get()))
                 .event_policy(EventPolicy::INTERACTIVE)
                 .on_pointer_down_with_button(move |cx, _pointer, button| {
                     if button == PointerButton::Left {

@@ -1707,7 +1707,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     // fractional scales. Paint the title bar rule above them, before popups.
     root = root.child(crate::ui::titlebar::bottom_border(titlebar_rect));
 
-    if s.explorer.ui.menu.is_none()
+    let tab_tooltip_allowed = s.explorer.ui.menu.is_none()
         && s.editor.tabs.tab_context_menu.is_none()
         && s.terminal.ui.terminal_tab_context_menu.is_none()
         && s.terminal.ui.terminal_workspace_picker.is_none()
@@ -1718,11 +1718,13 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         && s.git.ui.menu.is_none()
         && s.git.ui.confirm.is_none()
         && !show_clone_dialog
-        && s.editor.close_request.is_none()
-        && let Some(tooltip) = super::tabs::render_tooltip(vp, &strips, &s)
-    {
-        root = root.child(tooltip);
-    }
+        && s.editor.close_request.is_none();
+    root = root.child(super::tabs::render_tooltip(
+        vp,
+        &strips,
+        &s,
+        tab_tooltip_allowed,
+    ));
     if s.git_panel_visible()
         && s.explorer.ui.menu.is_none()
         && s.git.ui.menu.is_none()

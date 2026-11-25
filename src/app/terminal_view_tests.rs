@@ -2266,6 +2266,7 @@ mod tests {
     #[test]
     fn tab_widths_follow_the_name_and_never_selection_hover_or_programs() {
         use lgui::core::{InputEvent, PointerData, UiScale};
+        use std::time::Duration;
         let (mut session, view, state, tabs, viewport) = strip_harness(1400.0, 4);
         let ids = [1_u64, 2, 3, 4];
         let baseline = tab_rects(&session, &ids);
@@ -2316,6 +2317,10 @@ mod tests {
         );
         session.handle_input(InputEvent::PointerMove(PointerData::mouse(over)));
         render(&mut session);
+        assert_eq!(nodes_with_full(&session), 0);
+        std::thread::sleep(Duration::from_millis(510));
+        assert!(session.advance(510.0).animation_changed);
+        render(&mut session);
         assert_eq!(nodes_with_full(&session), 1);
         assert!(
             session
@@ -2325,11 +2330,24 @@ mod tests {
         );
         // Hovering moved nothing either.
         assert_eq!(tab_rects(&session, &ids), named);
+        let neighbor = named[1];
+        session.handle_input(InputEvent::PointerMove(PointerData::mouse(Point::new(
+            (neighbor.left + neighbor.right) / 2.0,
+            over.y,
+        ))));
+        render(&mut session);
+        assert_eq!(nodes_with_full(&session), 0);
+        assert!(
+            session
+                .tree()
+                .node(&UiId::new("terminal-tab-tip-2"))
+                .is_none()
+        );
         session.handle_input(InputEvent::PointerMove(PointerData::mouse(Point::new(
             600.0, 150.0,
         ))));
         render(&mut session);
-        assert_eq!(nodes_with_full(&session), 0);
+        assert!(!session.advance(510.0).animation_changed);
         let _ = state;
     }
 

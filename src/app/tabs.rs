@@ -171,8 +171,9 @@ pub fn render_tooltip(
     viewport: UiRect,
     strips: &[(PaneId, UiRect)],
     app: &AppState,
-) -> Option<Element> {
-    crate::ui::tabs::render_tooltip(viewport, strips, &frame(app))
+    allowed: bool,
+) -> Element {
+    crate::ui::tabs::render_tooltip(viewport, strips, &frame(app), allowed)
 }
 fn set_tab_scroll_x(app: &mut AppState, pane: PaneId, value: f32) -> bool {
     if (tab_scroll_x(app, pane) - value).abs() <= f32::EPSILON {
@@ -600,6 +601,74 @@ mod tests {
     #[test]
     fn short_file_names_remain_unchanged() {
         assert_eq!(ellipsize("main.rs", 200.0, theme::UI_SIZE, 400), "main.rs");
+    }
+
+    #[test]
+    fn editor_tab_tooltip_waits_for_hover_and_closes_on_pointer_leave() {
+        use lgui::application::AppView;
+        use lgui::core::{InputEvent, Point, PointerData, UiId, UiScale};
+        use lgui::prelude::group;
+        use lgui::session::UiSession;
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        let viewport = UiRect::new(0.0, 0.0, 800.0, 100.0);
+        let strip = UiRect::new(0.0, 0.0, 800.0, theme::TABS_H);
+        let pointer = PointerData::mouse(Point::new(40.0, strip.bottom / 2.0));
+        let path = PathBuf::from("nested").join("hovered.rs");
+        let label = crate::ui::display_path(&path);
+        let view: AppView = Arc::new(move |cx| {
+            let state = AppContext::detached(cx.state_with(|| {
+                let mut app = AppState::new();
+                app.workspace.test_open_view(path.clone(), String::new());
+                let pane = app.workspace.active_pane();
+                update_pointer(
+                    &mut app,
+                    &[region(pane, strip)],
+                    pointer.point.x,
+                    pointer.point.y,
+                    false,
+                );
+                app
+            }));
+            let app = state.get();
+            let pane = app.workspace.active_pane();
+            group(viewport)
+                .child(render(
+                    pane,
+                    strip,
+                    state,
+                    cx.focus_handle(UiId::new("editor-tab-tooltip-test")),
+                ))
+                .child(render_tooltip(viewport, &[(pane, strip)], &app, true))
+        });
+        let mut session = UiSession::new();
+        let render = |session: &mut UiSession| {
+            session.render_view(&view, viewport, UiScale::ONE);
+        };
+        let visible = |session: &UiSession| {
+            session
+                .tree()
+                .nodes()
+                .iter()
+                .any(|node| node.text.as_deref() == Some(label.as_str()))
+        };
+        render(&mut session);
+        session.handle_input(InputEvent::PointerMove(pointer));
+        render(&mut session);
+        assert!(!visible(&session));
+
+        std::thread::sleep(Duration::from_millis(510));
+        assert!(session.advance(510.0).animation_changed);
+        render(&mut session);
+        assert!(visible(&session));
+
+        session.handle_input(InputEvent::PointerLeave(pointer));
+        render(&mut session);
+        assert!(!visible(&session));
+        session.handle_input(InputEvent::PointerMove(pointer));
+        render(&mut session);
+        assert!(!visible(&session));
     }
 
     #[test]

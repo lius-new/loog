@@ -8,6 +8,7 @@ pub mod progress_ring;
 pub mod resize_handle;
 pub mod scrollbar;
 pub mod search_field;
+pub(crate) mod tab_tooltip;
 pub mod text;
 
 pub mod state_access;

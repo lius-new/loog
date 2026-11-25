@@ -21,7 +21,7 @@ use lgui::services::ServicesContextExt;
 
 use crate::features::terminal::SessionId;
 use crate::features::terminal::{TerminalRun, TerminalSize};
-use crate::ui::components::scrollbar;
+use crate::ui::components::{scrollbar, tab_tooltip};
 use crate::ui::editor::view::{scroll_from_thumb, thumb_geometry};
 use crate::ui::fonts;
 use crate::ui::tabs::{GAP as TAB_CONTENT_GAP, PAD as TAB_PAD, TEXT_MARGIN, ellipsize, measure};
@@ -1556,32 +1556,37 @@ pub(crate) fn render_terminal_tabs(
             },
         ));
     }
-    if renaming.is_none() {
-        // Every tooltip is a child, but only the one of the hovered tab is kept.
-        let hover_ids = tips
-            .iter()
-            .map(|(select, close, tip, _)| (select.clone(), close.clone(), tip.clone()))
-            .collect::<Vec<_>>();
-        let mut tooltips = Element::new(move |cx| {
-            let hovered = hover_ids
+    let tips_allowed = renaming.is_none() && state.get().ui.terminal_tab_context_menu.is_none();
+    let hover_ids = tips
+        .iter()
+        .map(|(select, close, tip, _)| (select.clone(), close.clone(), tip.clone()))
+        .collect::<Vec<_>>();
+    let mut tooltips = Element::new(move |mut cx| {
+        let hovered = if tips_allowed && !map.is_dragging() {
+            hover_ids
                 .iter()
-                .find(|(select, close, _)| {
-                    cx.context.interaction_flags(select).hovered
-                        || cx.context.interaction_flags(close).hovered
-                })
-                .map(|(_, _, tip)| tip.clone());
-            UiElement::group(cx.id, rect).children(
-                cx.children
-                    .into_iter()
-                    .filter(|child| Some(&child.node().id) == hovered.as_ref()),
-            )
-        })
-        .key("terminal-tab-tips");
-        for (_, _, _, tip) in tips {
-            tooltips = tooltips.child(tip);
-        }
-        extras = extras.child(tooltips);
+                .find(|(select, close, _)| tab_tooltip::is_hovered(&cx, select, close))
+                .map(|(_, _, tip)| tip.clone())
+        } else {
+            None
+        };
+        let visible = tab_tooltip::ready(&cx, hovered);
+        let children = if let Some(visible) = visible {
+            cx.compile_deferred_children()
+                .into_iter()
+                .filter(|child| child.node().id == visible)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        UiElement::group(cx.id, rect).children(children)
+    })
+    .defer_children_compile()
+    .key("terminal-tab-tips");
+    for (_, _, _, tip) in tips {
+        tooltips = tooltips.child(tip);
     }
+    extras = extras.child(tooltips);
 
     TabStrip {
         contents: clip(viewport, 0.0, 0.0).child(strip),
