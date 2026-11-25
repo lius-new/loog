@@ -1140,7 +1140,7 @@ mod tests {
                 .nodes()
                 .iter()
                 .filter(|node| node.parent.as_ref() == Some(parent))
-                .filter_map(|node| Some((node.text.as_ref()?.to_string(), node.text_style.clone())))
+                .filter_map(|node| Some((node.text.as_ref()?.to_string(), node.text_style)))
                 .collect::<Vec<_>>()
         };
         let original_text = text_styles(&session, &original_id);

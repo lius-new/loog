@@ -890,8 +890,13 @@ pub fn render(pane: PaneId, rect: UiRect, state: Binding, editor_focus: UiFocusH
         } else {
             VisualStyle::default().radius(2.0)
         };
+        // Pressing a tab sends focus to its content. Releasing the pointer
+        // must leave keyboard focus there.
         let mut tab_el = tab_panel(tab_id(pane, id), pill, style)
-            .event_policy(EventPolicy::INTERACTIVE)
+            .event_policy(EventPolicy {
+                focus: false,
+                ..EventPolicy::INTERACTIVE
+            })
             .cursor(tab_cursor)
             .on_pointer_down_with_button(move |cx, pointer, button| {
                 match button {
