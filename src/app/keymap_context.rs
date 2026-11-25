@@ -179,6 +179,7 @@ mod tests {
             query: String::new(),
             sequence: 1,
             restore_terminal: false,
+            non_primary_press: false,
         });
         assert_eq!(describe(&context_stack(&app)), "Dialog BranchPicker");
         let none = KeyModifiers::empty();

@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lgui::core::{
-    CursorIcon, EventPolicy, IconStyle, SemanticRole, Semantics, UiElement, UiEventContext,
-    UiEventKind, UiEventPayload, UiFocusHandle, UiId, WheelUnit, clip, precompiled,
+    CursorIcon, EventPolicy, IconStyle, PointerButton, SemanticRole, Semantics, UiElement,
+    UiEventContext, UiEventKind, UiEventPayload, UiFocusHandle, UiId, WheelUnit, clip, precompiled,
 };
 use lgui::prelude::{Color, Element, ShadowStyle, UiRect, VisualStyle, panel, text};
 
@@ -55,6 +55,7 @@ pub struct BranchPicker {
     pub sequence: u64,
     /// Whether the terminal had focus when the picker opened.
     pub restore_terminal: bool,
+    pub(crate) non_primary_press: bool,
 }
 
 impl BranchPicker {
@@ -351,6 +352,7 @@ pub fn open(state: &Binding, store: &Snapshot, anchor_x: f32) {
             query: String::new(),
             sequence,
             restore_terminal,
+            non_primary_press: false,
         });
     });
     {
@@ -453,6 +455,9 @@ pub fn render(
             }
         });
 
+    let press_state = state.clone();
+    let click_state = state.clone();
+    let sequence = picker.sequence;
     let wheel_state = state.clone();
     let max_scroll = list.max_scroll();
     let mut surface = theme::bordered(card, theme::c().surface, theme::c().border, 6.0, 1.0)
@@ -463,6 +468,40 @@ pub fn render(
                 .blur(3.0),
         )
         .event_policy(EventPolicy::INTERACTIVE)
+        // lgui's click event omits the mouse button. Carry it across a render
+        // between press and click without invalidating the picker.
+        .on_event_capture(UiEventKind::PointerDown, move |cx, payload| {
+            if let UiEventPayload::PointerDown { button, .. } = payload {
+                let non_primary = *button != PointerButton::Left;
+                press_state.try_update(|app| {
+                    if let Some(picker) = &mut app.ui.branch_picker
+                        && picker.sequence == sequence
+                    {
+                        picker.non_primary_press = non_primary;
+                    }
+                    false
+                });
+                if non_primary {
+                    cx.prevent_default();
+                    cx.stop_propagation();
+                }
+            }
+        })
+        .on_click_capture(move |cx| {
+            let mut non_primary = false;
+            click_state.try_update(|app| {
+                if let Some(picker) = &mut app.ui.branch_picker
+                    && picker.sequence == sequence
+                {
+                    non_primary = std::mem::take(&mut picker.non_primary_press);
+                }
+                false
+            });
+            if non_primary {
+                cx.prevent_default();
+                cx.stop_propagation();
+            }
+        })
         .on_event(UiEventKind::Wheel, move |_cx, payload| {
             if let UiEventPayload::Wheel { delta } = payload {
                 let step = match delta.unit {

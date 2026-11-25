@@ -2215,10 +2215,16 @@ mod panel_virtualization_tests {
                 query: String::new(),
                 sequence: 1,
                 restore_terminal: false,
+                non_primary_press: false,
             });
         });
         session.render_view(&view, viewport, UiScale::ONE);
         save_drawer_preview(&session, &context, viewport, "git-branch-new-tag-action");
+        click(&mut session, "feature/release", PointerButton::Right);
+        assert!(state.get().git.ui.branch_picker.is_some());
+        click(&mut session, "New Tag", PointerButton::Right);
+        assert!(state.get().git.ui.branch_picker.is_some());
+        assert!(state.get().git.ui.confirm.is_none());
         click(&mut session, "New Tag", PointerButton::Left);
         assert!(!state.get().git.ui.collapsed_sections.contains(&TAGS));
         assert!(state.get().git.ui.branch_picker.is_none());
@@ -3504,6 +3510,7 @@ mod branch_picker_tests {
             query: String::new(),
             sequence: 1,
             restore_terminal: false,
+            non_primary_press: false,
         });
     }
 
