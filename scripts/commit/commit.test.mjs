@@ -7,11 +7,13 @@ import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {checkMessage, checkEvent} from './check.mjs';
 import {install} from './install.mjs';
+import {prepareDeveloperCheckout} from '../dependencies/ensure.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const internal = 'chore: internal change\n\nRelease Notes:\n- N/A\n';
 const feature = 'fix: user-facing change\n\nRelease Notes:\n- Fixed opening files\n  with spaces in their names.\n\nCo-authored-by: Test <test@example.com>\n';
-const git = (cwd, args) => execFileSync('git', args, {cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: {...process.env, GIT_CONFIG_GLOBAL: path.join(cwd, 'empty-global-config'), GIT_CONFIG_NOSYSTEM: '1'}}).trim();
+const isolatedGit = cwd => ({...process.env, GIT_CONFIG_GLOBAL: path.join(cwd, 'empty-global-config'), GIT_CONFIG_NOSYSTEM: '1'});
+const git = (cwd, args) => execFileSync('git', args, {cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: isolatedGit(cwd)}).trim();
 function repository(t) {
   const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'loog-commit-')));
   t.after(() => fs.rmSync(cwd, {recursive: true, force: true}));
@@ -78,6 +80,38 @@ test('installer preserves custom hook/template config without partial changes', 
   git(cwd, ['config', 'commit.template', 'custom-template']);
   assert.throws(() => install(cwd), /Existing commit.template/);
   assert.equal(git(cwd, ['config', 'commit.template']), 'custom-template');
+});
+
+test('developer setup enables local checks once and skips CI checkouts', t => {
+  const cwd = repository(t);
+  const env = {...isolatedGit(cwd), CI: '', GITHUB_ACTIONS: ''};
+  const config = path.join(cwd, '.git/config');
+  for (const key of ['core.hooksPath', 'commit.template']) git(cwd, ['config', '--unset', key]);
+  const before = fs.readFileSync(config, 'utf8');
+  prepareDeveloperCheckout(cwd, {...env, CI: 'true'});
+  prepareDeveloperCheckout(cwd, {...env, GITHUB_ACTIONS: 'true'});
+  assert.equal(fs.readFileSync(config, 'utf8'), before);
+
+  prepareDeveloperCheckout(cwd, env);
+  assert.throws(() => commit(cwd, 'chore: missing notes'), /Release Notes/);
+  assert.doesNotThrow(() => commit(cwd, internal));
+  assert.match(git(cwd, ['config', '--local', '--get', 'commit.template']), /commit-message\.txt$/);
+  fs.utimesSync(config, 1000000000, 1000000000);
+  const mtime = fs.statSync(config).mtimeMs;
+  prepareDeveloperCheckout(cwd, env);
+  assert.equal(fs.statSync(config).mtimeMs, mtime);
+});
+
+test('developer setup leaves custom Git configuration in place and reports the conflict', t => {
+  const cwd = repository(t);
+  const env = {...isolatedGit(cwd), CI: '', GITHUB_ACTIONS: ''};
+  git(cwd, ['config', 'core.hooksPath', 'custom-hooks']);
+  git(cwd, ['config', '--unset', 'commit.template']);
+  const warn = t.mock.method(console, 'warn', () => {});
+  prepareDeveloperCheckout(cwd, env);
+  assert.match(warn.mock.calls[0].arguments[0], /Existing core\.hooksPath/);
+  assert.equal(git(cwd, ['config', 'core.hooksPath']), 'custom-hooks');
+  assert.throws(() => git(cwd, ['config', '--get', 'commit.template']));
 });
 test('installer accepts hook and template paths through a repository directory alias', t => {
   const cwd = repository(t);

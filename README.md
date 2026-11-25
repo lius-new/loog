@@ -155,12 +155,9 @@ plus [remaining language-service work](docs/language-services-todo.md).
 
 Bug reports and pull requests are welcome on
 [GitHub](https://github.com/lius-new/loog/issues). Start with
-[CONTRIBUTING.md](CONTRIBUTING.md). Use Node.js 24 for contribution tooling and
-enable the local commit hook and message template after cloning:
-
-```sh
-node scripts/commit/install.mjs
-```
+[CONTRIBUTING.md](CONTRIBUTING.md). Use Node.js 24 for contribution tooling.
+The first managed build, run, or test in a local clone sets up the commit hook
+and message template.
 
 Every commit must contain exactly one `Release Notes:` section in its body.
 Use English release-note bullets for user-facing changes and `- N/A` for

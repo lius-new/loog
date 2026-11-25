@@ -17,6 +17,10 @@ node scripts/build/cargo.mjs run --release --locked
 node scripts/build/cargo.mjs test --locked --workspace
 ```
 
+On the first local `build`, `run`, or `test` after a standard Git clone,
+the managed entry point also sets up the commit message check and template.
+See [Contributing](../CONTRIBUTING.md) if you already use custom Git hooks.
+
 [`scripts/dependencies`](../scripts/dependencies/README.md) automatically downloads
 pinned CMake and the matching prebuilt Skia archive, verifies SHA-256 and prepares
 only the Cargo child environment. No system CMake, manual Skia download, LLVM

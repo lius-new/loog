@@ -10,16 +10,18 @@ release. Shared UI must use the generic region contract, preserving private
 handles and owner lifecycles; see
 [shared extension UI](docs/architecture/shared-extension-ui.md).
 
-Use Node.js 24 and enable the repository-local commit rules after cloning:
+Use Node.js 24. In a standard local Git clone, the managed `build`, `run`, and
+`test` commands or `node scripts/dependencies/ensure.mjs` set up the local
+`commit-msg` hook and message template. If you will commit before running any
+of those commands, enable the checks explicitly:
 
 ```sh
 node scripts/commit/install.mjs
 ```
 
-This installs a `commit-msg` hook and commit template through local Git config.
-It is idempotent and refuses to replace existing custom hook/template settings;
-when using other hook tooling, invoke `node scripts/commit/check.mjs --message-file "$1"`
-from your existing commit-msg hook instead. Node must be available to the Git client.
+Setup uses local Git config and keeps existing custom hook/template settings.
+If you use other hook tooling, call `node scripts/commit/check.mjs --message-file "$1"`
+from your existing commit-msg hook. Node must be available to the Git client.
 
 Every commit, including merges, reverts and internal maintenance, needs exactly
 one `Release Notes:` section outside code fences. Example for internal work:

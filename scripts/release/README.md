@@ -1,6 +1,7 @@
 # Release notes and drafts
 
-Enable local commit checks with `node scripts/commit/install.mjs`. Every new
+Managed development setup enables local commit checks. If you are committing
+before that setup, run `node scripts/commit/install.mjs`. Every new
 commit must have exactly one `Release Notes:` section, including `- N/A` for
 internal changes. CI also validates the complete introduced commit range; see
 [CONTRIBUTING.md](../../CONTRIBUTING.md).

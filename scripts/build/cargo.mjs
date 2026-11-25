@@ -1,7 +1,7 @@
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
-import {prepareDependencies, ROOT} from '../dependencies/ensure.mjs';
+import {prepareDependencies, prepareDeveloperCheckout, ROOT} from '../dependencies/ensure.mjs';
 
 export function requirements(args, env = process.env) {
   const option = name => args.find(arg => arg.startsWith(name + '='))?.slice(name.length + 1) ?? (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
@@ -26,6 +26,10 @@ if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
     const args = process.argv.slice(2), i = args.indexOf('--skia-archive');
     let skiaArchive;
     if (i >= 0) {skiaArchive = args[i + 1]; if (!skiaArchive) throw Error('Missing --skia-archive value'); args.splice(i, 2);}
+    const separator = args.indexOf('--');
+    const cargoFlags = separator < 0 ? args : args.slice(0, separator);
+    if (['build', 'run', 'test'].includes(args[0]) &&
+        !cargoFlags.some(arg => ['--help', '-h', '--version', '-V'].includes(arg))) prepareDeveloperCheckout();
     process.exitCode = await cargo(args, {skiaArchive});
   } catch (error) {console.error(error.message); process.exitCode = 1;}
 }

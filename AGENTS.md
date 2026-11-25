@@ -19,7 +19,8 @@ Release Notes:
 
 Do not automatically classify user-facing changes as N/A. Follow
 [scripts/release/README.md](scripts/release/README.md) for accepted note types.
-Enable local enforcement with `node scripts/commit/install.mjs`; CI validates
+Managed development setup enables local enforcement. Before committing from a
+clone where setup has not run, use `node scripts/commit/install.mjs`. CI validates
 new commits too. Preserve this section when amending, squashing or merging.
 
 Follow the [compatibility code policy](CONTRIBUTING.md#compatibility-code).

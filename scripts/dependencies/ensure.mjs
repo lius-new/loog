@@ -2,12 +2,25 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
+import {install as installCommitChecks} from '../commit/install.mjs';
 import {prepareCmake} from './cmake.mjs';
 import {prepareSkia, skiaSpec} from './skia.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const MANIFEST = JSON.parse(fs.readFileSync(new URL('./manifest.json', import.meta.url), 'utf8'));
 export const hostTarget = (env = process.env) => execFileSync('rustc', ['-vV'], {env, encoding: 'utf8'}).match(/^host: (.+)$/m)?.[1];
+
+export function prepareDeveloperCheckout(root = ROOT, env = process.env) {
+  if (env.CI || env.GITHUB_ACTIONS) return;
+  try {
+    // Source archives have no .git; linked worktrees share another checkout's config.
+    if (!fs.statSync(path.join(root, '.git'), {throwIfNoEntry: false})?.isDirectory()) return;
+    installCommitChecks(root, env);
+  } catch (error) {
+    console.warn('Could not enable local Release Notes checks: ' + error.message);
+  }
+}
+
 export function scopedEnvironment(env, cmake, skia, platform = process.platform) {
   const result = {...env};
   const key = Object.keys(result).find(key => key.toLowerCase() === 'path') || 'PATH';
@@ -49,7 +62,9 @@ if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
     const value = name => {const i = args.indexOf(name); if (i < 0) return undefined; if (!args[i + 1] || args[i + 1].startsWith('--')) throw Error(`Missing value: ${name}`); return args[i + 1];};
     const allowed = new Set(['--offline', '--no-skia', '--github', '--json', '--target', '--cache', '--skia-archive']);
     for (let i = 0; i < args.length; i++) { if (!allowed.has(args[i])) throw Error(`Unknown dependency option: ${args[i]}`); if (['--target', '--cache', '--skia-archive'].includes(args[i])) i++; }
-    const result = await prepareDependencies({target: value('--target'), cache: value('--cache'), skiaArchive: value('--skia-archive'), skia: !args.includes('--no-skia'), offline: args.includes('--offline')});
+    const options = {target: value('--target'), cache: value('--cache'), skiaArchive: value('--skia-archive'), skia: !args.includes('--no-skia'), offline: args.includes('--offline')};
+    if (!args.includes('--github')) prepareDeveloperCheckout();
+    const result = await prepareDependencies(options);
     if (args.includes('--github')) {
       if (!process.env.GITHUB_PATH || !process.env.GITHUB_ENV) throw Error('--github requires GitHub Actions environment files');
       fs.appendFileSync(process.env.GITHUB_PATH, result.cmake.bin + '\n');
