@@ -2039,6 +2039,15 @@ fn path_from_git_bytes(value: &[u8]) -> PathBuf {
     PathBuf::from(String::from_utf8_lossy(value).into_owned())
 }
 
+/// Removes a file when dropped, so a private index never outlives its commit.
+struct RemoveOnDrop(PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -3151,14 +3160,5 @@ X2
             GitCommand::new().timeout(explicit).read_only().timeout,
             Some(explicit)
         );
-    }
-}
-
-/// Removes a file when dropped, so a private index never outlives its commit.
-struct RemoveOnDrop(PathBuf);
-
-impl Drop for RemoveOnDrop {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
     }
 }

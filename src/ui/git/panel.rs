@@ -3093,58 +3093,6 @@ fn sticky_folders(
         .collect()
 }
 
-#[cfg(test)]
-mod sticky_tests {
-    use super::*;
-
-    fn folder(name: &str, depth: usize) -> OwnedChangeRow {
-        OwnedChangeRow::Folder {
-            path: name.into(),
-            label: name.into(),
-            depth,
-            expanded: true,
-            files: Vec::new(),
-        }
-    }
-
-    fn file(name: &str, depth: usize) -> OwnedChangeRow {
-        OwnedChangeRow::File {
-            path: name.into(),
-            depth,
-        }
-    }
-
-    #[test]
-    fn folders_around_the_first_visible_row_stay_pinned_and_slide_out() {
-        let rows = [
-            folder("src", 1),
-            folder("ui", 2),
-            file("a", 3),
-            file("b", 3),
-            file("c", 2),
-            file("readme", 1),
-        ];
-        let row = CHANGE_ROW_H;
-        // Nothing is pinned until the list scrolls.
-        assert!(sticky_folders(&rows, 0.0, 0.0, 0.0).is_empty());
-        // Row `b` leads the view, under both folders that hold it.
-        let pinned = sticky_folders(&rows, 0.0, 0.0, row);
-        assert_eq!(
-            pinned.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
-            [0, 1]
-        );
-        assert_eq!(pinned[0].1, 0.0);
-        // Once the first row in sight is `c`, only `src` still holds it.
-        let pinned = sticky_folders(&rows, 0.0, 0.0, 2.0 * row);
-        assert_eq!(
-            pinned.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
-            [0]
-        );
-        // A row outside every folder leaves nothing pinned.
-        assert!(sticky_folders(&rows, 0.0, 0.0, 4.5 * row).is_empty());
-    }
-}
-
 /// Folder collapse key of the commit changes list, apart from the repository's own.
 const COMMIT_CHANGES: u8 = 9;
 
@@ -3464,4 +3412,56 @@ fn owned_change_rows(
             },
         })
         .collect()
+}
+
+#[cfg(test)]
+mod sticky_tests {
+    use super::*;
+
+    fn folder(name: &str, depth: usize) -> OwnedChangeRow {
+        OwnedChangeRow::Folder {
+            path: name.into(),
+            label: name.into(),
+            depth,
+            expanded: true,
+            files: Vec::new(),
+        }
+    }
+
+    fn file(name: &str, depth: usize) -> OwnedChangeRow {
+        OwnedChangeRow::File {
+            path: name.into(),
+            depth,
+        }
+    }
+
+    #[test]
+    fn folders_around_the_first_visible_row_stay_pinned_and_slide_out() {
+        let rows = [
+            folder("src", 1),
+            folder("ui", 2),
+            file("a", 3),
+            file("b", 3),
+            file("c", 2),
+            file("readme", 1),
+        ];
+        let row = CHANGE_ROW_H;
+        // Nothing is pinned until the list scrolls.
+        assert!(sticky_folders(&rows, 0.0, 0.0, 0.0).is_empty());
+        // Row `b` leads the view, under both folders that hold it.
+        let pinned = sticky_folders(&rows, 0.0, 0.0, row);
+        assert_eq!(
+            pinned.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+            [0, 1]
+        );
+        assert_eq!(pinned[0].1, 0.0);
+        // Once the first row in sight is `c`, only `src` still holds it.
+        let pinned = sticky_folders(&rows, 0.0, 0.0, 2.0 * row);
+        assert_eq!(
+            pinned.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+            [0]
+        );
+        // A row outside every folder leaves nothing pinned.
+        assert!(sticky_folders(&rows, 0.0, 0.0, 4.5 * row).is_empty());
+    }
 }
