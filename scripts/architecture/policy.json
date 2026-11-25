@@ -685,6 +685,19 @@
       "migrated_in": "commit targets",
       "reason": "The files and change blocks the next commit takes"
     },
+    "commit_view_scroll": {
+      "owner": "ui/git/state",
+      "migrated_in": "commit changes panel",
+      "reason": "Scroll position of the left panel listing a commit's files"
+    },
+    "commit_view_scrollbar_dragging": {
+      "owner": "ui/git/state",
+      "migrated_in": "commit changes panel"
+    },
+    "commit_view_scrollbar_drag_offset": {
+      "owner": "ui/git/state",
+      "migrated_in": "commit changes panel"
+    },
     "composer_shown": {
       "owner": "ui/git/state",
       "migrated_in": "commit composer animation",

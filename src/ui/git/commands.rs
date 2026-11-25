@@ -214,6 +214,12 @@ pub enum Command {
         root: PathBuf,
     },
     Sync,
+    /// Scroll the commit diff showing in `pane` to `path`'s section.
+    FocusCommitFile {
+        pane: crate::domain::identity::PaneId,
+        root: PathBuf,
+        path: PathBuf,
+    },
     /// Pull only.
     Pull,
     /// Push only, or publish a branch without an upstream.
@@ -229,6 +235,19 @@ pub struct Frame {
     pub active_diff_focus: Option<DiffRequest>,
     /// The file in the active editor tab, for the Commits view's file scope.
     pub active_file: Option<PathBuf>,
+    /// Set while a commit's diff is on screen and the repository's own changes
+    /// are not: the left panel then lists that commit's files.
+    pub commit_changes: Option<CommitChangesView>,
+}
+
+/// The commit the left panel shows, read from its diff tab.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommitChangesView {
+    pub pane: crate::domain::identity::PaneId,
+    pub root: PathBuf,
+    pub revision: String,
+    /// Each changed file with the kind its diff shows.
+    pub files: Vec<(PathBuf, crate::features::git::ChangeKind)>,
 }
 
 #[derive(Clone)]

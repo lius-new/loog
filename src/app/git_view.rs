@@ -27,10 +27,62 @@ pub(crate) fn binding(state: &AppContext, store: &State<GitStoreSnapshot>) -> Bi
                 }),
                 active_diff_focus: app.workspace.active_diff_focus().cloned(),
                 active_file: app.workspace.active_git_path(),
+                commit_changes: commit_changes_shown(&app),
             }
         },
         move |command| run(&dispatch_state, &store, command),
     )
+}
+
+/// The commit whose changes the left panel lists, if any: the one in the
+/// diff tab on screen. The repository's own changes win whenever a diff of
+/// them is on screen too, and with several commits on screen the focused
+/// pane's is listed.
+fn commit_changes_shown(
+    app: &crate::app::state::AppState,
+) -> Option<crate::ui::git::commands::CommitChangesView> {
+    use crate::features::git::{ChangeKind, DiffTarget};
+    let shown = app
+        .workspace
+        .pane_ids()
+        .into_iter()
+        .filter_map(|pane| Some((pane, app.workspace.diff(pane)?)))
+        .collect::<Vec<_>>();
+    if shown
+        .iter()
+        .any(|(_, diff)| diff.target != DiffTarget::Commit)
+    {
+        return None;
+    }
+    let active = app.workspace.active_pane();
+    let (pane, diff) = shown
+        .iter()
+        .find(|(pane, _)| *pane == active)
+        .or(shown.first())?;
+    let revision = diff.revision.clone()?;
+    // How a file's diff reads: only added lines make it new, only removed ones
+    // make it deleted.
+    let kind = |document: &crate::features::git::diff_document::DiffDocument| match (
+        document.additions(),
+        document.deletions(),
+    ) {
+        (added, 0) if added > 0 => ChangeKind::Added,
+        (0, removed) if removed > 0 => ChangeKind::Deleted,
+        _ => ChangeKind::Modified,
+    };
+    let files = match &diff.sections {
+        Some(sections) => sections
+            .iter()
+            .map(|section| (section.document.path.clone(), kind(&section.document)))
+            .collect(),
+        None => vec![(diff.path.clone(), kind(diff))],
+    };
+    Some(crate::ui::git::commands::CommitChangesView {
+        pane: *pane,
+        root: diff.repository_root.clone(),
+        revision,
+        files,
+    })
 }
 
 pub(crate) fn run(state: &AppContext, store: &State<GitStoreSnapshot>, command: Command) -> bool {
@@ -219,6 +271,19 @@ pub(crate) fn run(state: &AppContext, store: &State<GitStoreSnapshot>, command: 
             true
         }
         Command::Sync => super::git::sync(state, store),
+        Command::FocusCommitFile { pane, root, path } => {
+            state.update(|app| {
+                app.workspace.activate_pane(pane);
+                let request = DiffRequest {
+                    repository_root: root,
+                    path,
+                    target: crate::features::git::DiffTarget::Commit,
+                };
+                let split = app.git.ui.split_diff;
+                app.workspace.focus_diff_section(&request, split);
+            });
+            true
+        }
         Command::Pull => super::git::pull(state, store),
         Command::Push => super::git::push(state, store),
 
@@ -413,6 +478,51 @@ mod tests {
     use lgui::prelude::{UiRect, panel};
     use lgui::session::UiSession;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn the_left_panel_follows_the_commit_diff_only_while_it_is_the_tab_on_screen() {
+        use crate::features::git::diff::parse_unified;
+        use crate::features::git::diff_document::DiffDocument;
+        use crate::features::git::{ChangeDiff, ChangeGroup, ChangeKind, DiffContent, DiffTarget};
+
+        let mut app = AppState::new();
+        assert!(commit_changes_shown(&app).is_none());
+        let root = std::path::PathBuf::from("repo");
+        let patch = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n one\n-two\n+three\n";
+        app.workspace.open_diff(DiffDocument::commit_changes(
+            root.clone(),
+            "abc1234def".into(),
+            DiffContent::Changes(vec![ChangeDiff {
+                path: "a.txt".into(),
+                target: DiffTarget::Commit,
+                group: ChangeGroup::Commit,
+                content: Ok(DiffContent::Unified(parse_unified(patch).unwrap())),
+            }]),
+        ));
+        // The commit's tab is on screen: its files are listed.
+        let shown = commit_changes_shown(&app).expect("the commit tab is showing");
+        assert_eq!(shown.revision, "abc1234def");
+        assert_eq!(
+            shown.files,
+            [(std::path::PathBuf::from("a.txt"), ChangeKind::Modified)]
+        );
+        // A diff of the repository's own changes takes the tab, so the panel goes back.
+        app.workspace.open_diff(DiffDocument::added(
+            root.clone(),
+            "b.txt".into(),
+            DiffTarget::HeadToWorktree,
+            "x\n",
+        ));
+        assert!(commit_changes_shown(&app).is_none());
+        // Focusing the commit's tab again brings its list back.
+        let id = app
+            .workspace
+            .commit_changes_id(&root, "abc1234def")
+            .expect("the commit tab is open");
+        let pane = app.workspace.pane_of(id).unwrap();
+        app.workspace.activate(pane, id);
+        assert!(commit_changes_shown(&app).is_some());
+    }
 
     fn live() -> (AppContext, State<GitStoreSnapshot>, UiSession) {
         let exposed = Arc::new(Mutex::new(None));

@@ -90,6 +90,8 @@ pub(crate) enum ScrollRegion {
     CommitFiles,
     /// The compact commit summary below the changed-file tree.
     CommitSummary,
+    /// The left panel's list of a commit's files.
+    CommitChanges,
 }
 
 impl ScrollRegion {
@@ -116,6 +118,7 @@ impl ScrollRegion {
             Self::Navigator => "git-navigator-viewport",
             Self::CommitFiles => "git-commit-files-viewport",
             Self::CommitSummary => "git-commit-summary-viewport",
+            Self::CommitChanges => "git-commit-changes-viewport",
         }
     }
 
@@ -126,6 +129,7 @@ impl ScrollRegion {
             Self::Navigator => app.ui.history_branch_scroll,
             Self::CommitFiles => app.ui.history_files_scroll,
             Self::CommitSummary => app.ui.history_summary_scroll,
+            Self::CommitChanges => app.ui.commit_view_scroll,
         }
     }
 
@@ -136,6 +140,7 @@ impl ScrollRegion {
             Self::Navigator => app.ui.history_branch_scroll = value,
             Self::CommitFiles => app.ui.history_files_scroll = value,
             Self::CommitSummary => app.ui.history_summary_scroll = value,
+            Self::CommitChanges => app.ui.commit_view_scroll = value,
         }
         app.ui.clear_hover_cards();
     }
@@ -158,6 +163,10 @@ impl ScrollRegion {
             Self::CommitSummary => (
                 app.ui.summary_scrollbar_dragging,
                 app.ui.summary_scrollbar_drag_offset,
+            ),
+            Self::CommitChanges => (
+                app.ui.commit_view_scrollbar_dragging,
+                app.ui.commit_view_scrollbar_drag_offset,
             ),
         }
     }
@@ -183,6 +192,10 @@ impl ScrollRegion {
             Self::CommitSummary => {
                 app.ui.summary_scrollbar_dragging = dragging;
                 app.ui.summary_scrollbar_drag_offset = offset;
+            }
+            Self::CommitChanges => {
+                app.ui.commit_view_scrollbar_dragging = dragging;
+                app.ui.commit_view_scrollbar_drag_offset = offset;
             }
         }
     }
@@ -276,6 +289,10 @@ fn render_local(
     let git = store.get();
     let mut root = panel(rect, VisualStyle::filled(theme::c().sidebar));
 
+    // A commit's diff on screen turns the panel into that commit's file list.
+    if let Some(view) = frame.commit_changes.clone() {
+        return render_commit_changes(rect, state, store, view, resizing);
+    }
     let Some(repository) = git.active() else {
         let message = if git.initializing {
             "Detecting Git and scanning repositories…".to_owned()
@@ -3126,4 +3143,325 @@ mod sticky_tests {
         // A row outside every folder leaves nothing pinned.
         assert!(sticky_folders(&rows, 0.0, 0.0, 4.5 * row).is_empty());
     }
+}
+
+/// Folder collapse key of the commit changes list, apart from the repository's own.
+const COMMIT_CHANGES: u8 = 9;
+
+/// The left panel while a commit's diff is on screen: that commit's files, to
+/// browse only. There are no checkboxes, commit box or discard here; a click
+/// scrolls the diff to the file.
+fn render_commit_changes(
+    rect: UiRect,
+    state: Binding,
+    store: Snapshot,
+    view: crate::ui::git::commands::CommitChangesView,
+    resizing: bool,
+) -> Element {
+    let app = state.get();
+    let git = store.get();
+    let c = theme::c();
+    let mut root = panel(rect, VisualStyle::filled(c.sidebar));
+    let header_rect = UiRect::new(
+        rect.left,
+        (rect.top + HEADER_TOP_PAD).min(rect.bottom),
+        rect.right,
+        (rect.top + HEADER_TOP_PAD + SECTION_H).min(rect.bottom),
+    );
+    let list = UiRect::new(rect.left, header_rect.bottom, rect.right, rect.bottom);
+    let files = view
+        .files
+        .iter()
+        .map(|(path, _)| path.clone())
+        .collect::<Vec<_>>();
+    let kinds = view
+        .files
+        .iter()
+        .map(|(path, kind)| (path.clone(), *kind))
+        .collect::<std::collections::HashMap<_, _>>();
+    let rows = owned_change_rows(&files, app.ui.tree_view, &|path| {
+        app.ui
+            .change_collapsed
+            .contains(&(COMMIT_CHANGES, path.to_path_buf()))
+    });
+    let rows_top = list.top + LIST_TOP_PAD;
+    let content_bottom = rows_top + rows.len() as f32 * CHANGE_ROW_H + 10.0;
+    let max_scroll = (content_bottom - list.bottom).max(0.0);
+    let scroll = app.ui.commit_view_scroll.clamp(0.0, max_scroll);
+    let visible = visible_rows_with_height(
+        rows_top,
+        list.top + scroll,
+        list.bottom + scroll,
+        rows.len(),
+        CHANGE_ROW_H,
+    );
+    let guides = TreeGuides::new(list, scroll, rect.left + 14.0, TREE_INDENT);
+    let mut content: Vec<Element> = Vec::new();
+    for index in visible.clone() {
+        let row_y = rows_top + index as f32 * CHANGE_ROW_H;
+        let row_rect = UiRect::new(rect.left, row_y, rect.right, row_y + CHANGE_ROW_H);
+        match &rows[index] {
+            OwnedChangeRow::Folder {
+                path,
+                label,
+                depth,
+                expanded,
+                files,
+            } => content.push(folder_row(
+                row_rect,
+                COMMIT_CHANGES,
+                STAGED,
+                path,
+                label,
+                *depth,
+                *expanded,
+                files.clone(),
+                false,
+                false,
+                &state,
+                &store,
+            )),
+            OwnedChangeRow::File { path, depth } => content.push(commit_file_row(
+                row_rect,
+                path.clone(),
+                *depth,
+                kinds.get(path).copied().unwrap_or(ChangeKind::Modified),
+                &view,
+                &state,
+            )),
+        }
+    }
+    if app.ui.tree_view {
+        guides.append(
+            &mut content,
+            visible
+                .clone()
+                .map(|index| (rows_top + index as f32 * CHANGE_ROW_H, rows[index].depth())),
+            rows_top + visible.end as f32 * CHANGE_ROW_H,
+        );
+    }
+    let mut sticky = Vec::new();
+    if app.ui.tree_view {
+        for (index, top) in sticky_folders(&rows, rows_top, list.top, scroll) {
+            let OwnedChangeRow::Folder {
+                path,
+                label,
+                depth,
+                expanded,
+                files,
+            } = &rows[index]
+            else {
+                continue;
+            };
+            let row_rect = UiRect::new(rect.left, top, rect.right, top + CHANGE_ROW_H);
+            sticky.insert(
+                0,
+                panel(row_rect, VisualStyle::filled(c.sidebar)).child(folder_row(
+                    row_rect,
+                    COMMIT_CHANGES,
+                    STAGED,
+                    path,
+                    label,
+                    *depth,
+                    *expanded,
+                    files.clone(),
+                    false,
+                    true,
+                    &state,
+                    &store,
+                )),
+            );
+        }
+    }
+    let hover_state = state.clone();
+    root = root.on_event_capture(UiEventKind::PointerMove, move |_cx, payload| {
+        if let UiEventPayload::PointerMove { pointer } = payload {
+            let region = list
+                .contains(pointer.point)
+                .then_some(ScrollRegion::CommitChanges);
+            hover_state.try_update(|app| {
+                let changed = app.ui.scroll_hover != region;
+                app.ui.scroll_hover = region;
+                changed
+            });
+        }
+    });
+    root = root.child(scroll_region(
+        list,
+        content,
+        content_bottom,
+        scroll,
+        max_scroll,
+        state.clone(),
+        ScrollRegion::CommitChanges,
+    ));
+    for element in sticky {
+        root = root.child(element);
+    }
+    // The commit, its subject once known, and the repository when it is not
+    // the one the panel otherwise follows.
+    let mut title = crate::features::git::diff_document::short_oid(&view.revision).to_owned();
+    if let Some(Ok(details)) = app.model.commit_detail(&view.revision)
+        && let Some(subject) = details.message.lines().next()
+    {
+        title.push_str("  ");
+        title.push_str(subject);
+    }
+    if git
+        .active()
+        .is_some_and(|repository| repository.worktree_root != view.root)
+        && let Some(name) = view.root.file_name()
+    {
+        title.push_str("  ·  ");
+        title.push_str(&name.to_string_lossy());
+    }
+    let toggle = UiRect::new(
+        header_rect.right - 30.0,
+        header_rect.top + 1.0,
+        header_rect.right - 6.0,
+        header_rect.bottom - 1.0,
+    );
+    let grouped = app.ui.tree_view;
+    let group_state = state.clone();
+    root = root
+        .child(
+            panel(header_rect, VisualStyle::filled(c.sidebar))
+                .key("git-commit-changes-header")
+                .semantics(Semantics::new(SemanticRole::Group).name("Commit changes"))
+                .child(
+                    clip(
+                        UiRect::new(
+                            header_rect.left + 12.0,
+                            header_rect.top,
+                            toggle.left - 6.0,
+                            header_rect.bottom,
+                        ),
+                        0.0,
+                        0.0,
+                    )
+                    .child(text(
+                        UiRect::new(
+                            header_rect.left + 12.0,
+                            header_rect.top,
+                            header_rect.left + 4000.0,
+                            header_rect.bottom,
+                        ),
+                        title,
+                        theme::sans(c.text_soft, 12.0),
+                    )),
+                ),
+        )
+        .child(
+            panel(toggle, VisualStyle::default().radius(4.0))
+                .key("git-group-by-folder")
+                .event_policy(EventPolicy::INTERACTIVE)
+                .cursor(CursorIcon::Pointer)
+                .semantics(Semantics::new(SemanticRole::Button).name(if grouped {
+                    "View as List"
+                } else {
+                    "Group by Folder"
+                }))
+                .on_click(move || group_state.update(|app| app.ui.tree_view = !app.ui.tree_view))
+                .child(crate::ui::drawer::drawer_icon(
+                    "git-group-icon",
+                    if grouped { "list-flat" } else { "list-tree" },
+                    theme::icon_rect(toggle),
+                    c.text_muted,
+                )),
+        );
+    root.child(git_resize_handle(rect, state, resizing))
+}
+
+/// A file of the commit shown in the left panel.
+fn commit_file_row(
+    rect: UiRect,
+    path: PathBuf,
+    depth: usize,
+    kind: ChangeKind,
+    view: &crate::ui::git::commands::CommitChangesView,
+    state: &Binding,
+) -> Element {
+    let indent = depth as f32 * TREE_INDENT;
+    let key = format!("commit-file-{}", path.display());
+    let click_state = state.clone();
+    let (pane, root) = (view.pane, view.root.clone());
+    let click_path = path.clone();
+    Element::new(move |cx| {
+        let style = if cx.context.interaction_flags(&cx.id).hovered {
+            VisualStyle::filled(theme::c().surface)
+        } else {
+            VisualStyle::default()
+        };
+        UiElement::panel(cx.id, rect, style).children(cx.children)
+    })
+    .key(key.clone())
+    .event_policy(EventPolicy::INTERACTIVE)
+    .cursor(CursorIcon::Pointer)
+    .semantics(Semantics::new(SemanticRole::Button).name(format!("Show {}", path.display())))
+    .on_click(move || {
+        click_state.dispatch(Command::FocusCommitFile {
+            pane,
+            root: root.clone(),
+            path: click_path.clone(),
+        });
+    })
+    .child(crate::ui::drawer::drawer_icon(
+        UiId::owned(format!("{key}-file-icon")),
+        crate::ui::file_icons::icon_for_file(
+            &path.file_name().unwrap_or_default().to_string_lossy(),
+        ),
+        UiRect::new(
+            rect.left + 10.0 + indent,
+            rect.top + (rect.height() - 16.0) / 2.0,
+            rect.left + 26.0 + indent,
+            rect.top + (rect.height() + 16.0) / 2.0,
+        ),
+        theme::c().text_muted,
+    ))
+    .child(change_path_label(
+        UiRect::new(
+            rect.left + 32.0 + indent,
+            rect.top,
+            rect.right - 30.0,
+            rect.bottom,
+        ),
+        &path,
+        depth == 0,
+        kind,
+    ))
+    .child(text(
+        UiRect::new(rect.right - 26.0, rect.top, rect.right - 8.0, rect.bottom),
+        kind.indicator(),
+        theme::mono(change_color(kind), 10.0),
+    ))
+}
+
+/// The rows of a list of changed files, as owned values the renderer can keep.
+fn owned_change_rows(
+    files: &[PathBuf],
+    grouped: bool,
+    collapsed: &dyn Fn(&Path) -> bool,
+) -> Vec<OwnedChangeRow> {
+    change_rows(files, grouped, collapsed)
+        .into_iter()
+        .map(|row| match row {
+            ChangeRow::Folder {
+                path,
+                label,
+                depth,
+                expanded,
+                files,
+            } => OwnedChangeRow::Folder {
+                path,
+                label,
+                depth,
+                expanded,
+                files,
+            },
+            ChangeRow::File { path, depth } => OwnedChangeRow::File {
+                path: path.clone(),
+                depth,
+            },
+        })
+        .collect()
 }

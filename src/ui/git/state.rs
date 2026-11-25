@@ -83,6 +83,10 @@ pub struct GitUiState {
     pub history_files_scroll: f32,
     pub files_scrollbar_dragging: bool,
     pub files_scrollbar_drag_offset: f32,
+    /// Scroll and scrollbar drag of the left panel's list of a commit's files.
+    pub commit_view_scroll: f32,
+    pub commit_view_scrollbar_dragging: bool,
+    pub commit_view_scrollbar_drag_offset: f32,
     /// Independent scroll and scrollbar drag of the compact commit summary.
     pub history_summary_scroll: f32,
     pub summary_scrollbar_dragging: bool,
@@ -168,6 +172,9 @@ impl Default for GitUiState {
             history_files_scroll: 0.0,
             files_scrollbar_dragging: false,
             files_scrollbar_drag_offset: 0.0,
+            commit_view_scroll: 0.0,
+            commit_view_scrollbar_dragging: false,
+            commit_view_scrollbar_drag_offset: 0.0,
             history_summary_scroll: 0.0,
             summary_scrollbar_dragging: false,
             summary_scrollbar_drag_offset: 0.0,

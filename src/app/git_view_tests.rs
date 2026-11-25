@@ -613,6 +613,108 @@ mod panel_virtualization_tests {
     }
 
     #[test]
+    fn a_commit_on_screen_turns_the_panel_into_its_read_only_file_list() {
+        use crate::ui::git::commands::{Binding, Command, CommitChangesView, Frame};
+        use crate::ui::git::state::GitPanelState;
+        use lgui::application::{AppView, ApplicationContext};
+        use lgui::session::UiSession;
+        use std::sync::Mutex;
+
+        let viewport = UiRect::new(0.0, 0.0, 288.0, 300.0);
+        let (_, snapshot, _) = drawer_fixture();
+        let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
+        let output = recorded.clone();
+        let view: AppView = Arc::new(move |cx| {
+            let state = cx.state_with(GitPanelState::default);
+            let fixture = snapshot.clone();
+            let store = cx.state_with(move || fixture);
+            let requests = output.clone();
+            let shown = CommitChangesView {
+                pane: crate::domain::identity::PaneId::new(1),
+                root: "repo".into(),
+                revision: "abc1234def".into(),
+                files: vec![
+                    ("src/a.rs".into(), ChangeKind::Modified),
+                    ("src/ui/b.rs".into(), ChangeKind::Added),
+                ],
+            };
+            let binding = Binding::new(
+                state.into(),
+                move || Frame {
+                    commit_changes: Some(shown.clone()),
+                    ..Default::default()
+                },
+                move |command| {
+                    if let Command::FocusCommitFile { path, .. } = command {
+                        requests.lock().unwrap().push(path.display().to_string());
+                    }
+                    true
+                },
+            );
+            render(
+                viewport,
+                binding,
+                store.into(),
+                cx.focus_handle(UiId::new("commit-view-editor")),
+                cx.focus_handle(UiId::new("commit-view-commit")),
+                UiId::new("commit-view-commit"),
+            )
+        });
+        let context = ApplicationContext::empty(Default::default());
+        context
+            .resources()
+            .provide(lgui::icons::IconRegistration(Arc::new(
+                crate::app::svg_icons(),
+            )));
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        let mut session = UiSession::new();
+        session.render_view(&view, viewport, UiScale::ONE);
+        save_drawer_preview(&session, &context, viewport, "git-commit-view");
+        // Only browsing: no commit box, no checkboxes, no discard.
+        assert!(named(&session, "Commit message").is_none());
+        assert!(named(&session, "Commit changes").is_some());
+        let texts = text_nodes(&session);
+        assert!(texts.iter().any(|value| value.starts_with("abc1234")));
+        let labels = session
+            .tree()
+            .nodes()
+            .iter()
+            .filter_map(|node| node.semantics.as_ref().and_then(|s| s.name.clone()))
+            .collect::<Vec<_>>();
+        assert!(
+            !labels.iter().any(
+                |label| label.contains("commit") && label.contains("Include")
+                    || label.contains("Discard")
+            ),
+            "{labels:?}"
+        );
+        // A click on a file asks for its section of the diff.
+        let point = center(named(&session, "Show src/a.rs").expect("file row"));
+        for event in [
+            InputEvent::PointerDown {
+                pointer: PointerData::mouse(point),
+                button: PointerButton::Left,
+            },
+            InputEvent::PointerUp {
+                pointer: PointerData::mouse(point),
+                button: PointerButton::Left,
+            },
+        ] {
+            dispatch_runtime_output(
+                session.handle_input(event),
+                &context,
+                &lgui::window::WindowId::new("commit-view-test"),
+                |action| session.handle_default_action(action),
+                |_| {},
+            );
+        }
+        assert_eq!(*recorded.lock().unwrap(), ["src/a.rs".to_owned()]);
+    }
+
+    #[test]
     fn drawer_filter_staging_and_multiline_commit_match_the_reference() {
         use crate::ui::git::commands::{Binding, Command, Frame};
         use crate::ui::git::state::GitPanelState;
@@ -1809,7 +1911,8 @@ mod panel_virtualization_tests {
                 ScrollRegion::Details
                 | ScrollRegion::Navigator
                 | ScrollRegion::CommitFiles
-                | ScrollRegion::CommitSummary => ScrollRegion::Changes,
+                | ScrollRegion::CommitSummary
+                | ScrollRegion::CommitChanges => ScrollRegion::Changes,
             };
             assert_eq!(other.scroll(&state.get().git), 0.0);
             send(InputEvent::PointerUp {
