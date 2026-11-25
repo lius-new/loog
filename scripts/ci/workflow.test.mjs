@@ -95,6 +95,18 @@ test('release builds once per platform without repeated CI tests or redundant ea
   assert.match(runs(pack),/startup-smoke\.mjs --executable/);
   assert.match(runs(pack),/dpkg-deb --info/);assert.match(runs(pack),/hdiutil verify/);
 });
+
+test('release validates the entire notes range before extensions or platform builds', () => {
+  const steps = release.jobs.verify.steps;
+  const gate = steps.findIndex(step => step.id === 'gate');
+  const notes = steps.findIndex(step => (step.run || '').includes('scripts/release/notes.mjs'));
+  const lock = steps.findIndex(step => (step.run || '').includes('scripts/package/refresh-lock.mjs'));
+  assert.ok(gate >= 0 && notes > gate && lock > notes);
+  assert.equal(steps[notes].env.VERSION, expr('steps.gate.outputs.version'));
+  assert.equal(steps[notes].env.RELEASE_SHA, expr('steps.gate.outputs.sha'));
+  assert.match(steps[notes].run, /--version "\$VERSION" --ref "\$RELEASE_SHA" --repo "\$GITHUB_REPOSITORY"/);
+  assert.equal(release.jobs.package.needs, 'verify');
+});
 test('only the final job can create/upload a draft, after every platform artifact is verified', () => {
   const publish = release.jobs.publish;
   assert.deepEqual(publish.needs,['verify','package']);

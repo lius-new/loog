@@ -56,7 +56,8 @@ Malformed sections fail generation instead of silently dropping their contents.
 2. Create and push a version tag such as v0.2.0 on that tested commit. Release accepts successful push/manual CI runs from this
    repository, never a PR run that tested a synthetic merge commit. The latest
    matching run and all three host checks plus CI result must have succeeded.
-3. The single Release workflow validates the tag/version/CI before building.
+3. The single Release workflow validates the tag/version/CI and generates the
+   complete release notes before fetching extensions or building any platform.
    Each platform verifies its checkout SHA and temporarily materializes the tag
    version into Cargo.toml and the root Loog entry in Cargo.lock. Only these two
    version fields may change. HEAD/tags/index remain unchanged; dependencies stay

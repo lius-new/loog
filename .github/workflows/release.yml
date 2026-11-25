@@ -44,6 +44,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           INPUT_VERSION: ${{ inputs.version }}
         run: node scripts/release/verify-ci.mjs
+      - name: Validate complete release notes before building
+        env:
+          VERSION: ${{ steps.gate.outputs.version }}
+          RELEASE_SHA: ${{ steps.gate.outputs.sha }}
+        run: node scripts/release/notes.mjs --version "$VERSION" --ref "$RELEASE_SHA" --repo "$GITHUB_REPOSITORY" --output "$RUNNER_TEMP/loog-release-notes.md"
       - name: Lock the bundled extensions once for every platform
         # The newest verified extensions, signed index included; kept with the run so a
         # release can be traced to the exact index it bundled.
