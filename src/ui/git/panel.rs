@@ -257,10 +257,6 @@ struct ChangesInfo {
     check: CheckState,
     /// Every file the box stands for, with whether it is new to Git.
     files: Vec<(PathBuf, bool)>,
-    ahead: u32,
-    behind: u32,
-    /// The branch has no upstream yet, so pushing publishes it.
-    publish: bool,
     grouped: bool,
 }
 
@@ -451,10 +447,6 @@ fn render_local(
             ChangesInfo {
                 check,
                 files: chosen,
-                ahead: repository.ahead,
-                behind: repository.behind,
-                publish: repository.upstream.is_none()
-                    && matches!(repository.head, crate::features::git::HeadState::Branch(_)),
                 grouped: app.ui.tree_view,
             },
             state.clone(),
@@ -2836,16 +2828,11 @@ fn folder_actions_section(kinds: impl Iterator<Item = u8>) -> u8 {
     }
 }
 
-/// The single collapsible Changes header: a chevron, a checkbox that stages or
-/// unstages everything, the label and count, then the branch's unpushed and
-/// unpulled commits and the folder grouping toggle.
+/// The collapsible Changes header: label, folder grouping and commit selection.
 fn changes_header(rect: UiRect, collapsed: bool, info: ChangesInfo, state: Binding) -> Element {
     let ChangesInfo {
         check,
         files,
-        ahead,
-        behind,
-        publish,
         grouped,
     } = info;
     let toggle_state = state.clone();
@@ -2870,7 +2857,7 @@ fn changes_header(rect: UiRect, collapsed: bool, info: ChangesInfo, state: Bindi
                 }
             });
         });
-    let mut section = panel(rect, VisualStyle::filled(c.sidebar))
+    let section = panel(rect, VisualStyle::filled(c.sidebar))
         .child(collapse)
         .child(crate::ui::drawer::drawer_icon(
             "git-section-changes-chevron",
@@ -2911,93 +2898,17 @@ fn changes_header(rect: UiRect, collapsed: bool, info: ChangesInfo, state: Bindi
             },
         ))
         .child(text(
-            UiRect::new(rect.left + 24.0, rect.top, rect.right - 90.0, rect.bottom),
+            UiRect::new(rect.left + 24.0, rect.top, rect.right - 52.0, rect.bottom),
             "Changes",
             theme::sans(c.text_soft, 12.0),
         ));
-    // The grouping toggle sits at the right edge; the unpulled and unpushed
-    // commit counts, each with its arrow, sit just left of it.
+    // Repository operations live beside the branch in the title bar.
     let toggle = UiRect::new(
-        rect.right - 52.0,
+        rect.right - 48.0,
         rect.top + 1.0,
         rect.right - 28.0,
         rect.bottom - 1.0,
     );
-    let mut right = toggle.left - 4.0;
-    // Pull and push are separate buttons, each with its arrow and commit count.
-    let buttons = [
-        (
-            behind > 0,
-            "arrow-down",
-            behind.to_string(),
-            "git-changes-pull",
-            "Pull Changes",
-            true,
-        ),
-        (
-            ahead > 0 || publish,
-            if publish { "cloud-upload" } else { "arrow-up" },
-            if publish {
-                String::new()
-            } else {
-                ahead.to_string()
-            },
-            "git-changes-push",
-            if publish {
-                "Publish Branch"
-            } else {
-                "Push Changes"
-            },
-            false,
-        ),
-    ];
-    for (visible, icon, label, id, name, is_pull) in buttons.into_iter().rev() {
-        if !visible {
-            continue;
-        }
-        let width = 6.0
-            + 13.0
-            + if label.is_empty() {
-                0.0
-            } else {
-                2.0 + label.len() as f32 * 7.0
-            }
-            + 6.0;
-        let area = UiRect::new(right - width, rect.top + 1.0, right, rect.bottom - 1.0);
-        let click_state = state.clone();
-        let mut button = panel(area, VisualStyle::default().radius(4.0))
-            .key(id)
-            .event_policy(EventPolicy::INTERACTIVE)
-            .cursor(CursorIcon::Pointer)
-            .semantics(Semantics::new(SemanticRole::Button).name(name))
-            .on_click(move || {
-                click_state.dispatch(if is_pull {
-                    Command::Pull
-                } else {
-                    Command::Push
-                });
-            })
-            .child(crate::ui::drawer::drawer_icon(
-                UiId::owned(format!("{id}-icon")),
-                icon,
-                UiRect::new(
-                    area.left + 6.0,
-                    rect.top + (rect.height() - 13.0) / 2.0,
-                    area.left + 19.0,
-                    rect.top + (rect.height() + 13.0) / 2.0,
-                ),
-                c.text_muted,
-            ));
-        if !label.is_empty() {
-            button = button.child(text(
-                UiRect::new(area.left + 21.0, rect.top, area.right, rect.bottom),
-                label,
-                theme::mono(c.text_muted, theme::SMALL),
-            ));
-        }
-        section = section.child(button);
-        right = area.left - 2.0;
-    }
     section.child(
         panel(toggle, VisualStyle::default().radius(4.0))
             .key("git-group-by-folder")

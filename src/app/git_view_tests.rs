@@ -367,7 +367,16 @@ mod panel_virtualization_tests {
         use lgui::application::ApplicationContext;
         use lgui::session::UiSession;
         let viewport = UiRect::new(0.0, 0.0, 340.0, 600.0);
-        let (id, snapshot, history) = drawer_fixture();
+        let (id, mut snapshot, history) = drawer_fixture();
+        // A tracked branch can have both incoming and outgoing commits.
+        let repository = Arc::make_mut(&mut snapshot.repositories)
+            .get_mut(&id)
+            .unwrap();
+        repository.upstream = Some(crate::features::git::UpstreamState {
+            name: "origin/main".into(),
+        });
+        repository.ahead = 3;
+        repository.behind = 2;
         let exposed = Arc::new(std::sync::Mutex::new(None));
         let view = render_view(viewport, None, snapshot, history, |_| {}, exposed.clone());
         let context = ApplicationContext::empty(Default::default());
@@ -435,6 +444,202 @@ mod panel_virtualization_tests {
         assert!(text_nodes(&session).contains(&"Working tree clean.".to_owned()));
         let _ = state;
         save_drawer_preview(&session, &context, viewport, "git-drawer-no-changes");
+    }
+
+    #[test]
+    fn repository_actions_live_only_in_the_title_bar_and_keep_their_commands() {
+        use crate::ui::git::commands::{Binding, Command, Frame};
+        use crate::ui::git::state::GitPanelState;
+        use lgui::application::{AppView, ApplicationContext};
+        use lgui::session::UiSession;
+        use std::sync::Mutex;
+
+        let context = ApplicationContext::empty(Default::default());
+        context
+            .resources()
+            .provide(lgui::icons::IconRegistration(Arc::new(
+                crate::app::svg_icons(),
+            )));
+        let _fonts = lgui::backend::install_text_environment(
+            &context,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        for (tracking, ahead, behind, busy, expected) in [
+            (false, 0, 0, false, vec![("Publish branch", "push", None)]),
+            (true, 0, 0, false, vec![("Fetch from remote", "sync", None)]),
+            (true, 3, 0, false, vec![("Push changes", "push", Some("3"))]),
+            (true, 0, 2, false, vec![("Pull changes", "pull", Some("2"))]),
+            (
+                true,
+                12,
+                34,
+                false,
+                vec![
+                    ("Pull changes", "pull", Some("34")),
+                    ("Push changes", "push", Some("12")),
+                ],
+            ),
+            (
+                true,
+                12,
+                34,
+                true,
+                vec![
+                    ("Pull changes", "pull", Some("34")),
+                    ("Push changes", "push", Some("12")),
+                ],
+            ),
+        ] {
+            let (id, mut snapshot, _) = drawer_fixture();
+            let repository = Arc::make_mut(&mut snapshot.repositories)
+                .get_mut(&id)
+                .unwrap();
+            repository.upstream = tracking.then(|| UpstreamState {
+                name: "origin/main".into(),
+            });
+            repository.ahead = ahead;
+            repository.behind = behind;
+            if busy {
+                snapshot.operation = Some(OperationState {
+                    kind: OperationKind::Fetch,
+                    started_at: std::time::SystemTime::now(),
+                    progress: None,
+                    cancellable: false,
+                    message: "Fetching…".into(),
+                });
+            }
+            let commands = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+            let captured = commands.clone();
+            let viewport = UiRect::new(0.0, 0.0, 700.0, 400.0);
+            let title = UiRect::new(0.0, 0.0, 700.0, 34.0);
+            let drawer = UiRect::new(0.0, 34.0, 288.0, 400.0);
+            let view: AppView = Arc::new(move |cx| {
+                let state = cx.state_with(GitPanelState::default);
+                let fixture = snapshot.clone();
+                let store = cx.state_with(move || fixture);
+                let recorded = captured.clone();
+                let binding = Binding::new(state.into(), Frame::default, move |command| {
+                    recorded.lock().unwrap().push(match command {
+                        Command::Sync => "sync",
+                        Command::Pull => "pull",
+                        Command::Push => "push",
+                        _ => "unexpected",
+                    });
+                    true
+                });
+                let bar = crate::ui::git::badge::attach(
+                    panel(title, VisualStyle::filled(theme::c().sidebar)),
+                    title,
+                    0.0,
+                    binding.clone(),
+                    store.clone().into(),
+                    false,
+                );
+                group(viewport).child(bar).child(render(
+                    drawer,
+                    binding,
+                    store.into(),
+                    cx.focus_handle(UiId::new("remote-test-editor")),
+                    cx.focus_handle(UiId::new("remote-test-commit")),
+                    UiId::new("remote-test-commit"),
+                ))
+            });
+            let mut session = UiSession::new();
+            session.render_view(&view, viewport, UiScale::ONE);
+            let remote_names = [
+                "Publish branch",
+                "Fetch from remote",
+                "Pull changes",
+                "Push changes",
+                "Publish Branch",
+                "Pull and push changes",
+                "Pull Changes",
+                "Push Changes",
+            ];
+            let remote_buttons = session
+                .tree()
+                .nodes()
+                .iter()
+                .filter(|node| {
+                    node.semantics
+                        .as_ref()
+                        .and_then(|s| s.name.as_deref())
+                        .is_some_and(|name| remote_names.contains(&name))
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                remote_buttons.len(),
+                expected.len(),
+                "each operation has one entry"
+            );
+            let mut previous_right = 0.0;
+            let mut points = Vec::new();
+            for (name, _, count) in &expected {
+                let button = remote_buttons
+                    .iter()
+                    .find(|node| {
+                        node.semantics.as_ref().and_then(|s| s.name.as_deref()) == Some(*name)
+                    })
+                    .unwrap();
+                assert!(
+                    button.layout_rect.top >= title.top
+                        && button.layout_rect.bottom <= title.bottom,
+                    "{name} belongs in the title bar"
+                );
+                assert!(
+                    button.layout_rect.left >= previous_right,
+                    "actions must not overlap"
+                );
+                previous_right = button.layout_rect.right;
+                assert_eq!(button.semantics.as_ref().unwrap().state.disabled, busy);
+                if let Some(count) = count {
+                    assert!(
+                        button
+                            .children
+                            .iter()
+                            .filter_map(|id| session.tree().node(id))
+                            .any(|node| node.text.as_deref() == Some(*count)),
+                        "{name}: keep commit count"
+                    );
+                }
+                points.push(center(button.layout_rect));
+            }
+            for point in points {
+                for event in [
+                    InputEvent::PointerDown {
+                        pointer: PointerData::mouse(point),
+                        button: PointerButton::Left,
+                    },
+                    InputEvent::PointerUp {
+                        pointer: PointerData::mouse(point),
+                        button: PointerButton::Left,
+                    },
+                ] {
+                    dispatch_runtime_output(
+                        session.handle_input(event),
+                        &context,
+                        &lgui::window::WindowId::new("remote-actions-test"),
+                        |action| session.handle_default_action(action),
+                        |_| {},
+                    );
+                }
+            }
+            let expected_commands = if busy {
+                vec![]
+            } else {
+                expected
+                    .iter()
+                    .map(|(_, command, _)| *command)
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(*commands.lock().unwrap(), expected_commands);
+            save_drawer_preview(
+                &session,
+                &context,
+                viewport,
+                &format!("git-title-actions-{tracking}-{ahead}-{behind}-{busy}"),
+            );
+        }
     }
 
     #[test]

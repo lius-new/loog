@@ -1,5 +1,5 @@
 //! Repository controls in the title bar: the repository and branch badge,
-//! which opens the branch picker, then the sync button and the message of a
+//! which opens the branch picker, then remote actions and the message of a
 //! Git operation in progress.
 
 use lgui::core::{
@@ -19,7 +19,7 @@ pub(crate) const BADGE_ICON: f32 = 14.0;
 pub(crate) const ICON_GAP: f32 = 5.0;
 /// Gap between the badge's groups: repository, branch, operation.
 pub(crate) const GROUP_GAP: f32 = 8.0;
-/// Gap between the badge, the sync button and the operation message.
+/// Gap between the badge, remote actions and the operation message.
 pub(crate) const ITEM_GAP: f32 = 2.0;
 /// Extra right margin inside each text rect so the last glyph is not clipped.
 pub(crate) const TEXT_MARGIN: f32 = 6.0;
@@ -76,7 +76,7 @@ pub fn attach(
             }),
     );
 
-    // Sync: publish, pull, push or fetch, whichever is due.
+    // Keep all remote actions in one place, alongside the active branch.
     if let Some(repository) = git.active()
         && let Some(plan) = crate::features::git::actions::sync_plan(repository)
     {
@@ -86,12 +86,67 @@ pub fn attach(
         } else {
             theme::c().text_ghost
         };
-        let (sync, sync_right) =
-            badge_element(rect, right + ITEM_GAP, sync_pieces(plan, color), false);
-        right = sync_right;
-        bar = bar.child(
-            sync.event_policy(EventPolicy::INTERACTIVE)
-                .semantics(Semantics::new(SemanticRole::Button).name(sync_name(plan)))
+        let publish = plan == SyncPlan::Publish;
+        let actions = [
+            (
+                publish,
+                "titlebar.publish",
+                "cloud-upload",
+                0,
+                "Publish branch",
+                (|| Command::Push) as fn() -> Command,
+            ),
+            (
+                plan == SyncPlan::Fetch,
+                "titlebar.sync",
+                "sync",
+                0,
+                "Fetch from remote",
+                || Command::Sync,
+            ),
+            (
+                !publish && repository.behind > 0,
+                "titlebar.pull",
+                "arrow-down",
+                repository.behind,
+                "Pull changes",
+                || Command::Pull,
+            ),
+            (
+                !publish && repository.ahead > 0,
+                "titlebar.push",
+                "arrow-up",
+                repository.ahead,
+                "Push changes",
+                || Command::Push,
+            ),
+        ];
+        for (visible, id, icon, count, name, command) in actions {
+            if !visible {
+                continue;
+            }
+            let style = theme::mono(color, theme::SMALL);
+            let label = (count > 0).then(|| count.to_string());
+            let width = 8.0
+                + BADGE_ICON
+                + label
+                    .as_ref()
+                    .map_or(0.0, |label| 2.0 + measure(label, &style));
+            let top = rect.top + (rect.height() - BADGE_H) / 2.0;
+            let area = UiRect::new(
+                right + ITEM_GAP,
+                top,
+                right + ITEM_GAP + width,
+                top + BADGE_H,
+            );
+            right = area.right;
+            let mut semantics = Semantics::new(SemanticRole::Button).name(name);
+            semantics.state.disabled = !enabled;
+            let action_state = state.clone();
+            let mut button = panel(area, VisualStyle::default().radius(4.0))
+                .key(id)
+                .event_policy(EventPolicy::INTERACTIVE)
+                .semantics(semantics)
                 .cursor(if enabled {
                     CursorIcon::Pointer
                 } else {
@@ -99,10 +154,34 @@ pub fn attach(
                 })
                 .on_click(move || {
                     if enabled {
-                        state.dispatch(Command::Sync);
+                        action_state.dispatch(command());
                     }
-                }),
-        );
+                })
+                .child(crate::ui::drawer::drawer_icon(
+                    id,
+                    icon,
+                    UiRect::new(
+                        area.left + 4.0,
+                        top + (BADGE_H - BADGE_ICON) / 2.0,
+                        area.left + 4.0 + BADGE_ICON,
+                        top + (BADGE_H + BADGE_ICON) / 2.0,
+                    ),
+                    color,
+                ));
+            if let Some(label) = label {
+                button = button.child(text(
+                    UiRect::new(
+                        area.left + 4.0 + BADGE_ICON + 2.0,
+                        top,
+                        area.right,
+                        area.bottom,
+                    ),
+                    label,
+                    style,
+                ));
+            }
+            bar = bar.child(button);
+        }
     }
 
     // A Git operation in progress, else a diff being read. Reading blocks
@@ -217,40 +296,6 @@ pub(crate) fn badge_pieces(git: &GitStoreSnapshot) -> Vec<(f32, BadgePiece)> {
         ));
     }
     pieces
-}
-
-/// The sync button's contents: a publish icon for a branch with no upstream,
-/// else the sync icon. Pulling and pushing have their own buttons in Changes.
-pub(crate) fn sync_pieces(plan: SyncPlan, color: Color) -> Vec<(f32, BadgePiece)> {
-    if plan == SyncPlan::Publish {
-        return vec![(
-            0.0,
-            BadgePiece::Icon {
-                id: "titlebar.publish",
-                key: "cloud-upload",
-                color,
-            },
-        )];
-    }
-    vec![(
-        0.0,
-        BadgePiece::Icon {
-            id: "titlebar.sync",
-            key: "sync",
-            color,
-        },
-    )]
-}
-
-/// What the sync button says it will do, for assistive technology.
-pub(crate) fn sync_name(plan: SyncPlan) -> &'static str {
-    match plan {
-        SyncPlan::Publish => "Publish branch",
-        SyncPlan::Fetch => "Fetch from remote",
-        SyncPlan::Pull { then_push: true } => "Pull and push changes",
-        SyncPlan::Pull { then_push: false } => "Pull changes",
-        SyncPlan::Push => "Push changes",
-    }
 }
 
 /// A badge laid out from `pieces`, its left edge at `left`, centered in the
