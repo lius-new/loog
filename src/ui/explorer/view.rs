@@ -782,12 +782,19 @@ fn path_tooltips(tips: Vec<PathTip>, allowed: bool) -> Element {
         // Keep the hint's right edge at this item's label, including its depth
         // and scroll offset. Wrap within the space to its left instead of
         // clamping an oversized hint to the same window edge for every row.
-        let max_width = (tip.rect.left - viewport.left - 8.0)
+        let natural =
+            crate::ui::tabs::measure_once(&path, theme::SMALL, 400) + TREE_TEXT_PAD + 18.0;
+        // Flip to the right of the label when the left side cannot hold the hint.
+        let opens_right = path_tip_opens_right(tip.rect, viewport, natural);
+        let room = if opens_right {
+            viewport.right - tip.rect.left - 8.0
+        } else {
+            tip.rect.left - viewport.left - 8.0
+        };
+        let max_width = room
             .clamp(80.0, 600.0)
             .min((viewport.width() - 16.0).max(20.0));
-        let width =
-            (crate::ui::tabs::measure_once(&path, theme::SMALL, 400) + TREE_TEXT_PAD + 18.0)
-                .min(max_width);
+        let width = natural.min(max_width);
         let text_width = width - 18.0;
         let bounds = UiRect::new(0.0, 0.0, text_width, 10_000.0);
         let request = lgui::text::TextLayoutRequest::for_style(&path, bounds, &style);
@@ -800,7 +807,7 @@ fn path_tooltips(tips: Vec<PathTip>, allowed: bool) -> Element {
             },
             |layout| layout.height.ceil(),
         );
-        let rect = path_tip_rect(tip.rect, viewport, width, text_height + 8.0);
+        let rect = path_tip_rect(tip.rect, viewport, width, text_height + 8.0, opens_right);
         let (left, top) = (rect.left, rect.top);
         layer = layer.child(
             UiElement::panel(
@@ -828,10 +835,20 @@ fn path_tooltips(tips: Vec<PathTip>, allowed: bool) -> Element {
     .key("explorer-path-tips")
 }
 
+/// Open to the left of the label unless that side cannot hold the whole hint
+/// and the right side has more room.
+fn path_tip_opens_right(anchor: UiRect, viewport: UiRect, width: f32) -> bool {
+    let left_room = (anchor.left - viewport.left - 8.0).max(0.0);
+    let right_room = (viewport.right - anchor.left - 8.0).max(0.0);
+    left_room < width && right_room > left_room
+}
+
 /// Extend toward the editor, with the right edge near the row's label. Prefer
 /// the lower left; flip above the row when the lower space cannot hold the hint.
-fn path_tip_rect(anchor: UiRect, viewport: UiRect, width: f32, height: f32) -> UiRect {
-    let left = (anchor.left - width).clamp(
+/// With `right`, the left edge sits at the label and the hint extends rightward.
+fn path_tip_rect(anchor: UiRect, viewport: UiRect, width: f32, height: f32, right: bool) -> UiRect {
+    let wanted = if right { anchor.left } else { anchor.left - width };
+    let left = wanted.clamp(
         viewport.left + 8.0,
         (viewport.right - width - 8.0).max(viewport.left + 8.0),
     );
@@ -1549,6 +1566,7 @@ mod tests {
             viewport,
             320.0,
             28.0,
+            false,
         );
         assert_eq!(below, UiRect::new(180.0, 224.0, 500.0, 252.0));
         let above = path_tip_rect(
@@ -1556,6 +1574,7 @@ mod tests {
             viewport,
             320.0,
             28.0,
+            false,
         );
         assert_eq!(above, UiRect::new(180.0, 528.0, 500.0, 556.0));
         let narrow = path_tip_rect(
@@ -1563,9 +1582,32 @@ mod tests {
             viewport,
             600.0,
             48.0,
+            false,
         );
         assert_eq!(narrow.left, 8.0);
         assert!(narrow.right < viewport.right);
+    }
+
+    #[test]
+    fn path_hints_flip_to_the_right_when_the_left_side_cannot_hold_them() {
+        let viewport = UiRect::new(0.0, 0.0, 800.0, 600.0);
+        // An explorer at the left window edge leaves no room on its left.
+        let anchor = UiRect::new(60.0, 200.0, 200.0, 220.0);
+        assert!(path_tip_opens_right(anchor, viewport, 300.0));
+        let rect = path_tip_rect(anchor, viewport, 300.0, 28.0, true);
+        assert_eq!(rect, UiRect::new(60.0, 224.0, 360.0, 252.0));
+        // Enough room on the left keeps the original side.
+        assert!(!path_tip_opens_right(
+            UiRect::new(500.0, 200.0, 800.0, 220.0),
+            viewport,
+            320.0
+        ));
+        // When neither side fits, the roomier side wins.
+        assert!(!path_tip_opens_right(
+            UiRect::new(500.0, 200.0, 700.0, 220.0),
+            viewport,
+            600.0
+        ));
     }
 
     #[test]
