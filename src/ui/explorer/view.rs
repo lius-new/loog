@@ -135,6 +135,7 @@ struct TreeContext<'a> {
     rect: UiRect,
     scroll: (f32, f32),
     content_right: f32,
+    tips: &'a std::cell::RefCell<Vec<PathTip>>,
     /// The directory whose guide is the active row's, found once per frame.
     active_guide: Option<&'a Path>,
     /// Content-space `y` range whose rows get UI nodes; rows outside it only
@@ -160,6 +161,7 @@ pub fn render(
     input: EditInput,
 ) -> Element {
     let s = state.get();
+    let tips = std::cell::RefCell::new(Vec::new());
     let header_rect = UiRect::new(rect.left, rect.top, rect.right, rect.top + HEADER_H);
     let content_rect = UiRect::new(rect.left, header_rect.bottom, rect.right, rect.bottom);
 
@@ -207,6 +209,7 @@ pub fn render(
         // built for a stale offset is redone once for the clamped one.
         let active_guide = source::active_guide(&s, frame);
         let build = |scroll_hint: f32| {
+            tips.borrow_mut().clear();
             let tree = TreeContext {
                 panel: &s,
                 state: &state,
@@ -216,6 +219,7 @@ pub fn render(
                 rect: content_rect,
                 scroll: (scroll_x, scroll_hint),
                 content_right,
+                tips: &tips,
                 active_guide,
                 visible: (
                     content_rect.top + scroll_hint - OVERSCAN,
@@ -242,6 +246,7 @@ pub fn render(
             rect: content_rect,
             scroll: (scroll_x, scroll),
             content_right,
+            tips: &tips,
             active_guide,
             visible: (0.0, 0.0),
         };
@@ -332,14 +337,6 @@ pub fn render(
                 state.clone(),
             ));
         }
-        if max_scroll_x > 0.0 && (s.ui.hovered || s.ui.horizontal_scrollbar_dragging) {
-            bar = bar.child(horizontal_scrollbar(
-                content_rect,
-                content_right,
-                scroll_x,
-                state.clone(),
-            ));
-        }
     }
 
     // Keep the tree's fractional top edge beneath the header separator.
@@ -374,7 +371,10 @@ pub fn render(
         bar = bar.child(handle);
     }
 
-    bar
+    bar.child(path_tooltips(
+        tips.into_inner(),
+        s.ui.menu.is_none() && s.ui.resource_menu.is_none() && !frame.resizing,
+    ))
 }
 
 fn resized_sidebar_width(window_right: f32, pointer_x: f32) -> f32 {
@@ -691,6 +691,141 @@ fn tree_label_color(decoration: Decoration, default: Color) -> Color {
     }
 }
 
+/// A visible row's path, kept outside the scrolling clip so the hint can
+/// extend into the editor without being cropped by the drawer.
+struct PathTip {
+    row: UiId,
+    target: UiId,
+    rect: UiRect,
+    resource: loog_workspace_api::ResourceRef,
+}
+
+fn record_path_tip(
+    tree: &TreeContext<'_>,
+    entry: &Entry,
+    row: UiId,
+    mut rect: UiRect,
+    label_left: f32,
+    sticky: bool,
+) {
+    let Some(resource) = &entry.resource else {
+        return;
+    };
+    rect.left = label_left;
+    if !sticky {
+        rect.left -= tree.scroll.0;
+        rect.top -= tree.scroll.1;
+        rect.bottom -= tree.scroll.1;
+    }
+    if rect.bottom <= tree.rect.top || rect.top >= tree.rect.bottom {
+        return;
+    }
+    // Moving a row by scrolling restarts the delay even if it stays under the pointer.
+    let target = UiId::owned(format!(
+        "path-tip-{}-{}-{}",
+        row.as_str(),
+        rect.top.to_bits(),
+        rect.left.to_bits()
+    ));
+    tree.tips.borrow_mut().push(PathTip {
+        row,
+        target,
+        rect,
+        resource: resource.clone(),
+    });
+}
+
+fn path_tooltips(tips: Vec<PathTip>, allowed: bool) -> Element {
+    Element::new(move |cx| {
+        let hovered = allowed
+            .then(|| {
+                tips.iter().rev().find(|tip| {
+                    let flags = cx.context.interaction_flags(&tip.row);
+                    flags.hovered && !flags.pressed
+                })
+            })
+            .flatten();
+        let ready =
+            crate::ui::components::tab_tooltip::ready(&cx, hovered.map(|tip| tip.target.clone()));
+        let mut layer = UiElement::group(cx.id.clone(), UiRect::default());
+        let Some(tip) = hovered.filter(|tip| Some(&tip.target) == ready.as_ref()) else {
+            return layer;
+        };
+        let path = tip
+            .resource
+            .local_path()
+            .map(crate::ui::display_path)
+            .unwrap_or_else(|| tip.resource.display().to_string());
+        let viewport = cx.context.viewport();
+        let style = theme::mono(theme::c().text_soft, theme::SMALL)
+            .wrap(lgui::core::TextWrap::Words)
+            .vertical_align(lgui::text::TextVerticalAlign::Top);
+        // Shape and paint the same complete string with the same wrapping style.
+        // A single-line text node silently drops everything after its first break.
+        // Keep the hint's right edge at this item's label, including its depth
+        // and scroll offset. Wrap within the space to its left instead of
+        // clamping an oversized hint to the same window edge for every row.
+        let max_width = (tip.rect.left - viewport.left - 8.0)
+            .clamp(80.0, 600.0)
+            .min((viewport.width() - 16.0).max(20.0));
+        let width =
+            (crate::ui::tabs::measure_once(&path, theme::SMALL, 400) + TREE_TEXT_PAD + 18.0)
+                .min(max_width);
+        let text_width = width - 18.0;
+        let bounds = UiRect::new(0.0, 0.0, text_width, 10_000.0);
+        let request = lgui::text::TextLayoutRequest::for_style(&path, bounds, &style);
+        let text_height = lgui::text::layout(&request).map_or_else(
+            || {
+                (crate::ui::tabs::measure_once(&path, theme::SMALL, 400) / text_width)
+                    .ceil()
+                    .max(1.0)
+                    * 16.0
+            },
+            |layout| layout.height.ceil(),
+        );
+        let rect = path_tip_rect(tip.rect, viewport, width, text_height + 8.0);
+        let (left, top) = (rect.left, rect.top);
+        layer = layer.child(
+            UiElement::panel(
+                UiId::new("explorer-path-tooltip"),
+                rect,
+                VisualStyle::filled(theme::c().border).radius(4.0),
+            )
+            // Escape content clips and paint the complete hint above tree rows.
+            .render_phase(lgui::core::RenderPhase::Popup)
+            .overflow(lgui::core::Overflow::Clip)
+            .child(UiElement::panel(
+                cx.auto_id(),
+                UiRect::new(left + 1.0, top + 1.0, rect.right - 1.0, rect.bottom - 1.0),
+                VisualStyle::filled(theme::c().surface).radius(3.0),
+            ))
+            .child(UiElement::text(
+                cx.auto_id(),
+                UiRect::new(left + 9.0, top + 4.0, rect.right - 9.0, rect.bottom - 4.0),
+                path,
+                style,
+            )),
+        );
+        layer
+    })
+    .key("explorer-path-tips")
+}
+
+/// Extend toward the editor, with the right edge near the row's label. Prefer
+/// the lower left; flip above the row when the lower space cannot hold the hint.
+fn path_tip_rect(anchor: UiRect, viewport: UiRect, width: f32, height: f32) -> UiRect {
+    let left = (anchor.left - width).clamp(
+        viewport.left + 8.0,
+        (viewport.right - width - 8.0).max(viewport.left + 8.0),
+    );
+    let top = if anchor.bottom + 4.0 + height <= viewport.bottom - 8.0 {
+        anchor.bottom + 4.0
+    } else {
+        (anchor.top - height - 4.0).max(viewport.top + 8.0)
+    };
+    UiRect::new(left, top, left + width, top + height)
+}
+
 /// Hover tracking shared by directory and file rows.
 fn track_hover(
     hover: &RowHover,
@@ -774,7 +909,18 @@ fn dir_row(
         row_fill(fixed, hovered)
     };
 
-    let mut row = panel(row_rect, style).event_policy(EventPolicy::INTERACTIVE);
+    let row_id = UiId::owned(format!("tree-row-{layer}-{key}"));
+    record_path_tip(
+        tree,
+        entry,
+        row_id.clone(),
+        row_rect,
+        indent + TREE_LABEL_OFFSET,
+        sticky,
+    );
+    let mut row =
+        Element::new(move |cx| UiElement::panel(row_id, row_rect, style).children(cx.children))
+            .event_policy(EventPolicy::INTERACTIVE);
     if !sticky {
         row = follow_hover(row, tree.frame.hover, key, fixed)
             .on_pointer_move(track_hover(tree.frame.hover, key));
@@ -846,53 +992,67 @@ fn file_row(tree: &TreeContext<'_>, entry: &Entry, indent: f32, y: f32) -> Eleme
     let pressed = entry.clone();
     let released = entry.clone();
     let release_commands = tree.commands.clone();
-    follow_hover(panel(row_rect, row_style), tree.frame.hover, key, fixed)
-        .event_policy(EventPolicy::INTERACTIVE)
-        .on_pointer_move(track_hover(tree.frame.hover, key))
-        .on_pointer_down_with_button(move |cx, pointer, button| {
-            if let Some(command) = pressed.press((pointer.point.x, pointer.point.y), button) {
-                commands.dispatch(command);
-            }
-            cx.stop_propagation();
-        })
-        .on_pointer_up(move |_, pointer| {
-            if let Some(command) = released.release((pointer.point.x, pointer.point.y)) {
-                release_commands.dispatch(command);
-            }
-        })
-        .child(precompiled(
-            UiElement::icon(
-                icon_id,
-                UiRect::new(
-                    indent,
-                    y + 2.0,
-                    indent + TREE_ICON_SIZE,
-                    y + 2.0 + TREE_ICON_SIZE,
-                ),
-                icon,
-            )
-            .icon_style(IconStyle::new(theme::c().text_muted)),
-        ))
-        .child(tree_label(
+    let row_id = UiId::owned(format!("tree-row-file-{key}"));
+    record_path_tip(
+        tree,
+        entry,
+        row_id.clone(),
+        row_rect,
+        indent + TREE_LABEL_OFFSET,
+        false,
+    );
+    follow_hover(
+        Element::new(move |cx| UiElement::panel(row_id, row_rect, row_style).children(cx.children)),
+        tree.frame.hover,
+        key,
+        fixed,
+    )
+    .event_policy(EventPolicy::INTERACTIVE)
+    .on_pointer_move(track_hover(tree.frame.hover, key))
+    .on_pointer_down_with_button(move |cx, pointer, button| {
+        if let Some(command) = pressed.press((pointer.point.x, pointer.point.y), button) {
+            commands.dispatch(command);
+        }
+        cx.stop_propagation();
+    })
+    .on_pointer_up(move |_, pointer| {
+        if let Some(command) = released.release((pointer.point.x, pointer.point.y)) {
+            release_commands.dispatch(command);
+        }
+    })
+    .child(precompiled(
+        UiElement::icon(
+            icon_id,
             UiRect::new(
-                indent + TREE_LABEL_OFFSET,
+                indent,
                 y + 2.0,
-                content_right - FILE_RIGHT_PAD,
-                y + 18.0,
+                indent + TREE_ICON_SIZE,
+                y + 2.0 + TREE_ICON_SIZE,
             ),
-            name,
-            label_color,
-        ))
-        .child(text(
-            UiRect::new(
-                content_right - STATUS_RIGHT_PAD - STATUS_WIDTH,
-                y + 2.0,
-                content_right - STATUS_RIGHT_PAD,
-                y + 18.0,
-            ),
-            decoration.indicator,
-            theme::mono(label_color, theme::SMALL),
-        ))
+            icon,
+        )
+        .icon_style(IconStyle::new(theme::c().text_muted)),
+    ))
+    .child(tree_label(
+        UiRect::new(
+            indent + TREE_LABEL_OFFSET,
+            y + 2.0,
+            content_right - FILE_RIGHT_PAD,
+            y + 18.0,
+        ),
+        name,
+        label_color,
+    ))
+    .child(text(
+        UiRect::new(
+            content_right - STATUS_RIGHT_PAD - STATUS_WIDTH,
+            y + 2.0,
+            content_right - STATUS_RIGHT_PAD,
+            y + 18.0,
+        ),
+        decoration.indicator,
+        theme::mono(label_color, theme::SMALL),
+    ))
 }
 
 /// Shape the entire name at its natural width, then crop only at the label's
@@ -1355,61 +1515,6 @@ fn vertical_scrollbar(rect: UiRect, content_bottom: f32, scroll: f32, state: Acc
     })
 }
 
-/// Fixed horizontal scrollbar for wide or deeply nested tree rows. As with
-/// the vertical scrollbar, only the draggable thumb is painted.
-fn horizontal_scrollbar(rect: UiRect, content_right: f32, scroll: f32, state: Access) -> Element {
-    let content_w = (content_right - rect.left).max(1.0);
-    let viewport_w = rect.width();
-    let max_scroll = (content_right - rect.right).max(0.0);
-    let track = UiRect::new(
-        rect.left + 8.0,
-        rect.bottom - scrollbar::SIZE,
-        rect.right - 8.0,
-        rect.bottom,
-    );
-    let thumb_w = (track.width() * viewport_w / content_w)
-        .max(scrollbar::MIN_THUMB_LENGTH)
-        .min(track.width());
-    let travel = track.width() - thumb_w;
-    let thumb_left = if max_scroll == 0.0 {
-        track.left
-    } else {
-        track.left + travel * (scroll / max_scroll)
-    };
-
-    let track_left = track.left;
-    let st_down = state.clone();
-    let st_move = state.clone();
-    let st_up = state;
-    scrollbar::thumb(UiRect::new(
-        thumb_left,
-        track.top + scrollbar::INSET,
-        thumb_left + thumb_w,
-        track.bottom - scrollbar::INSET,
-    ))
-    .key("file-tree-horizontal-scrollbar-thumb")
-    .event_policy(EventPolicy::INTERACTIVE)
-    .on_pointer_down(move |_cx, p| {
-        st_down.update(move |panel| {
-            panel.ui.horizontal_scrollbar_dragging = true;
-            panel.ui.horizontal_scrollbar_drag_offset = p.point.x - thumb_left;
-        });
-    })
-    .on_pointer_drag(move |_cx, p| {
-        st_move.update(move |panel| {
-            if panel.ui.horizontal_scrollbar_dragging && travel > 0.0 {
-                let t = (p.point.x - track_left - panel.ui.horizontal_scrollbar_drag_offset)
-                    / travel
-                    * max_scroll;
-                panel.ui.scroll_x = t.clamp(0.0, max_scroll);
-            }
-        });
-    })
-    .on_pointer_up(move |_cx, _p| {
-        st_up.update(move |panel| panel.ui.horizontal_scrollbar_dragging = false);
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1417,6 +1522,33 @@ mod tests {
 
     fn target(row: usize, covered: usize) -> ExplorerReveal {
         ExplorerReveal { row, covered }
+    }
+
+    #[test]
+    fn path_hints_open_to_the_left_below_or_above_the_row() {
+        let viewport = UiRect::new(0.0, 0.0, 800.0, 600.0);
+        let below = path_tip_rect(
+            UiRect::new(500.0, 200.0, 800.0, 220.0),
+            viewport,
+            320.0,
+            28.0,
+        );
+        assert_eq!(below, UiRect::new(180.0, 224.0, 500.0, 252.0));
+        let above = path_tip_rect(
+            UiRect::new(500.0, 560.0, 800.0, 580.0),
+            viewport,
+            320.0,
+            28.0,
+        );
+        assert_eq!(above, UiRect::new(180.0, 528.0, 500.0, 556.0));
+        let narrow = path_tip_rect(
+            UiRect::new(30.0, 200.0, 300.0, 220.0),
+            viewport,
+            600.0,
+            48.0,
+        );
+        assert_eq!(narrow.left, 8.0);
+        assert!(narrow.right < viewport.right);
     }
 
     #[test]

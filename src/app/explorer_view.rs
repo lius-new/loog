@@ -1043,6 +1043,208 @@ mod tests {
     }
 
     #[test]
+    fn tree_paths_wait_for_hover_and_reset_on_another_row_or_pointer_leave() {
+        use lgui::core::{InputEvent, Point, PointerData};
+        use std::time::Duration;
+
+        let name =
+            "a_very_long_filename_that_overflows_the_file_drawer_and_needs_a_full_path_hint.rs";
+        let (root, mut app) = workspace(
+            "explorer-path-hint",
+            &[
+                name,
+                "Cargo.toml",
+                "LICENSE-MIT",
+                "README.zh-CN.md",
+                "wit/a.rs",
+            ],
+        );
+        app.explorer.ui.hovered = true;
+        let mut h = harness(app);
+        // Real paragraph shaping catches truncation that a stored text string cannot.
+        let _fonts = lgui::backend::install_text_environment(
+            &h.services.application,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        h.render();
+        assert!(
+            h.session
+                .tree()
+                .node(&UiId::new("file-tree-horizontal-scrollbar-thumb"))
+                .is_none()
+        );
+        let tip_id = UiId::new("explorer-path-tooltip");
+        let paths = [
+            root.clone(),
+            root.join("wit"),
+            root.join(name),
+            root.join("Cargo.toml"),
+            root.join("LICENSE-MIT"),
+            root.join("README.zh-CN.md"),
+        ];
+        let mut pointer = PointerData::mouse(Point::new(0.0, 0.0));
+        for (index, path) in paths.iter().enumerate() {
+            let layer = if index < 2 { "content" } else { "file" };
+            let row = UiId::owned(format!("tree-row-{layer}-{}", path.to_string_lossy()));
+            let rect = h.session.tree().node(&row).expect("tree row").layout_rect;
+            pointer = PointerData::mouse(Point::new(600.0, (rect.top + rect.bottom) / 2.0));
+            h.session.handle_input(InputEvent::PointerMove(pointer));
+            h.render();
+            assert!(
+                h.session.tree().node(&tip_id).is_none(),
+                "hint must wait on each row"
+            );
+            std::thread::sleep(Duration::from_millis(510));
+            h.session.advance(510.0);
+            h.render();
+            let tip = h.session.tree().node(&tip_id).expect("delayed path hint");
+            assert!(
+                tip.layout_rect.left >= VIEWPORT.left && tip.layout_rect.right <= VIEWPORT.right
+            );
+            let expected = crate::ui::display_path(path);
+            let path_node = h
+                .session
+                .tree()
+                .nodes()
+                .iter()
+                .find(|node| {
+                    node.text
+                        .as_ref()
+                        .is_some_and(|text| text.replace('\n', "") == expected)
+                })
+                .expect("full path text");
+            let text = path_node.text.as_deref().unwrap();
+            let style = path_node.text_style.unwrap();
+            let request =
+                lgui::text::TextLayoutRequest::for_style(text, path_node.layout_rect, &style);
+            let layout = lgui::text::layout(&request).expect("real path layout");
+            assert_eq!(
+                layout.lines().last().unwrap().range.end,
+                text.chars().count(),
+                "every path character must be drawn: {text}"
+            );
+            assert!(
+                layout.height <= path_node.layout_rect.height() + 0.5,
+                "all lines fit vertically"
+            );
+            if let Some(directory) = std::env::var_os("LOOG_EXPLORER_TIP_SNAPSHOT") {
+                use lgui::renderer::{FrameInfo, FrameReason};
+                let scale = UiScale::ONE;
+                let frame = FrameInfo::new(
+                    scale.physical_rect(VIEWPORT),
+                    &[],
+                    scale,
+                    FrameReason::SceneChange,
+                    true,
+                );
+                let mut surface = lgui::render_skia::SkiaSoftwareSurface::new(4 * 1024 * 1024);
+                lgui::assets::backend::with_render_resources(
+                    &h.services.application,
+                    lgui::assets::backend::render_resources(),
+                    || surface.draw(&h.session.tree().scene(), &frame),
+                )
+                .unwrap();
+                let mut rgba = surface.pixels().to_vec();
+                for pixel in rgba.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                }
+                image::RgbaImage::from_raw(800, 600, rgba)
+                    .unwrap()
+                    .save(PathBuf::from(directory).join(format!("explorer-tip-{index}.png")))
+                    .unwrap();
+            }
+
+            assert!(h.session.tree().nodes().iter().any(|node| {
+                node.text
+                    .as_ref()
+                    .is_some_and(|text| text.replace('\n', "") == expected)
+            }));
+        }
+        h.session.handle_input(InputEvent::PointerLeave(pointer));
+        h.render();
+        assert!(h.session.tree().node(&tip_id).is_none());
+        h.session.handle_input(InputEvent::PointerMove(pointer));
+        h.render();
+        assert!(h.session.tree().node(&tip_id).is_none());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn path_hint_follows_the_hovered_items_depth_and_vertical_position() {
+        use crate::features::explorer::Listing;
+        use lgui::core::{InputEvent, Point, PointerData};
+        use std::time::Duration;
+
+        // Short paths leave room to check anchoring without a window-edge clamp.
+        let root = PathBuf::from("project");
+        let src = root.join("src");
+        let nested = src.join("nested");
+        let mut app = AppState::new();
+        app.explorer.model.restore(vec![root.clone()], vec![]);
+        for (parent, entries) in [
+            (&root, vec![("src", true), ("root.rs", false)]),
+            (&src, vec![("nested", true), ("main.rs", false)]),
+            (&nested, vec![("features.rs", false)]),
+        ] {
+            app.explorer.model.insert_listing(
+                parent.to_string_lossy().into_owned(),
+                Arc::new(Listing::ordered(
+                    Arc::from(parent.to_string_lossy().as_ref()),
+                    entries,
+                )),
+            );
+            app.explorer
+                .model
+                .set_expanded(&parent.to_string_lossy(), true);
+        }
+        let mut h = harness(app);
+        let _fonts = lgui::backend::install_text_environment(
+            &h.services.application,
+            lgui::render_skia::skia_text_system_handle(),
+        );
+        h.render();
+        // Alternate rows and depths rather than following their display order.
+        for path in [
+            root.join("root.rs"),
+            nested.join("features.rs"),
+            src.join("main.rs"),
+            root.join("root.rs"),
+        ] {
+            let icon_id = UiId::owned(format!("tree-file-icon-{}", path.display()));
+            let icon = h.session.tree().node(&icon_id).unwrap().layout_rect;
+            let pointer = PointerData::mouse(Point::new(icon.left + 22.0, icon.top + 8.0));
+            h.session.handle_input(InputEvent::PointerMove(pointer));
+            h.render();
+            assert!(
+                h.session
+                    .tree()
+                    .node(&UiId::new("explorer-path-tooltip"))
+                    .is_none()
+            );
+            std::thread::sleep(Duration::from_millis(510));
+            h.session.advance(510.0);
+            h.render();
+            let tip = h
+                .session
+                .tree()
+                .node(&UiId::new("explorer-path-tooltip"))
+                .unwrap()
+                .layout_rect;
+            assert_eq!(
+                tip.right,
+                icon.left + 20.0,
+                "hint must align with the hovered name: {}",
+                path.display()
+            );
+            assert_eq!(
+                tip.top,
+                icon.top - 2.0 + 20.0 + 4.0,
+                "hint must follow the hovered row vertically"
+            );
+        }
+    }
+
+    #[test]
     fn opening_the_explorer_menu_replaces_the_tab_menu() {
         let (root, mut app) = workspace("explorer-view-menu", &["a.rs"]);
         let id = app

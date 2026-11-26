@@ -404,16 +404,6 @@
       "owner": "ui/explorer/state",
       "migrated_in": "R5.2",
       "from": "scrollbar_drag_offset"
-    },
-    "horizontal_scrollbar_dragging": {
-      "owner": "ui/explorer/state",
-      "migrated_in": "R5.2",
-      "from": "horizontal_scrollbar_dragging"
-    },
-    "horizontal_scrollbar_drag_offset": {
-      "owner": "ui/explorer/state",
-      "migrated_in": "R5.2",
-      "from": "horizontal_scrollbar_drag_offset"
     }
   },
   "phase5": {

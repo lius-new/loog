@@ -45,8 +45,6 @@ pub struct ExplorerUiState {
     pub scroll_x: f32,
     pub scrollbar_dragging: bool,
     pub scrollbar_drag_offset: f32,
-    pub horizontal_scrollbar_dragging: bool,
-    pub horizontal_scrollbar_drag_offset: f32,
 }
 
 #[derive(Clone)]
