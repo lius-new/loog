@@ -53,7 +53,8 @@ impl PartialEq for ResolvedLanguage {
                 && a.display_name == b.display_name
                 && a.badge == b.badge
                 && a.comments == b.comments
-                && a.highlight == b.highlight)
+                && a.highlight == b.highlight
+                && a.editor == b.editor)
     }
 }
 impl Eq for ResolvedLanguage {}

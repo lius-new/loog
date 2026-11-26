@@ -186,7 +186,10 @@ viewing stays bounded. Incomplete or crossed delimiters remain unhighlighted.
 
 Alt+Z toggles soft wrap for the current document. Settings → Editor → Soft wrap
 and editor.soft_wrap choose the default; project and language overrides also
-apply. Wrapping never inserts line breaks. Arrows, Home/End, selection, mouse
+apply. A language description may carry its own default as
+`"editor": {"soft_wrap": true}`. It ranks above the global setting and below
+the user's and project's language overrides and the per-document toggle. The
+built-in plain-text language wraps by default. Wrapping never inserts line breaks. Arrows, Home/End, selection, mouse
 hits, scrolling, source cards and IME use the same displayed-row map. At a wrap
 boundary the caret can remain at the previous row's end or the next row's start.
 Vim's logical-line motions retain their normal meaning.

@@ -8,7 +8,7 @@ include!("../../../tests/fixtures/language_registry.rs");
 #[cfg(not(test))]
 static LANGUAGE_FILES: &[(&str, &str)] = &[(
     "plaintext",
-    r#"{"name":"plaintext","display_name":"Plain Text","badge":"TXT","variants":[{"id":"plaintext"}]}"#,
+    r#"{"name":"plaintext","display_name":"Plain Text","badge":"TXT","editor":{"soft_wrap":true},"variants":[{"id":"plaintext"}]}"#,
 )];
 #[cfg(not(test))]
 static GRAMMAR_NAMES: &[&str] = &[];

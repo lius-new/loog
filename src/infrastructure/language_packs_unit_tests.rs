@@ -640,6 +640,31 @@ fn standard_rust_keeps_application_editing_defaults_without_external_editor_meta
     assert_eq!(rust.definition().comments.line.as_deref(), Some("//"));
 }
 
+#[test]
+fn markdown_wraps_by_default_and_other_known_or_unknown_languages_inherit() {
+    let temp = Temp::new();
+    write_standard(
+        &temp,
+        "upstream-markdown",
+        &json!({"grammars":[
+            {"name":"markdown","file-types":["md"]},
+            {"name":"rust","file-types":["rs"]},
+            {"name":"sample","file-types":["sample"]},
+        ]}),
+    );
+    let registry = Packages::discover(&temp.0, None).registry().unwrap();
+    let wraps = |path: &str| {
+        registry
+            .resolve_path(Path::new(path))
+            .definition()
+            .editor
+            .soft_wrap
+    };
+    assert_eq!(wraps("notes.md"), Some(true));
+    assert_eq!(wraps("new.rs"), None);
+    assert_eq!(wraps("a.sample"), None);
+}
+
 /// Opt-in compatibility gate for grammars built outside this repository.
 ///
 /// Run it after changing the vendored `tree-sitter` or the grammar toolchain:

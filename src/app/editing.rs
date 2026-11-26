@@ -27,6 +27,12 @@ pub fn effective(app: &AppState, id: FileId) -> EditorSettings {
         return settings;
     };
     let language = doc.meta.lang.name();
+    // The language's own defaults sit between the global setting and the user's.
+    EditorOverrides {
+        soft_wrap: doc.meta.lang.definition().editor.soft_wrap,
+        ..Default::default()
+    }
+    .apply(&mut settings);
     if let Some(overrides) = app.preferences.values().editor_languages.get(language) {
         overrides.apply(&mut settings);
     }
@@ -409,6 +415,64 @@ mod tests {
         assert_eq!(app.workspace.active_editor().unwrap().text(), "{}");
         configure_all(&mut app);
         assert!(!configure_all(&mut app));
+    }
+
+    #[test]
+    fn language_defaults_rank_between_global_settings_and_user_project_and_manual_choices() {
+        use crate::domain::language::Registry;
+        let registry = Registry::from_sources(
+            &[
+                (
+                    "plaintext",
+                    r#"{"name":"plaintext","display_name":"Plain","badge":"TXT","variants":[{"id":"plaintext"}]}"#,
+                ),
+                (
+                    "demo",
+                    r#"{"name":"demo","display_name":"Demo","badge":"DM","editor":{"soft_wrap":true},"variants":[{"id":"demo"}],"files":[{"extensions":["demo"],"variant":"demo"}]}"#,
+                ),
+            ],
+            &[],
+        )
+        .unwrap();
+        let mut app = AppState::new();
+        let view = app
+            .workspace
+            .test_open_view(std::path::PathBuf::from("notes.demo"), "text".into());
+        let id = app.workspace.view_document(view).unwrap();
+        let language = registry.resolve_path(std::path::Path::new("notes.demo"));
+        app.workspace
+            .documents
+            .get_mut(&id)
+            .unwrap()
+            .meta
+            .set_language(language);
+        assert!(!app.preferences.values().editor.soft_wrap);
+        assert!(
+            effective(&app, id).soft_wrap,
+            "the language asks for wrapping"
+        );
+        app.preferences.values_mut().editor_languages.insert(
+            "demo".into(),
+            EditorOverrides {
+                soft_wrap: Some(false),
+                ..Default::default()
+            },
+        );
+        assert!(
+            !effective(&app, id).soft_wrap,
+            "the user's language setting wins"
+        );
+        app.preferences.values_mut().editor_languages.clear();
+        toggle_wrap(&mut app);
+        assert!(!effective(&app, id).soft_wrap, "a manual choice wins");
+        let other = app
+            .workspace
+            .test_open_view(std::path::PathBuf::from("other.xyz"), "text".into());
+        let other_id = app.workspace.view_document(other).unwrap();
+        assert!(
+            !effective(&app, other_id).soft_wrap,
+            "other languages inherit"
+        );
     }
 
     #[test]

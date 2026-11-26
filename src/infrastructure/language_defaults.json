@@ -114,6 +114,9 @@
           "-->"
         ]
       },
+      "editor": {
+        "soft_wrap": true
+      },
       "variants": [
         {
           "id": "markdown",

@@ -15,6 +15,8 @@ pub(crate) struct Descriptor {
     pub comments: Comments,
     #[serde(default)]
     pub highlight: Highlight,
+    #[serde(default)]
+    pub editor: EditorDefaults,
     pub variants: Vec<VariantDescriptor>,
     #[serde(default)]
     pub files: Vec<FileRuleDescriptor>,
@@ -26,6 +28,15 @@ pub(crate) struct Descriptor {
 pub struct Comments {
     pub line: Option<String>,
     pub block: Option<[String; 2]>,
+}
+
+/// Editing defaults a language asks for. They rank above the global editor
+/// settings and below the user's, project's and per-document choices. A field
+/// left out inherits.
+#[derive(Debug, Default, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EditorDefaults {
+    pub soft_wrap: Option<bool>,
 }
 
 /// Rules for the generic highlighter, which colours a language that no grammar
@@ -277,6 +288,22 @@ mod tests {
             assert!(check(&bad).is_err(), "{bad}");
         }
         assert!(Descriptor::parse(&with(r#"{ "colours": [] }"#)).is_err());
+    }
+
+    #[test]
+    fn editor_defaults_are_optional_and_strict() {
+        let with = |editor: &str| {
+            GOOD.replace("\"aliases\"", &format!("\"editor\": {editor}, \"aliases\""))
+        };
+        assert_eq!(
+            Descriptor::parse(GOOD).unwrap().editor,
+            EditorDefaults::default()
+        );
+        let wrapped = Descriptor::parse(&with(r#"{ "soft_wrap": true }"#)).unwrap();
+        wrapped.validate("demo").unwrap();
+        assert_eq!(wrapped.editor.soft_wrap, Some(true));
+        assert!(Descriptor::parse(&with(r#"{ "wrap": true }"#)).is_err());
+        assert!(Descriptor::parse(&with(r#"{ "soft_wrap": "yes" }"#)).is_err());
     }
 
     #[test]
