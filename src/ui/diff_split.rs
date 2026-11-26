@@ -13,7 +13,7 @@ use crate::features::git::DiffTarget;
 use crate::features::git::actions::BlockAction;
 use crate::features::git::diff_document::DiffDocument;
 use crate::features::git::diff_selection::DiffSide;
-use crate::features::git::split_layout::{Layout, Section, side_index};
+use crate::features::git::split_layout::{Layout, Projection, Section, side_index};
 use crate::ui::chrome::diff_binding::{Binding, ChangeFocus, Command};
 use crate::ui::diff_editor::{
     NUMBER_W, code_line, line_number, row_background, row_h, split_middle,
@@ -146,6 +146,11 @@ fn paint(
     let columns = Columns::new(rect, ratio);
     let offsets = [DiffSide::Old, DiffSide::New]
         .map(|side| layout.offset(side, scroll_y / row_h(), rect.height() / row_h()));
+    // Use exactly the shared upper-third anchor that drives the compact columns.
+    let viewport_rows = rect.height() / row_h();
+    let focus_row = (scroll_y / row_h())
+        .clamp(0.0, (layout.shared_rows as f32 - viewport_rows).max(0.0))
+        + viewport_rows / 3.0;
     let mut bridges = clip(columns.bridge, 0.0, 0.0);
     let bridge = columns.bridge;
     let mut actions_layer = Element::new(move |cx| {
@@ -253,8 +258,15 @@ fn paint(
                         &[(BlockAction::Discard, "←", "Revert change")]
                     };
                 let slots = actions.len() + usize::from(chooses);
-                let top =
-                    ((ends[0].0 + ends[0].1 + ends[1].0 + ends[1].1) / 4.0 - 10.0).max(rect.top);
+                let centre = control_centre(
+                    projection,
+                    change,
+                    focus_row - item.shared_body as f32,
+                    ends,
+                    columns.bridge.width(),
+                    slots,
+                );
+                let top = (centre - 10.0).max(rect.top);
                 for (index, &(action, arrow, label)) in actions.iter().enumerate() {
                     let left = columns.bridge.left
                         + (columns.bridge.width() - slots as f32 * 22.0) / 2.0
@@ -475,6 +487,55 @@ fn paint(
         out = out.child(clip(rect, 0.0, 0.0).children(targets));
     }
     out.child(actions_layer)
+}
+
+/// Inside a compact side's plateau, that side has stopped moving while the
+/// other column still scrolls. Attach the controls to its change centre too.
+/// Outside that focus interval, preserve the original ribbon-centre placement.
+fn control_centre(
+    projection: &Projection,
+    change: &std::ops::Range<usize>,
+    focus_row: f32,
+    ends: [(f32, f32); 2],
+    bridge_width: f32,
+    slots: usize,
+) -> f32 {
+    if focus_row >= change.start as f32 && focus_row < change.end as f32 {
+        let row = focus_row.floor();
+        for side in [DiffSide::Old, DiffSide::New] {
+            if projection.position(side, row) == projection.position(side, row + 1.0) {
+                let (top, bottom) = ends[side_index(side)];
+                let centre = (top + bottom) / 2.0;
+                if ribbon_contains_control_centres(ends, centre, bridge_width, slots) {
+                    return centre;
+                }
+            }
+        }
+    }
+    (ends[0].0 + ends[0].1 + ends[1].0 + ends[1].1) / 4.0
+}
+
+/// Sample the same cubic edges as the painted ribbon at each control's
+/// horizontal centre. A button may straddle the ribbon edge at an insertion
+/// tip; release only when an edge crosses its centre, the actual snap position.
+fn ribbon_contains_control_centres(
+    ends: [(f32, f32); 2],
+    centre: f32,
+    width: f32,
+    slots: usize,
+) -> bool {
+    if width <= 0.0 || slots == 0 {
+        return false;
+    }
+    let [(top1, bottom1), (top2, bottom2)] = ends.map(|(top, bottom)| (top, bottom.max(top + 1.0)));
+    (0..slots).all(|index| {
+        let x = (width - slots as f32 * 22.0) / 2.0 + index as f32 * 22.0 + 10.0;
+        let t = (x / width).clamp(0.0, 1.0);
+        let blend = t * t * (3.0 - 2.0 * t);
+        let top = top1 + (top2 - top1) * blend;
+        let bottom = bottom1 + (bottom2 - bottom1) * blend;
+        centre >= top && centre <= bottom
+    })
 }
 
 impl ChangeControls<'_> {
@@ -701,6 +762,85 @@ mod tests {
             .unwrap();
         let rect = scale.physical_rect(node.layout_rect);
         (rect.left, rect.right)
+    }
+
+    #[test]
+    fn ordinary_short_changes_and_nonfocus_ranges_keep_the_original_centre() {
+        use crate::features::git::diff::parse_unified;
+        let document = DiffDocument::from_unified("repo".into(), "a".into(), DiffTarget::HeadToWorktree,
+            parse_unified("diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1,3 +1,3 @@\n before\n-old\n+new\n after\n").unwrap());
+        let projection = document.split_projection();
+        let change = &projection.changes[0];
+        let ends = [(100.0, 120.0), (140.0, 160.0)];
+        for anchor in [
+            change.start as f32 - 0.5,
+            change.start as f32 + 0.5,
+            change.end as f32,
+        ] {
+            assert_eq!(
+                control_centre(projection, change, anchor, ends, BRIDGE_W, 2),
+                130.0
+            );
+        }
+    }
+
+    #[test]
+    fn empty_side_snap_releases_at_both_ribbon_edges_and_restores_in_reverse() {
+        use crate::features::git::diff::parse_unified;
+        for insertion in [true, false] {
+            let changed = if insertion { "+added\n" } else { "-removed\n" };
+            let (old, new) = if insertion { (2, 10) } else { (10, 2) };
+            let patch = format!(
+                "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1,{old} +1,{new} @@\n before\n{} after\n",
+                changed.repeat(8)
+            );
+            let document = DiffDocument::from_unified(
+                "repo".into(),
+                "a".into(),
+                DiffTarget::HeadToWorktree,
+                parse_unified(&patch).unwrap(),
+            );
+            let projection = document.split_projection();
+            let change = &projection.changes[0];
+            let anchor = change.start as f32 + 2.5;
+            let ends = |moving| {
+                if insertion {
+                    [(220.0, 220.0), moving]
+                } else {
+                    [moving, (220.0, 220.0)]
+                }
+            };
+            let covered = ends((100.0, 500.0));
+            assert_eq!(
+                control_centre(projection, change, anchor, covered, BRIDGE_W, 2),
+                220.0,
+                "pure changes still snap"
+            );
+            for outside in [ends((-100.0, 180.0)), ends((260.0, 500.0))] {
+                let original = (outside[0].0 + outside[0].1 + outside[1].0 + outside[1].1) / 4.0;
+                assert_eq!(
+                    control_centre(projection, change, anchor, outside, BRIDGE_W, 2),
+                    original,
+                    "crossing an edge restores ribbon following"
+                );
+                assert_eq!(
+                    control_centre(projection, change, anchor, covered, BRIDGE_W, 2),
+                    220.0,
+                    "reverse scrolling restores the same snap"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn insertion_tip_accepts_snapping_before_it_covers_the_whole_button() {
+        for ends in [
+            [(100.0, 100.0), (100.0, 2000.0)],
+            [(100.0, 2000.0), (100.0, 100.0)],
+        ] {
+            assert!(ribbon_contains_control_centres(ends, 100.0, BRIDGE_W, 2));
+            assert!(ribbon_contains_control_centres(ends, 100.0, BRIDGE_W, 1));
+        }
     }
 
     #[test]

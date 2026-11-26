@@ -1202,6 +1202,325 @@ mod tests {
     }
 
     #[test]
+    fn split_controls_snap_to_either_stationary_side_and_stay_there_while_scrolling() {
+        use crate::features::git::{
+            diff::parse_unified, diff_selection::DiffSide, split_layout::Layout,
+        };
+        use lgui::application::{AppView, ApplicationContext};
+        use lgui::core::UiScale;
+        use lgui::session::UiSession;
+        use std::sync::{Arc, Mutex};
+
+        // Exercise replacements in both directions and zero-height insertion anchors.
+        for (old, new, side, label) in [
+            (2, 80, DiffSide::Old, "left"),
+            (80, 2, DiffSide::New, "right"),
+            (0, 80, DiffSide::Old, "left-empty"),
+            (80, 0, DiffSide::New, "right-empty"),
+        ] {
+            let mut patch = format!(
+                "diff --git a/a.css b/a.css\n--- a/a.css\n+++ b/a.css\n@@ -1,{} +1,{} @@\n",
+                old + 120,
+                new + 120
+            );
+            for i in 0..60 {
+                patch.push_str(&format!(" before-{i:02}\n"));
+            }
+            for i in 0..old {
+                patch.push_str(&format!("-old-{i:02}\n"));
+            }
+            for i in 0..new {
+                patch.push_str(&format!("+new-{i:02}\n"));
+            }
+            for i in 0..60 {
+                patch.push_str(&format!(" after-{i:02}\n"));
+            }
+            let document = DiffDocument::from_unified(
+                "repo".into(),
+                "a.css".into(),
+                DiffTarget::HeadToWorktree,
+                parse_unified(&patch).unwrap(),
+            );
+            let fixture = document.clone();
+            let exposed = Arc::new(Mutex::new(None::<AppContext>));
+            let output = exposed.clone();
+            let viewport = UiRect::new(0.0, 0.0, 900.0, 400.0);
+            let body = UiRect::new(0.0, crate::ui::diff_editor::TOOLBAR_H, 900.0, 400.0);
+            let view: AppView = Arc::new(move |cx| {
+                let state = AppContext::detached(cx.state_with(|| {
+                    let mut app = AppState::new();
+                    app.git.ui.split_diff = true;
+                    app.workspace.open_diff(document.clone());
+                    app
+                }));
+                *output.lock().unwrap() = Some(state.clone());
+                let id = cx.use_stable_id();
+                render(
+                    state.get().workspace.active_pane(),
+                    viewport,
+                    state,
+                    cx.state_with(GitStoreSnapshot::default),
+                    cx.focus_handle(id),
+                )
+            });
+            let context = ApplicationContext::empty(Default::default());
+            let _text = lgui::backend::install_text_environment(
+                &context,
+                lgui::render_skia::skia_text_system_handle(),
+            );
+            let mut session = UiSession::new();
+            session.render_view(&view, viewport, UiScale::ONE);
+            let state = exposed.lock().unwrap().clone().unwrap();
+            let projection = fixture.split_projection();
+            let change = projection.changes[0].clone();
+            let layout = Layout::new(&fixture, None);
+            let height = row_h();
+            let viewport_rows = body.height() / height;
+            let control = |session: &UiSession, name| {
+                session
+                    .tree()
+                    .nodes()
+                    .iter()
+                    .find(|node| {
+                        node.semantics
+                            .as_ref()
+                            .and_then(|semantics| semantics.name.as_deref())
+                            == Some(name)
+                    })
+                    .expect("change control")
+                    .layout_rect
+            };
+            let mut stable: Option<f32> = None;
+            let mut other_offset: Option<f32> = None;
+            for delta in [4.0, 8.0, 16.0, 24.0] {
+                let anchor = change.start as f32 + delta;
+                let scroll = anchor - viewport_rows / 3.0;
+                state.update(|app| app.workspace.set_active_scroll(0.0, scroll * height));
+                session.render_view(&view, viewport, UiScale::ONE);
+                let arrow = control(&session, "Revert change");
+                let check = control(&session, "Include this change in the commit");
+                let offset = layout.offset(side, scroll, viewport_rows);
+                let expected = body.top
+                    + ((projection.position(side, change.start as f32)
+                        + projection.position(side, change.end as f32))
+                        / 2.0
+                        - offset)
+                        * height;
+                let centre = (arrow.top + arrow.bottom) / 2.0;
+                assert!(
+                    (centre - expected).abs() < 0.01,
+                    "{label}: snap to the stationary change centre, delta {delta}"
+                );
+                assert_eq!((arrow.top, arrow.bottom), (check.top, check.bottom));
+                assert!(arrow.top >= body.top && arrow.bottom <= body.bottom);
+                if let Some(previous) = stable {
+                    assert!(
+                        (centre - previous).abs() < 0.01,
+                        "{label}: scrolling must not pull controls away"
+                    );
+                }
+                stable = Some(centre);
+                let other = if side == DiffSide::Old {
+                    DiffSide::New
+                } else {
+                    DiffSide::Old
+                };
+                let offset = layout.offset(other, scroll, viewport_rows);
+                if let Some(previous) = other_offset {
+                    assert!(offset > previous, "the opposite column really scrolls");
+                }
+                other_offset = Some(offset);
+            }
+            // Near either end of the plateau a button straddles a ribbon
+            // edge, but its centre is still covered and must remain snapped.
+            if old == 0 || new == 0 {
+                let mut snapped_top: Option<f32> = None;
+                for (delta, snaps) in [
+                    (24.0, true),
+                    (79.75, true),
+                    (24.0, true),
+                    (0.25, true),
+                    (24.0, true),
+                ] {
+                    let scroll = change.start as f32 + delta - viewport_rows / 3.0;
+                    state.update(|app| app.workspace.set_active_scroll(0.0, scroll * height));
+                    session.render_view(&view, viewport, UiScale::ONE);
+                    let centres = [DiffSide::Old, DiffSide::New].map(|side| {
+                        body.top
+                            + ((projection.position(side, change.start as f32)
+                                + projection.position(side, change.end as f32))
+                                / 2.0
+                                - layout.offset(side, scroll, viewport_rows))
+                                * height
+                    });
+                    let expected = if snaps {
+                        centres[if side == DiffSide::Old { 0 } else { 1 }]
+                    } else {
+                        (centres[0] + centres[1]) / 2.0
+                    };
+                    let arrow = control(&session, "Revert change");
+                    let check = control(&session, "Include this change in the commit");
+                    assert!(
+                        (arrow.top - (expected - 10.0).max(body.top)).abs() < 0.01,
+                        "{label}: edge release/restore, delta {delta}"
+                    );
+                    assert_eq!((arrow.top, arrow.bottom), (check.top, check.bottom));
+                    if snaps {
+                        if let Some(top) = snapped_top {
+                            assert!(
+                                (arrow.top - top).abs() < 0.01,
+                                "restore the original snap position"
+                            );
+                        }
+                        snapped_top = Some(arrow.top);
+                    }
+                }
+            }
+            // Leaving the focus interval restores the existing ribbon-centre rule.
+            for anchor in [change.start as f32 - 2.0, change.end as f32 + 2.0] {
+                let scroll = anchor - viewport_rows / 3.0;
+                state.update(|app| app.workspace.set_active_scroll(0.0, scroll * height));
+                session.render_view(&view, viewport, UiScale::ONE);
+                let centres = [DiffSide::Old, DiffSide::New].map(|side| {
+                    body.top
+                        + ((projection.position(side, change.start as f32)
+                            + projection.position(side, change.end as f32))
+                            / 2.0
+                            - layout.offset(side, scroll, viewport_rows))
+                            * height
+                });
+                let original_top = ((centres[0] + centres[1]) / 2.0 - 10.0).max(body.top);
+                assert!(
+                    (control(&session, "Revert change").top - original_top).abs() < 0.01,
+                    "{label}: preserve unfocused placement"
+                );
+            }
+            if let Some(directory) = std::env::var_os("LOOG_SPLIT_SNAP_PREVIEW") {
+                use lgui::renderer::{FrameInfo, FrameReason};
+                let scroll = change.start as f32 + 16.0 - viewport_rows / 3.0;
+                state.update(|app| app.workspace.set_active_scroll(0.0, scroll * height));
+                session.render_view(&view, viewport, UiScale::ONE);
+                context
+                    .resources()
+                    .provide(lgui::icons::IconRegistration(Arc::new(
+                        crate::app::svg_icons(),
+                    )));
+                let mut surface = lgui::render_skia::SkiaSoftwareSurface::new(4 * 1024 * 1024);
+                let frame = FrameInfo::new(
+                    UiScale::ONE.physical_rect(viewport),
+                    &[],
+                    UiScale::ONE,
+                    FrameReason::SceneChange,
+                    true,
+                );
+                lgui::assets::backend::with_render_resources(
+                    &context,
+                    lgui::RenderResources::new(),
+                    || surface.draw(&session.tree().scene(), &frame),
+                )
+                .unwrap();
+                let mut pixels = surface.pixels().to_vec();
+                for pixel in pixels.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                }
+                image::save_buffer(
+                    PathBuf::from(directory).join(format!("split-snap-{label}.png")),
+                    &pixels,
+                    900,
+                    400,
+                    image::ColorType::Rgba8,
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn insertion_and_deletion_controls_are_visible_before_the_first_scroll() {
+        use crate::features::git::diff::parse_unified;
+        use lgui::application::AppView;
+        use lgui::core::{Point, UiScale};
+        use lgui::session::UiSession;
+        use std::sync::{Arc, Mutex};
+
+        // A normal three-context-line hunk: the short side is clamped at
+        // scroll zero while the shared anchor already lies in the insertion.
+        for insertion in [true, false] {
+            let (old, new) = if insertion { (6, 246) } else { (246, 6) };
+            let changed = if insertion { "+added\n" } else { "-removed\n" };
+            let patch = format!(
+                "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1201,{old} +1201,{new} @@\n one\n two\n three\n{} four\n five\n six\n",
+                changed.repeat(240)
+            );
+            let document = DiffDocument::from_unified(
+                "repo".into(),
+                "a.rs".into(),
+                DiffTarget::HeadToWorktree,
+                parse_unified(&patch).unwrap(),
+            );
+            let exposed = Arc::new(Mutex::new(None::<AppContext>));
+            let output = exposed.clone();
+            let viewport = UiRect::new(0.0, 0.0, 900.0, 400.0);
+            let view: AppView = Arc::new(move |cx| {
+                let state = AppContext::detached(cx.state_with(|| {
+                    let mut app = AppState::new();
+                    app.git.ui.split_diff = true;
+                    app.workspace.open_diff(document.clone());
+                    app
+                }));
+                *output.lock().unwrap() = Some(state.clone());
+                let id = cx.use_stable_id();
+                render(
+                    state.get().workspace.active_pane(),
+                    viewport,
+                    state,
+                    cx.state_with(GitStoreSnapshot::default),
+                    cx.focus_handle(id),
+                )
+            });
+            let mut session = UiSession::new();
+            session.render_view(&view, viewport, UiScale::ONE);
+            let state = exposed.lock().unwrap().clone().unwrap();
+            let mut initial_top: Option<f32> = None;
+            for scroll in [0.0, 0.25, 0.5, 1.0, 0.0] {
+                state.update(|app| app.workspace.set_active_scroll(0.0, scroll * row_h()));
+                session.render_view(&view, viewport, UiScale::ONE);
+                for name in ["Revert change", "Include this change in the commit"] {
+                    let node = session
+                        .tree()
+                        .nodes()
+                        .iter()
+                        .find(|node| {
+                            node.semantics
+                                .as_ref()
+                                .and_then(|semantics| semantics.name.as_deref())
+                                == Some(name)
+                        })
+                        .unwrap();
+                    let bounds = node.hit_rect;
+                    assert!(
+                        bounds.top >= crate::ui::diff_editor::TOOLBAR_H
+                            && bounds.bottom <= viewport.bottom,
+                        "the first visible change needs visible controls at scroll {scroll}, insertion={insertion}"
+                    );
+                    let point = Point::new(
+                        (bounds.left + bounds.right) / 2.0,
+                        (bounds.top + bounds.bottom) / 2.0,
+                    );
+                    assert_eq!(session.tree().hit_test(point).unwrap().id, node.id);
+                    if let Some(top) = initial_top {
+                        assert!(
+                            (bounds.top - top).abs() < 0.01,
+                            "small scroll must not change visibility or placement"
+                        );
+                    }
+                    initial_top = Some(bounds.top);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn split_change_focus_follows_the_curve_and_reveals_the_other_side() {
         use crate::features::git::diff::parse_unified;
         use lgui::application::{AppView, ApplicationContext};
