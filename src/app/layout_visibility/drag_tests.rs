@@ -306,6 +306,23 @@ fn regions_float_and_swap_in_an_animated_private_draft_until_drop() {
 }
 
 #[test]
+fn passing_over_other_regions_never_leaves_them_displaced() {
+    let mut h = Harness::new();
+    let original = h.layout();
+    // Slot centers are fixed before dragging; animated cells move afterwards.
+    let (middle, far) = (center(h.cell(1)), center(h.cell(3)));
+    h.down(body(h.cell(2)));
+    // Cross region 1 on the way to region 3.
+    h.move_to(middle);
+    h.move_to(far);
+    let mut expected = original.clone();
+    assert!(expected.swap_regions(2, 3));
+    assert_eq!(h.drag.snapshot().unwrap().preview.root, expected.root);
+    h.up(far);
+    assert_eq!(h.layout().root, expected.root);
+}
+
+#[test]
 fn escape_and_outside_drop_cancel_and_the_floating_region_stays_inside_the_popup() {
     let mut h = Harness::new();
     let original = h.layout();

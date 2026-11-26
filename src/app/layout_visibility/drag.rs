@@ -173,17 +173,29 @@ impl DragStore {
             );
             // Hit-test the gesture's fixed slots, never an animated neighbor.
             // Swapped content can have different minima and move the slot edges.
-            let slot = d
+            let target = d
                 .base
                 .overview(source.into())
                 .regions
                 .iter()
-                .position(|(_, _, rect)| {
+                .find(|(_, _, rect)| {
                     at.x >= rect.left && at.x < rect.right && at.y >= rect.top && at.y < rect.bottom
-                });
-            let preview = d.preview.overview(source.into());
-            let target = slot.and_then(|index| preview.regions.get(index).map(|(id, _, _)| *id));
-            target.is_some_and(|target| d.preview.swap_regions(d.region, target))
+                })
+                .map(|(id, _, _)| *id);
+            // Over a gap, keep the current preview.
+            let Some(target) = target else {
+                return false;
+            };
+            // Always derive the preview from the untouched base: one swap of the
+            // dragged region with the region owning the hovered slot. Regions the
+            // pointer merely passes over are never left displaced.
+            let mut next = d.base.clone();
+            next.swap_regions(d.region, target);
+            if next.root == d.preview.root {
+                return false;
+            }
+            d.preview = next;
+            true
         });
     }
 
