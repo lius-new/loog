@@ -218,7 +218,7 @@ mod tests {
 
     #[test]
     fn defaults_keep_the_original_metrics() {
-        assert_eq!(FontSettings::EDITOR.line_px(), 24.0);
+        assert_eq!(FontSettings::EDITOR.line_px(), 19.0);
         assert_eq!(FontSettings::TERMINAL.line_px(), 19.0);
         let editor = Metrics::resolve(&FontSettings::EDITOR, "");
         assert_eq!(editor.families, MONO_FAMILIES);

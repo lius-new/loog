@@ -27,7 +27,7 @@ pub struct FontSettings {
 }
 
 impl FontSettings {
-    pub const EDITOR: Self = Self::new(12, 200);
+    pub const EDITOR: Self = Self::new(12, 160);
     pub const TERMINAL: Self = Self::new(12, 160);
 
     const fn new(size: u16, line_height: u16) -> Self {

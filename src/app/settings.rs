@@ -299,7 +299,7 @@ mod tests {
         let font = FontSettings::EDITOR;
         assert_eq!(FontField::Size.step(&font, true).size, 13);
         assert_eq!(FontField::Size.step(&font, false).size, 11);
-        assert_eq!(FontField::LineHeight.step(&font, true).line_height, 210);
+        assert_eq!(FontField::LineHeight.step(&font, true).line_height, 170);
 
         let smallest = FontSettings {
             size: fonts::MIN_SIZE,
@@ -324,7 +324,7 @@ mod tests {
         );
         assert_eq!(FontField::LineHeight.step(&off_grid, true).line_height, 160);
         assert_eq!(FontField::LineHeight.value(&off_grid).0, "1.55");
-        assert_eq!(FontField::LineHeight.value(&font).0, "2.0");
+        assert_eq!(FontField::LineHeight.value(&font).0, "1.6");
     }
 
     #[test]
@@ -460,14 +460,14 @@ mod tests {
 "
             .repeat(100),
         );
-        app.workspace.set_active_scroll(0.0, 240.0);
+        app.workspace.set_active_scroll(0.0, 190.0);
         app.apply(Action::IncreaseFontSize);
         assert_eq!(app.preferences.values().editor_font.size, 13);
-        // 13px at 200% rounds to 26px lines: line 10 stays at the top.
-        assert_eq!(app.workspace.active_scroll().1, 260.0);
+        // 13px at 160% rounds to 21px lines: line 10 stays at the top.
+        assert!((app.workspace.active_scroll().1 - 210.0).abs() < 0.01);
         app.apply(Action::ResetFontSize);
         assert_eq!(app.preferences.values().editor_font, FontSettings::EDITOR);
-        assert_eq!(app.workspace.active_scroll().1, 240.0);
+        assert!((app.workspace.active_scroll().1 - 190.0).abs() < 0.01);
         for _ in 0..40 {
             app.apply(Action::DecreaseFontSize);
         }

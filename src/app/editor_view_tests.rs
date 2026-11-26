@@ -1471,7 +1471,8 @@ fn keyboard_reveal_scrolls_to_the_document_end() {
 
 #[test]
 fn visible_range_keeps_only_rows_around_the_viewport() {
-    assert_eq!(visible_line_range(240.0, 120.0, 100), 9..16);
+    let line = fonts::editor().line_h;
+    assert_eq!(visible_line_range(10.0 * line, 5.0 * line, 100), 9..16);
 }
 
 #[test]
