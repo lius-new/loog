@@ -996,8 +996,8 @@ fn workspace_registration_without_its_package_grant_returns_a_failure() {
 }
 
 fn fixture_with(name: &str, text: &str, select: std::ops::Range<usize>, manifest: &str) -> Fixture {
-    // These fixtures verify command/edit behavior with the real five-second
-    // processing budget. Cold compilation under parallel load is measured by
+    // These fixtures retain the real five-second command budget.
+    // Cold compilation under parallel load is measured by
     // separate startup tests, not charged to the correctness fixture's command.
     fixture_package(
         name,
@@ -1032,6 +1032,15 @@ fn fixture_package(
     let mut service = ExtensionService::new(cache.unwrap_or_else(|| {
         std::env::temp_dir().join(format!("loog-ext-cache-{}", std::process::id()))
     }));
+    // Correctness tests run many real guests in parallel. Epoch deadlines count
+    // time descheduled by the OS and synchronous host I/O too, so the production
+    // 200 ms round limit can fail an otherwise trivial storage operation on CI.
+    // Keep rounds bounded, but leave headroom for a loaded runner. Deadline tests
+    // explicitly restore a short round limit before activating their guest.
+    service.set_guest_limits(Limits {
+        round_ticks: 3_000, // 30 seconds at the host's 10 ms epoch interval.
+        ..Limits::default()
+    });
     let id = service.load_package(package).unwrap();
     service.grant_declared(&id);
     let mut app = AppState::new();
@@ -2964,7 +2973,17 @@ impl Fixture {
         let observed = self.service.observe(&self.app);
         self.apply(observed);
         self.run("example.tools.op");
-        self.pump_until(|f| f.op_results().len() > before);
+        self.pump_until(|f| {
+            let package = f.service.package("example.tools").unwrap();
+            assert_ne!(
+                package.lifecycle.state(),
+                State::Failed,
+                "guest failed while running {spec}: {:?}; logs: {:?}",
+                package.last_error,
+                package.logs,
+            );
+            f.op_results().len() > before
+        });
         self.op_results().pop().unwrap()
     }
 
