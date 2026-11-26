@@ -41,8 +41,16 @@ impl TreeGuides {
 
     /// Restore the ancestor guides over the pinned row's opaque background.
     pub(super) fn pinned(&self, mut row: Element, rect: UiRect, depth: usize) -> Element {
+        if rect.bottom - self.scroll <= self.viewport.top
+            || rect.top - self.scroll >= self.viewport.bottom
+        {
+            return row;
+        }
         let placement = VerticalPlacement::Overlay(0.0, self.scroll);
-        for level in 0..depth {
+        let visible_levels = ((self.viewport.right - self.first_x) / self.indent)
+            .ceil()
+            .max(0.0) as usize;
+        for level in 0..depth.min(visible_levels) {
             row = row.child(self.line(rect.top, rect.bottom, level, placement));
         }
         row
@@ -56,5 +64,45 @@ impl TreeGuides {
             placement,
             theme::c().border,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lgui::application::AppView;
+    use lgui::core::UiScale;
+    use lgui::prelude::{VisualStyle, panel};
+    use lgui::session::UiSession;
+    use std::sync::Arc;
+
+    #[test]
+    fn pinned_guides_cull_offscreen_rows_and_levels_in_deep_trees() {
+        let viewport = UiRect::new(0.0, 0.0, 100.0, 60.0);
+        for (top, expected) in [(-20.0, 0), (80.0, 0), (10.0, 9)] {
+            let row = UiRect::new(0.0, top, 100.0, top + 20.0);
+            let view: AppView = Arc::new(move |_| {
+                TreeGuides::new(viewport, 0.0, 10.0, 10.0).pinned(
+                    panel(row, VisualStyle::filled(theme::c().sidebar)),
+                    row,
+                    100_000,
+                )
+            });
+            let mut session = UiSession::new();
+            session.render_view(&view, viewport, UiScale::ONE);
+            assert!(
+                session.tree().nodes().len() <= 12,
+                "no offscreen placeholder nodes"
+            );
+            assert_eq!(
+                session
+                    .tree()
+                    .nodes()
+                    .iter()
+                    .filter(|node| node.style.fill == Some(theme::c().border))
+                    .count(),
+                expected
+            );
+        }
     }
 }

@@ -828,6 +828,166 @@ mod panel_virtualization_tests {
     }
 
     #[test]
+    fn changes_trees_restore_pixel_aligned_guides_over_pinned_folders() {
+        use crate::ui::git::commands::{Binding, CommitChangesView, Frame};
+        use crate::ui::git::state::GitPanelState;
+        use lgui::application::AppView;
+        use lgui::session::UiSession;
+
+        for historical in [false, true] {
+            let mut small_tree_nodes = None;
+            for (factor, file_count) in [(1.0, 80), (1.25, 80), (1.5, 80), (2.0, 80), (1.0, 10_000)]
+            {
+                let scale = UiScale::new(factor);
+                let viewport = UiRect::new(10.3, 7.2, 298.3, 267.2);
+                let (id, mut snapshot, _) = drawer_fixture();
+                let mut paths = vec![
+                    PathBuf::from("root/root.rs"),
+                    "root/a/a.rs".into(),
+                    "root/a/b/b.rs".into(),
+                ];
+                paths.extend(
+                    (0..file_count)
+                        .map(|index| PathBuf::from(format!("root/a/b/c/file{index:05}.rs"))),
+                );
+                Arc::make_mut(&mut snapshot.repositories)
+                    .get_mut(&id)
+                    .unwrap()
+                    .files = Arc::new(
+                    paths
+                        .iter()
+                        .map(|path| {
+                            (
+                                path.clone(),
+                                FileState {
+                                    worktree: ChangeKind::Modified,
+                                    ..Default::default()
+                                },
+                            )
+                        })
+                        .collect(),
+                );
+                let prepared = Arc::make_mut(&mut snapshot.presentation)
+                    .repositories
+                    .get_mut(&id)
+                    .unwrap();
+                prepared.sections = Default::default();
+                prepared.sections[UNSTAGED as usize] = paths.clone();
+                prepared.dirty_count = paths.len();
+                let files = paths
+                    .into_iter()
+                    .map(|path| (path, ChangeKind::Modified))
+                    .collect::<Vec<_>>();
+                let view: AppView = Arc::new(move |cx| {
+                    let state = cx.state_with(|| {
+                        let mut state = GitPanelState::default();
+                        state.ui.tree_view = true;
+                        state.ui.scroll = 240.3;
+                        state.ui.commit_view_scroll = 240.3;
+                        state
+                    });
+                    let fixture = snapshot.clone();
+                    let store = cx.state_with(move || fixture);
+                    let files = files.clone();
+                    let binding = Binding::new(
+                        state.into(),
+                        move || Frame {
+                            commit_changes: historical.then(|| CommitChangesView {
+                                pane: crate::domain::identity::PaneId::new(1),
+                                root: "loog".into(),
+                                revision: "abc1234def".into(),
+                                files: files.clone(),
+                            }),
+                            ..Default::default()
+                        },
+                        |_| true,
+                    );
+                    render(
+                        viewport,
+                        binding,
+                        store.into(),
+                        cx.focus_handle(UiId::new("guide-test-editor")),
+                        cx.focus_handle(UiId::new("guide-test-message")),
+                        UiId::new("guide-test-message"),
+                    )
+                });
+                let mut session = UiSession::new();
+                session.render_view(&view, viewport, scale);
+                let mut clip_top = 0.0_f32;
+                for (depth, label) in ["root folder", "a folder", "b folder", "c folder"]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let folder = session
+                        .tree()
+                        .nodes()
+                        .iter()
+                        .find(|node| {
+                            node.semantics.as_ref().and_then(|s| s.name.as_deref()) == Some(label)
+                        })
+                        .expect("pinned folder");
+                    if depth == 0 {
+                        clip_top = (folder.layout_rect.top * factor).ceil();
+                    }
+                    let background = session
+                        .tree()
+                        .node(folder.parent.as_ref().unwrap())
+                        .unwrap();
+                    assert_eq!(background.style.fill, Some(theme::c().sidebar));
+                    let guides = background
+                        .children
+                        .iter()
+                        .filter_map(|id| session.tree().node(id))
+                        .filter(|node| node.style.fill == Some(theme::c().border))
+                        .collect::<Vec<_>>();
+                    // Top-level folders are children of the Changes section (depth one).
+                    assert_eq!(
+                        guides.len(),
+                        depth + 1,
+                        "{label}: restore every ancestor guide, historical={historical}, scale={factor}"
+                    );
+                    for (level, guide) in guides.iter().enumerate() {
+                        let physical = scale.physical_ui_rect(guide.layout_rect);
+                        let expected_x =
+                            scale.physical_value(viewport.left + 14.0 + level as f32 * 14.0) as f32;
+                        assert!((physical.left - expected_x).abs() < 0.001);
+                        assert!(
+                            (physical.right - expected_x - 1.0).abs() < 0.001,
+                            "one physical pixel wide"
+                        );
+                        assert!(
+                            (physical.top
+                                - (folder.layout_rect.top * factor).floor().max(clip_top))
+                            .abs()
+                                < 0.001
+                        );
+                        assert!(
+                            (physical.bottom - (folder.layout_rect.bottom * factor).ceil()).abs()
+                                < 0.001,
+                            "cover the pinned background edges without subtracting scroll twice"
+                        );
+                    }
+                }
+                // Increasing offscreen files must not increase the projected UI tree.
+                let nodes = session.tree().nodes().len();
+                assert!(
+                    nodes < 500,
+                    "only visible rows and pinned ancestors are drawn: {nodes}"
+                );
+                if file_count == 10_000 {
+                    assert_eq!(
+                        Some(nodes),
+                        small_tree_nodes,
+                        "guide rendering stays bounded by the viewport"
+                    );
+                } else if factor == 1.0 {
+                    small_tree_nodes = Some(nodes);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn commit_changes_hover_follows_rows_in_list_and_tree_after_scrolling() {
         use crate::ui::git::commands::{Binding, CommitChangesView, Frame};
         use crate::ui::git::state::GitPanelState;

@@ -411,6 +411,8 @@ fn render_local(
     let max_scroll = (changes_height - content_rect.height()).max(0.0);
     let scroll = app.ui.scroll.clamp(0.0, max_scroll);
     let guides = TreeGuides::new(content_rect, scroll, rect.left + 14.0, TREE_INDENT);
+    // Pinned rows are outside the scrolling clip, in viewport coordinates.
+    let pinned_guides = TreeGuides::new(content_rect, 0.0, rect.left + 14.0, TREE_INDENT);
     let mut y = content_rect.top + LIST_TOP_PAD;
     // Rows the pointer can hover, in content coordinates (before scrolling).
     let mut hover_targets = Vec::new();
@@ -481,20 +483,24 @@ fn render_local(
                 // Parents last, so they stay above a child sliding under them.
                 sticky.insert(
                     0,
-                    panel(row_rect, VisualStyle::filled(theme::c().sidebar)).child(folder_row(
+                    pinned_guides.pinned(
+                        panel(row_rect, VisualStyle::filled(theme::c().sidebar)).child(folder_row(
+                            row_rect,
+                            filter,
+                            actions,
+                            path,
+                            label,
+                            *depth,
+                            *expanded,
+                            files.clone(),
+                            false,
+                            true,
+                            &state,
+                            &store,
+                        )),
                         row_rect,
-                        filter,
-                        actions,
-                        path,
-                        label,
                         *depth,
-                        *expanded,
-                        files.clone(),
-                        false,
-                        true,
-                        &state,
-                        &store,
-                    )),
+                    ),
                 );
             }
         }
@@ -3054,6 +3060,8 @@ fn render_commit_changes(
         CHANGE_ROW_H,
     );
     let guides = TreeGuides::new(list, scroll, rect.left + 14.0, TREE_INDENT);
+    // Pinned rows are outside the scrolling clip, in viewport coordinates.
+    let pinned_guides = TreeGuides::new(list, 0.0, rect.left + 14.0, TREE_INDENT);
     let mut content: Vec<Element> = Vec::new();
     let mut hover_targets = Vec::new();
     for index in visible.clone() {
@@ -3136,20 +3144,24 @@ fn render_commit_changes(
             hover_targets.insert(hover_targets.len() - sticky.len(), (row_rect, hover));
             sticky.insert(
                 0,
-                panel(row_rect, VisualStyle::filled(c.sidebar)).child(folder_row(
+                pinned_guides.pinned(
+                    panel(row_rect, VisualStyle::filled(c.sidebar)).child(folder_row(
+                        row_rect,
+                        COMMIT_CHANGES,
+                        STAGED,
+                        path,
+                        label,
+                        *depth,
+                        *expanded,
+                        files.clone(),
+                        hovered,
+                        true,
+                        &state,
+                        &store,
+                    )),
                     row_rect,
-                    COMMIT_CHANGES,
-                    STAGED,
-                    path,
-                    label,
                     *depth,
-                    *expanded,
-                    files.clone(),
-                    hovered,
-                    true,
-                    &state,
-                    &store,
-                )),
+                ),
             );
         }
     }
