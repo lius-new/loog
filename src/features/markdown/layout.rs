@@ -230,6 +230,10 @@ pub enum Decoration {
         rect: TextRect,
         extent: f32,
     },
+    /// The recessed block behind code in a card: no copy button or language.
+    Well {
+        rect: TextRect,
+    },
     ListMarker {
         node: NodeId,
         display: DisplayRange,
@@ -395,6 +399,7 @@ fn spans(
             NodeKind::Heading { level } => {
                 // Cards keep every heading just above body size.
                 style.heading = if card { 4 } else { level };
+                style.muted = card;
                 style.bold = true;
             }
             NodeKind::Strong => style.bold = true,
@@ -402,7 +407,11 @@ fn spans(
             NodeKind::Strikethrough => style.strike = true,
             NodeKind::Code | NodeKind::CodeBlock { .. } | NodeKind::Html { block: true } => {
                 style.code = true;
-                style.chip = !card && matches!(node.kind, NodeKind::Code);
+                style.chip = matches!(node.kind, NodeKind::Code);
+                if card && matches!(node.kind, NodeKind::Code) {
+                    // Inline code in a card is tinted like a value in the lists.
+                    style.foreground = Some(0xffa78bfa);
+                }
                 style.muted = card && is_path_block(document, id);
             }
             NodeKind::Link { .. } => style.link = Some(id),
@@ -423,10 +432,10 @@ fn spans(
             }
         }
     }
+    let text = document.text(range.clone()).unwrap_or("");
     if card {
-        spans
+        pad_chips(text, spans)
     } else {
-        let text = document.text(range.clone()).unwrap_or("");
         pad_chips(text, separate_scripts(text, spans))
     }
 }
@@ -986,11 +995,25 @@ pub fn layout_with_images(
                 node.kind,
                 NodeKind::CodeBlock { .. } | NodeKind::Html { block: true }
             );
-            // A card draws code straight on its own surface, with no block around it.
+            // A card sets code in a quiet well of its own: tighter than a document's
+            // block and without its copy button.
             let boxed = code && !style.card;
-            let pad = if boxed { style.padding } else { 0.0 };
+            let well = code && style.card && !is_path_block(&placer.out.document, id);
+            let pad = if boxed {
+                style.padding
+            } else if well {
+                8.0
+            } else {
+                0.0
+            };
             // Vertical padding is tighter than horizontal; the copy button floats over the corner and takes no height.
-            let pad_y = if boxed { 10.0 } else { 0.0 };
+            let pad_y = if boxed {
+                10.0
+            } else if well {
+                6.0
+            } else {
+                0.0
+            };
             let heading = matches!(node.kind, NodeKind::Heading { .. });
             // A heading in a card sits closer to what it introduces than to what precedes it.
             if style.card && heading && y > 0.0 {
@@ -1150,6 +1173,15 @@ pub fn layout_with_images(
                             bottom: y + height,
                         },
                         extent: placer.out.paragraphs[index].summary.width + pad * 2.0,
+                    });
+                } else if well {
+                    placer.out.decorations.push(Decoration::Well {
+                        rect: TextRect {
+                            left: x,
+                            top: y,
+                            right: x + width,
+                            bottom: y + height,
+                        },
                     });
                 }
             }

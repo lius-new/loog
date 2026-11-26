@@ -23,10 +23,11 @@ use crate::domain::identity::PaneId;
 use crate::domain::line_change::LineChange;
 use crate::features::git::conflict::{ConflictPart, ConflictRegion, Resolution};
 use crate::features::language_service::diagnostics::{Diagnostic, Severity};
-use crate::ui::editor_binding::{Binding, Event, PeekPlacement, ViewState};
+use crate::ui::editor_binding::{Binding, Event, HoverAction, PeekPlacement, ViewState};
 use crate::ui::fonts;
 use crate::ui::git::action_button;
 use crate::ui::theme;
+use lgui::ServicesContextExt as _;
 use loog_editor_core::text::TextBuffer;
 use loog_editor_core::vim::CursorShape;
 
@@ -864,6 +865,9 @@ pub(crate) fn render(
                     hover_area,
                     s.quickfix.as_ref(),
                     Some(state.clone()),
+                    Some(&hover.name),
+                    hover.kind,
+                    Some(&hover.server),
                 )
             })
         } else if let Some((anchor, range)) = &hovered_diagnostic {
@@ -876,6 +880,9 @@ pub(crate) fn render(
                 hover_area,
                 s.quickfix.as_ref(),
                 Some(state.clone()),
+                None,
+                None,
+                None,
             )
         } else {
             None
@@ -1558,7 +1565,7 @@ pub(crate) fn info_card(
     anchor: UiRect,
     area: UiRect,
 ) -> Option<(UiRect, Element)> {
-    info_card_actions(found, docs, anchor, area, None, None)
+    info_card_actions(found, docs, anchor, area, None, None, None, None, None)
 }
 
 fn info_card_actions(
@@ -1568,8 +1575,13 @@ fn info_card_actions(
     area: UiRect,
     fixes: Option<&crate::ui::editor_binding::QuickFixView>,
     binding: Option<Binding>,
+    name: Option<&str>,
+    kind: Option<(&'static str, &'static str)>,
+    server: Option<&str>,
 ) -> Option<(UiRect, Element)> {
+    let server = server.filter(|server| !server.is_empty());
     let docs = docs.filter(|blocks| !blocks.is_empty());
+    let name = name.filter(|name| !name.is_empty());
     if found.is_empty() && docs.is_none() {
         return None;
     }
@@ -1625,7 +1637,51 @@ fn info_card_actions(
     {
         return None;
     }
-    let width = (diagnostics_w.max(documentation.as_ref().map_or(0.0, |l| l.width))
+    // The title above the content and the buttons under it, for a server's card.
+    let title = name.map(|name| {
+        let kind_w = kind.map_or(0.0, |(_, label)| measure(label) + 24.0);
+        let chip_w = if kind.is_some() { 28.0 } else { 0.0 };
+        (name, chip_w + measure(name) + 16.0 + kind_w)
+    });
+    let head_h = if title.is_some() { 26.0 } else { 0.0 };
+    let actions: Vec<(Option<HoverAction>, &str, Option<&str>)> =
+        if name.is_some() && binding.is_some() {
+            vec![
+                (
+                    Some(HoverAction::Definition),
+                    "Go to definition",
+                    Some("Ctrl+click"),
+                ),
+                (Some(HoverAction::References), "References", None),
+                (None, "Copy signature", None),
+            ]
+        } else {
+            Vec::new()
+        };
+    let foot_h = if actions.is_empty() {
+        0.0
+    } else {
+        super::chrome::FOOTER_H
+    };
+    let bottom_pad = if foot_h > 0.0 { 4.0 } else { CARD_PAD };
+    // Each button: its label, its key cap and the padding round them.
+    let foot_w = actions
+        .iter()
+        .map(|(_, label, key)| {
+            super::chrome::measure(label)
+                + key.map_or(0.0, |key| {
+                    (super::chrome::measure(key) + 10.0).max(16.0) + 5.0
+                })
+                + 20.0
+        })
+        .sum::<f32>()
+        + server.map_or(0.0, |server| super::chrome::measure(server) + 40.0)
+        + 20.0
+        - 2.0 * CARD_PAD;
+    let width = (diagnostics_w
+        .max(documentation.as_ref().map_or(0.0, |l| l.width))
+        .max(title.map_or(0.0, |(_, w)| w))
+        .max(foot_w)
         + 2.0 * CARD_PAD)
         .min(max_width);
     // A message line wider than the card wraps onto more lines; when only the
@@ -1691,20 +1747,54 @@ fn info_card_actions(
     };
     let docs_h = documentation.as_ref().map_or(0.0, |l| l.height);
     let fixes_h = fixes.map_or(0.0, |v| v.labels.len() as f32 * CARD_ROW + 9.0);
-    let height = (diagnostics_h + separator + docs_h + fixes_h + 2.0 * CARD_PAD)
-        .min((area.height() * 0.7).max(CARD_ROW * 3.0));
+    let height =
+        (head_h + diagnostics_h + separator + docs_h + fixes_h + CARD_PAD + bottom_pad + foot_h)
+            .min((area.height() * 0.7).max(CARD_ROW * 3.0));
     let (left, top) = card_origin(anchor, area, width, height);
     let card_rect = UiRect::new(left, top, left + width, top + height);
     let body = UiRect::new(
         card_rect.left + CARD_PAD,
         card_rect.top + CARD_PAD,
         card_rect.right - CARD_PAD,
-        card_rect.bottom - CARD_PAD,
+        card_rect.bottom - bottom_pad - foot_h,
     );
     let mut content = clip(body, 0.0, 0.0);
     // The selectable text of the card, in reading order: the diagnostics, then the docs.
     let mut texts: Vec<Element> = Vec::new();
     let mut y = body.top;
+    if let Some((name, _)) = title {
+        let row = UiRect::new(body.left, y, body.right, y + 20.0);
+        let mut left = body.left;
+        if let Some((badge, label)) = kind {
+            // The same chip the completion list shows for this kind.
+            let tint = super::popup::chip_tint(badge);
+            let chip = UiRect::new(left, y + 1.0, left + 20.0, y + 19.0);
+            let mut style = theme::mono(tint, theme::SMALL);
+            style.align = lgui::prelude::TextAlign::Center;
+            content = content.child(
+                panel(
+                    chip,
+                    VisualStyle::filled(crate::ui::palette::mix(theme::c().surface, tint, 0.16))
+                        .radius(4.0),
+                )
+                .child(text(chip, badge, style)),
+            );
+            left += 28.0;
+            let mut kind_style = theme::sans(theme::c().text_faint, theme::SMALL);
+            kind_style.align = lgui::prelude::TextAlign::Right;
+            content = content.child(text(
+                UiRect::new(left, row.top, row.right, row.bottom),
+                label,
+                kind_style,
+            ));
+        }
+        content = content.child(text(
+            UiRect::new(left, row.top, row.right, row.bottom),
+            name.to_owned(),
+            { let mut style = theme::mono(theme::c().text_bright, size); style.weight = 700; style },
+        ));
+        y += head_h;
+    }
     for (index, (severity, lines, origin)) in entries.iter().enumerate() {
         if index > 0 {
             content = content.child(panel(
@@ -1806,7 +1896,7 @@ fn info_card_actions(
     let docs_interaction = interaction.clone();
     let on_select = interaction.and_then(|i| i.on_select);
     if let Some(fixes) = fixes
-        && let Some(binding) = binding
+        && let Some(binding) = binding.clone()
     {
         y += 9.0;
         for (index, label) in fixes.labels.iter().enumerate() {
@@ -1865,12 +1955,24 @@ fn info_card_actions(
         None => layers = layers.children(texts),
     }
     let layers = layers.child(content);
-    Some((
-        card_rect,
-        theme::bordered(card_rect, theme::c().surface, theme::c().border, 4.0, 1.0)
-            .key("language-hover-card")
-            .child(layers),
-    ))
+    let mut card = super::chrome::surface(card_rect)
+        .key("language-hover-card")
+        .child(layers);
+    if let Some(binding) = binding.filter(|_| foot_h > 0.0) {
+        let mut bar = super::chrome::Footer::new(card_rect);
+        for (action, label, key) in actions {
+            let send = binding.clone();
+            bar = bar.button(label, key, move |cx| match action {
+                Some(action) => send.send(Event::HoverAction(action)),
+                None => send.send(Event::HoverCopy(cx.application().clipboard())),
+            });
+        }
+        if let Some(server) = server {
+            bar = bar.note(server);
+        }
+        card = bar.attach(card);
+    }
+    Some((card_rect, card))
 }
 
 pub(crate) fn vertical_scrollbar(

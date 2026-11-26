@@ -1,5 +1,6 @@
 //! Text rendering and geometry; application transactions are supplied through a binding.
 mod caret;
+pub(crate) mod chrome;
 pub(crate) mod docs;
 mod gutter;
 pub(crate) mod hints;

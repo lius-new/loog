@@ -100,7 +100,20 @@ pub(crate) struct ViewState {
 #[derive(Clone)]
 pub(crate) struct HoverView {
     pub anchor: Range<usize>,
+    /// The text the card describes, shown as its title.
+    pub name: String,
+    /// A short chip and a label saying what the text is, when the signature says.
+    pub kind: Option<(&'static str, &'static str)>,
+    /// The language servers behind the card.
+    pub server: String,
     pub docs: crate::ui::markdown::card::Document,
+}
+
+/// What the footer of a hover card asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HoverAction {
+    Definition,
+    References,
 }
 pub(crate) struct QuickFixView {
     pub revision: u64,
@@ -144,6 +157,10 @@ pub(crate) enum Event {
     HoverSelect(Option<String>),
     /// A press on the hover card began or ended.
     HoverPress(bool),
+    /// A button in the footer of the hover card was clicked.
+    HoverAction(HoverAction),
+    /// Copy the signature in the hover card.
+    HoverCopy(lgui::services::ClipboardHandle),
     PeekOpen {
         revision: u64,
     },

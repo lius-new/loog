@@ -705,8 +705,6 @@ fn replace_candidates(session: &mut Session, mut data: Completion, typed: &str) 
             && item.raw == entry.item.raw
         {
             entry.item = (*item).clone();
-            entry.documentation =
-                crate::features::language_service::completion::item_documentation(&entry.item);
             entry.resolved = true;
         }
     }
@@ -803,8 +801,6 @@ fn tick_resolve(app: &mut AppState) -> bool {
         // Keep the unresolved source identity for matching later snapshots.
         item.raw = entry.item.raw.clone();
         entry.item = item;
-        entry.documentation =
-            crate::features::language_service::completion::item_documentation(&entry.item);
         entry.resolved = true;
     }
     true
@@ -1016,8 +1012,6 @@ pub fn offer_resolved(
     // Keep the original identity so later lists still match this entry.
     resolved.raw = entry.item.raw.clone();
     entry.item = resolved;
-    entry.documentation =
-        crate::features::language_service::completion::item_documentation(&entry.item);
     entry.resolved = true;
 }
 
@@ -1031,25 +1025,35 @@ pub fn view(session: &Session) -> crate::ui::editor::popup::View {
             let item = &session.data.entries[shown.entry].item;
             Row {
                 label: item.label.clone(),
-                detail: item
-                    .label_detail
-                    .clone()
-                    .or_else(|| item.detail.clone())
-                    .unwrap_or_default()
-                    .lines()
-                    .next()
-                    .unwrap_or_default()
-                    .to_owned(),
+                detail: {
+                    let detail = item
+                        .label_detail
+                        .clone()
+                        .or_else(|| item.detail.clone())
+                        .unwrap_or_default()
+                        .lines()
+                        .next()
+                        .unwrap_or_default()
+                        .to_owned();
+                    // Without a signature or source, name the kind, so the right
+                    // edge of every row reads the same.
+                    if detail.trim().is_empty() {
+                        kind_name(item.kind).to_owned()
+                    } else {
+                        detail
+                    }
+                },
                 badge: kind_badge(item.kind),
                 matches: shown.positions.clone(),
                 faint: item.deprecated,
+                tag: if item.additional_edits.is_empty() {
+                    ""
+                } else {
+                    "auto-import"
+                },
             }
         })
         .collect();
-    let docs = session
-        .selected_entry()
-        .and_then(|entry| entry.documentation.clone())
-        .map(Into::into);
     View {
         panel: false,
         rows: rows.into(),
@@ -1060,7 +1064,36 @@ pub fn view(session: &Session) -> crate::ui::editor::popup::View {
         title: None,
         empty: String::new(),
         anchor: Some(session.data.word_start),
-        docs,
+        footer: true,
+    }
+}
+
+/// The name of a `CompletionItemKind`, for rows that have nothing else to say.
+pub fn kind_name(kind: Option<u32>) -> &'static str {
+    match kind {
+        Some(1) => "text",
+        Some(2) => "method",
+        Some(3) => "function",
+        Some(4) => "constructor",
+        Some(5) => "field",
+        Some(6) => "variable",
+        Some(7) => "class",
+        Some(8) => "interface",
+        Some(9) => "module",
+        Some(10) => "property",
+        Some(11) => "unit",
+        Some(12) => "value",
+        Some(13) => "enum",
+        Some(14) | Some(21) => "keyword",
+        Some(15) => "snippet",
+        Some(17) => "file",
+        Some(19) => "folder",
+        Some(20) => "member",
+        Some(22) => "struct",
+        Some(23) => "event",
+        Some(24) => "operator",
+        Some(25) => "type",
+        _ => "",
     }
 }
 
@@ -1664,7 +1697,7 @@ mod tests {
             .unwrap()
             .data
             .entries[0];
-        assert!(entry.resolved && entry.documentation.is_some());
+        assert!(entry.resolved && entry.item.documentation.is_some());
         assert_eq!(entry.item.raw, offered, "the original identity is kept");
     }
 

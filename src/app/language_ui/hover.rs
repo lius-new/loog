@@ -36,6 +36,11 @@ pub struct Card {
     pub rest: Rest,
     /// The text the card describes (the server's range, else the word).
     pub anchor: Range<usize>,
+    /// The text at `anchor`, the card's title.
+    pub name: String,
+    pub kind: Option<(&'static str, &'static str)>,
+    /// The servers that answered, for the footer.
+    pub server: String,
     pub documentation: Markup,
 }
 
@@ -259,11 +264,25 @@ pub fn tick(app: &mut AppState) -> bool {
     if hover.rest.as_ref() != Some(&pending.rest) {
         return false;
     }
-    let found: Vec<reply::Hover> = progress
-        .usable(Feature::Hover)
+    let answers = progress.usable(Feature::Hover);
+    let (servers, found): (Vec<_>, Vec<reply::Hover>) = answers
         .iter()
-        .filter_map(|part| reply::hover(&part.value, part.encoding))
-        .collect();
+        .filter_map(|part| {
+            Some((
+                part.server.to_string(),
+                reply::hover(&part.value, part.encoding)?,
+            ))
+        })
+        .unzip();
+    let mut server = String::new();
+    for name in servers {
+        if !server.split(", ").any(|known| known == name) {
+            if !server.is_empty() {
+                server.push_str(", ");
+            }
+            server.push_str(&name);
+        }
+    }
     let Some(first) = found.first() else {
         return false;
     };
@@ -279,12 +298,118 @@ pub fn tick(app: &mut AppState) -> bool {
             .collect::<Vec<_>>(),
     )
     .expect("nonempty hover");
+    let name = pending
+        .text
+        .get(anchor.clone())
+        .unwrap_or_default()
+        .to_owned();
+    let kind = signature(&source.text).and_then(|signature| kind_of(&signature));
     hover.card = Some(Card {
         rest: pending.rest,
         anchor,
+        name,
+        kind,
+        server,
         documentation: source,
     });
     true
+}
+
+/// The signature a card shows: the first fenced code block, or failing that
+/// the first paragraph, leaving out a module path such as `a::b::C` above it.
+pub fn signature(markdown: &str) -> Option<String> {
+    let is_path = |text: &str| {
+        let text = text.trim();
+        text.contains("::") && !text.chars().any(char::is_whitespace)
+    };
+    let mut blocks: Vec<String> = Vec::new();
+    let mut open: Option<(String, Vec<&str>)> = None;
+    for line in markdown.lines() {
+        let trimmed = line.trim_start();
+        let fence = ["```", "~~~"].into_iter().find(|f| trimmed.starts_with(f));
+        match (&mut open, fence) {
+            (None, Some(fence)) => open = Some((fence.to_owned(), Vec::new())),
+            (Some((opened, body)), Some(fence)) if *opened == fence => {
+                blocks.push(body.join("\n"));
+                open = None;
+            }
+            (Some((_, body)), _) => body.push(line),
+            (None, None) => {}
+        }
+    }
+    if blocks.is_empty() {
+        blocks = markdown
+            .split("\n\n")
+            .map(|paragraph| paragraph.trim().to_owned())
+            .collect();
+    }
+    blocks
+        .into_iter()
+        .map(|block| block.trim().to_owned())
+        .find(|block| !block.is_empty() && !is_path(block))
+}
+
+/// What a signature declares, as a chip for the lists' colours and a label: the
+/// first declaring keyword of the usual C-family spellings. A function that
+/// takes `self`/`this` or sits under an `impl` line is a method.
+pub fn kind_of(signature: &str) -> Option<(&'static str, &'static str)> {
+    let words: Vec<&str> = signature
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|word| !word.is_empty())
+        .collect();
+    let has = |names: &[&str]| words.iter().any(|word| names.contains(word));
+    if has(&["fn", "function", "def", "func"]) {
+        let method = has(&["impl", "self", "this"]) || has(&["method"]);
+        return Some(if method { ("m", "METHOD") } else { ("fn", "FUNCTION") });
+    }
+    let first = words.iter().find_map(|word| match *word {
+        "struct" => Some(("S", "STRUCT")),
+        "enum" => Some(("E", "ENUM")),
+        "trait" | "interface" | "protocol" => Some(("I", "TRAIT")),
+        "class" => Some(("C", "CLASS")),
+        "mod" | "module" | "namespace" => Some(("{}", "MODULE")),
+        "type" | "typedef" | "typealias" => Some(("T", "TYPE")),
+        "macro_rules" | "macro" => Some(("fn", "MACRO")),
+        "const" | "static" => Some(("c", "CONSTANT")),
+        "let" | "var" | "val" => Some(("v", "VARIABLE")),
+        _ => None,
+    });
+    // A field or local: `name: Type` with no declaring keyword.
+    first.or_else(|| signature.contains(':').then_some(("f", "FIELD")))
+}
+
+/// A footer button of the card: look the word up where it is defined or used.
+pub fn run(
+    state: &AppContext,
+    action: crate::ui::editor_binding::HoverAction,
+    rect: lgui::prelude::UiRect,
+) {
+    use crate::ui::editor_binding::HoverAction;
+    let mut found = false;
+    state.update(|app| {
+        let at = app
+            .editor
+            .language
+            .hover
+            .card
+            .as_ref()
+            .map(|card| card.rest.word.start + (card.rest.word.end - card.rest.word.start) / 2);
+        clear(app);
+        if let Some(offset) = at
+            && let Some(mut editor) = app.workspace.active_editor_mut()
+        {
+            editor.set_cursor(offset);
+            found = true;
+        }
+    });
+    if !found {
+        return;
+    }
+    let wanted = match action {
+        HoverAction::Definition => super::actions::Wanted::Goto(Feature::Definition),
+        HoverAction::References => super::actions::Wanted::References,
+    };
+    super::actions::begin(state, wanted, rect, None);
 }
 
 /// Asks about the cursor position at once (the keyboard form of hovering).
@@ -311,6 +436,36 @@ pub fn show_at_cursor(state: &AppContext) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_signature_says_what_it_declares() {
+        let kind = |text| kind_of(text).map(|(_, label)| label);
+        assert_eq!(kind("impl<T> Option<T>
+pub const fn filter(self) -> Self"), Some("METHOD"));
+        assert_eq!(kind("pub fn new() -> Self"), Some("FUNCTION"));
+        assert_eq!(kind("pub struct Entry { }"), Some("STRUCT"));
+        assert_eq!(kind("const EMPTY: u8 = 0"), Some("CONSTANT"));
+        assert_eq!(kind("in_partial: bool"), Some("FIELD"));
+        assert_eq!(kind("plain words"), None);
+    }
+
+    #[test]
+    fn the_signature_skips_a_module_path() {
+        let text = "```rust\nstd::path::Path\n```\n\n```rust\npub fn is_absolute(&self) -> bool\n```\n\nDocs.";
+        assert_eq!(
+            signature(text).as_deref(),
+            Some("pub fn is_absolute(&self) -> bool")
+        );
+        assert_eq!(
+            signature("int f(void)\n\nDocs").as_deref(),
+            Some("int f(void)")
+        );
+        assert_eq!(
+            signature("a::b::C\n\nlive: u16").as_deref(),
+            Some("live: u16")
+        );
+        assert_eq!(signature("  "), None);
+    }
 
     #[test]
     fn the_word_under_an_offset_includes_its_edges() {

@@ -377,6 +377,9 @@ pub(crate) fn binding(
                     .card_for(pane, &document.stamp)
                     .map(|card| crate::ui::editor_binding::HoverView {
                         anchor: card.anchor.clone(),
+                        name: card.name.clone(),
+                        kind: card.kind,
+                        server: card.server.clone(),
                         docs: card.documentation.clone().into(),
                     });
             }
@@ -429,12 +432,6 @@ pub(crate) fn binding(
                         slots.insert(1);
                         hover.docs =
                             service.bind_card(document.id, generation, 1, hover.docs.clone());
-                    }
-                    if let Some(popup) = view.popup.as_mut() {
-                        if let Some(docs) = popup.docs.take() {
-                            slots.insert(2);
-                            popup.docs = Some(service.bind_card(document.id, generation, 2, docs));
-                        }
                     }
                     if let Some((_, signature)) = view.signature.as_mut() {
                         if let Some(docs) = signature.docs.take() {
@@ -608,6 +605,28 @@ pub(crate) fn binding(
                     app.editor.language.signature_selection = next;
                     changed
                 });
+                return;
+            }
+            if let Event::HoverCopy(clipboard) = event {
+                let text = dispatcher
+                    .get()
+                    .editor
+                    .language
+                    .hover
+                    .card
+                    .as_ref()
+                    .and_then(|card| {
+                        super::language_ui::hover::signature(&card.documentation.text)
+                    });
+                if let Some(text) = text
+                    && let Err(error) = clipboard.write_text(&text)
+                {
+                    dispatcher.update(|app| app.show_error(format!("Clipboard: {error}")));
+                }
+                return;
+            }
+            if let Event::HoverAction(action) = event {
+                super::language_ui::hover::run(&dispatcher, action, rect);
                 return;
             }
             if let Event::OpenLink(url) = event {
@@ -881,6 +900,8 @@ pub(crate) fn dispatch(app: &mut AppState, pane: PaneId, rect: UiRect, event: Ev
         | Event::PeekClose { .. }
         | Event::DiagnosticLink(_)
         | Event::OpenLink(_)
+        | Event::HoverAction(_)
+        | Event::HoverCopy(_)
         | Event::HoverSelect(_)
         | Event::SignatureSelect { .. }
         | Event::HoverPress(_) => {

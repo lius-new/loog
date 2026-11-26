@@ -48,9 +48,6 @@ pub struct LanguageUi {
     pub navigation_revision: u64,
     /// The list open over the code, if any.
     pub popup: Option<popup::Popup>,
-    /// Text selected in the documentation beside the list, with the row whose
-    /// documentation it came from.
-    pub docs_selection: Option<(usize, String)>,
     /// Text selected in signature help, with the revision it came from.
     pub signature_selection: Option<(u64, String)>,
     /// A question whose answer the person is waiting for.
@@ -94,7 +91,6 @@ impl LanguageUi {
     /// Closes what is open and drops what is awaited.
     pub fn close_popups(&mut self) {
         self.popup = None;
-        self.docs_selection = None;
         self.pending = None;
         self.refactor = None;
         self.lists = None;
@@ -115,36 +111,18 @@ pub(crate) fn open_link(state: &AppContext, url: String) {
     }
 }
 
-/// The text selected in a card over the code, if there is one: in the list's
-/// documentation (while it is still the row shown), a hover card or signature help.
+/// The text selected in a card over the code, if there is one: in a hover card
+/// or signature help.
 pub(crate) fn selected_text(app: &AppState) -> Option<String> {
-    app.editor
-        .language
-        .hover
-        .selection
-        .clone()
-        .or_else(|| docs_selection(app))
-        .or_else(|| {
-            let (revision, text) = app.editor.language.signature_selection.as_ref()?;
-            app.editor
-                .language
-                .signature
-                .as_ref()
-                .is_some_and(|session| session.revision == *revision)
-                .then(|| text.clone())
-        })
-}
-
-/// The text selected in the list's documentation, if it is still the row shown.
-pub(crate) fn docs_selection(app: &AppState) -> Option<String> {
-    let language = &app.editor.language;
-    let (row, text) = language.docs_selection.as_ref()?;
-    let selected = if completion_visible(app) {
-        language.completion.as_ref()?.selected
-    } else {
-        language.popup.as_ref()?.selected
-    };
-    (*row == selected).then(|| text.clone())
+    app.editor.language.hover.selection.clone().or_else(|| {
+        let (revision, text) = app.editor.language.signature_selection.as_ref()?;
+        app.editor
+            .language
+            .signature
+            .as_ref()
+            .is_some_and(|session| session.revision == *revision)
+            .then(|| text.clone())
+    })
 }
 
 /// The document a view shows, as the servers need to be told about it.
@@ -244,7 +222,6 @@ pub(crate) fn observe(ctx: &AppContext, app: &mut AppState) {
         language.snippet = None;
         if language.popup.as_ref().is_some_and(|p| !p.kind.is_panel()) {
             language.popup = None;
-            language.docs_selection = None;
         }
     }
     language.interaction_view = owner;
@@ -371,24 +348,6 @@ pub(crate) fn popup_event(
     rect: lgui::prelude::UiRect,
 ) {
     use crate::ui::editor::popup::Event;
-    if let Event::OpenLink(url) = event {
-        open_link(state, url);
-        return;
-    }
-    if let Event::Select(text) = event {
-        state.try_update(|app| {
-            let selected = if completion_visible(app) {
-                app.editor.language.completion.as_ref().map(|s| s.selected)
-            } else {
-                app.editor.language.popup.as_ref().map(|p| p.selected)
-            };
-            let next = selected.zip(text);
-            let changed = app.editor.language.docs_selection != next;
-            app.editor.language.docs_selection = next;
-            changed
-        });
-        return;
-    }
     let mut completing = false;
     state.try_update(|app| {
         completing = completion_visible(app);
@@ -396,7 +355,6 @@ pub(crate) fn popup_event(
     });
     if completing {
         match event {
-            Event::Select(_) | Event::OpenLink(_) => {}
             Event::Focus => {}
             Event::Hover(index) => {
                 state.update(|app| {
@@ -429,7 +387,6 @@ pub(crate) fn popup_event(
         }
     });
     match event {
-        Event::Select(_) | Event::OpenLink(_) => {}
         Event::Focus => state.update(|app| {
             if let Some(popup) = app.editor.language.popup.as_mut() {
                 popup.panel_focused = true;

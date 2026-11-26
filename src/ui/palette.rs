@@ -142,7 +142,7 @@ impl Binding {
 }
 
 /// `a` with `amount` (0..=1) of `b` mixed in.
-fn mix(a: Color, b: Color, amount: f32) -> Color {
+pub(crate) fn mix(a: Color, b: Color, amount: f32) -> Color {
     let channel = |shift: u32| {
         let from = ((a.0 >> shift) & 0xff) as f32;
         let to = ((b.0 >> shift) & 0xff) as f32;

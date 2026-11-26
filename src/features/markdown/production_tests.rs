@@ -415,7 +415,7 @@ fn oversized_cells_and_tight_items_get_an_observable_fallback_without_native_wor
 }
 
 #[test]
-fn a_card_draws_code_flat_with_compact_headings_and_a_quiet_module_path() {
+fn a_card_sets_code_in_wells_with_compact_headings_and_a_quiet_module_path() {
     let hover = "```rust\nstd::process::Command\n```\n\n```rust\npub fn status(&mut self) -> io::Result<ExitStatus>\n```\n\n---\n\nExecutes a command.\n\n# Examples\n\n```rust\nlet x = 1;\n```\n";
     let lay = |card: bool| {
         layout_document(
@@ -449,17 +449,26 @@ fn a_card_draws_code_flat_with_compact_headings_and_a_quiet_module_path() {
     assert_eq!(blocks(&plain), 3);
     assert!(styles(&plain).iter().any(|style| style.heading == 1));
     assert!(styles(&plain).iter().all(|style| !style.muted));
-    // A card has no block behind its code and no heading above the smallest tier.
+    // A card has no code block with a copy button: its code sits in a plain well,
+    // and it has no heading above the smallest tier.
     assert_eq!(blocks(&card), 0);
+    let wells = |layout: &DocumentLayout| {
+        layout
+            .decorations
+            .iter()
+            .filter(|decoration| matches!(decoration, Decoration::Well { .. }))
+            .count()
+    };
+    assert_eq!((wells(&plain), wells(&card)), (0, 2), "the module path sits outside a well");
     assert!(styles(&card).iter().any(|style| style.heading == 4));
     assert!(
         styles(&card)
             .iter()
             .all(|style| style.heading == 0 || style.heading == 4)
     );
-    // Only the module path above the signature is quiet.
+    // The module path above the signature and the heading are quiet.
     let quiet = styles(&card).iter().filter(|style| style.muted).count();
-    assert_eq!(quiet, 1);
+    assert_eq!(quiet, 2);
     assert!(card.height < plain.height);
 }
 

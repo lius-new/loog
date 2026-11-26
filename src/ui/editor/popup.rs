@@ -1,23 +1,22 @@
 //! A list that opens over the code: completion items, definitions, symbols, code
 //! actions. It never takes focus from the editor; the keyboard reaches it
 //! through the keymap, the mouse through its rows.
-use super::docs;
+use super::chrome::{self, FOOTER_H};
 use super::view::card_origin;
-use crate::ui::markdown::card::Document;
 use crate::ui::theme;
 use lgui::core::{CursorIcon, EventPolicy, UiEventContext, WheelUnit, clip};
 use lgui::prelude::{Element, UiRect, VisualStyle, panel, text};
 use std::sync::Arc;
 
-pub(crate) const ROW_H: f32 = 22.0;
+pub(crate) const ROW_H: f32 = 24.0;
 const PAD: f32 = 4.0;
-const BADGE_W: f32 = 22.0;
+/// The slot of a kind chip, with the gap after it.
+const BADGE_W: f32 = 28.0;
+const CHIP_W: f32 = 20.0;
+const CHIP_H: f32 = 16.0;
 const MIN_W: f32 = 220.0;
 const MAX_W: f32 = 640.0;
 const INPUT_H: f32 = 26.0;
-const DOCS_W: f32 = 320.0;
-/// The widest the documentation grows to fit a long code line.
-const DOCS_MAX_W: f32 = 560.0;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Row {
@@ -29,6 +28,8 @@ pub(crate) struct Row {
     /// Character positions of the label to emphasise (the fuzzy match).
     pub matches: Vec<usize>,
     pub faint: bool,
+    /// A small outlined label after the name (such as "auto-import").
+    pub tag: &'static str,
 }
 
 #[derive(Clone)]
@@ -47,8 +48,8 @@ pub(crate) struct View {
     /// The offset of the text it opens beside; at the top centre, like a command
     /// palette, when there is none.
     pub anchor: Option<usize>,
-    /// Documentation of the selected row, shown beside the list.
-    pub docs: Option<Document>,
+    /// A bar under the list with the keys that work on it and the item count.
+    pub footer: bool,
 }
 
 pub(crate) enum Event {
@@ -57,13 +58,23 @@ pub(crate) enum Event {
     Pick(usize),
     Dismiss,
     Scroll(isize),
-    /// The text selected in the documentation, or `None` once cleared.
-    Select(Option<String>),
-    /// A link in the documentation was clicked.
-    OpenLink(String),
 }
 
 pub(crate) type Sender = Arc<dyn Fn(Event) + Send + Sync>;
+
+/// The hue of a kind chip, from the short kind name of the row: callables blue,
+/// types amber, values purple, keywords pink, snippets green.
+pub(crate) fn chip_tint(badge: &str) -> lgui::prelude::Color {
+    let c = theme::c();
+    match badge {
+        "fn" | "m" | "op" => lgui::prelude::Color(0x60a5fa),
+        "C" | "I" | "S" | "E" | "T" | "{}" | "ev" => c.warning,
+        "v" | "f" | "V" | "p" | "c" | "e" => lgui::prelude::Color(0xa78bfa),
+        "k" => lgui::prelude::Color(0xf472b6),
+        "sn" => lgui::prelude::Color(0x4ade80),
+        _ => c.accent,
+    }
+}
 
 /// Width in the proportional font the popup draws with, at `weight`.
 fn measure_weight(text: &str, weight: i32) -> f32 {
@@ -80,14 +91,22 @@ fn size(view: &View, area: UiRect) -> (f32, f32) {
     let widest = view
         .rows
         .iter()
-        .map(|row| BADGE_W + measure(&row.label) + 12.0 + measure(&row.detail))
+        .map(|row| {
+            let tag = if row.tag.is_empty() {
+                0.0
+            } else {
+                measure(row.tag) + 18.0
+            };
+            BADGE_W + measure(&row.label) + tag + 20.0 + measure(&row.detail)
+        })
         .fold(0.0f32, f32::max);
     let width = (widest + 2.0 * PAD + 16.0)
         .clamp(MIN_W, MAX_W)
         .min((area.width() - 8.0).max(120.0));
     let header = if view.query.is_some() { INPUT_H } else { 0.0 }
         + if view.title.is_some() { ROW_H } else { 0.0 };
-    (width, header + shown as f32 * ROW_H + 2.0 * PAD)
+    let footer = if view.footer { FOOTER_H } else { 0.0 };
+    (width, header + shown as f32 * ROW_H + 2.0 * PAD + footer)
 }
 
 /// Draws the popup and returns where it is.
@@ -123,7 +142,7 @@ pub(crate) fn render(
         ..EventPolicy::INTERACTIVE
     };
     let wheel = send.clone();
-    let mut body = theme::bordered(card, theme::c().surface, theme::c().border, 5.0, 1.0)
+    let mut body = chrome::surface(card)
         .key("language-popup")
         .event_policy(policy)
         .on_wheel(move |cx, delta| {
@@ -195,7 +214,13 @@ pub(crate) fn render(
             theme::sans(theme::c().text_muted, theme::UI_SIZE),
         ));
     }
-    let list = UiRect::new(left + PAD, y, left + width - PAD, card.bottom - PAD);
+    let footer_h = if view.footer { FOOTER_H } else { 0.0 };
+    let list = UiRect::new(
+        left + PAD,
+        y,
+        left + width - PAD,
+        card.bottom - PAD - footer_h,
+    );
     let mut rows = clip(list, 0.0, 0.0);
     for (n, row) in view
         .rows
@@ -212,15 +237,18 @@ pub(crate) fn render(
         );
         let hover = send.clone();
         let pick = send.clone();
-        let style = if n == view.selected {
-            VisualStyle::filled(theme::c().active_line).radius(3.0)
+        let selected = n == view.selected;
+        let style = if selected {
+            VisualStyle::filled(theme::c().selection).radius(5.0)
         } else {
             VisualStyle::default()
         };
         let colour = if row.faint {
             theme::c().text_faint
-        } else {
+        } else if selected {
             theme::c().text_bright
+        } else {
+            theme::c().text_soft
         };
         let mut item = panel(r, style)
             .event_policy(policy)
@@ -230,12 +258,31 @@ pub(crate) fn render(
                 pick(Event::Pick(n));
                 cx.stop_propagation();
             });
-        if !row.badge.is_empty() {
-            item = item.child(text(
-                UiRect::new(r.left + 4.0, r.top, r.left + BADGE_W, r.bottom),
-                row.badge,
-                theme::mono(theme::c().accent, theme::SMALL),
+        if selected {
+            item = item.child(panel(
+                UiRect::new(r.left + 1.0, r.top + 6.0, r.left + 3.0, r.bottom - 6.0),
+                VisualStyle::filled(theme::c().accent).radius(1.0),
             ));
+        }
+        if !row.badge.is_empty() {
+            // A chip tinted by the kind, as in the command palette's rows.
+            let tint = chip_tint(row.badge);
+            let chip = UiRect::new(
+                r.left + 6.0,
+                r.top + (ROW_H - CHIP_H) / 2.0,
+                r.left + 6.0 + CHIP_W,
+                r.top + (ROW_H + CHIP_H) / 2.0,
+            );
+            let mut style = theme::mono(tint, theme::SMALL);
+            style.align = lgui::prelude::TextAlign::Center;
+            item = item.child(
+                panel(
+                    chip,
+                    VisualStyle::filled(crate::ui::palette::mix(theme::c().surface, tint, 0.16))
+                        .radius(4.0),
+                )
+                .child(text(chip, row.badge, style)),
+            );
         }
         let label_left = r.left + BADGE_W;
         // The label in runs: the fuzzy-matched characters bold and brighter,
@@ -269,19 +316,62 @@ pub(crate) fn render(
             ));
             label_right += width;
         }
+        if !row.tag.is_empty() {
+            let w = measure(row.tag) + 10.0;
+            let tag = UiRect::new(
+                label_right + 8.0,
+                r.top + (ROW_H - 16.0) / 2.0,
+                label_right + 8.0 + w,
+                r.top + (ROW_H + 16.0) / 2.0,
+            );
+            if tag.right < r.right - 8.0 {
+                let mut style = theme::sans(theme::c().text_dim, theme::SMALL);
+                style.align = lgui::prelude::TextAlign::Center;
+                item = item.child(
+                    theme::bordered(tag, theme::c().surface, theme::c().border, 4.0, 1.0)
+                        .child(text(tag, row.tag, style)),
+                );
+                label_right = tag.right - 8.0 - 4.0;
+            }
+        }
         if !row.detail.is_empty() {
-            let x = label_right + 10.0;
-            if x < r.right {
+            // Right-aligned, so the short types line up down the list.
+            let x = label_right + 12.0;
+            if x < r.right - 8.0 {
+                let mut style = theme::sans(
+                    if selected {
+                        theme::c().text_muted
+                    } else {
+                        theme::c().text_faint
+                    },
+                    theme::SMALL,
+                );
+                style.align = lgui::prelude::TextAlign::Right;
                 item = item.child(text(
-                    UiRect::new(x, r.top, r.right - 4.0, r.bottom),
+                    UiRect::new(x, r.top, r.right - 8.0, r.bottom),
                     row.detail.clone(),
-                    theme::sans(theme::c().text_faint, theme::SMALL),
+                    style,
                 ));
             }
         }
         rows = rows.child(item);
     }
     body = body.child(rows);
+    if view.footer {
+        let count = if view.rows.len() == 1 {
+            "1 item".to_owned()
+        } else {
+            format!("{} items", view.rows.len())
+        };
+        body = chrome::Footer::new(card)
+            .icon_cap("arrow-up")
+            .icon_cap("arrow-down")
+            .word("select")
+            .cap("Tab")
+            .word("accept")
+            .note(&count)
+            .attach(body);
+    }
     if view.panel {
         body = body.on_pointer_down_with_button(|cx, _, _| cx.stop_propagation());
     }
@@ -290,55 +380,7 @@ pub(crate) fn render(
     } else {
         panel(area, VisualStyle::default()).child(body)
     };
-    let mut rect = card;
-    if let Some(blocks) = &view.docs
-        && !blocks.is_empty()
-    {
-        // Documentation beside the list, or below it when there is no room.
-        // Wide enough for the widest code line, up to a limit; text wraps at it.
-        let max_w = DOCS_MAX_W.min((area.width() - 8.0).max(DOCS_W));
-        let (layout, text_w) = docs::fit(blocks, DOCS_W - 2.0 * docs::PAD, max_w - 2.0 * docs::PAD);
-        let docs_w = text_w + 2.0 * docs::PAD;
-        let doc_h = (layout.height + 2.0 * docs::PAD).min(area.height() * 0.6);
-        let beside = card.right + 4.0 + docs_w <= area.right;
-        let docs_left = if beside { card.right + 4.0 } else { card.left };
-        let docs_top = if beside {
-            card.top
-        } else if card.bottom + 4.0 + doc_h <= area.bottom {
-            card.bottom + 4.0
-        } else {
-            (card.top - 4.0 - doc_h).max(area.top)
-        };
-        let docs_rect = UiRect::new(docs_left, docs_top, docs_left + docs_w, docs_top + doc_h);
-        let interaction = docs::Actions {
-            open_link: {
-                let send = send.clone();
-                Arc::new(move |url| send(Event::OpenLink(url)))
-            },
-            select: {
-                let send = send.clone();
-                Arc::new(move |text| send(Event::Select(text)))
-            },
-        }
-        .interaction();
-        out = out.child(
-            theme::bordered(docs_rect, theme::c().surface, theme::c().border, 5.0, 1.0)
-                .key("language-popup-docs")
-                .child(clip(docs_rect, 0.0, 0.0).child(docs::render(
-                    &layout,
-                    docs_rect.left + docs::PAD,
-                    docs_rect.top + docs::PAD,
-                    Some(&interaction),
-                    (doc_h - 2.0 * docs::PAD).max(1.0),
-                ))),
-        );
-        rect = UiRect::new(
-            card.left.min(docs_rect.left),
-            card.top.min(docs_rect.top),
-            card.right.max(docs_rect.right),
-            card.bottom.max(docs_rect.bottom),
-        );
-    }
+    let rect = card;
     // A press outside the popup dismisses it.
     let dismiss = send;
     if !view.panel {
@@ -367,6 +409,7 @@ mod tests {
                 badge: "f",
                 matches: Vec::new(),
                 faint: false,
+                tag: "",
             })
             .collect::<Vec<_>>()
             .into()
@@ -383,7 +426,7 @@ mod tests {
             title: None,
             empty: "none".into(),
             anchor: None,
-            docs: None,
+            footer: false,
         }
     }
 
@@ -419,6 +462,7 @@ mod tests {
             badge: "",
             matches: Vec::new(),
             faint: false,
+            tag: "",
         }]
         .into();
         let (wide, _) = size(&v, UiRect::new(0.0, 0.0, 2000.0, 600.0));

@@ -496,20 +496,6 @@ pub(super) fn current_host(app: &super::state::AppState, owner: u64, card: &Card
             })
             .and_then(|stamp| app.editor.language.hover.card_for(pane, &stamp))
             .is_some_and(|hover| hover.documentation.identity == card.content.identity),
-        2 => app
-            .editor
-            .language
-            .completion
-            .as_ref()
-            .filter(|session| session.view == view.id)
-            .and_then(|session| {
-                session
-                    .shown
-                    .get(session.selected)
-                    .and_then(|shown| session.data.entries.get(shown.entry))
-            })
-            .and_then(|entry| entry.documentation.as_ref())
-            .is_some_and(|doc| doc.identity == card.content.identity),
         3 => app
             .editor
             .language
@@ -592,12 +578,6 @@ impl MarkdownService {
         if effect.selection_changed {
             self.context.update(|app| match owner % 16 {
                 1 => app.editor.language.hover.selection = effect.selected,
-                2 => {
-                    if let Some(session) = app.editor.language.completion.as_ref() {
-                        app.editor.language.docs_selection =
-                            effect.selected.map(|text| (session.selected, text));
-                    }
-                }
                 3 => {
                     if let Some(session) = app.editor.language.signature.as_ref() {
                         app.editor.language.signature_selection =

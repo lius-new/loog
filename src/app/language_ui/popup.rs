@@ -270,6 +270,7 @@ impl Popup {
                         },
                         matches: hits.clone(),
                         faint: item.faint,
+                        tag: "",
                     })
                 })
                 .collect::<Vec<_>>()
@@ -281,7 +282,7 @@ impl Popup {
             title: self.title.clone(),
             empty: self.empty.clone(),
             anchor: self.anchor,
-            docs: None,
+            footer: false,
         }
     }
 

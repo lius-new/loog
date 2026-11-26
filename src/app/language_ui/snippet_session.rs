@@ -145,6 +145,7 @@ pub fn choice_view(app: &AppState, pane: PaneId) -> Option<(u64, crate::ui::edit
                     badge: "",
                     matches: Vec::new(),
                     faint: false,
+                    tag: "",
                 })
                 .collect::<Vec<_>>()
                 .into(),
@@ -155,7 +156,7 @@ pub fn choice_view(app: &AppState, pane: PaneId) -> Option<(u64, crate::ui::edit
             title: Some("Choose a snippet value".into()),
             empty: String::new(),
             anchor: stop.ranges.first().map(|r| r.start),
-            docs: None,
+            footer: false,
         },
     ))
 }
@@ -214,7 +215,7 @@ pub fn choice_event(
     }
     use crate::ui::editor::popup::Event;
     match event {
-        Event::Focus | Event::Select(_) | Event::OpenLink(_) => {}
+        Event::Focus => {}
         Event::Dismiss => dismiss_choices(app),
         Event::Hover(index) | Event::Pick(index) => {
             let session = app.editor.language.snippet.as_mut().unwrap();

@@ -5339,3 +5339,97 @@ fn the_active_block_is_a_band_on_the_overview_ruler() {
         "starts at line 2 and spans eight lines: top {top}, height {height}"
     );
 }
+
+impl LanguageHarness {
+    /// Rasterises the current frame to `<dir>/<name>.png` with the software surface.
+    fn save_png(&self, dir: &std::ffi::OsStr, name: &str) {
+        self.save_png_scaled(dir, name, lgui::core::UiScale::ONE);
+    }
+
+    /// As `save_png`, at a display scale such as 1.25.
+    fn save_png_scaled(&self, dir: &std::ffi::OsStr, name: &str, scale: lgui::core::UiScale) {
+        use lgui::core::PhysicalRect;
+        use lgui::renderer::{FrameInfo, FrameReason};
+        let physical = PhysicalRect::new(
+            0,
+            0,
+            scale.physical_value(self.rect.width()),
+            scale.physical_value(self.rect.height()),
+        );
+        let dirty = [physical];
+        let frame = FrameInfo::new(
+            physical,
+            &dirty,
+            scale,
+            FrameReason::SceneChange,
+            true,
+        );
+        let mut surface = lgui::render_skia::SkiaSoftwareSurface::new(16 * 1024 * 1024);
+        lgui::assets::backend::with_render_resources(
+            &self.context,
+            lgui::assets::backend::render_resources(),
+            || {
+                surface.draw(
+                    &self
+                        .session
+                        .tree()
+                        .scene()
+                        .project_to_physical(scale),
+                    &frame,
+                )
+            },
+        )
+        .unwrap();
+        let mut rgba = surface.pixels().to_vec();
+        for pixel in rgba.as_chunks_mut::<4>().0 {
+            pixel.swap(0, 2);
+        }
+        image::save_buffer(
+            std::path::Path::new(dir).join(format!("{name}.png")),
+            &rgba,
+            physical.width() as u32,
+            physical.height() as u32,
+            image::ColorType::Rgba8,
+        )
+        .unwrap();
+    }
+}
+
+/// Draws a hover card holding a typical Rust documentation reply to a PNG:
+/// `LOOG_HOVER_PREVIEW_DIR=<dir> cargo test -p loog hover_card_preview -- --ignored`.
+#[test]
+#[ignore = "writes a PNG for looking at the card; needs LOOG_HOVER_PREVIEW_DIR"]
+fn hover_card_preview() {
+    let dir = std::env::var_os("LOOG_HOVER_PREVIEW_DIR").expect("LOOG_HOVER_PREVIEW_DIR");
+    let mut h = LanguageHarness::new(
+        "fn alpha() {}\n\n\n\nlast line\n",
+        &["--features", "hover", "--diagnostics"],
+    );
+    h.until_ready();
+    let (x, y) = h.point_at(0, 1);
+    h.move_to(x, y);
+    h.until("the hover card", |h| h.has_text("0:1"));
+    h.state.update(|app| {
+        if let Some(card) = app.editor.language.hover.card.as_mut() {
+            card.documentation = crate::features::markdown::content::Markup::markdown(
+                "```rust\ncore::option::Option\n```\n\n```rust\nimpl<T> Option<T>\npub const fn filter<P>(self, predicate: P) -> Self\n  where P: FnOnce(&T) -> bool\n```\n\n---\n\n\
+                 Returns `None` if the option is `None`; otherwise calls `predicate` with the wrapped value and returns:\n\n\
+                 **Some(t)** — if predicate returns `true`;  \n**None** — if predicate returns `false`.\n\n\
+                 Similar to `Iterator::filter`.\n\n\
+                 # Examples\n\n```rust\nfn is_even(n: &i32) -> bool { n % 2 == 0 }\nassert_eq!(Some(4).filter(is_even), Some(4));\n```\n",
+            );
+            card.kind = crate::app::language_ui::hover::signature(&card.documentation.text)
+                .and_then(|signature| crate::app::language_ui::hover::kind_of(&signature));
+        }
+    });
+    // The Markdown is laid out off the UI thread: render until the card is drawn.
+    for _ in 0..80 {
+        h.render();
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+    h.save_png(&dir, "hover-card");
+    // The same card on a 125% display, where the edges fall between pixels.
+    let scale = lgui::core::UiScale::new(1.25);
+    h.session.render_view(&h.view, h.rect, scale);
+    h.save_png_scaled(&dir, "hover-card-125", scale);
+}
