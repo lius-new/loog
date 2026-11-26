@@ -829,7 +829,8 @@ pub(crate) fn commit_input(
     focus: UiFocusHandle,
     id: UiId,
 ) -> Element {
-    let placeholder = if state.get().ui.commit_amend {
+    let app = state.get();
+    let placeholder = if app.ui.commit_amend {
         "Amend message (empty keeps it)"
     } else {
         "Write a commit message…"
@@ -856,7 +857,8 @@ pub(crate) fn commit_input(
             on_cancel: None,
             on_blur: None,
         },
-        true,
+        // Center the idle line; focus or content restores multiline editing immediately.
+        commit_expanded(&app.ui),
     )
 }
 
