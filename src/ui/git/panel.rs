@@ -3055,9 +3055,26 @@ fn render_commit_changes(
     );
     let guides = TreeGuides::new(list, scroll, rect.left + 14.0, TREE_INDENT);
     let mut content: Vec<Element> = Vec::new();
+    let mut hover_targets = Vec::new();
     for index in visible.clone() {
         let row_y = rows_top + index as f32 * CHANGE_ROW_H;
         let row_rect = UiRect::new(rect.left, row_y, rect.right, row_y + CHANGE_ROW_H);
+        let hover = match &rows[index] {
+            OwnedChangeRow::Folder { path, .. } => GitHover::Folder(COMMIT_CHANGES, path.clone()),
+            OwnedChangeRow::File { path, .. } => {
+                GitHover::CommitFile(view.revision.clone(), path.clone())
+            }
+        };
+        let hovered = app.ui.hover.as_ref() == Some(&hover);
+        hover_targets.push((
+            UiRect::new(
+                row_rect.left,
+                row_rect.top - scroll,
+                row_rect.right,
+                row_rect.bottom - scroll,
+            ),
+            hover,
+        ));
         match &rows[index] {
             OwnedChangeRow::Folder {
                 path,
@@ -3074,7 +3091,7 @@ fn render_commit_changes(
                 *depth,
                 *expanded,
                 files.clone(),
-                false,
+                hovered,
                 false,
                 &state,
                 &store,
@@ -3084,6 +3101,7 @@ fn render_commit_changes(
                 path.clone(),
                 *depth,
                 kinds.get(path).copied().unwrap_or(ChangeKind::Modified),
+                hovered,
                 &view,
                 &state,
             )),
@@ -3112,6 +3130,10 @@ fn render_commit_changes(
                 continue;
             };
             let row_rect = UiRect::new(rect.left, top, rect.right, top + CHANGE_ROW_H);
+            let hover = GitHover::Folder(COMMIT_CHANGES, path.clone());
+            let hovered = app.ui.hover.as_ref() == Some(&hover);
+            // Match the pinned layers below: parents paint last, above their children.
+            hover_targets.insert(hover_targets.len() - sticky.len(), (row_rect, hover));
             sticky.insert(
                 0,
                 panel(row_rect, VisualStyle::filled(c.sidebar)).child(folder_row(
@@ -3123,7 +3145,7 @@ fn render_commit_changes(
                     *depth,
                     *expanded,
                     files.clone(),
-                    false,
+                    hovered,
                     true,
                     &state,
                     &store,
@@ -3137,8 +3159,21 @@ fn render_commit_changes(
             let region = list
                 .contains(pointer.point)
                 .then_some(ScrollRegion::CommitChanges);
+            let next = if list.contains(pointer.point) {
+                hover_targets
+                    .iter()
+                    .rev()
+                    .find(|(rect, _)| rect.contains(pointer.point))
+                    .map(|(_, hover)| hover.clone())
+            } else {
+                None
+            };
             hover_state.try_update(|app| {
-                let changed = app.ui.scroll_hover != region;
+                let changed = app.ui.hover != next || app.ui.scroll_hover != region;
+                if app.ui.hover != next {
+                    app.ui.clear_hover_cards();
+                }
+                app.ui.hover = next;
                 app.ui.scroll_hover = region;
                 changed
             });
@@ -3236,6 +3271,7 @@ fn commit_file_row(
     path: PathBuf,
     depth: usize,
     kind: ChangeKind,
+    hovered: bool,
     view: &crate::ui::git::commands::CommitChangesView,
     state: &Binding,
 ) -> Element {
@@ -3245,7 +3281,7 @@ fn commit_file_row(
     let (pane, root) = (view.pane, view.root.clone());
     let click_path = path.clone();
     Element::new(move |cx| {
-        let style = if cx.context.interaction_flags(&cx.id).hovered {
+        let style = if hovered {
             VisualStyle::filled(theme::c().surface)
         } else {
             VisualStyle::default()

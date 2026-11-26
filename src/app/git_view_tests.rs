@@ -828,6 +828,137 @@ mod panel_virtualization_tests {
     }
 
     #[test]
+    fn commit_changes_hover_follows_rows_in_list_and_tree_after_scrolling() {
+        use crate::ui::git::commands::{Binding, CommitChangesView, Frame};
+        use crate::ui::git::state::GitPanelState;
+        use lgui::application::{AppView, ApplicationContext};
+        use lgui::session::UiSession;
+        use std::sync::Mutex;
+
+        for grouped in [false, true] {
+            let viewport = UiRect::new(0.0, 0.0, 288.0, 220.0);
+            let exposed = Arc::new(Mutex::new(None));
+            let output = exposed.clone();
+            let view: AppView = Arc::new(move |cx| {
+                let state = cx.state_with(|| {
+                    let mut state = GitPanelState::default();
+                    state.ui.tree_view = grouped;
+                    state
+                });
+                *output.lock().unwrap() = Some(state.clone());
+                let store = cx.state_with(GitStoreSnapshot::default);
+                let binding = Binding::new(
+                    state.into(),
+                    || Frame {
+                        commit_changes: Some(CommitChangesView {
+                            pane: crate::domain::identity::PaneId::new(1),
+                            root: "repo".into(),
+                            revision: "abc1234def".into(),
+                            files: (0..40)
+                                .map(|index| {
+                                    (
+                                        format!("src/file{index:02}.rs").into(),
+                                        ChangeKind::Modified,
+                                    )
+                                })
+                                .collect(),
+                        }),
+                        ..Default::default()
+                    },
+                    |_| true,
+                );
+                render(
+                    viewport,
+                    binding,
+                    store.into(),
+                    cx.focus_handle(UiId::new("commit-hover-editor")),
+                    cx.focus_handle(UiId::new("commit-hover-message")),
+                    UiId::new("commit-hover-message"),
+                )
+            });
+            let context = ApplicationContext::empty(Default::default());
+            let mut session = UiSession::new();
+            session.render_view(&view, viewport, UiScale::ONE);
+            let send = |session: &mut UiSession, point| {
+                dispatch_runtime_output(
+                    session.handle_input(InputEvent::PointerMove(PointerData::mouse(point))),
+                    &context,
+                    &lgui::window::WindowId::new("commit-hover-test"),
+                    |action| session.handle_default_action(action),
+                    |_| {},
+                );
+                session.runtime().run_effects();
+                let updates = session.apply_pending_updates();
+                assert!(
+                    !updates.dirty_ids.is_empty() || updates.frame_requested,
+                    "changing the hovered row must request a frame, grouped={grouped}"
+                );
+                session.render_view(&view, viewport, UiScale::ONE);
+            };
+            let assert_hover = |session: &UiSession, expected: Option<&str>| {
+                let mut highlighted = session
+                    .tree()
+                    .nodes()
+                    .iter()
+                    .filter(|node| {
+                        node.style.fill == Some(theme::c().surface)
+                            && node
+                                .semantics
+                                .as_ref()
+                                .is_some_and(|s| s.role == SemanticRole::Button)
+                    })
+                    .filter_map(|node| node.semantics.as_ref().and_then(|s| s.name.as_deref()))
+                    .collect::<Vec<_>>();
+                highlighted.sort_unstable();
+                highlighted.dedup();
+                assert_eq!(
+                    highlighted,
+                    expected.into_iter().collect::<Vec<_>>(),
+                    "grouped={grouped}"
+                );
+            };
+            for label in [
+                "Show src/file00.rs",
+                "Show src/file01.rs",
+                "Show src/file00.rs",
+                "Show src/file02.rs",
+            ] {
+                let point = center(named(&session, label).unwrap());
+                send(&mut session, point);
+                assert_hover(&session, Some(label));
+            }
+            if grouped {
+                let point = center(named(&session, "src folder").unwrap());
+                send(&mut session, point);
+                assert_hover(&session, Some("src folder"));
+            }
+            send(&mut session, Point::new(100.0, 16.0));
+            assert_hover(&session, None);
+            let state = exposed.lock().unwrap().clone().unwrap();
+            state.update(|state| state.ui.commit_view_scroll = 6.0 * CHANGE_ROW_H);
+            session.render_view(&view, viewport, UiScale::ONE);
+            for label in [
+                "Show src/file06.rs",
+                "Show src/file07.rs",
+                "Show src/file06.rs",
+            ] {
+                let point = center(named(&session, label).unwrap());
+                assert!(viewport.contains(point));
+                send(&mut session, point);
+                assert_hover(&session, Some(label));
+            }
+            if grouped {
+                let pinned_y =
+                    named(&session, "Commit changes").unwrap().bottom + CHANGE_ROW_H / 2.0;
+                send(&mut session, Point::new(100.0, pinned_y));
+                assert_hover(&session, Some("src folder"));
+            }
+            send(&mut session, Point::new(100.0, 16.0));
+            assert_hover(&session, None);
+        }
+    }
+
+    #[test]
     fn a_commit_on_screen_turns_the_panel_into_its_read_only_file_list() {
         use crate::ui::git::commands::{Binding, Command, CommitChangesView, Frame};
         use crate::ui::git::state::GitPanelState;
