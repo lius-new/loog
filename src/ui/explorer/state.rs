@@ -20,6 +20,8 @@ pub struct ExplorerReveal {
 #[derive(Clone, Default)]
 pub struct ExplorerUiState {
     pub reveal: Option<ExplorerReveal>,
+    /// Row selected by first-letter navigation, independent of the open editor.
+    pub keyboard_selection: Option<String>,
     /// Pointer is over the file drawer (shows its scrollbars).
     pub hovered: bool,
 

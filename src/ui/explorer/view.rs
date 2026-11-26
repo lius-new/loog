@@ -159,13 +159,22 @@ pub fn render(
     commands: Commands,
     header: Element,
     input: EditInput,
+    tree_focus: lgui::core::UiFocusHandle,
 ) -> Element {
     let s = state.get();
     let tips = std::cell::RefCell::new(Vec::new());
     let header_rect = UiRect::new(rect.left, rect.top, rect.right, rect.top + HEADER_H);
     let content_rect = UiRect::new(rect.left, header_rect.bottom, rect.right, rect.bottom);
 
-    let mut bar = panel(rect, VisualStyle::filled(theme::c().sidebar));
+    let mut bar = Element::new(move |cx| {
+        UiElement::panel(
+            UiId::new("explorer-tree"),
+            rect,
+            VisualStyle::filled(theme::c().sidebar),
+        )
+        .children(cx.children)
+    })
+    .event_policy(EventPolicy::INTERACTIVE);
 
     // Background right-click capture: covers the drawer at the lowest z-order.
     // Rows and the resize handle are drawn later and sit above it, so they win
@@ -371,10 +380,18 @@ pub fn render(
         bar = bar.child(handle);
     }
 
-    bar.child(path_tooltips(
+    let bar = bar.child(path_tooltips(
         tips.into_inner(),
         s.ui.menu.is_none() && s.ui.resource_menu.is_none() && !frame.resizing,
-    ))
+    ));
+    super::navigation::attach(
+        bar,
+        content_rect,
+        state,
+        commands,
+        tree_focus,
+        frame.active_resource.cloned(),
+    )
 }
 
 fn resized_sidebar_width(window_right: f32, pointer_x: f32) -> f32 {

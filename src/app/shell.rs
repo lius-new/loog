@@ -1582,6 +1582,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         editor_focus: editor_focus.clone(),
         terminal_tabs: terminal_tabs.clone(),
         hover: explorer_hover.clone(),
+        tree_focus: cx.focus_handle(UiId::new("explorer-tree")),
     };
     if show_drawer {
         if s.drawer.mode == crate::ui::drawer::DrawerMode::Search {

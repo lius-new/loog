@@ -31,6 +31,7 @@ pub(crate) struct Services {
     pub editor_focus: UiFocusHandle,
     pub terminal_tabs: crate::app::terminal_binding::TerminalStore,
     pub hover: crate::ui::explorer::state::RowHover,
+    pub tree_focus: UiFocusHandle,
 }
 
 fn projection(state: &AppContext) -> StateAccess<ExplorerPanelState> {
@@ -120,6 +121,7 @@ pub(crate) fn render(
         commands(state, services),
         header,
         input,
+        services.tree_focus.clone(),
     )
 }
 
@@ -986,6 +988,7 @@ mod tests {
                 editor_focus: cx.focus_handle(UiId::new("editor")),
                 terminal_tabs: tabs,
                 hover: cx.signal(None),
+                tree_focus: cx.focus_handle(UiId::new("explorer-tree")),
             };
             let drawer = render(
                 UiRect::new(500.0, 0.0, 800.0, 600.0),
@@ -1242,6 +1245,122 @@ mod tests {
                 "hint must follow the hovered row vertically"
             );
         }
+    }
+
+    #[test]
+    fn first_letters_select_reveal_and_cycle_without_opening_files() {
+        use lgui::core::{
+            InputEvent, KeyModifiers, KeyState, KeyboardEvent, LogicalKey, NamedKey, Point,
+            PointerButton, PointerData,
+        };
+        let mut names = (0..80)
+            .map(|i| format!("alpha-{i:02}.rs"))
+            .collect::<Vec<_>>();
+        names.push("zulu.rs".into());
+        names.push("folder/readme.rs".into());
+        let files = names.iter().map(String::as_str).collect::<Vec<_>>();
+        let (root, app) = workspace("explorer-initials", &files);
+        let mut h = harness(app);
+        let key = |value: &str, modifiers| {
+            InputEvent::Keyboard(KeyboardEvent {
+                state: KeyState::Down,
+                key: LogicalKey::Character(value.into()),
+                modifiers,
+                ..Default::default()
+            })
+        };
+        let send = |h: &mut Harness, input| {
+            let output = h.session.handle_input(input);
+            lgui::core::dispatch_runtime_output(
+                output,
+                &h.services.application,
+                &lgui::window::WindowId::new("explorer-initials-test"),
+                |action| h.session.handle_default_action(action),
+                |_| {},
+            );
+            h.render();
+        };
+        // Clicking a folder gives the tree focus without opening a document.
+        send(
+            &mut h,
+            InputEvent::PointerDown {
+                pointer: PointerData::mouse(Point::new(550.0, crate::ui::theme::TABS_H + 30.0)),
+                button: PointerButton::Left,
+            },
+        );
+        send(
+            &mut h,
+            InputEvent::PointerUp {
+                pointer: PointerData::mouse(Point::new(550.0, crate::ui::theme::TABS_H + 30.0)),
+                button: PointerButton::Left,
+            },
+        );
+        h.render();
+        send(&mut h, key("z", KeyModifiers::empty()));
+        h.render();
+        assert_eq!(
+            h.state.get().explorer.ui.keyboard_selection.as_deref(),
+            root.join("zulu.rs").to_str()
+        );
+        assert!(
+            h.state
+                .get()
+                .explorer
+                .ui
+                .reveal
+                .is_some_and(|target| target.row > 80)
+        );
+        assert!(
+            h.state.get().workspace.documents.is_empty(),
+            "navigation must not open a file"
+        );
+        let icon = h
+            .session
+            .tree()
+            .hit_for_id(&UiId::owned(format!(
+                "tree-file-icon-{}",
+                root.join("zulu.rs").display()
+            )))
+            .unwrap()
+            .rect;
+        assert!(icon.top >= crate::ui::theme::TABS_H && icon.bottom <= 600.0);
+        for (value, expected) in [("a", "alpha-00.rs"), ("A", "alpha-01.rs")] {
+            send(&mut h, key(value, KeyModifiers::empty()));
+            h.render();
+            assert_eq!(
+                h.state.get().explorer.ui.keyboard_selection.as_deref(),
+                root.join(expected).to_str()
+            );
+        }
+        let selected = h.state.get().explorer.ui.keyboard_selection.clone();
+        send(&mut h, key("a", KeyModifiers::CONTROL));
+        h.render();
+        assert_eq!(h.state.get().explorer.ui.keyboard_selection, selected);
+        h.state
+            .update(|app| app.explorer.ui.create_input.focused = true);
+        send(&mut h, key("z", KeyModifiers::empty()));
+        h.render();
+        assert_eq!(
+            h.state.get().explorer.ui.keyboard_selection,
+            selected,
+            "inline text fields keep their typing"
+        );
+        h.state
+            .update(|app| app.explorer.ui.create_input.focused = false);
+        send(
+            &mut h,
+            InputEvent::Keyboard(KeyboardEvent {
+                state: KeyState::Down,
+                key: LogicalKey::Named(NamedKey::Enter),
+                ..Default::default()
+            }),
+        );
+        h.render();
+        assert_eq!(
+            h.state.get().workspace.active_path(),
+            Some(root.join("alpha-01.rs").as_path())
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

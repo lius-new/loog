@@ -6,3 +6,5 @@ pub mod context_menu;
 mod source;
 pub mod state;
 pub mod view;
+
+mod navigation;

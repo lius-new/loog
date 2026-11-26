@@ -334,6 +334,11 @@
       "migrated_in": "R5.2",
       "from": "sidebar_hovered"
     },
+    "keyboard_selection": {
+      "owner": "ui/explorer/state",
+      "migrated_in": "Explorer initial navigation",
+      "reason": "Selected visible tree row for keyboard navigation without opening an editor"
+    },
     "selection": {
       "owner": "ui/explorer/state",
       "migrated_in": "multi-select"

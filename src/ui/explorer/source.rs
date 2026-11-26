@@ -204,6 +204,9 @@ impl Entry {
     }
 
     pub fn selected(&self, panel: &ExplorerPanelState, frame: &Frame<'_>) -> bool {
+        if let Some(key) = &panel.ui.keyboard_selection {
+            return *key == self.key;
+        }
         // The tree has one active row: an active directory takes the highlight
         // from the open file.
         if let Some(directory) = panel.ui.active_directory(frame.active_path) {
@@ -282,6 +285,24 @@ impl Entry {
                 })
             }
             (Origin::Action(command), PointerButton::Left) => Some(command.clone()),
+            _ => None,
+        }
+    }
+
+    /// Keyboard activation does not synthesize a pointer press or drag.
+    pub fn activate(&self) -> Option<Command> {
+        match &self.origin {
+            Origin::Local(_) if self.directory => Some(Command::ToggleDirectory(self.key.clone())),
+            Origin::Local(path) => Some(Command::OpenPinned(path.clone())),
+            Origin::Provided(target, _) if self.directory => Some(Command::ResourceDirectory {
+                scope: target.scope,
+                path: target.path.clone(),
+                more: false,
+            }),
+            Origin::Provided(target, Some(file)) => Some(Command::ResourceFile {
+                scope: target.scope,
+                file: file.clone(),
+            }),
             _ => None,
         }
     }
