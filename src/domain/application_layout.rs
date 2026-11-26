@@ -513,6 +513,34 @@ impl ApplicationLayout {
             .find(|(_, c, _)| c == kind)
             .map(|(_, _, r)| *r)
     }
+    /// Exchange leaf locations while identities, visibility and session ownership follow the content.
+    pub fn swap_regions(&mut self, first: RegionId, second: RegionId) -> bool {
+        if first == second {
+            return false;
+        }
+        let Some(a @ Node::Leaf { .. }) = self.root.find(first).cloned() else {
+            return false;
+        };
+        let Some(b @ Node::Leaf { .. }) = self.root.find(second).cloned() else {
+            return false;
+        };
+        fn exchange(node: &mut Node, a: &Node, b: &Node) {
+            if node.id() == a.id() {
+                *node = b.clone();
+            } else if node.id() == b.id() {
+                *node = a.clone();
+            } else if let Node::Split { children, .. } = node {
+                for child in children {
+                    exchange(child, a, b);
+                }
+            }
+        }
+        exchange(&mut self.root, &a, &b);
+        self.maximized = None;
+        self.version += 1;
+        true
+    }
+
     fn wrap(&mut self, target: RegionId, direction: Direction, leaf: Node) -> Option<RegionId> {
         let split = self.alloc();
         let node = self.root.find_mut(target)?;
@@ -997,6 +1025,39 @@ mod tests {
         layout.sync(&[(10, 10), (11, 11)], Some(10));
         (layout, rect)
     }
+    #[test]
+    fn swapping_regions_preserves_identities_hidden_masks_and_terminal_ownership() {
+        let (mut layout, rect) = setup();
+        layout.set_region_visible(1, false);
+        let before = layout.clone();
+        let original = layout.overview(rect);
+        assert!(!layout.swap_regions(1, 1));
+        assert!(!layout.swap_regions(1, 999));
+        assert!(!layout.swap_regions(1, 5));
+        assert_eq!(layout, before);
+        assert!(layout.swap_regions(1, 4));
+        assert_eq!(layout.sizes, before.sizes);
+        assert_eq!(
+            layout.default_terminal_region(),
+            before.default_terminal_region()
+        );
+        assert_eq!(layout.terminal_region(10), before.terminal_region(10));
+        assert_eq!(layout.terminal_view(4), before.terminal_view(4));
+        assert!(!layout.region_visible(1, V));
+        let swapped = layout.overview(rect);
+        assert_eq!(
+            layout.content_rect(&swapped, &Content::Editor),
+            original
+                .regions
+                .iter()
+                .find(|(id, _, _)| *id == 4)
+                .map(|(_, _, rect)| *rect)
+        );
+        assert!(layout.swap_regions(1, 4));
+        assert_eq!(layout.root, before.root);
+        assert_eq!(layout.sizes, before.sizes);
+    }
+
     #[test]
     fn default_dock_stays_between_full_height_drawers_as_visibility_changes() {
         for width in [1200.0, 500.0] {

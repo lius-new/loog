@@ -1,10 +1,12 @@
 //! Spatial visibility controls; geometry and commands arrive through a narrow port.
 use crate::ui::theme;
+mod motion;
 use lgui::core::{
-    AnimProperty, AnimationBinding, EventPolicy, IconStyle, LogicalKey, NamedKey, Point,
-    SemanticRole, Semantics, Stroke, UiElement, UiEventKind, UiEventPayload, UiId,
+    AnimProperty, AnimationBinding, Color, CursorIcon, EventPolicy, IconStyle, LogicalKey,
+    NamedKey, Observable, Point, PointerButton, SemanticRole, Semantics, ShadowStyle, Signal,
+    Stroke, UiElement, UiEventKind, UiEventPayload, UiId,
 };
-use lgui::prelude::{Element, UiRect, VisualStyle, group};
+use lgui::prelude::{Element, UiRect, VisualStyle, component, group, text};
 use std::sync::Arc;
 
 // Native windows schedule hover redraws through animation bindings. The visuals
@@ -20,21 +22,40 @@ pub(crate) struct Region {
     pub label: String,
 }
 #[derive(Clone)]
+pub(crate) struct Drag {
+    pub region: u64,
+    pub origin: UiRect,
+    pub pressed: Point,
+}
+
+#[derive(Clone)]
 pub(crate) struct Frame {
     pub open: bool,
     pub source: UiRect,
     pub regions: Vec<Region>,
+    pub drag: Option<Drag>,
 }
 #[derive(Clone, Copy)]
 pub(crate) enum Command {
     Open,
     Close,
     Toggle(u64),
+    Begin {
+        region: u64,
+        point: Point,
+        area: UiRect,
+    },
+    Move(Point),
+    Release(Point),
+    Cancel,
 }
 #[derive(Clone)]
 pub(crate) struct Binding {
     read: Arc<dyn Fn() -> Frame + Send + Sync>,
     run: Arc<dyn Fn(Command) + Send + Sync>,
+    changes: Option<Observable<u64>>,
+    pointer: Option<Signal<Point>>,
+    active: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 }
 impl Binding {
     pub fn new(
@@ -44,7 +65,24 @@ impl Binding {
         Self {
             read: Arc::new(read),
             run: Arc::new(run),
+            changes: None,
+            pointer: None,
+            active: None,
         }
+    }
+    pub fn with_drag(
+        mut self,
+        changes: Observable<u64>,
+        pointer: Option<Signal<Point>>,
+        active: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.changes = Some(changes);
+        self.pointer = pointer;
+        self.active = Some(Arc::new(active));
+        self
+    }
+    fn dragging(&self) -> bool {
+        self.active.as_ref().is_some_and(|active| active())
     }
     pub fn frame(&self) -> Frame {
         (self.read)()
@@ -66,7 +104,6 @@ pub(crate) fn popup_rect(viewport: UiRect, anchor: UiRect) -> UiRect {
 
 /// Hovering the icon opens the popover; its gap and body retain it.
 pub(crate) fn attach(root: Element, viewport: UiRect, anchor: UiRect, binding: Binding) -> Element {
-    let open = binding.frame().open;
     let rect = popup_rect(viewport, anchor);
     // The transparent gap is part of the hover path into the popover.
     let bridge = UiRect::new(
@@ -77,8 +114,41 @@ pub(crate) fn attach(root: Element, viewport: UiRect, anchor: UiRect, binding: B
     );
     let hover = binding.clone();
     let keys = binding.clone();
+    let moving = binding.clone();
+    let released = binding.clone();
+    let mut root = root;
+    for kind in [UiEventKind::PointerMove, UiEventKind::PointerDrag] {
+        let moving = moving.clone();
+        root =
+            root.on_event_capture(kind, move |cx, payload| {
+                if let UiEventPayload::PointerMove { pointer }
+                | UiEventPayload::PointerDrag { pointer } = payload
+                    && moving.dragging()
+                {
+                    moving.run(Command::Move(pointer.point));
+                    cx.stop_propagation();
+                }
+            });
+    }
+    root = root.on_event_capture(UiEventKind::PointerUp, move |cx, payload| {
+        if let UiEventPayload::PointerUp { pointer } = payload
+            && released.dragging()
+        {
+            released.run(Command::Release(pointer.point));
+            if !rect.contains(pointer.point) {
+                released.run(Command::Close);
+            }
+            cx.prevent_default();
+            cx.stop_propagation();
+        }
+    });
     root.on_event_capture(UiEventKind::PointerMove, move |_, payload| {
         if let UiEventPayload::PointerMove { pointer } = payload {
+            let frame = hover.frame();
+            let open = frame.open;
+            if hover.dragging() {
+                return;
+            }
             if anchor.contains(pointer.point) {
                 if !open {
                     hover.run(Command::Open);
@@ -90,17 +160,21 @@ pub(crate) fn attach(root: Element, viewport: UiRect, anchor: UiRect, binding: B
     })
     .on_event_capture(UiEventKind::KeyDown, move |cx, payload| {
         if let UiEventPayload::Keyboard { event } = payload
-            && open
+            && keys.frame().open
             && event.key == LogicalKey::Named(NamedKey::Escape)
         {
-            keys.run(Command::Close);
+            keys.run(if keys.dragging() {
+                Command::Cancel
+            } else {
+                Command::Close
+            });
             cx.prevent_default();
             cx.stop_propagation();
         }
     })
     .on_event_capture(UiEventKind::PointerDown, move |_, payload| {
         if let UiEventPayload::PointerDown { pointer, .. } = payload
-            && open
+            && binding.frame().open
             && !rect.contains(pointer.point)
             && !anchor.contains(pointer.point)
         {
@@ -110,6 +184,16 @@ pub(crate) fn attach(root: Element, viewport: UiRect, anchor: UiRect, binding: B
 }
 
 pub(crate) fn render(viewport: UiRect, anchor: UiRect, binding: Binding) -> Element {
+    component(viewport, move |cx, viewport| {
+        if let Some(changes) = &binding.changes {
+            cx.use_observable(changes.clone(), |revision| *revision);
+        }
+        render_popup(*viewport, anchor, binding)
+    })
+    .key("layout-visibility-component")
+}
+
+fn render_popup(viewport: UiRect, anchor: UiRect, binding: Binding) -> Element {
     let frame = binding.frame();
     if !frame.open {
         return group(UiRect::default()).key("layout-visibility-closed");
@@ -140,6 +224,7 @@ pub(crate) fn render(viewport: UiRect, anchor: UiRect, binding: Binding) -> Elem
             focus: false,
         })
         .on_pointer_down(|cx, _| cx.stop_propagation());
+    let mut lifted = None;
     for region in frame.regions {
         let bounds = project(region.rect);
         let bounds = UiRect::new(
@@ -148,22 +233,78 @@ pub(crate) fn render(viewport: UiRect, anchor: UiRect, binding: Binding) -> Elem
             bounds.right - 3.0,
             bounds.bottom - 3.0,
         );
-        view = view.child(cell(bounds, region, binding.clone()));
+        let cell = if frame
+            .drag
+            .as_ref()
+            .is_some_and(|drag| drag.region == region.id)
+        {
+            lifted = Some(region.clone());
+            Element::new(move |_| {
+                UiElement::panel(
+                    UiId::owned(format!("layout-visibility-cell-{}", region.id)),
+                    bounds,
+                    VisualStyle::filled(theme::c().accent).alpha(24).radius(2.0),
+                )
+            })
+            .event_policy(EventPolicy {
+                hover: true,
+                press: true,
+                focus: true,
+            })
+            .cursor(CursorIcon::Move)
+        } else {
+            cell(
+                bounds,
+                region.clone(),
+                area,
+                frame.drag.is_some(),
+                binding.clone(),
+            )
+        };
+        view = view.child(motion::slide(region.id, bounds, cell));
+    }
+    if let (Some(region), Some(drag), Some(pointer)) = (lifted, frame.drag, binding.pointer.clone())
+    {
+        let bounds = project(drag.origin);
+        let bounds = UiRect::new(
+            bounds.left + 3.0,
+            bounds.top + 3.0,
+            bounds.right - 3.0,
+            bounds.bottom - 3.0,
+        );
+        let mut label_style = theme::sans(theme::c().text_soft, 10.0);
+        label_style.align = lgui::core::TextAlign::Center;
+        let face = theme::bordered(bounds, theme::c().surface, theme::c().accent, 3.0, 1.0)
+            .shadow(
+                ShadowStyle::new(Color::BLACK)
+                    .alpha(theme::c().shadow_alpha)
+                    .offset(0.0, 4.0)
+                    .blur(10.0),
+            )
+            .event_policy(EventPolicy::NONE)
+            .child(text(bounds, region.label, label_style));
+        view = view.child(motion::floating(bounds, area, drag.pressed, pointer).child(face));
     }
     view
 }
 
-fn cell(rect: UiRect, region: Region, binding: Binding) -> Element {
+fn cell(rect: UiRect, region: Region, area: UiRect, dragging: bool, binding: Binding) -> Element {
     let cell_id = UiId::owned(format!("layout-visibility-cell-{}", region.id));
     let eye_id = UiId::owned(format!("layout-visibility-eye-{}", region.id));
     let hover_id = cell_id.clone();
     let child_hover_id = eye_id.clone();
     let shown = region.shown;
+    let begin = binding.clone();
+    let region_id = region.id;
     let mut cell = Element::new(move |cx| {
         let hovered = cx.context.interaction_flags(&hover_id).hovered
             || cx.context.interaction_flags(&child_hover_id).hovered;
         let c = theme::c();
-        let border = if hovered { c.accent } else { c.border };
+        let border = if hovered && !dragging {
+            c.accent
+        } else {
+            c.border
+        };
         let style = if shown {
             VisualStyle::filled(c.bg)
                 .stroked(Stroke::new(border, 1.0, 255))
@@ -181,8 +322,20 @@ fn cell(rect: UiRect, region: Region, binding: Binding) -> Element {
     .key(format!("layout-visibility-cell-{}", region.id))
     .event_policy(EventPolicy {
         hover: true,
-        press: false,
-        focus: false,
+        press: true,
+        focus: true,
+    })
+    .semantics(Semantics::new(SemanticRole::Button).name(format!("Move {}", region.label)))
+    .cursor(CursorIcon::Move)
+    .on_pointer_down_with_button(move |cx, pointer, button| {
+        if button == PointerButton::Left {
+            begin.run(Command::Begin {
+                region: region_id,
+                point: pointer.point,
+                area,
+            });
+            cx.stop_propagation();
+        }
     })
     .animation(HOVER_FRAME)
     .on_pointer_move(|_, _| {});
@@ -203,10 +356,11 @@ fn cell(rect: UiRect, region: Region, binding: Binding) -> Element {
     cell = cell.child(
         Element::new(move |cx| {
             let flags = cx.context.interaction_flags(&eye_id);
-            let reveal = !shown
-                || flags.hovered
-                || flags.focused
-                || cx.context.interaction_flags(&parent_id).hovered;
+            let reveal = !dragging
+                && (!shown
+                    || flags.hovered
+                    || flags.focused
+                    || cx.context.interaction_flags(&parent_id).hovered);
             let mut node = UiElement::panel(eye_id, eye_rect, VisualStyle::default());
             if reveal {
                 let glyph = UiRect::new(
@@ -241,6 +395,7 @@ fn cell(rect: UiRect, region: Region, binding: Binding) -> Element {
         .semantics(Semantics::new(SemanticRole::Button).name(label))
         .event_policy(EventPolicy::INTERACTIVE)
         .cursor(lgui::core::CursorIcon::Pointer)
+        .on_pointer_down(|cx, _| cx.stop_propagation())
         .on_click(move || binding.run(Command::Toggle(id))),
     );
     cell
@@ -327,6 +482,7 @@ mod tests {
         let anchor = UiRect::new(800.0, 0.0, 832.0, 30.0);
         let frame = Frame {
             open: true,
+            drag: None,
             source: UiRect::new(0.0, 0.0, 900.0, 600.0),
             regions: (1..=3)
                 .map(|id| Region {

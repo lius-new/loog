@@ -2,7 +2,9 @@
 use crate::app::context::AppContext;
 use crate::app::terminal_binding::TerminalStore;
 use crate::domain::application_layout::Content;
-use crate::ui::layout_visibility::{Binding, Command, Frame, Region};
+use crate::ui::layout_visibility::{Binding, Command, Drag, Frame, Region};
+mod drag;
+pub(crate) use drag::DragStore;
 use lgui::prelude::UiRect;
 
 pub(crate) type FocusTargets = (
@@ -82,12 +84,16 @@ pub(crate) fn toggle_region(state: &AppContext, id: u64) {
 pub(crate) fn binding(
     state: &AppContext,
     tabs: &TerminalStore,
+    drag: &DragStore,
     source: UiRect,
     focus: FocusTargets,
 ) -> Binding {
     let reader = state.clone();
     let reader_tabs = tabs.clone();
     let writer = state.clone();
+    let read_drag = drag.clone();
+    let write_drag = drag.clone();
+    let active_drag = drag.clone();
     Binding::new(
         move || {
             let app = reader.get();
@@ -95,9 +101,23 @@ pub(crate) fn binding(
                 open: app.layout.visibility_popup.is_some(),
                 source,
                 regions: vec![],
+                drag: None,
             };
             let Some(layout) = &app.layout.application_layout else {
                 return frame;
+            };
+            let draft = read_drag
+                .snapshot()
+                .filter(|draft| draft.current(&app, source));
+            let layout = if let Some(draft) = &draft {
+                frame.drag = Some(Drag {
+                    region: draft.region,
+                    origin: draft.origin,
+                    pressed: draft.pressed,
+                });
+                &draft.preview
+            } else {
+                layout
             };
             let flags = crate::app::terminal::visibility(&app);
             let model = reader_tabs.get();
@@ -141,11 +161,31 @@ pub(crate) fn binding(
         },
         move |command| match command {
             Command::Open => open(&writer),
-            Command::Close => close(&writer, Some(&focus)),
-            Command::Toggle(id) => toggle_region(&writer, id),
+            Command::Close => {
+                write_drag.cancel();
+                close(&writer, Some(&focus));
+            }
+            Command::Toggle(id) => {
+                write_drag.cancel();
+                toggle_region(&writer, id);
+            }
+            Command::Begin {
+                region,
+                point,
+                area,
+            } => write_drag.begin(&writer, source, region, point, area),
+            Command::Move(point) => write_drag.move_pointer(&writer, source, point),
+            Command::Release(point) => write_drag.release(&writer, source, point),
+            Command::Cancel => write_drag.cancel(),
         },
     )
+    .with_drag(drag.observable(), drag.pointer(), move || {
+        active_drag.active()
+    })
 }
+
+#[cfg(test)]
+mod drag_tests;
 
 #[cfg(test)]
 mod tests {
@@ -209,7 +249,9 @@ mod tests {
                 cx.focus_handle(UiId::new("visibility-terminal")),
                 tabs.clone(),
             );
-            let binding = binding(&state, &tabs, source, focus.clone());
+            let drag_pointer = cx.signal(Point::new(0.0, 0.0));
+            let drag = cx.state_with(|| DragStore::new(drag_pointer)).get();
+            let binding = binding(&state, &tabs, &drag, source, focus.clone());
             let anchor = crate::ui::titlebar::layout_toggle_rect(bar);
             let root = crate::ui::layout_visibility::attach(
                 group(viewport),

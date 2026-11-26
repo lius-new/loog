@@ -48,6 +48,10 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let layout_map_store = cx
         .state_with(|| layout_map::MapStore::with_pointer_x(terminal_drag_x))
         .get();
+    let layout_drag_pointer = cx.signal(lgui::core::Point::new(0.0, 0.0));
+    let layout_visibility_drag = cx
+        .state_with(|| super::layout_visibility::DragStore::new(layout_drag_pointer))
+        .get();
     // The tree row under the pointer: a signal, so moving between rows re-renders nothing.
     let explorer_hover = cx.signal(None::<String>);
     let tab_drag_x = cx.signal(0.0_f32);
@@ -240,6 +244,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let window_focus_git_poll = git_poll_control.clone();
     let window_focus_application = application.as_ref().clone();
     let window_focus_map = layout_map_store.clone();
+    let window_focus_layout_drag = layout_visibility_drag.clone();
     cx.use_event_once::<WindowFocusChanged>(move |event| {
         if event.window_id.as_str() == "loog" {
             window_geometry::handle_focus_change(event.focused);
@@ -253,6 +258,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
             }
             if !event.focused {
                 window_focus_map.cancel();
+                window_focus_layout_drag.cancel();
                 window_focus_state.try_update(|app| {
                     // A key sequence does not survive leaving the window.
                     let had_pending = !app.keymap.pending().is_empty();
@@ -282,8 +288,10 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     // The pointer leaving through the window edge sends no further moves, so
     // every pointer-driven overlay (scrollbars, hover rows) is dropped here.
     let pointer_leave_state = state.clone();
+    let pointer_leave_layout_drag = layout_visibility_drag.clone();
     cx.use_event_once::<WindowPointerLeft>(move |event| {
         if event.window_id.as_str() == "loog" {
+            pointer_leave_layout_drag.cancel();
             pointer_leave_state.try_update(|app| {
                 let mut changed = std::mem::take(&mut app.explorer.ui.hovered);
                 changed |= std::mem::take(&mut app.git.ui.hovered);
@@ -1114,6 +1122,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let layout_view = super::layout_visibility::binding(
         &state,
         &terminal_tabs,
+        &layout_visibility_drag,
         content_area,
         (
             editor_focus.clone(),
