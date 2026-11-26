@@ -32,8 +32,7 @@ use loog_editor_core::vim::CursorShape;
 
 pub(crate) use crate::ui::components::scrollbar::SIZE as SCROLLBAR_SIZE;
 use crate::ui::components::scrollbar::{
-    INSET as SCROLLBAR_INSET, MIN_THUMB_LENGTH, square_thumb as scrollbar_thumb,
-    track as scrollbar_track,
+    MIN_THUMB_LENGTH, square_thumb as scrollbar_thumb, track as scrollbar_track,
 };
 const TRAILING_CODE_SPACE: f32 = 32.0;
 /// The shortest change mark on the scrollbar, so one line stays visible.
@@ -1928,9 +1927,9 @@ pub(crate) fn vertical_scrollbar(
         });
 
     let thumb_rect = UiRect::new(
-        track.left + SCROLLBAR_INSET,
+        track.left,
         geometry.start,
-        track.right - SCROLLBAR_INSET,
+        track.right,
         geometry.start + geometry.length,
     );
     let st_thumb_down = state.clone();
@@ -2035,9 +2034,9 @@ pub(crate) fn horizontal_scrollbar(
 
     let thumb_rect = UiRect::new(
         geometry.start,
-        track.top + SCROLLBAR_INSET,
+        track.top,
         geometry.start + geometry.length,
-        track.bottom - SCROLLBAR_INSET,
+        track.bottom,
     );
     let st_thumb_down = state.clone();
     let st_thumb_move = state.clone();
