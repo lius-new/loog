@@ -1791,7 +1791,7 @@ mod tests {
         for split in [false, true] {
             let exposed = Arc::new(Mutex::new(None::<AppContext>));
             let output = exposed.clone();
-            let viewport = UiRect::new(0.0, 0.0, 700.0, 300.0);
+            let viewport = UiRect::new(0.0, 0.0, 700.0, 600.0);
             let view: AppView = Arc::new(move |cx| {
                 let state = AppContext::detached(cx.state_with(|| {
                     let mut app = AppState::new();
@@ -1802,8 +1802,8 @@ mod tests {
                             path: PathBuf::new(),
                             target: DiffTarget::Changes,
                         },
-                        DiffContent::Changes(vec![ChangeDiff {
-                            path: "a.txt".into(),
+                        DiffContent::Changes(["a.txt", "b.txt"].into_iter().map(|path| ChangeDiff {
+                            path: path.into(),
                             target: DiffTarget::HeadToWorktree,
                             group: ChangeGroup::Unstaged,
                             content: Ok(DiffContent::Unified(
@@ -1812,7 +1812,7 @@ mod tests {
                                 )
                                 .unwrap(),
                             )),
-                        }]),
+                        }).collect()),
                     ));
                     app
                 }));
@@ -1829,6 +1829,57 @@ mod tests {
             });
             let mut session = UiSession::new();
             session.render_view(&view, viewport, UiScale::ONE);
+            let assert_checks = |session: &UiSession, expected: usize| {
+                let checks = session
+                    .tree()
+                    .nodes()
+                    .iter()
+                    .filter(|node| {
+                        node.semantics.as_ref().is_some_and(|s| {
+                            s.name.as_deref() == Some("Include this change in the commit")
+                                && s.state.checked == Some(true)
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(checks.len(), expected, "split={split}");
+                for checkbox in checks {
+                    let icons = checkbox
+                        .children
+                        .iter()
+                        .filter_map(|id| session.tree().node(id))
+                        .filter(|node| node.icon_key.as_deref() == Some("check"))
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        icons.len(),
+                        1,
+                        "each selected box needs its tick, split={split}"
+                    );
+                    let icon = icons[0];
+                    assert_eq!(
+                        icon.parent.as_ref(),
+                        Some(&checkbox.id),
+                        "ticks must belong to their own checkbox, split={split}"
+                    );
+                    assert!(
+                        icon.layout_rect.left >= checkbox.layout_rect.left
+                            && icon.layout_rect.right <= checkbox.layout_rect.right
+                            && icon.layout_rect.top >= checkbox.layout_rect.top
+                            && icon.layout_rect.bottom <= checkbox.layout_rect.bottom,
+                        "ticks must stay inside their own checkbox, split={split}"
+                    );
+                }
+                assert_eq!(
+                    session
+                        .tree()
+                        .nodes()
+                        .iter()
+                        .filter(|node| node.icon_key.as_deref() == Some("check"))
+                        .count(),
+                    expected,
+                    "each checked block needs a separate icon, split={split}"
+                );
+            };
+            assert_checks(&session, 2);
             let find = |session: &UiSession| {
                 session
                     .tree()
@@ -1876,6 +1927,38 @@ mod tests {
                 CommitChoice::Excluded,
                 "split={split}"
             );
+            session.render_view(&view, viewport, UiScale::ONE);
+            assert_checks(&session, 1);
+            assert_eq!(
+                state
+                    .get()
+                    .git
+                    .ui
+                    .commit_selection
+                    .choice(std::path::Path::new("b.txt"), false),
+                CommitChoice::Included,
+                "the other file must remain selected, split={split}"
+            );
+            for event in [
+                InputEvent::PointerDown {
+                    pointer: PointerData::mouse(point),
+                    button: PointerButton::Left,
+                },
+                InputEvent::PointerUp {
+                    pointer: PointerData::mouse(point),
+                    button: PointerButton::Left,
+                },
+            ] {
+                lgui::core::dispatch_runtime_output(
+                    session.handle_input(event),
+                    &context,
+                    &lgui::window::WindowId::new("diff-choose-test"),
+                    |action| session.handle_default_action(action),
+                    |_| {},
+                );
+            }
+            session.render_view(&view, viewport, UiScale::ONE);
+            assert_checks(&session, 2);
         }
     }
 

@@ -1213,7 +1213,7 @@ pub(crate) fn block_check(
         3.0,
         1.0,
     )
-    .key(key.clone())
+    .key(key)
     .event_policy(EventPolicy::INTERACTIVE)
     .semantics(semantics)
     .cursor(CursorIcon::Pointer)
@@ -1222,17 +1222,17 @@ pub(crate) fn block_check(
         cx.stop_propagation();
     });
     if taken {
-        button = button.child(crate::ui::drawer::drawer_icon(
-            UiId::owned(format!("{key}-check")),
-            "check",
-            UiRect::new(
-                rect.left + 3.0,
-                rect.top + 3.0,
-                rect.right - 3.0,
-                rect.bottom - 3.0,
-            ),
-            c.on_accent,
-        ));
+        let icon_rect = UiRect::new(
+            rect.left + 3.0,
+            rect.top + 3.0,
+            rect.right - 3.0,
+            rect.bottom - 3.0,
+        );
+        // Different file sections and panes can reuse the same local block key.
+        // Keep the tick's ID scoped to its checkbox instead of sharing a raw ID.
+        button = button.child(Element::new(move |cx| {
+            UiElement::icon(cx.id, icon_rect, "check").icon_style(IconStyle::new(c.on_accent))
+        }));
     }
     button
 }
