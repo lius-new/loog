@@ -2664,9 +2664,9 @@ pub(crate) fn file_row(
         .collect::<Vec<_>>();
     // Reserve room for action buttons only while the row is hovered.
     let trailing_w = if hovered {
-        BUTTON_W * actions.len() as f32 + 54.0
+        BUTTON_W * actions.len() as f32 + 34.0
     } else {
-        54.0
+        44.0
     };
     let indent = depth as f32 * TREE_INDENT;
     let name_left = rect.left + 32.0 + indent;
@@ -2780,13 +2780,12 @@ pub(crate) fn file_row(
             VisualStyle::filled(theme::c().accent),
         ));
     }
-    row = row.child(text(
-        UiRect::new(rect.right - 50.0, rect.top, rect.right - 32.0, rect.bottom),
-        indicator,
-        theme::mono(indicator_color, 10.0),
-    ));
     if !hovered {
-        return row;
+        return row.child(text(
+            UiRect::new(rect.right - 40.0, rect.top, rect.right - 26.0, rect.bottom),
+            indicator,
+            theme::mono(indicator_color, 10.0).centered(),
+        ));
     }
     let buttons = actions
         .iter()
@@ -2819,7 +2818,7 @@ pub(crate) fn file_row(
             }
         })
         .collect();
-    row_buttons(row, rect, rect.right - 54.0, buttons)
+    row_buttons(row, rect, rect.right - 30.0, buttons)
 }
 
 /// Which section's folder actions suit files of these kinds: unstaging when all

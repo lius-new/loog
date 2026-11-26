@@ -438,7 +438,7 @@ mod panel_virtualization_tests {
     }
 
     #[test]
-    fn drawer_labels_follow_the_compared_side_even_when_hovered_or_selected() {
+    fn drawer_labels_keep_side_colors_and_replace_status_with_hover_actions() {
         use crate::ui::git::commands::{Binding, Frame};
         use crate::ui::git::state::GitPanelState;
         use lgui::application::{AppView, ApplicationContext};
@@ -574,9 +574,11 @@ mod panel_virtualization_tests {
                 assert_eq!(name.text_style.unwrap().color, *color);
                 let status = nodes
                     .iter()
-                    .find(|node| node.text.as_deref() == Some(*indicator))
-                    .unwrap();
-                assert_eq!(status.text_style.unwrap().color, *color);
+                    .find(|node| node.text.as_deref() == Some(*indicator));
+                assert_eq!(status.is_some(), !hovered, "{path}: status hides on hover");
+                if let Some(status) = status {
+                    assert_eq!(status.text_style.unwrap().color, *color);
+                }
                 let strikes = nodes
                     .iter()
                     .filter(|node| {
@@ -594,13 +596,21 @@ mod panel_virtualization_tests {
                 {
                     assert_eq!(folder.text_style.unwrap().color, theme::c().text_ghost);
                 }
-                // Hover actions must not cover the persistent status letter.
+                // Hover actions replace the status, leaving the checkbox accessible.
+                let checkbox = nodes
+                    .iter()
+                    .find(|node| {
+                        node.semantics
+                            .as_ref()
+                            .is_some_and(|s| s.role == SemanticRole::CheckBox)
+                    })
+                    .unwrap();
                 for button in nodes.iter().filter(|node| {
                     node.semantics
                         .as_ref()
                         .is_some_and(|s| s.role == SemanticRole::Button)
                 }) {
-                    assert!(button.layout_rect.right <= status.layout_rect.left);
+                    assert!(button.layout_rect.right <= checkbox.layout_rect.left);
                 }
             }
             save_drawer_preview(
