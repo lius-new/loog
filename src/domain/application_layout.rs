@@ -137,25 +137,25 @@ impl ApplicationLayout {
         let leaf = |id, content| Node::Leaf { id, content };
         Self {
             root: Node::Split {
-                id: 6,
-                axis: Axis::Vertical,
+                id: 5,
+                axis: Axis::Horizontal,
                 children: vec![
+                    leaf(2, Content::Git),
                     Node::Split {
-                        id: 5,
-                        axis: Axis::Horizontal,
+                        id: 6,
+                        axis: Axis::Vertical,
                         children: vec![
-                            leaf(2, Content::Git),
                             leaf(1, Content::Editor),
-                            leaf(3, Content::Files),
+                            leaf(
+                                4,
+                                Content::Terminal {
+                                    tabs: vec![],
+                                    active: None,
+                                },
+                            ),
                         ],
                     },
-                    leaf(
-                        4,
-                        Content::Terminal {
-                            tabs: vec![],
-                            active: None,
-                        },
-                    ),
+                    leaf(3, Content::Files),
                 ],
             },
             sizes: HashMap::from([
@@ -228,7 +228,7 @@ impl ApplicationLayout {
                 active: Some(session),
             },
         };
-        if !self.wrap(beside, Direction::Right, leaf) {
+        if self.wrap(beside, Direction::Right, leaf).is_none() {
             return false;
         }
         if let Some(Node::Leaf {
@@ -418,9 +418,16 @@ impl ApplicationLayout {
                         active: None,
                     },
                 };
-                self.wrap(self.root.id(), Direction::Down, leaf);
+                let editor = self
+                    .leaves()
+                    .into_iter()
+                    .find_map(|(id, content)| (content == Content::Editor).then_some(id))
+                    .expect("application layout contains an editor");
+                let split = self
+                    .wrap(editor, Direction::Down, leaf)
+                    .expect("editor region exists");
                 self.sizes.insert(
-                    self.root.id(),
+                    split,
                     vec![
                         1.0 - self.default_terminal_fraction,
                         self.default_terminal_fraction,
@@ -506,11 +513,9 @@ impl ApplicationLayout {
             .find(|(_, c, _)| c == kind)
             .map(|(_, _, r)| *r)
     }
-    fn wrap(&mut self, target: RegionId, direction: Direction, leaf: Node) -> bool {
+    fn wrap(&mut self, target: RegionId, direction: Direction, leaf: Node) -> Option<RegionId> {
         let split = self.alloc();
-        let Some(node) = self.root.find_mut(target) else {
-            return false;
-        };
+        let node = self.root.find_mut(target)?;
         let original = node.clone();
         let children = if matches!(direction, Direction::Right | Direction::Down) {
             vec![original, leaf]
@@ -523,7 +528,7 @@ impl ApplicationLayout {
             children,
         };
         self.sizes.insert(split, vec![0.5, 0.5]);
-        true
+        Some(split)
     }
     pub fn plan(
         &self,
@@ -590,12 +595,10 @@ impl ApplicationLayout {
         match *target {
             Placement::Tabs(_) => unreachable!("tab-group placement handled above"),
             Placement::Outer(dir) => {
-                layout.wrap(layout.root.id(), dir, leaf);
+                layout.wrap(layout.root.id(), dir, leaf)?;
             }
             Placement::Side(region, dir) => {
-                if !layout.wrap(region, dir, leaf) {
-                    return None;
-                }
+                layout.wrap(region, dir, leaf)?;
             }
             Placement::Between {
                 split,
@@ -995,6 +998,60 @@ mod tests {
         (layout, rect)
     }
     #[test]
+    fn default_dock_stays_between_full_height_drawers_as_visibility_changes() {
+        for width in [1200.0, 500.0] {
+            let rect = Rect::new(20.0, 30.0, 20.0 + width, 800.0);
+            let mut layout = ApplicationLayout::initial(rect, 220.0, 220.0, 240.0);
+            layout.attach(10);
+            for git in [false, true] {
+                for files in [false, true] {
+                    for terminal in [false, true] {
+                        let snapshot = layout.snapshot(
+                            rect,
+                            Visibility {
+                                git,
+                                files,
+                                terminal,
+                            },
+                        );
+                        let editor = layout.content_rect(&snapshot, &Content::Editor).unwrap();
+                        let dock = snapshot.regions.iter().find(|(id, _, _)| *id == 4);
+                        if terminal {
+                            let dock = dock.unwrap().2;
+                            assert_eq!(dock.left, editor.left);
+                            assert_eq!(dock.right, editor.right);
+                            assert_eq!(dock.top, editor.bottom);
+                            assert_eq!(dock.bottom, rect.bottom);
+                        } else {
+                            assert!(dock.is_none());
+                            assert_eq!(editor.bottom, rect.bottom);
+                        }
+                        for (content, shown) in [(Content::Git, git), (Content::Files, files)] {
+                            let drawer = layout.content_rect(&snapshot, &content);
+                            assert_eq!(drawer.is_some(), shown);
+                            if let Some(drawer) = drawer {
+                                assert_eq!(drawer.top, rect.top);
+                                assert_eq!(drawer.bottom, rect.bottom);
+                                if content == Content::Git {
+                                    assert_eq!(drawer.right, editor.left);
+                                } else {
+                                    assert_eq!(drawer.left, editor.right);
+                                }
+                            }
+                        }
+                        if !git {
+                            assert_eq!(editor.left, rect.left);
+                        }
+                        if !files {
+                            assert_eq!(editor.right, rect.right);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn visibility_overview_retains_locations_while_workspace_reflows_and_restores() {
         let (mut layout, rect) = setup();
         assert!(layout.split_beside(11, 1));
@@ -1051,6 +1108,8 @@ mod tests {
         let terminal = layout.terminal_region(10).unwrap();
         let before = region(&layout, rect, terminal);
         let editor_before = region(&layout, rect, 1);
+        let git_before = region(&layout, rect, 2);
+        let files_before = region(&layout, rect, 3);
         assert!(!layout.is_maximized(terminal));
 
         assert!(layout.toggle_maximize(terminal));
@@ -1062,6 +1121,10 @@ mod tests {
         assert_eq!(editor.height(), 120.0);
         assert_eq!(editor.left, editor_before.left);
         assert_eq!(editor.right, editor_before.right);
+        assert_eq!(maximized.left, editor.left);
+        assert_eq!(maximized.right, editor.right);
+        assert_eq!(region(&layout, rect, 2), git_before);
+        assert_eq!(region(&layout, rect, 3), files_before);
         assert!((maximized.top - editor.bottom).abs() < 0.01);
         assert!((maximized.bottom - rect.bottom).abs() < 0.01);
 
@@ -1495,12 +1558,20 @@ mod tests {
             .plan(10, &Placement::Outer(Direction::Left), rect, V, vec![10])
             .unwrap();
         assert!(layout.commit(plan, rect, V, &[10]));
+        let moved_rect = region(&layout, rect, moved);
+        let git_rect = region(&layout, rect, 2);
+        let files_rect = region(&layout, rect, 3);
         layout.sync(&[(10, 10), (11, 11)], Some(10));
         let new = layout.terminal_region(11).unwrap();
         let new_rect = region(&layout, rect, new);
         assert!((new_rect.bottom - rect.bottom).abs() < 0.01);
-        assert_eq!(new_rect.left, rect.left);
-        assert_eq!(new_rect.right, rect.right);
+        let editor = region(&layout, rect, 1);
+        assert_eq!(new_rect.left, editor.left);
+        assert_eq!(new_rect.right, editor.right);
+        assert_eq!(new_rect.top, editor.bottom);
+        assert_eq!(region(&layout, rect, 2), git_rect);
+        assert_eq!(region(&layout, rect, 3), files_rect);
+        assert_eq!(region(&layout, rect, moved), moved_rect);
         assert_eq!(layout.terminal_region(10), Some(moved));
         layout.sync(&[(10, 10)], Some(10));
         layout.sync(&[(10, 10), (12, 12), (13, 13)], Some(10));
@@ -1509,6 +1580,8 @@ mod tests {
         assert_eq!(first.top, second.top);
         assert_eq!(first.bottom, second.bottom);
         assert_eq!(first, second);
+        assert_eq!(first, new_rect);
+        assert_eq!(region(&layout, rect, moved), moved_rect);
         assert_eq!(layout.terminal_region(10), Some(moved));
     }
 
