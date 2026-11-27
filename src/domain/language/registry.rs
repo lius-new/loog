@@ -1,7 +1,8 @@
 //! The set of known languages: ids, display data and how files are recognised.
 //! Built from descriptions, never from per-language code.
 use crate::domain::language::descriptor::{
-    Comments, Descriptor, EditorDefaults, Highlight, normalize_extension, normalize_file_name, normalize_suffix,
+    Comments, Descriptor, EditorDefaults, Highlight, normalize_extension, normalize_file_name,
+    normalize_suffix,
 };
 use crate::domain::language::{LanguageId, ResolvedLanguage};
 use std::collections::HashMap;

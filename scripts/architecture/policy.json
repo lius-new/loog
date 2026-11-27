@@ -1200,6 +1200,7 @@
     "src/app/signature_help_tests.rs",
     "src/app/editor_vim_integration_tests.rs",
     "src/app/git_view_tests.rs",
+    "src/app/layout_visibility/drag_tests.rs",
     "src/app/search.rs",
     "src/ui/components/loading_indicator.rs",
     "src/ui/extension_widgets.rs",

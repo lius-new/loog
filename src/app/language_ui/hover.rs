@@ -360,7 +360,11 @@ pub fn kind_of(signature: &str) -> Option<(&'static str, &'static str)> {
     let has = |names: &[&str]| words.iter().any(|word| names.contains(word));
     if has(&["fn", "function", "def", "func"]) {
         let method = has(&["impl", "self", "this"]) || has(&["method"]);
-        return Some(if method { ("m", "METHOD") } else { ("fn", "FUNCTION") });
+        return Some(if method {
+            ("m", "METHOD")
+        } else {
+            ("fn", "FUNCTION")
+        });
     }
     let first = words.iter().find_map(|word| match *word {
         "struct" => Some(("S", "STRUCT")),
@@ -440,8 +444,13 @@ mod tests {
     #[test]
     fn a_signature_says_what_it_declares() {
         let kind = |text| kind_of(text).map(|(_, label)| label);
-        assert_eq!(kind("impl<T> Option<T>
-pub const fn filter(self) -> Self"), Some("METHOD"));
+        assert_eq!(
+            kind(
+                "impl<T> Option<T>
+pub const fn filter(self) -> Self"
+            ),
+            Some("METHOD")
+        );
         assert_eq!(kind("pub fn new() -> Self"), Some("FUNCTION"));
         assert_eq!(kind("pub struct Entry { }"), Some("STRUCT"));
         assert_eq!(kind("const EMPTY: u8 = 0"), Some("CONSTANT"));

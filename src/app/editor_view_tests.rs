@@ -1975,15 +1975,9 @@ fn an_explicit_hover_retries_the_same_symbol_after_content_modified() {
 
 #[test]
 fn resting_the_pointer_on_a_word_shows_what_the_server_says_about_it() {
-    let mut h = LanguageHarness::new(
-        "fn alpha() {}
-
-
-
-last line
-",
-        &["--features", "hover", "--diagnostics"],
-    );
+    // Leave room below the card's title, diagnostics and footer for another word.
+    let source = format!("fn alpha() {{}}\n{}last line\n", "\n".repeat(15));
+    let mut h = LanguageHarness::new(&source, &["--features", "hover", "--diagnostics"]);
     h.until_ready();
     let (x, y) = h.point_at(0, 1);
     h.move_to(x, y);
@@ -1992,12 +1986,12 @@ last line
     h.until("the hover card", |h| h.has_text("0:1"));
     assert!(h.has_text("fake"), "the server's text is on the card");
     // Moving to another word replaces the card; leaving the text removes it.
-    let (x, y) = h.point_at(4, 2);
+    let (x, y) = h.point_at(16, 2);
     h.move_to(x, y);
     assert!(!h.has_text("0:1"), "the old card went with the pointer");
-    h.until("the new hover card", |h| h.has_text("4:2"));
+    h.until("the new hover card", |h| h.has_text("16:2"));
     h.move_to(790.0, 390.0);
-    assert!(!h.has_text("4:2"), "the card stays after the pointer left");
+    assert!(!h.has_text("16:2"), "the card stays after the pointer left");
     // Typing hides the card too.
     let (x, y) = h.point_at(0, 1);
     h.move_to(x, y);
@@ -2593,7 +2587,7 @@ fn a_trigger_character_opens_the_list_without_a_word() {
 }
 
 #[test]
-fn the_highlighted_item_shows_its_documentation_once_the_server_resolves_it() {
+fn the_highlighted_item_keeps_its_documentation_once_the_server_resolves_it() {
     use crate::features::keymap::action::Action;
     let mut h = LanguageHarness::new("\n", &["--features", "completion"]);
     h.until_ready();
@@ -2601,7 +2595,22 @@ fn the_highlighted_item_shows_its_documentation_once_the_server_resolves_it() {
     h.until("the list", |h| h.completion_labels().len() == 2);
     // Down to "beta", whose documentation the server only gives on request.
     h.act(Action::MenuSelectNext);
-    h.until("the documentation", |h| h.has_text("resolved"));
+    // The compact list has no documentation panel; resolve still enriches the item.
+    h.until("the selected item's documentation", |h| {
+        let app = h.state.get();
+        let Some(session) = app.editor.language.completion.as_ref() else {
+            return false;
+        };
+        let Some(shown) = session.shown.get(session.selected) else {
+            return false;
+        };
+        let entry = &session.data.entries[shown.entry];
+        entry.item.label == "beta"
+            && entry.resolved
+            && entry.item.documentation.as_deref() == Some("resolved docs")
+    });
+    h.act(Action::MenuConfirm);
+    assert_eq!(h.document_text(), "beta()\n");
 }
 
 #[test]
@@ -5357,24 +5366,14 @@ impl LanguageHarness {
             scale.physical_value(self.rect.height()),
         );
         let dirty = [physical];
-        let frame = FrameInfo::new(
-            physical,
-            &dirty,
-            scale,
-            FrameReason::SceneChange,
-            true,
-        );
+        let frame = FrameInfo::new(physical, &dirty, scale, FrameReason::SceneChange, true);
         let mut surface = lgui::render_skia::SkiaSoftwareSurface::new(16 * 1024 * 1024);
         lgui::assets::backend::with_render_resources(
             &self.context,
             lgui::assets::backend::render_resources(),
             || {
                 surface.draw(
-                    &self
-                        .session
-                        .tree()
-                        .scene()
-                        .project_to_physical(scale),
+                    &self.session.tree().scene().project_to_physical(scale),
                     &frame,
                 )
             },

@@ -459,7 +459,11 @@ fn a_card_sets_code_in_wells_with_compact_headings_and_a_quiet_module_path() {
             .filter(|decoration| matches!(decoration, Decoration::Well { .. }))
             .count()
     };
-    assert_eq!((wells(&plain), wells(&card)), (0, 2), "the module path sits outside a well");
+    assert_eq!(
+        (wells(&plain), wells(&card)),
+        (0, 2),
+        "the module path sits outside a well"
+    );
     assert!(styles(&card).iter().any(|style| style.heading == 4));
     assert!(
         styles(&card)

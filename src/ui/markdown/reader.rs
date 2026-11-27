@@ -1081,6 +1081,44 @@ pub(crate) fn set_context_feedback(node: crate::features::markdown::model::NodeI
     mark_copied(node);
 }
 
+/// A recessed block with a border of exactly one device pixel on every side.
+/// The edges are snapped to device pixels; on a fractional one the border is
+/// drawn thicker on some sides than on others.
+fn well(bounds: UiRect, fill: lgui::prelude::Color, edge: lgui::prelude::Color) -> Element {
+    const RADIUS: f32 = 6.0;
+    let snapped = move |scale: lgui::core::UiScale| {
+        let snap = |value: f32| scale.physical_value(value) as f32 / scale.factor();
+        UiRect::new(
+            snap(bounds.left),
+            snap(bounds.top),
+            snap(bounds.right),
+            snap(bounds.bottom),
+        )
+    };
+    Element::new(move |cx| {
+        let rect = snapped(cx.context.scale());
+        UiElement::panel(cx.auto_id(), rect, VisualStyle::filled(edge).radius(RADIUS))
+            .children(cx.children)
+    })
+    .child(Element::new(move |cx| {
+        let scale = cx.context.scale();
+        let outer = snapped(scale);
+        let px = 1.0 / scale.factor();
+        let rect = UiRect::new(
+            outer.left + px,
+            outer.top + px,
+            outer.right - px,
+            outer.bottom - px,
+        );
+        UiElement::panel(
+            cx.auto_id(),
+            rect,
+            VisualStyle::filled(fill).radius((RADIUS - px).max(0.0)),
+        )
+        .children(cx.children)
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1185,46 +1223,4 @@ mod tests {
             ]
         );
     }
-}
-
-/// A recessed block with a border of exactly one device pixel on every side.
-/// The edges are snapped to device pixels; on a fractional one the border is
-/// drawn thicker on some sides than on others.
-fn well(bounds: UiRect, fill: lgui::prelude::Color, edge: lgui::prelude::Color) -> Element {
-    const RADIUS: f32 = 6.0;
-    let snapped = move |scale: lgui::core::UiScale| {
-        let snap = |value: f32| scale.physical_value(value) as f32 / scale.factor();
-        UiRect::new(
-            snap(bounds.left),
-            snap(bounds.top),
-            snap(bounds.right),
-            snap(bounds.bottom),
-        )
-    };
-    Element::new(move |cx| {
-        let rect = snapped(cx.context.scale());
-        UiElement::panel(
-            cx.auto_id(),
-            rect,
-            VisualStyle::filled(edge).radius(RADIUS),
-        )
-        .children(cx.children)
-    })
-    .child(Element::new(move |cx| {
-        let scale = cx.context.scale();
-        let outer = snapped(scale);
-        let px = 1.0 / scale.factor();
-        let rect = UiRect::new(
-            outer.left + px,
-            outer.top + px,
-            outer.right - px,
-            outer.bottom - px,
-        );
-        UiElement::panel(
-            cx.auto_id(),
-            rect,
-            VisualStyle::filled(fill).radius((RADIUS - px).max(0.0)),
-        )
-        .children(cx.children)
-    }))
 }

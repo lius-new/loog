@@ -847,7 +847,11 @@ fn path_tip_opens_right(anchor: UiRect, viewport: UiRect, width: f32) -> bool {
 /// the lower left; flip above the row when the lower space cannot hold the hint.
 /// With `right`, the left edge sits at the label and the hint extends rightward.
 fn path_tip_rect(anchor: UiRect, viewport: UiRect, width: f32, height: f32, right: bool) -> UiRect {
-    let wanted = if right { anchor.left } else { anchor.left - width };
+    let wanted = if right {
+        anchor.left
+    } else {
+        anchor.left - width
+    };
     let left = wanted.clamp(
         viewport.left + 8.0,
         (viewport.right - width - 8.0).max(viewport.left + 8.0),

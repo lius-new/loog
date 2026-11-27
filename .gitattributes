@@ -8,6 +8,8 @@
 *.ico binary
 *.png binary
 *.wasm binary
+# The patch gate compares this crate byte-for-byte with the crates.io archive.
+vendor/tree-sitter/** text eol=lf
 assets/language-packs/**/tree-sitter.json text eol=lf
 assets/language-packs/**/*.scm text eol=lf
 assets/language-packs/**/LICENSE text eol=lf

@@ -1791,7 +1791,11 @@ fn info_card_actions(
         content = content.child(text(
             UiRect::new(left, row.top, row.right, row.bottom),
             name.to_owned(),
-            { let mut style = theme::mono(theme::c().text_bright, size); style.weight = 700; style },
+            {
+                let mut style = theme::mono(theme::c().text_bright, size);
+                style.weight = 700;
+                style
+            },
         ));
         y += head_h;
     }

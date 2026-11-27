@@ -3,9 +3,7 @@
 //! these, so a change to the look is made once.
 use crate::ui::theme;
 use lgui::core::{CursorIcon, EventPolicy, SemanticRole, Semantics, UiEventContext};
-use lgui::prelude::{
-    Element, TextAlign, UiRect, VisualStyle, panel, text,
-};
+use lgui::prelude::{Element, TextAlign, UiRect, VisualStyle, panel, text};
 
 /// Corner radius of a card over the code.
 pub(crate) const RADIUS: f32 = 8.0;
@@ -107,11 +105,14 @@ impl Footer {
             self.bar.bottom,
         );
         self.x += measure(label) + 14.0;
-        self.push(text(
-            r,
-            label.to_owned(),
-            theme::sans(theme::c().text_faint, theme::SMALL),
-        ).into());
+        self.push(
+            text(
+                r,
+                label.to_owned(),
+                theme::sans(theme::c().text_faint, theme::SMALL),
+            )
+            .into(),
+        );
         self
     }
 
@@ -176,16 +177,19 @@ impl Footer {
     pub fn note(mut self, label: &str) -> Self {
         let mut style = theme::sans(theme::c().text_faint, theme::SMALL);
         style.align = TextAlign::Right;
-        self.push(text(
-            UiRect::new(
-                self.x,
-                self.bar.top + 1.0,
-                self.bar.right - 10.0,
-                self.bar.bottom,
-            ),
-            label.to_owned(),
-            style,
-        ).into());
+        self.push(
+            text(
+                UiRect::new(
+                    self.x,
+                    self.bar.top + 1.0,
+                    self.bar.right - 10.0,
+                    self.bar.bottom,
+                ),
+                label.to_owned(),
+                style,
+            )
+            .into(),
+        );
         self
     }
 
