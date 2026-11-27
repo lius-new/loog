@@ -136,8 +136,10 @@ mod tests {
 
     #[test]
     fn an_open_section_takes_a_third_and_both_open_leave_the_tree_a_third() {
-        let mut chrome = DrawerChrome::default();
-        chrome.outline_open = true;
+        let mut chrome = DrawerChrome {
+            outline_open: true,
+            ..DrawerChrome::default()
+        };
         let one = stack(drawer(), &chrome);
         assert!((one.outline.height() - 200.0).abs() < 0.01);
         assert_eq!(one.search.height(), SECTION_H);
@@ -150,11 +152,13 @@ mod tests {
 
     #[test]
     fn a_short_drawer_squeezes_the_sections_before_the_tree() {
-        let mut chrome = DrawerChrome::default();
-        chrome.search_open = true;
-        chrome.outline_open = true;
-        chrome.search_share = 0.8;
-        chrome.outline_share = 0.8;
+        let chrome = DrawerChrome {
+            search_open: true,
+            outline_open: true,
+            search_share: 0.8,
+            outline_share: 0.8,
+            ..DrawerChrome::default()
+        };
         let stack = stack(drawer(), &chrome);
         assert!(stack.tree.height() >= MIN_TREE_H - 0.01, "{:?}", stack.tree);
         assert_eq!(stack.outline.bottom, drawer().bottom);
@@ -163,9 +167,11 @@ mod tests {
 
     #[test]
     fn dragging_a_divider_sets_that_sections_share_and_keeps_the_one_below() {
-        let mut chrome = DrawerChrome::default();
-        chrome.search_open = true;
-        chrome.outline_open = true;
+        let mut chrome = DrawerChrome {
+            search_open: true,
+            outline_open: true,
+            ..DrawerChrome::default()
+        };
         let outline_before = stack(drawer(), &chrome).outline.height();
         // Pull the Search divider up by 50px.
         let top = stack(drawer(), &chrome).search.top;
