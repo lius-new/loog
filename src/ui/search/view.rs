@@ -256,12 +256,7 @@ pub fn render(
         let clear = commands.clone();
         let query_focus = inputs.focus[0].clone();
         root = root.child(icon_button(
-            UiRect::new(
-                rect.right - 36.0,
-                rect.top,
-                rect.right - 8.0,
-                header.bottom,
-            ),
+            UiRect::new(rect.right - 36.0, rect.top, rect.right - 8.0, header.bottom),
             "search-clear",
             "Clear search",
             false,

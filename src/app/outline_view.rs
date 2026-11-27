@@ -1,9 +1,9 @@
 //! Binds the Outline section, the lower part of the Explorer page, to
 //! application state.
 use super::context::AppContext;
+use super::drawer_layout;
 use super::language_ui::navigate::{self, Place};
 use super::language_ui::outline::Status;
-use super::drawer_layout;
 use crate::ui::drawer::DrawerSection;
 use crate::ui::outline::view::{self, Body, Command, Commands, Frame};
 use lgui::prelude::{Element, UiRect};
@@ -94,8 +94,9 @@ fn run(state: &AppContext, command: Command, code_rect: UiRect, drawer: UiRect) 
         Command::SplitStart => {
             state.update(|app| drawer_layout::begin_drag(app, DrawerSection::Outline))
         }
-        Command::Split(y) => state
-            .update(move |app| drawer_layout::drag_to(app, drawer, DrawerSection::Outline, y)),
+        Command::Split(y) => {
+            state.update(move |app| drawer_layout::drag_to(app, drawer, DrawerSection::Outline, y))
+        }
         Command::SplitEnd => state.update(drawer_layout::end_drag),
         Command::Scroll(value) => {
             state.try_update(|app| {

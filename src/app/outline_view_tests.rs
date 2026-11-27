@@ -143,9 +143,9 @@ fn the_toolbar_buttons_do_not_collapse_the_section() {
 fn changing_the_split_drops_a_pending_reveal_so_the_file_tree_keeps_its_top() {
     use crate::ui::explorer::state::ExplorerReveal;
     let mut drawer = Drawer::new("reveal.md", TEXT);
-    drawer.state.update(|app| {
-        app.explorer.ui.reveal = Some(ExplorerReveal { row: 9, covered: 0 })
-    });
+    drawer
+        .state
+        .update(|app| app.explorer.ui.reveal = Some(ExplorerReveal { row: 9, covered: 0 }));
     let bar = drawer.row("Outline").unwrap();
     drawer.click(Point::new(bar.left + 40.0, (bar.top + bar.bottom) / 2.0));
     assert_eq!(drawer.state.get().explorer.ui.reveal, None);

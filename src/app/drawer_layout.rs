@@ -171,12 +171,20 @@ mod tests {
         let top = stack(drawer(), &chrome).search.top;
         drag(&mut chrome, drawer(), DrawerSection::Search, top - 50.0);
         let after = stack(drawer(), &chrome);
-        assert!((after.search.height() - 250.0).abs() < 0.5, "{:?}", after.search);
+        assert!(
+            (after.search.height() - 250.0).abs() < 0.5,
+            "{:?}",
+            after.search
+        );
         assert!((after.outline.height() - outline_before).abs() < 0.01);
         // The Outline divider only moves the Outline.
         let top = after.outline.top;
         drag(&mut chrome, drawer(), DrawerSection::Outline, top + 40.0);
         let moved = stack(drawer(), &chrome);
-        assert!((moved.outline.height() - 160.0).abs() < 0.5, "{:?}", moved.outline);
+        assert!(
+            (moved.outline.height() - 160.0).abs() < 0.5,
+            "{:?}",
+            moved.outline
+        );
     }
 }

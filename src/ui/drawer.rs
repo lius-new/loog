@@ -61,7 +61,11 @@ pub fn section_bar(
         .on_click(move || toggle())
         .child(drawer_icon(
             UiId::owned(format!("{key}-section-chevron")),
-            if open { "chevron-down" } else { "chevron-right" },
+            if open {
+                "chevron-down"
+            } else {
+                "chevron-right"
+            },
             theme::icon_rect(UiRect::new(
                 rect.left + 9.0,
                 rect.top + (rect.height() - 12.0) / 2.0,
@@ -192,6 +196,10 @@ mod tests {
         click(120.0);
         assert_eq!(folds.load(Ordering::SeqCst), 1);
         click(290.0);
-        assert_eq!(folds.load(Ordering::SeqCst), 1, "the reserved strip is free");
+        assert_eq!(
+            folds.load(Ordering::SeqCst),
+            1,
+            "the reserved strip is free"
+        );
     }
 }

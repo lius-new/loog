@@ -3,9 +3,9 @@ use crate::app::context::AppContext;
 use crate::app::drawer_layout;
 use crate::app::state::AppState;
 use crate::features::search::model::SearchKey as Key;
-use crate::ui::drawer::DrawerSection;
 use crate::features::search::{FileMatches, Request, Results};
 use crate::infrastructure::ui_dispatch::LatestNotification;
+use crate::ui::drawer::DrawerSection;
 use lgui::ApplicationHandle;
 use lgui::core::UiFocusHandle;
 use lgui::prelude::UiRect;
@@ -406,7 +406,9 @@ pub fn render(
         Command::Cancel => cancel(&state),
         Command::Clear => clear(&state),
         Command::ResetFilters => reset_filters(&state),
-        Command::ToggleOpen => state.update(|app| drawer_layout::toggle(app, DrawerSection::Search)),
+        Command::ToggleOpen => {
+            state.update(|app| drawer_layout::toggle(app, DrawerSection::Search))
+        }
         Command::SplitStart => {
             state.update(|app| drawer_layout::begin_drag(app, DrawerSection::Search))
         }

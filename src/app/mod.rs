@@ -135,6 +135,7 @@ pub(crate) mod context;
 
 pub(crate) mod update;
 
+mod drawer_layout;
 mod gif_playback;
 mod image_loading;
 pub(crate) mod image_preview;
@@ -148,7 +149,6 @@ mod markdown_render;
 pub(crate) mod markdown_service;
 mod markdown_view;
 mod outline_view;
-mod drawer_layout;
 
 #[cfg(test)]
 mod markdown_tests;

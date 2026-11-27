@@ -17,7 +17,6 @@ use crate::features::terminal::ShellKind;
 use crate::model::pane_layout::{Direction, PaneId};
 use crate::ui::theme::ThemeId;
 
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CloseContinuation {
     CloseTabs,
