@@ -152,36 +152,6 @@ fn changing_the_split_drops_a_pending_reveal_so_the_file_tree_keeps_its_top() {
 }
 
 #[test]
-fn the_drawer_splits_into_tree_and_outline_and_a_collapsed_outline_keeps_only_its_bar() {
-    use crate::app::state::DrawerChrome;
-    let drawer = UiRect::new(0.0, 100.0, 300.0, 700.0);
-    let mut chrome = DrawerChrome::default();
-    // The section starts collapsed to its bar.
-    assert!(!chrome.outline_open);
-    chrome.outline_open = true;
-    let (tree, outline) = super::outline_view::split(drawer, &chrome);
-    assert_eq!(tree.bottom, outline.top);
-    assert_eq!((tree.top, outline.bottom), (drawer.top, drawer.bottom));
-    // Opened, it takes a third of the drawer.
-    assert!((outline.height() / drawer.height() - 1.0 / 3.0).abs() < 0.01);
-
-    // Neither part can be dragged away completely.
-    chrome.outline_split = 0.99;
-    let (tree, outline) = super::outline_view::split(drawer, &chrome);
-    assert!(outline.height() > crate::ui::outline::view::SECTION_H);
-    assert!(tree.height() > 0.0);
-    chrome.outline_split = 0.0;
-    let (tree, outline) = super::outline_view::split(drawer, &chrome);
-    assert!(tree.height() >= 80.0, "{tree:?}");
-    assert!(outline.height() > crate::ui::outline::view::SECTION_H);
-
-    chrome.outline_open = false;
-    let (tree, outline) = super::outline_view::split(drawer, &chrome);
-    assert_eq!(outline.height(), crate::ui::outline::view::SECTION_H);
-    assert_eq!(tree.bottom, outline.top);
-}
-
-#[test]
 fn the_row_holding_the_caret_is_marked_and_collapsing_hides_children() {
     let mut drawer = Drawer::new("follow.md", TEXT);
     drawer.state.update(|app| {

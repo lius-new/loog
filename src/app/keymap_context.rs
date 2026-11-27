@@ -37,7 +37,7 @@ pub fn facts(app: &AppState) -> ContextFacts {
         palette: app.palette.visible,
         commit: app.git.ui.commit_input.focused,
         search: app.drawer.visible
-            && app.drawer.mode == crate::ui::drawer::DrawerMode::Search
+            && app.drawer.search_open
             && (app.search.ui.query.focused
                 || app.search.ui.include.focused
                 || app.search.ui.exclude.focused

@@ -31,7 +31,6 @@ use crate::ui::theme;
 /// What a root's width was remembered for: its key and tree revision, and the width.
 type Remembered = std::collections::HashMap<(String, u32, u32), (u64, f32)>;
 
-const HEADER_H: f32 = theme::TABS_H;
 const ROW_H: f32 = theme::DRAWER_ROW_H;
 const CREATE_ROW_H: f32 = 28.0;
 const INDENT: f32 = 12.0;
@@ -157,14 +156,13 @@ pub fn render(
     state: Access,
     frame: &Frame<'_>,
     commands: Commands,
-    header: Element,
     input: EditInput,
     tree_focus: lgui::core::UiFocusHandle,
 ) -> Element {
     let s = state.get();
     let tips = std::cell::RefCell::new(Vec::new());
-    let header_rect = UiRect::new(rect.left, rect.top, rect.right, rect.top + HEADER_H);
-    let content_rect = UiRect::new(rect.left, header_rect.bottom, rect.right, rect.bottom);
+    // The tree starts at the top of the drawer; Search and Outline sit below it.
+    let content_rect = rect;
 
     let mut bar = Element::new(move |cx| {
         UiElement::panel(
@@ -347,9 +345,6 @@ pub fn render(
             ));
         }
     }
-
-    // Keep the tree's fractional top edge beneath the header separator.
-    bar = bar.child(header);
 
     // Resize handle on the drawer's left edge. An 8px invisible hit strip
     // (drawn last, above the file rows) carries the drag; the 1px filled panel

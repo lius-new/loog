@@ -252,6 +252,7 @@ fn search_panel_renders_bounded_rows_and_switches_drawer_at_normal_and_small_siz
             let editor_focus = cx.focus_handle(UiId::new("search-test-editor"));
             render(
                 viewport,
+                viewport,
                 state,
                 application.clone(),
                 editor_focus,
@@ -475,35 +476,18 @@ fn search_panel_renders_bounded_rows_and_switches_drawer_at_normal_and_small_siz
             });
             let generation = state.get().search.model.status().generation;
             session.render_view(&view, viewport, UiScale::ONE);
-            click(&mut session, &context, width - 50.0, 12.0);
+            click_named(&mut session, &context, "Clear search");
             assert!(token.load(std::sync::atomic::Ordering::Relaxed));
             assert!(state.get().search.model.status().generation > generation);
             assert!(state.get().search.ui.query.text().is_empty());
             assert!(state.get().search.ui.query.focused);
             assert_eq!(state.get().search.model.status().results.matches, 0);
             session.render_view(&view, viewport, UiScale::ONE);
-            for input in [
-                InputEvent::PointerDown {
-                    pointer: PointerData::mouse(Point::new(22.0, 12.0)),
-                    button: PointerButton::Left,
-                },
-                InputEvent::PointerUp {
-                    pointer: PointerData::mouse(Point::new(22.0, 12.0)),
-                    button: PointerButton::Left,
-                },
-            ] {
-                dispatch_runtime_output(
-                    session.handle_input(input),
-                    &context,
-                    &lgui::window::WindowId::new("search-test"),
-                    |action| session.handle_default_action(action),
-                    |_| {},
-                );
-            }
-            assert_eq!(
-                exposed.lock().unwrap().as_ref().unwrap().get().drawer.mode,
-                crate::ui::drawer::DrawerMode::Files
-            );
+            // The bar's title folds the section and hands the keyboard back.
+            click_named(&mut session, &context, "Search");
+            let app = state.get();
+            assert!(!app.drawer.search_open);
+            assert!(!app.search.ui.query.focused);
         }
     }
 }

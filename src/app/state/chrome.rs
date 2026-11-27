@@ -15,7 +15,7 @@ impl Default for TerminalChrome {
     }
 }
 
-use super::DrawerMode;
+use crate::ui::drawer::DrawerSection;
 /// Visibility and width of the left-hand Source Control drawer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SidebarChrome {
@@ -35,34 +35,35 @@ impl Default for SidebarChrome {
     }
 }
 
-/// Visibility, page and width of the right-hand drawer.
+/// Visibility, width and sections of the right-hand drawer: the file tree with
+/// the collapsible Search and Outline sections below it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DrawerChrome {
     pub visible: bool,
-    pub mode: DrawerMode,
     pub width: f32,
     /// True while the drawer resize handle is being dragged.
     pub resizing: bool,
-    /// The Outline section below the file tree shows its list, not just its bar.
-    /// It starts collapsed.
+    /// A section shows its content, not just its bar. Both start collapsed.
+    pub search_open: bool,
     pub outline_open: bool,
-    /// Share of the drawer's height taken by the file tree while the Outline
-    /// section is open.
-    pub outline_split: f32,
-    /// True while the divider above the Outline section is being dragged.
-    pub outline_splitting: bool,
+    /// Share of the drawer's height each section takes while it is open.
+    pub search_share: f32,
+    pub outline_share: f32,
+    /// The section whose divider is being dragged.
+    pub splitting: Option<DrawerSection>,
 }
 
 impl Default for DrawerChrome {
     fn default() -> Self {
         Self {
             visible: true,
-            mode: DrawerMode::Files,
             width: crate::ui::theme::SIDEBAR_W,
             resizing: false,
+            search_open: false,
             outline_open: false,
-            outline_split: crate::app::outline_view::DEFAULT_SPLIT,
-            outline_splitting: false,
+            search_share: crate::app::drawer_layout::DEFAULT_SHARE,
+            outline_share: crate::app::drawer_layout::DEFAULT_SHARE,
+            splitting: None,
         }
     }
 }

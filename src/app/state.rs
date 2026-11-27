@@ -17,7 +17,6 @@ use crate::features::terminal::ShellKind;
 use crate::model::pane_layout::{Direction, PaneId};
 use crate::ui::theme::ThemeId;
 
-pub use crate::ui::drawer::DrawerMode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CloseContinuation {
@@ -625,19 +624,17 @@ impl AppState {
             }
             Action::OpenExplorer => {
                 self.drawer.visible = true;
-                self.drawer.mode = DrawerMode::Files;
                 self.search.blur();
             }
             Action::OpenSearch => {
                 self.drawer.visible = true;
-                self.drawer.mode = DrawerMode::Search;
+                self.drawer.search_open = true;
                 self.search.focus_request += 1;
                 self.search.results_focus_request = 0;
                 self.close_menus();
             }
             Action::OpenOutline => {
                 self.drawer.visible = true;
-                self.drawer.mode = DrawerMode::Files;
                 self.drawer.outline_open = true;
                 self.search.blur();
                 self.close_menus();

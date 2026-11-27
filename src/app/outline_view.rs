@@ -3,34 +3,10 @@
 use super::context::AppContext;
 use super::language_ui::navigate::{self, Place};
 use super::language_ui::outline::Status;
-use super::state::DrawerChrome;
+use super::drawer_layout;
+use crate::ui::drawer::DrawerSection;
 use crate::ui::outline::view::{self, Body, Command, Commands, Frame};
 use lgui::prelude::{Element, UiRect};
-
-/// Share of the drawer's height the file tree takes when the section opens.
-pub(crate) const DEFAULT_SPLIT: f32 = 2.0 / 3.0;
-/// The file tree never shrinks below this while the section is open.
-const MIN_TREE_H: f32 = 88.0;
-/// The list under the section bar keeps room for a few rows.
-const MIN_LIST_H: f32 = 66.0;
-
-/// Divides the drawer into the file tree above and the Outline section below.
-/// A collapsed section is only its bar.
-pub(crate) fn split(drawer: UiRect, chrome: &DrawerChrome) -> (UiRect, UiRect) {
-    let bar = view::SECTION_H;
-    let height = if chrome.outline_open {
-        let most = (drawer.height() - MIN_TREE_H).max(bar);
-        let least = (bar + MIN_LIST_H).min(most);
-        (drawer.height() * (1.0 - chrome.outline_split)).clamp(least, most)
-    } else {
-        bar
-    };
-    let middle = drawer.bottom - height;
-    (
-        UiRect::new(drawer.left, drawer.top, drawer.right, middle),
-        UiRect::new(drawer.left, middle, drawer.right, drawer.bottom),
-    )
-}
 
 /// Renders the Outline section into `rect`, the lower part of `drawer`.
 pub(crate) fn render(
@@ -62,7 +38,7 @@ pub(crate) fn render(
     };
     let frame = Frame {
         open: app.drawer.outline_open,
-        splitting: app.drawer.outline_splitting,
+        splitting: app.drawer.splitting == Some(DrawerSection::Outline),
         body: match message {
             Some(message) => Body::Message(message),
             None => Body::Tree {
@@ -112,24 +88,15 @@ fn run(state: &AppContext, command: Command, code_rect: UiRect, drawer: UiRect) 
         Command::ExpandAll => state.update(|app| app.editor.language.outline.expand_all()),
         Command::CollapseAll => state.update(|app| app.editor.language.outline.collapse_all()),
         Command::ToggleSort => state.update(|app| app.editor.language.outline.toggle_sort()),
-        // The file tree keeps its top in place when its height changes. A pending
-        // "bring the open file into sight" request would instead scroll it as
-        // soon as that row leaves the shrinking viewport.
-        Command::ToggleOpen => state.update(|app| {
-            app.drawer.outline_open = !app.drawer.outline_open;
-            app.drawer.outline_splitting = false;
-            app.explorer.ui.reveal = None;
-        }),
-        Command::SplitStart => state.update(|app| {
-            app.drawer.outline_splitting = true;
-            app.explorer.ui.reveal = None;
-        }),
-        Command::Split(y) => state.update(move |app| {
-            if app.drawer.outline_splitting && drawer.height() > 0.0 {
-                app.drawer.outline_split = ((y - drawer.top) / drawer.height()).clamp(0.1, 0.9);
-            }
-        }),
-        Command::SplitEnd => state.update(|app| app.drawer.outline_splitting = false),
+        Command::ToggleOpen => {
+            state.update(|app| drawer_layout::toggle(app, DrawerSection::Outline))
+        }
+        Command::SplitStart => {
+            state.update(|app| drawer_layout::begin_drag(app, DrawerSection::Outline))
+        }
+        Command::Split(y) => state
+            .update(move |app| drawer_layout::drag_to(app, drawer, DrawerSection::Outline, y)),
+        Command::SplitEnd => state.update(drawer_layout::end_drag),
         Command::Scroll(value) => {
             state.try_update(|app| {
                 let ui = &mut app.editor.language.outline;

@@ -1,7 +1,9 @@
 //! Search application adapter: composes feature state, services and Workspace navigation.
 use crate::app::context::AppContext;
+use crate::app::drawer_layout;
 use crate::app::state::AppState;
 use crate::features::search::model::SearchKey as Key;
+use crate::ui::drawer::DrawerSection;
 use crate::features::search::{FileMatches, Request, Results};
 use crate::infrastructure::ui_dispatch::LatestNotification;
 use lgui::ApplicationHandle;
@@ -379,6 +381,7 @@ pub fn navigate(
 /// Composition stays here; Search receives no editor, Workspace or application handle.
 pub fn render(
     rect: UiRect,
+    drawer: UiRect,
     state: AppContext,
     application: ApplicationHandle,
     editor_focus: UiFocusHandle,
@@ -393,21 +396,24 @@ pub fn render(
     let app = state.get();
     let root_count = app.explorer.model.roots().len() + app.explorer.resources.roots.len();
     let has_roots = root_count > 0;
-    let header = crate::app::explorer_view::drawer_header(
-        UiRect::new(
-            rect.left,
-            rect.top,
-            rect.right,
-            rect.top + crate::ui::theme::TABS_H,
-        ),
-        &state,
-    );
+    let section = view::Section {
+        open: app.drawer.search_open,
+        splitting: app.drawer.splitting == Some(DrawerSection::Search),
+    };
     let projected = StateAccess::project(state.model(), |app| &app.search, |app| &mut app.search);
     let commands = Commands::new(move |command| match command {
         Command::Refresh => refresh(&state),
         Command::Cancel => cancel(&state),
         Command::Clear => clear(&state),
         Command::ResetFilters => reset_filters(&state),
+        Command::ToggleOpen => state.update(|app| drawer_layout::toggle(app, DrawerSection::Search)),
+        Command::SplitStart => {
+            state.update(|app| drawer_layout::begin_drag(app, DrawerSection::Search))
+        }
+        Command::Split(y) => {
+            state.update(move |app| drawer_layout::drag_to(app, drawer, DrawerSection::Search, y))
+        }
+        Command::SplitEnd => state.update(drawer_layout::end_drag),
         Command::Select { file, index, point } => {
             let mut clicks = 1;
             state.update(|app| clicks = app.editor.tree_click_count(&file.path, point.0, point.1));
@@ -430,7 +436,7 @@ pub fn render(
         has_roots,
         root_count > 1,
         inputs,
-        header,
+        section,
     )
 }
 

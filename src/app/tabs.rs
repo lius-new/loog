@@ -584,11 +584,7 @@ mod tests {
                         UiRect::new(drawer.left, drawer.top, drawer.right, viewport.bottom),
                         VisualStyle::filled(theme::c().sidebar),
                     )
-                    .child(crate::ui::drawer::header(
-                        drawer,
-                        crate::ui::drawer::DrawerMode::Files,
-                        Arc::new(|_| {}),
-                    )),
+                    .child(crate::ui::components::divider::bottom(drawer)),
                 )
                 .child(crate::ui::components::divider::top(details))
                 .child(crate::ui::titlebar::bottom_border(title))

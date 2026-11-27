@@ -8,7 +8,6 @@ use crate::features::language_service::reply;
 use crate::features::language_service::request::Feature;
 use crate::features::outline::{self, Outline};
 use crate::features::providers::{Failure, RequestHandle, RequestSpec};
-use crate::ui::drawer::DrawerMode;
 use loog_workspace_api::ResourceRef;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -98,7 +97,7 @@ impl OutlineUi {
 }
 
 fn visible(app: &AppState) -> bool {
-    app.drawer.visible && app.drawer.mode == DrawerMode::Files && app.drawer.outline_open
+    app.drawer.visible && app.drawer.outline_open
 }
 
 /// Runs after every update: when the drawer is showing, keeps the tree in step

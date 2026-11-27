@@ -16,7 +16,7 @@ use crate::ui::components::scrollbar;
 use crate::ui::components::search_field;
 use crate::ui::components::state_access::StateAccess;
 use crate::ui::components::text::SingleLineText;
-use crate::ui::drawer::drawer_icon;
+use crate::ui::drawer::{DividerEvents, SECTION_H, drawer_icon, section_bar, section_divider};
 use crate::ui::theme;
 
 // Search uses the compact UI scale for dense result lists.
@@ -168,6 +168,15 @@ fn query_option_rects(query: UiRect) -> Option<[UiRect; 3]> {
     }))
 }
 
+/// How the Search section sits in the drawer.
+#[derive(Clone, Copy)]
+pub struct Section {
+    /// False while the section is folded to its bar.
+    pub open: bool,
+    /// The divider above the section is being dragged.
+    pub splitting: bool,
+}
+
 pub fn render(
     rect: UiRect,
     state: StateAccess<SearchPanelState>,
@@ -175,23 +184,53 @@ pub fn render(
     has_roots: bool,
     multiple_roots: bool,
     inputs: Inputs,
-    header_element: Element,
+    section: Section,
 ) -> Element {
     let app = state.get();
     let search = &app;
-    let header = UiRect::new(rect.left, rect.top, rect.right, rect.top + theme::TABS_H);
-    let mut root = panel(rect, VisualStyle::filled(theme::c().sidebar)).child(header_element);
+    let header = UiRect::new(rect.left, rect.top, rect.right, rect.top + SECTION_H);
+    let has_buttons = section.open && rect.width() >= 200.0 && !search.query.text().is_empty();
+    let figure = (section.open
+        && !search.query.text().is_empty()
+        && has_roots
+        && search.model.status().error.is_none()
+        && search.model.status().results.matches > 0)
+        .then(|| number(search.model.status().results.matches));
+    let toggle = commands.clone();
+    let mut root = panel(rect, VisualStyle::filled(theme::c().sidebar)).child(section_bar(
+        header,
+        "search",
+        "Search",
+        section.open,
+        figure,
+        if has_buttons { 76.0 } else { 0.0 },
+        Arc::new(move || toggle.dispatch(Command::ToggleOpen)),
+    ));
+    let (down, drag, up) = (commands.clone(), commands.clone(), commands.clone());
+    let divider = section_divider(
+        "search",
+        rect,
+        section.splitting,
+        section.open.then(|| DividerEvents {
+            start: Arc::new(move || down.dispatch(Command::SplitStart)),
+            drag: Arc::new(move |y| drag.dispatch(Command::Split(y))),
+            end: Arc::new(move || up.dispatch(Command::SplitEnd)),
+        }),
+    );
+    if !section.open {
+        return clip(rect, 0.0, 0.0).child(root.child(divider));
+    }
 
-    // Mode icons and collapse stay in the shared drawer header.
-    if rect.width() >= 200.0 && !search.query.text().is_empty() {
+    // Stop or refresh and clear sit in the section bar, beside its fold target.
+    if has_buttons {
         if search.model.status().running || (search.model.status().error.is_none() && has_roots) {
             let action = state.clone();
             let action_commands = commands.clone();
             root = root.child(icon_button(
                 UiRect::new(
-                    rect.right - 96.0,
-                    rect.top,
                     rect.right - 68.0,
+                    rect.top,
+                    rect.right - 40.0,
                     header.bottom,
                 ),
                 if search.model.status().running {
@@ -218,9 +257,9 @@ pub fn render(
         let query_focus = inputs.focus[0].clone();
         root = root.child(icon_button(
             UiRect::new(
-                rect.right - 64.0,
-                rect.top,
                 rect.right - 36.0,
+                rect.top,
+                rect.right - 8.0,
                 header.bottom,
             ),
             "search-clear",
@@ -527,7 +566,7 @@ pub fn render(
             state.clone(),
         ));
     }
-    clip(rect, 0.0, 0.0).child(root)
+    clip(rect, 0.0, 0.0).child(root.child(divider))
 }
 
 fn number(value: usize) -> String {

@@ -16,10 +16,9 @@ use lgui::prelude::{Element, UiRect, VisualStyle, panel, text};
 use crate::features::highlighting::HighlightId;
 use crate::features::outline::{Kind, Node, Outline, Row};
 use crate::ui::components::scrollbar;
+use crate::ui::drawer::{DividerEvents, SECTION_H, section_bar, section_divider};
 use crate::ui::theme;
 
-/// Height of the section bar, which is all that shows while collapsed.
-pub const SECTION_H: f32 = theme::TABS_H;
 const ROW_H: f32 = 22.0;
 const INDENT: f32 = 14.0;
 const CHEVRON_W: f32 = 14.0;
@@ -140,28 +139,17 @@ pub fn render(rect: UiRect, frame: &Frame<'_>, commands: Commands) -> Element {
     bar = bar.child(section_row(bar_rect, frame, &commands));
 
     // The rule above the section; while open, dragging it moves the split.
-    let line = UiRect::new(rect.left, rect.top, rect.right, rect.top + 1.0);
-    if frame.open {
-        let (down, drag, up) = (commands.clone(), commands.clone(), commands.clone());
-        bar = bar.child(
-            crate::ui::components::resize_handle::render(
-                "outline-split-handle",
-                UiRect::new(rect.left, rect.top - 3.0, rect.right, rect.top + 4.0),
-                line,
-                CursorIcon::ResizeVertical,
-                frame.splitting,
-            )
-            .on_pointer_down_with_button(move |_cx, _p, button| {
-                if button == PointerButton::Left {
-                    down.dispatch(Command::SplitStart);
-                }
-            })
-            .on_pointer_drag(move |_cx, p| drag.dispatch(Command::Split(p.point.y)))
-            .on_pointer_up(move |_cx, _p| up.dispatch(Command::SplitEnd)),
-        );
-    } else {
-        bar = bar.child(panel(line, VisualStyle::filled(theme::c().border)));
-    }
+    let (down, drag, up) = (commands.clone(), commands.clone(), commands.clone());
+    bar = bar.child(section_divider(
+        "outline",
+        rect,
+        frame.splitting,
+        frame.open.then(|| DividerEvents {
+            start: Arc::new(move || down.dispatch(Command::SplitStart)),
+            drag: Arc::new(move |y| drag.dispatch(Command::Split(y))),
+            end: Arc::new(move || up.dispatch(Command::SplitEnd)),
+        }),
+    ));
 
     if frame.resizable {
         let handle_rect = UiRect::new(rect.left, rect.top, rect.left + 8.0, rect.bottom);
@@ -195,45 +183,15 @@ pub fn render(rect: UiRect, frame: &Frame<'_>, commands: Commands) -> Element {
 fn section_row(rect: UiRect, frame: &Frame<'_>, commands: &Commands) -> Element {
     // The buttons sit beside the collapse target, not inside it, so pressing
     // one never also collapses the section.
-    let buttons_w = if frame.open { 3.0 * 26.0 + 8.0 } else { 0.0 };
-    let target = UiRect::new(rect.left, rect.top, rect.right - buttons_w, rect.bottom);
     let toggle = commands.clone();
-    let mut row = panel(rect, VisualStyle::filled(theme::c().sidebar)).child(
-        panel(target, VisualStyle::default())
-            .key("outline-section")
-            .semantics({
-                let mut semantics = Semantics::new(SemanticRole::Button).name("Outline");
-                semantics.state.expanded = Some(frame.open);
-                semantics
-            })
-            .event_policy(EventPolicy::INTERACTIVE)
-            .cursor(CursorIcon::Pointer)
-            .on_click(move || toggle.dispatch(Command::ToggleOpen))
-            .child(crate::ui::drawer::drawer_icon(
-                "outline-section-chevron",
-                if frame.open {
-                    "chevron-down"
-                } else {
-                    "chevron-right"
-                },
-                theme::icon_rect(UiRect::new(
-                    rect.left + 9.0,
-                    rect.top + (rect.height() - 12.0) / 2.0,
-                    rect.left + 21.0,
-                    rect.top + (rect.height() + 12.0) / 2.0,
-                )),
-                theme::c().text_ghost,
-            ))
-            .child(text(
-                UiRect::new(
-                    rect.left + 25.0,
-                    rect.top,
-                    (target.right - 4.0).max(rect.left + 25.0),
-                    rect.bottom,
-                ),
-                "Outline",
-                theme::sans(theme::c().text_muted, 11.0),
-            )),
+    let mut row = section_bar(
+        rect,
+        "outline",
+        "Outline",
+        frame.open,
+        None,
+        if frame.open { 3.0 * 26.0 + 8.0 } else { 0.0 },
+        Arc::new(move || toggle.dispatch(Command::ToggleOpen)),
     );
     if !frame.open {
         return row;

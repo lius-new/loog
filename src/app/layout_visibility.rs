@@ -130,11 +130,7 @@ pub(crate) fn binding(
                     let label = match content {
                         Content::Editor => "Editor".to_owned(),
                         Content::Git => "Changes".to_owned(),
-                        Content::Files => match app.drawer.mode {
-                            crate::ui::drawer::DrawerMode::Search => "Search",
-                            crate::ui::drawer::DrawerMode::Files => "Files",
-                        }
-                        .to_owned(),
+                        Content::Files => "Files".to_owned(),
                         Content::Terminal { tabs, active } => active
                             .or_else(|| tabs.first().copied())
                             .and_then(|active| model.tabs().iter().find(|t| t.id() == active))

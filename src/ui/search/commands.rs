@@ -10,6 +10,12 @@ pub enum Command {
     Cancel,
     Clear,
     ResetFilters,
+    /// Fold or open the whole section.
+    ToggleOpen,
+    SplitStart,
+    /// The pointer's vertical position while the divider is dragged.
+    Split(f32),
+    SplitEnd,
     Select {
         file: Arc<FileMatches>,
         index: usize,

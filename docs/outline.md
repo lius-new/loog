@@ -1,15 +1,15 @@
 # Outline
 
-The Outline is the lower part of the Explorer page in the right drawer: the file
-tree above, the structure of the current file as a tree below. Run
-`workspace::OpenOutline` to bring it into view from anywhere. It works for any
-text file, not only Markdown.
+The Outline is the lowest of the sections under the file tree in the right
+drawer: the file tree above, then [Search](search.md), then the structure of the
+current file as a tree. Run `workspace::OpenOutline` to open it from anywhere.
+It works for any text file, not only Markdown.
 
-The section starts collapsed to its **Outline** bar, so the file tree has the
-whole page. Click the bar to open it (it then takes a third of the page) and
-click it again to collapse it. Drag the rule above the section to give either
-part more room; the file tree keeps its top in place while you drag. The Search page does not show the Outline.
-The split and the collapsed state last for the session and are not saved.
+The section starts collapsed to its **Outline** bar. Click the bar to open it
+(it then takes a third of the drawer) and click it again to collapse it. Drag
+the rule above the section to give it more or less room; the file tree keeps its
+top in place while you drag. The size and the collapsed state last for the
+session and are not saved.
 
 ## Where the tree comes from
 

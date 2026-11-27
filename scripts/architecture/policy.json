@@ -21,7 +21,7 @@
       "remove_in": "composition"
     },
     "drawer": {
-      "owner": "app/state/chrome: DrawerChrome (visible/mode/width/resizing shared by Explorer and Search; R5.2 owner corrected from features/explorer)",
+      "owner": "app/state/chrome: DrawerChrome (visible/width/resizing and the Search and Outline sections' open state and share, shared by the file tree and its sections; R5.2 owner corrected from features/explorer)",
       "remove_in": "composition"
     },
     "explorer": {
@@ -1225,9 +1225,13 @@
     ],
     "DrawerChrome": [
       "visible",
-      "mode",
       "width",
-      "resizing"
+      "resizing",
+      "search_open",
+      "outline_open",
+      "search_share",
+      "outline_share",
+      "splitting"
     ]
   }
 }

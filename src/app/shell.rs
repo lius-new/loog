@@ -569,7 +569,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     cx.use_effect(search_key.clone(), move || {
         crate::app::search::start(search_state, search_application, search_key)
     });
-    let search_visible = s.drawer.visible && s.drawer.mode == crate::ui::drawer::DrawerMode::Search;
+    let search_visible = s.drawer.visible && s.drawer.search_open;
     let query_focus = search_query_focus.clone();
     cx.use_effect((search_visible, s.search.focus_request), move || {
         if search_visible {
@@ -795,13 +795,12 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         .content_rect(&application_snapshot, &Content::Files)
         .map(UiRect::from)
         .unwrap_or_default();
-    // The Explorer page stacks the file tree over the Outline section.
-    let (explorer_tree_rect, outline_rect) = if s.drawer.mode == crate::ui::drawer::DrawerMode::Files
-    {
-        super::outline_view::split(explorer_rect, &s.drawer)
-    } else {
-        (explorer_rect, UiRect::default())
-    };
+    // The drawer stacks the file tree over the Search and Outline sections.
+    let super::drawer_layout::Stack {
+        tree: explorer_tree_rect,
+        search: search_rect,
+        outline: outline_rect,
+    } = super::drawer_layout::stack(explorer_rect, &s.drawer);
     let drag_state = state.clone();
     let drag_application = application.as_ref().clone();
     let dragging = s.editor.drag.is_some();
@@ -1242,9 +1241,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     });
 
     // The Outline section shows its scrollbar on the same terms.
-    let outline_drawer = show_drawer
-        && s.drawer.mode == crate::ui::drawer::DrawerMode::Files
-        && s.drawer.outline_open;
+    let outline_drawer = show_drawer && s.drawer.outline_open;
     let st_outline_hover = state.clone();
     root = root.on_event_capture(UiEventKind::PointerMove, move |_ctx, payload| {
         if let UiEventPayload::PointerMove { pointer } = payload {
@@ -1603,52 +1600,50 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         tree_focus: cx.focus_handle(UiId::new("explorer-tree")),
     };
     if show_drawer {
-        if s.drawer.mode == crate::ui::drawer::DrawerMode::Search {
-            root = root.child(super::search::render(
-                explorer_rect,
-                state.clone(),
-                application.as_ref().clone(),
-                editor_focus.clone(),
-                code_rect,
-                crate::ui::search::view::Inputs {
-                    ids: [search_query_id, search_include_id, search_exclude_id],
-                    focus: [
-                        search_query_focus,
-                        search_include_focus,
-                        search_exclude_focus,
-                    ],
-                    results_id: search_results_id,
-                    results_focus: search_results_focus,
-                },
-            ));
-        } else {
-            root = root.child({
-                let (state, git_store, services) =
-                    (state.clone(), git_store.clone(), explorer_services.clone());
-                let (input_id, input_focus) = (
-                    explorer_create_input_id.clone(),
-                    explorer_create_input_focus.clone(),
-                );
-                component(explorer_tree_rect, move |_cx, &explorer_rect| {
-                    super::explorer_view::render(
-                        explorer_rect,
-                        &state,
-                        &git_store,
-                        &services,
-                        crate::ui::explorer::commands::EditInput {
-                            id: input_id.clone(),
-                            focus: input_focus.clone(),
-                        },
-                    )
-                })
-            });
-            root = root.child(super::outline_view::render(
-                outline_rect,
-                explorer_rect,
-                &state,
-                code_rect,
-            ));
-        }
+        root = root.child({
+            let (state, git_store, services) =
+                (state.clone(), git_store.clone(), explorer_services.clone());
+            let (input_id, input_focus) = (
+                explorer_create_input_id.clone(),
+                explorer_create_input_focus.clone(),
+            );
+            component(explorer_tree_rect, move |_cx, &explorer_rect| {
+                super::explorer_view::render(
+                    explorer_rect,
+                    &state,
+                    &git_store,
+                    &services,
+                    crate::ui::explorer::commands::EditInput {
+                        id: input_id.clone(),
+                        focus: input_focus.clone(),
+                    },
+                )
+            })
+        });
+        root = root.child(super::search::render(
+            search_rect,
+            explorer_rect,
+            state.clone(),
+            application.as_ref().clone(),
+            editor_focus.clone(),
+            code_rect,
+            crate::ui::search::view::Inputs {
+                ids: [search_query_id, search_include_id, search_exclude_id],
+                focus: [
+                    search_query_focus,
+                    search_include_focus,
+                    search_exclude_focus,
+                ],
+                results_id: search_results_id,
+                results_focus: search_results_focus,
+            },
+        ));
+        root = root.child(super::outline_view::render(
+            outline_rect,
+            explorer_rect,
+            &state,
+            code_rect,
+        ));
     }
 
     for (region, content, rect) in &application_snapshot.regions {

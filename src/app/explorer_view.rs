@@ -5,7 +5,6 @@
 use crate::app::context::AppContext;
 
 use std::path::Path;
-use std::sync::Arc;
 
 use lgui::application::ApplicationContext;
 use lgui::core::UiFocusHandle;
@@ -18,7 +17,6 @@ use crate::app::terminal_binding::TerminalTabs;
 use crate::features::explorer::{ExplorerContextTarget, ExplorerCreateKind, ExplorerTargetKind};
 use crate::features::git::{GitStoreSnapshot, PathDecoration};
 use crate::ui::components::state_access::StateAccess;
-use crate::ui::drawer::{self, DrawerMode};
 use crate::ui::explorer::commands::{
     Command, Commands, Decoration, EditInput, Frame, GitTone, MenuAction,
 };
@@ -42,25 +40,6 @@ fn commands(state: &AppContext, services: &Services) -> Commands {
     let state = state.clone();
     let services = services.clone();
     Commands::new(move |command| run(&state, &services, command))
-}
-
-/// The Explorer/Search drawer header, shared with the Search view.
-pub(crate) fn drawer_header(rect: UiRect, state: &AppContext) -> Element {
-    use crate::features::keymap::action::Action;
-    let mode = state.get().drawer.mode;
-    let select_state = state.clone();
-    drawer::header(
-        rect,
-        mode,
-        Arc::new(move |mode| {
-            select_state.update(|app| {
-                app.apply(match mode {
-                    DrawerMode::Files => Action::OpenExplorer,
-                    DrawerMode::Search => Action::OpenSearch,
-                })
-            })
-        }),
-    )
 }
 
 /// Source-control decoration of a tree row, from the current Git snapshot.
@@ -104,21 +83,11 @@ pub(crate) fn render(
         decorate: &decorate,
         hover: &services.hover,
     };
-    let header = drawer_header(
-        UiRect::new(
-            rect.left,
-            rect.top,
-            rect.right,
-            rect.top + crate::ui::theme::TABS_H,
-        ),
-        state,
-    );
     crate::ui::explorer::view::render(
         rect,
         projection(state),
         &frame,
         commands(state, services),
-        header,
         input,
         services.tree_focus.clone(),
     )
@@ -1747,10 +1716,8 @@ mod tests {
         for (index, root) in roots.iter().enumerate() {
             let id = UiId::owned(format!("tree-sticky-{}", root.display()));
             let icon = h.session.tree().node(&id).expect("Pinned project root");
-            assert_eq!(
-                icon.layout_rect.top,
-                crate::ui::theme::TABS_H + index as f32 * 20.0 + 2.0
-            );
+            // The tree starts at the top of the drawer, with no header above it.
+            assert_eq!(icon.layout_rect.top, index as f32 * 20.0 + 2.0);
         }
         send(&mut h, wheel(2500.0));
         assert_eq!(h.state.get().explorer.ui.scroll, 0.0);

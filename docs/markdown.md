@@ -21,8 +21,8 @@ Markdown**, which opens the file as a preview. Repeating side preview reuses its
 creates a separate view; moving it preserves its identity. Closing or converting
 the associated source safely detaches the preview.
 
-The preview has no toolbar; the file's headings are in the drawer's
-[Outline](outline.md). A source/preview pair scrolls together: an editor and a preview of the same
+The preview has no toolbar; the file's headings are in the
+drawer's [Outline](outline.md) section. A source/preview pair scrolls together: an editor and a preview of the same
 document in different panes need no explicit association. Whichever side moved
 drives the other, with no focus requirement and no feedback loop. Session
 restore keeps view modes, positions and associations.
