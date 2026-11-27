@@ -121,7 +121,6 @@ pub(crate) fn svg_icons() -> SvgIconRegistry {
             .with_icon("refresh", icondata::VsRefresh)
             .with_icon("sync", icondata::VsSync)
             .with_icon("search", icondata::VsSearch)
-            .with_icon("outline", icondata::VsSymbolStructure)
             .with_icon("expand-all", icondata::VsExpandAll)
             .with_icon("sort", icondata::VsSortPrecedence)
             .with_icon("symbol-class", icondata::VsSymbolClass)

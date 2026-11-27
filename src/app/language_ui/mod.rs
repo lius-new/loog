@@ -56,7 +56,7 @@ pub struct LanguageUi {
     pub signature_timer: Option<Arc<crate::app::ui_timer::Timer>>,
     pub signature_revision: u64,
     pub highlights: highlight::Highlights,
-    /// The Outline drawer's tree and view state.
+    /// The Outline section's tree and view state.
     pub outline: outline::OutlineUi,
     pub lightbulb: lightbulb::Lightbulb,
     pub quickfix: quickfix::QuickFix,

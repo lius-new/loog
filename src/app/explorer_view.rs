@@ -57,7 +57,6 @@ pub(crate) fn drawer_header(rect: UiRect, state: &AppContext) -> Element {
                 app.apply(match mode {
                     DrawerMode::Files => Action::OpenExplorer,
                     DrawerMode::Search => Action::OpenSearch,
-                    DrawerMode::Outline => Action::OpenOutline,
                 })
             })
         }),

@@ -1,8 +1,15 @@
 # Outline
 
-Click the structure icon in the right drawer (next to Explorer and Search), or
-run `workspace::OpenOutline`, to see the structure of the current file as a tree.
-It works for any text file, not only Markdown.
+The Outline is the lower part of the Explorer page in the right drawer: the file
+tree above, the structure of the current file as a tree below. Run
+`workspace::OpenOutline` to bring it into view from anywhere. It works for any
+text file, not only Markdown.
+
+The section starts collapsed to its **Outline** bar, so the file tree has the
+whole page. Click the bar to open it (it then takes a third of the page) and
+click it again to collapse it. Drag the rule above the section to give either
+part more room; the file tree keeps its top in place while you drag. The Search page does not show the Outline.
+The split and the collapsed state last for the session and are not saved.
 
 ## Where the tree comes from
 
@@ -22,7 +29,7 @@ until the new one arrives. Switching files replaces it at once.
 Click a row to move the caret to that symbol. The chevron expands or collapses a
 branch. The row that contains the caret is marked and scrolled into view as you
 move through the file; if it sits inside a collapsed branch, that branch is
-marked instead. The toolbar has **Expand All**, **Collapse All** and **Sort
+marked instead. The Outline bar has **Expand All**, **Collapse All** and **Sort
 Alphabetically**. Collapsed branches and sorting survive edits.
 
 Icons follow the editor's syntax colors: classes, interfaces and enums, methods

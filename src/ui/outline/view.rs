@@ -1,6 +1,7 @@
-//! A structure tree in the style of IntelliJ's Structure tool window: a small
-//! toolbar, then one line per symbol with a chevron, a tinted kind icon, the
-//! name and, fainter, its detail. The line holding the caret stays marked.
+//! A structure tree in the style of IntelliJ's Structure tool window: a section
+//! bar with the toolbar, then one line per symbol with a chevron, a tinted kind
+//! icon, the name and, fainter, its detail. The line holding the caret stays
+//! marked. It fills the lower part of the Explorer page.
 //!
 //! The view reads one [`Frame`] and reports everything the person does as a
 //! [`Command`]; it never touches application state.
@@ -17,8 +18,8 @@ use crate::features::outline::{Kind, Node, Outline, Row};
 use crate::ui::components::scrollbar;
 use crate::ui::theme;
 
-const HEADER_H: f32 = theme::TABS_H;
-const TOOLBAR_H: f32 = 28.0;
+/// Height of the section bar, which is all that shows while collapsed.
+pub const SECTION_H: f32 = theme::TABS_H;
 const ROW_H: f32 = 22.0;
 const INDENT: f32 = 14.0;
 const CHEVRON_W: f32 = 14.0;
@@ -35,6 +36,12 @@ pub enum Command {
     ExpandAll,
     CollapseAll,
     ToggleSort,
+    /// Collapse or expand the whole section.
+    ToggleOpen,
+    SplitStart,
+    /// The pointer's vertical position while the divider is dragged.
+    Split(f32),
+    SplitEnd,
     /// The list's new top offset in pixels.
     Scroll(f32),
     Hover(Option<usize>),
@@ -74,6 +81,10 @@ pub enum Body<'a> {
 
 pub struct Frame<'a> {
     pub body: Body<'a>,
+    /// False while the section is collapsed to its bar.
+    pub open: bool,
+    /// The divider above the section is being dragged.
+    pub splitting: bool,
     pub sorted: bool,
     pub scroll: f32,
     pub hovered: Option<usize>,
@@ -84,54 +95,73 @@ pub struct Frame<'a> {
     pub resizing: bool,
 }
 
-pub fn render(rect: UiRect, frame: &Frame<'_>, commands: Commands, header: Element) -> Element {
-    let header_rect = UiRect::new(rect.left, rect.top, rect.right, rect.top + HEADER_H);
-    let toolbar = UiRect::new(
-        rect.left,
-        header_rect.bottom,
-        rect.right,
-        header_rect.bottom + TOOLBAR_H,
-    );
-    let list = UiRect::new(rect.left, toolbar.bottom, rect.right, rect.bottom);
+pub fn render(rect: UiRect, frame: &Frame<'_>, commands: Commands) -> Element {
+    let bar_rect = UiRect::new(rect.left, rect.top, rect.right, rect.top + SECTION_H);
+    let list = UiRect::new(rect.left, bar_rect.bottom, rect.right, rect.bottom);
     let mut bar = panel(rect, VisualStyle::filled(theme::c().sidebar));
 
-    // Empty space clears the hovered row; rows drawn later win hit-testing.
-    let clear = commands.clone();
-    bar = bar.child(
-        panel(list, VisualStyle::default())
-            .event_policy(EventPolicy::INTERACTIVE)
-            .on_event_capture(UiEventKind::PointerMove, move |_cx, _payload| {
-                clear.dispatch(Command::Hover(None));
-            }),
-    );
+    if frame.open {
+        // Empty space clears the hovered row; rows drawn later win hit-testing.
+        let clear = commands.clone();
+        bar = bar.child(
+            panel(list, VisualStyle::default())
+                .event_policy(EventPolicy::INTERACTIVE)
+                .on_event_capture(UiEventKind::PointerMove, move |_cx, _payload| {
+                    clear.dispatch(Command::Hover(None));
+                }),
+        );
 
-    match &frame.body {
-        Body::Message(message) => {
-            bar = bar.child(text(
-                UiRect::new(
-                    list.left + 12.0,
-                    list.top + 12.0,
-                    list.right - 12.0,
-                    list.top + 60.0,
-                ),
-                message.to_string(),
-                theme::sans(theme::c().text_dim, 12.0),
-            ));
-        }
-        Body::Tree {
-            outline,
-            rows,
-            current,
-            reveal,
-        } => {
-            bar = tree(
-                bar, list, frame, outline, rows, *current, *reveal, &commands,
-            )
+        match &frame.body {
+            Body::Message(message) => {
+                bar = bar.child(text(
+                    UiRect::new(
+                        list.left + 12.0,
+                        list.top + 12.0,
+                        list.right - 12.0,
+                        list.top + 60.0,
+                    ),
+                    message.to_string(),
+                    theme::sans(theme::c().text_dim, 12.0),
+                ));
+            }
+            Body::Tree {
+                outline,
+                rows,
+                current,
+                reveal,
+            } => {
+                bar = tree(
+                    bar, list, frame, outline, rows, *current, *reveal, &commands,
+                )
+            }
         }
     }
 
-    bar = bar.child(toolbar_row(toolbar, frame, &commands));
-    bar = bar.child(header);
+    bar = bar.child(section_row(bar_rect, frame, &commands));
+
+    // The rule above the section; while open, dragging it moves the split.
+    let line = UiRect::new(rect.left, rect.top, rect.right, rect.top + 1.0);
+    if frame.open {
+        let (down, drag, up) = (commands.clone(), commands.clone(), commands.clone());
+        bar = bar.child(
+            crate::ui::components::resize_handle::render(
+                "outline-split-handle",
+                UiRect::new(rect.left, rect.top - 3.0, rect.right, rect.top + 4.0),
+                line,
+                CursorIcon::ResizeVertical,
+                frame.splitting,
+            )
+            .on_pointer_down_with_button(move |_cx, _p, button| {
+                if button == PointerButton::Left {
+                    down.dispatch(Command::SplitStart);
+                }
+            })
+            .on_pointer_drag(move |_cx, p| drag.dispatch(Command::Split(p.point.y)))
+            .on_pointer_up(move |_cx, _p| up.dispatch(Command::SplitEnd)),
+        );
+    } else {
+        bar = bar.child(panel(line, VisualStyle::filled(theme::c().border)));
+    }
 
     if frame.resizable {
         let handle_rect = UiRect::new(rect.left, rect.top, rect.left + 8.0, rect.bottom);
@@ -160,18 +190,56 @@ pub fn render(rect: UiRect, frame: &Frame<'_>, commands: Commands, header: Eleme
     bar
 }
 
-fn toolbar_row(rect: UiRect, frame: &Frame<'_>, commands: &Commands) -> Element {
-    let mut row = panel(rect, VisualStyle::filled(theme::c().sidebar));
-    let mut left = rect.left + 8.0;
+/// The section bar: a chevron and title that collapse the section, and while
+/// open the expand, collapse and sort buttons on the right.
+fn section_row(rect: UiRect, frame: &Frame<'_>, commands: &Commands) -> Element {
+    // The buttons sit beside the collapse target, not inside it, so pressing
+    // one never also collapses the section.
+    let buttons_w = if frame.open { 3.0 * 26.0 + 8.0 } else { 0.0 };
+    let target = UiRect::new(rect.left, rect.top, rect.right - buttons_w, rect.bottom);
+    let toggle = commands.clone();
+    let mut row = panel(rect, VisualStyle::filled(theme::c().sidebar)).child(
+        panel(target, VisualStyle::default())
+            .key("outline-section")
+            .semantics({
+                let mut semantics = Semantics::new(SemanticRole::Button).name("Outline");
+                semantics.state.expanded = Some(frame.open);
+                semantics
+            })
+            .event_policy(EventPolicy::INTERACTIVE)
+            .cursor(CursorIcon::Pointer)
+            .on_click(move || toggle.dispatch(Command::ToggleOpen))
+            .child(crate::ui::drawer::drawer_icon(
+                "outline-section-chevron",
+                if frame.open {
+                    "chevron-down"
+                } else {
+                    "chevron-right"
+                },
+                theme::icon_rect(UiRect::new(
+                    rect.left + 9.0,
+                    rect.top + (rect.height() - 12.0) / 2.0,
+                    rect.left + 21.0,
+                    rect.top + (rect.height() + 12.0) / 2.0,
+                )),
+                theme::c().text_ghost,
+            ))
+            .child(text(
+                UiRect::new(
+                    rect.left + 25.0,
+                    rect.top,
+                    (target.right - 4.0).max(rect.left + 25.0),
+                    rect.bottom,
+                ),
+                "Outline",
+                theme::sans(theme::c().text_muted, 11.0),
+            )),
+    );
+    if !frame.open {
+        return row;
+    }
+    let mut right = rect.right - 8.0;
     for (index, label, icon, active, command) in [
-        (0, "Expand All", "expand-all", false, Command::ExpandAll),
-        (
-            1,
-            "Collapse All",
-            "search-collapse",
-            false,
-            Command::CollapseAll,
-        ),
         (
             2,
             "Sort Alphabetically",
@@ -179,9 +247,17 @@ fn toolbar_row(rect: UiRect, frame: &Frame<'_>, commands: &Commands) -> Element 
             frame.sorted,
             Command::ToggleSort,
         ),
+        (
+            1,
+            "Collapse All",
+            "search-collapse",
+            false,
+            Command::CollapseAll,
+        ),
+        (0, "Expand All", "expand-all", false, Command::ExpandAll),
     ] {
-        let slot = UiRect::new(left, rect.top + 3.0, left + 24.0, rect.bottom - 3.0);
-        left += 26.0;
+        let slot = UiRect::new(right - 24.0, rect.top + 3.0, right, rect.bottom - 3.0);
+        right -= 26.0;
         let commands = commands.clone();
         row = row.child(
             lgui::icon_button(slot, icon.to_owned(), label)
@@ -195,7 +271,7 @@ fn toolbar_row(rect: UiRect, frame: &Frame<'_>, commands: &Commands) -> Element 
                 .on_click(move || commands.dispatch(command.clone())),
         );
     }
-    row.child(crate::ui::components::divider::bottom(rect))
+    row
 }
 
 #[allow(clippy::too_many_arguments)]

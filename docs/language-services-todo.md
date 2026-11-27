@@ -23,7 +23,7 @@ platform/toolchain, command, inputs and results when closing an item.
 | LS-06 | Navigable hierarchy trees | `app/language_ui/lists.rs` presents one relation level. Add repeated expand/return navigation while keeping the source instance, item identity and stale-result protection. |
 | LS-07 | Whole-workspace diagnostics | Document push/pull and the open-document problems view exist. Add workspace diagnostic requests, bounded partial/incremental results and filtering without equating open documents with the whole project. |
 | LS-08 | Pre-rename server edits | Client capabilities advertise did-create/rename/delete, not will-rename. Integrate `willRenameFiles` edits with Explorer rename and the existing workspace-edit transaction/rollback path. |
-| LS-09 | Breadcrumbs and shared location rows | The Outline drawer is implemented. Breadcrumbs and complete reuse of search/location row rendering remain outside that delivery; specify their interactions and share presentation without merging unrelated query state. |
+| LS-09 | Breadcrumbs and shared location rows | The Outline section of the Explorer page is implemented. Breadcrumbs and complete reuse of search/location row rendering remain outside that delivery; specify their interactions and share presentation without merging unrelated query state. |
 | LS-10 | Syntax font attributes | `features/highlighting/style.rs` models font attributes, while `ui/editor/syntax.rs` renders foreground colors. Enable further attributes only with matching shaping, width, caret and hit-test behavior. |
 
 ## Acceptance and measurement
@@ -39,7 +39,7 @@ platform/toolchain, command, inputs and results when closing an item.
 
 ## Items corrected during consolidation
 
-- The Outline sidebar is delivered, including tree expansion, sorting and caret
+- The Outline section below the file tree is delivered, including tree expansion, sorting and caret
   tracking; see [Outline](outline.md). It is no longer an unimplemented feature.
 - LSP documentation cards use the shared Markdown runtime, not the earlier
   small-reader experiment; see [Markdown architecture](architecture/markdown.md).

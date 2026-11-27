@@ -1,4 +1,4 @@
-//! The Outline drawer's data: which document it describes, where the tree came
+//! The Outline section's data: which document it describes, where the tree came
 //! from (Markdown headings read here, or a language server's symbols), and what
 //! the person has done to it (collapsed branches, sorting, scrolling).
 use super::{AppContext, AppState, services, target};
@@ -98,7 +98,7 @@ impl OutlineUi {
 }
 
 fn visible(app: &AppState) -> bool {
-    app.drawer.visible && app.drawer.mode == DrawerMode::Outline
+    app.drawer.visible && app.drawer.mode == DrawerMode::Files && app.drawer.outline_open
 }
 
 /// Runs after every update: when the drawer is showing, keeps the tree in step

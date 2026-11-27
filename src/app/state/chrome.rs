@@ -43,6 +43,14 @@ pub struct DrawerChrome {
     pub width: f32,
     /// True while the drawer resize handle is being dragged.
     pub resizing: bool,
+    /// The Outline section below the file tree shows its list, not just its bar.
+    /// It starts collapsed.
+    pub outline_open: bool,
+    /// Share of the drawer's height taken by the file tree while the Outline
+    /// section is open.
+    pub outline_split: f32,
+    /// True while the divider above the Outline section is being dragged.
+    pub outline_splitting: bool,
 }
 
 impl Default for DrawerChrome {
@@ -52,6 +60,9 @@ impl Default for DrawerChrome {
             mode: DrawerMode::Files,
             width: crate::ui::theme::SIDEBAR_W,
             resizing: false,
+            outline_open: false,
+            outline_split: crate::app::outline_view::DEFAULT_SPLIT,
+            outline_splitting: false,
         }
     }
 }

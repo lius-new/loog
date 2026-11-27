@@ -1,6 +1,5 @@
-//! The Outline drawer page, driven through a real UI session.
+//! The Outline section of the Explorer page, driven through a real UI session.
 use super::{context::AppContext, state::AppState};
-use crate::ui::drawer::DrawerMode;
 use lgui::{
     application::{AppView, ApplicationContext},
     core::{InputEvent, Point, PointerButton, PointerData, UiScale},
@@ -25,7 +24,7 @@ impl Drawer {
         let mut app = AppState::new();
         app.workspace.open_path(name.into(), text.into());
         app.drawer.visible = true;
-        app.drawer.mode = DrawerMode::Outline;
+        app.drawer.outline_open = true;
         let initial = Arc::new(Mutex::new(Some(app)));
         let exposed = Arc::new(Mutex::new(None));
         let output = exposed.clone();
@@ -34,6 +33,7 @@ impl Drawer {
                 AppContext::detached(cx.state_with(|| initial.lock().unwrap().take().unwrap()));
             *output.lock().unwrap() = Some(state.clone());
             super::outline_view::render(
+                cx.viewport(),
                 cx.viewport(),
                 &state,
                 UiRect::new(300.0, 0.0, 900.0, 400.0),
@@ -109,6 +109,76 @@ fn markdown_headings_are_listed_and_clicking_one_moves_the_caret_to_it() {
     let app = drawer.state.get();
     let cursor = app.workspace.active_editor().unwrap().cursor();
     assert_eq!(cursor, TEXT.find("Two").unwrap());
+}
+
+#[test]
+fn clicking_the_section_bar_collapses_the_list_and_clicking_again_restores_it() {
+    let mut drawer = Drawer::new("fold.md", TEXT);
+    assert_eq!(names(&drawer), ["One", "Two", "Three"]);
+    let bar = drawer.row("Outline").unwrap();
+    let point = Point::new(bar.left + 40.0, (bar.top + bar.bottom) / 2.0);
+    drawer.click(point);
+    assert!(!drawer.state.get().drawer.outline_open);
+    assert_eq!(names(&drawer), Vec::<String>::new());
+    drawer.click(point);
+    assert!(drawer.state.get().drawer.outline_open);
+    assert_eq!(names(&drawer), ["One", "Two", "Three"]);
+}
+
+#[test]
+fn the_toolbar_buttons_do_not_collapse_the_section() {
+    let mut drawer = Drawer::new("buttons.md", TEXT);
+    for name in ["Collapse All", "Expand All", "Sort Alphabetically"] {
+        let button = drawer.row(name).unwrap();
+        drawer.click(Point::new(
+            (button.left + button.right) / 2.0,
+            (button.top + button.bottom) / 2.0,
+        ));
+        assert!(drawer.state.get().drawer.outline_open, "{name}");
+    }
+    assert!(drawer.state.get().editor.language.outline.sorted);
+}
+
+#[test]
+fn changing_the_split_drops_a_pending_reveal_so_the_file_tree_keeps_its_top() {
+    use crate::ui::explorer::state::ExplorerReveal;
+    let mut drawer = Drawer::new("reveal.md", TEXT);
+    drawer.state.update(|app| {
+        app.explorer.ui.reveal = Some(ExplorerReveal { row: 9, covered: 0 })
+    });
+    let bar = drawer.row("Outline").unwrap();
+    drawer.click(Point::new(bar.left + 40.0, (bar.top + bar.bottom) / 2.0));
+    assert_eq!(drawer.state.get().explorer.ui.reveal, None);
+}
+
+#[test]
+fn the_drawer_splits_into_tree_and_outline_and_a_collapsed_outline_keeps_only_its_bar() {
+    use crate::app::state::DrawerChrome;
+    let drawer = UiRect::new(0.0, 100.0, 300.0, 700.0);
+    let mut chrome = DrawerChrome::default();
+    // The section starts collapsed to its bar.
+    assert!(!chrome.outline_open);
+    chrome.outline_open = true;
+    let (tree, outline) = super::outline_view::split(drawer, &chrome);
+    assert_eq!(tree.bottom, outline.top);
+    assert_eq!((tree.top, outline.bottom), (drawer.top, drawer.bottom));
+    // Opened, it takes a third of the drawer.
+    assert!((outline.height() / drawer.height() - 1.0 / 3.0).abs() < 0.01);
+
+    // Neither part can be dragged away completely.
+    chrome.outline_split = 0.99;
+    let (tree, outline) = super::outline_view::split(drawer, &chrome);
+    assert!(outline.height() > crate::ui::outline::view::SECTION_H);
+    assert!(tree.height() > 0.0);
+    chrome.outline_split = 0.0;
+    let (tree, outline) = super::outline_view::split(drawer, &chrome);
+    assert!(tree.height() >= 80.0, "{tree:?}");
+    assert!(outline.height() > crate::ui::outline::view::SECTION_H);
+
+    chrome.outline_open = false;
+    let (tree, outline) = super::outline_view::split(drawer, &chrome);
+    assert_eq!(outline.height(), crate::ui::outline::view::SECTION_H);
+    assert_eq!(tree.bottom, outline.top);
 }
 
 #[test]
@@ -263,18 +333,12 @@ fn outline_preview_picture() {
         &context,
         lgui::render_skia::skia_text_system_handle(),
     );
-    let view: AppView = Arc::new(move |cx| {
-        let header = super::explorer_view::drawer_header(
-            UiRect::new(0.0, 0.0, 300.0, crate::ui::theme::TABS_H),
-            &AppContext::detached(cx.state_with(|| {
-                let mut app = AppState::new();
-                app.drawer.mode = DrawerMode::Outline;
-                app
-            })),
-        );
+    let view: AppView = Arc::new(move |_cx| {
         crate::ui::outline::view::render(
             rect,
             &Frame {
+                open: true,
+                splitting: false,
                 body: Body::Tree {
                     outline: &outline,
                     rows: &rows,
@@ -290,7 +354,6 @@ fn outline_preview_picture() {
                 resizing: false,
             },
             Commands::new(|_| {}),
-            header,
         )
     });
     let mut session = UiSession::new();

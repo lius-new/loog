@@ -795,6 +795,13 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         .content_rect(&application_snapshot, &Content::Files)
         .map(UiRect::from)
         .unwrap_or_default();
+    // The Explorer page stacks the file tree over the Outline section.
+    let (explorer_tree_rect, outline_rect) = if s.drawer.mode == crate::ui::drawer::DrawerMode::Files
+    {
+        super::outline_view::split(explorer_rect, &s.drawer)
+    } else {
+        (explorer_rect, UiRect::default())
+    };
     let drag_state = state.clone();
     let drag_application = application.as_ref().clone();
     let dragging = s.editor.drag.is_some();
@@ -1222,7 +1229,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     let st_hover_row = explorer_hover.clone();
     root = root.on_event_capture(UiEventKind::PointerMove, move |_ctx, payload| {
         if let UiEventPayload::PointerMove { pointer } = payload {
-            let hovered = show_drawer && explorer_rect.contains(pointer.point);
+            let hovered = show_drawer && explorer_tree_rect.contains(pointer.point);
             if !hovered {
                 st_hover_row.set(None);
             }
@@ -1234,12 +1241,14 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
         }
     });
 
-    // The Outline page shows its scrollbar on the same terms.
-    let outline_drawer = show_drawer && s.drawer.mode == crate::ui::drawer::DrawerMode::Outline;
+    // The Outline section shows its scrollbar on the same terms.
+    let outline_drawer = show_drawer
+        && s.drawer.mode == crate::ui::drawer::DrawerMode::Files
+        && s.drawer.outline_open;
     let st_outline_hover = state.clone();
     root = root.on_event_capture(UiEventKind::PointerMove, move |_ctx, payload| {
         if let UiEventPayload::PointerMove { pointer } = payload {
-            let inside = outline_drawer && explorer_rect.contains(pointer.point);
+            let inside = outline_drawer && outline_rect.contains(pointer.point);
             st_outline_hover.try_update(move |app| {
                 let ui = &mut app.editor.language.outline;
                 let changed = ui.pointer_inside != inside || (!inside && ui.hovered.is_some());
@@ -1612,12 +1621,6 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                     results_focus: search_results_focus,
                 },
             ));
-        } else if s.drawer.mode == crate::ui::drawer::DrawerMode::Outline {
-            root = root.child(super::outline_view::render(
-                explorer_rect,
-                &state,
-                code_rect,
-            ));
         } else {
             root = root.child({
                 let (state, git_store, services) =
@@ -1626,7 +1629,7 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                     explorer_create_input_id.clone(),
                     explorer_create_input_focus.clone(),
                 );
-                component(explorer_rect, move |_cx, &explorer_rect| {
+                component(explorer_tree_rect, move |_cx, &explorer_rect| {
                     super::explorer_view::render(
                         explorer_rect,
                         &state,
@@ -1639,6 +1642,12 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                     )
                 })
             });
+            root = root.child(super::outline_view::render(
+                outline_rect,
+                explorer_rect,
+                &state,
+                code_rect,
+            ));
         }
     }
 

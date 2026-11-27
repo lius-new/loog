@@ -637,7 +637,8 @@ impl AppState {
             }
             Action::OpenOutline => {
                 self.drawer.visible = true;
-                self.drawer.mode = DrawerMode::Outline;
+                self.drawer.mode = DrawerMode::Files;
+                self.drawer.outline_open = true;
                 self.search.blur();
                 self.close_menus();
             }

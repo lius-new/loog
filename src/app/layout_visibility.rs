@@ -132,8 +132,7 @@ pub(crate) fn binding(
                         Content::Git => "Changes".to_owned(),
                         Content::Files => match app.drawer.mode {
                             crate::ui::drawer::DrawerMode::Search => "Search",
-                            crate::ui::drawer::DrawerMode::Outline => "Outline",
-                            _ => "Files",
+                            crate::ui::drawer::DrawerMode::Files => "Files",
                         }
                         .to_owned(),
                         Content::Terminal { tabs, active } => active
