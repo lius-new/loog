@@ -30,6 +30,16 @@ const CONTROL_H: f32 = 20.0;
 const ICON: f32 = 12.0;
 const GAP: f32 = 2.0;
 
+/// A sync control: shown, id, icon, count, tooltip name and the command it runs.
+type SyncAction = (
+    bool,
+    &'static str,
+    &'static str,
+    u32,
+    &'static str,
+    fn() -> Command,
+);
+
 pub(crate) fn measure(s: &str, style: &TextStyle) -> f32 {
     crate::ui::tabs::measure(s, style.height, style.weight)
 }
@@ -96,7 +106,7 @@ fn control(
                 Part::Icon { id, key, color } => {
                     node = node.child(
                         UiElement::icon(
-                            UiId::new(*id),
+                            UiId::new(id),
                             UiRect::new(x, middle - ICON / 2.0, x + ICON, middle + ICON / 2.0),
                             *key,
                         )
@@ -107,10 +117,10 @@ fn control(
                 Part::Text { id, label, style } => {
                     let width = measure(label, style);
                     node = node.child(UiElement::text(
-                        UiId::new(*id),
+                        UiId::new(id),
                         UiRect::new(x, rect.top, x + width + TEXT_MARGIN, rect.bottom),
                         label.clone(),
-                        style.clone(),
+                        *style,
                     ));
                     x += width;
                 }
@@ -304,14 +314,7 @@ pub fn status_leading(
             palette.text_ghost
         };
         let publish = plan == SyncPlan::Publish;
-        let actions: [(
-            bool,
-            &'static str,
-            &'static str,
-            u32,
-            &'static str,
-            fn() -> Command,
-        ); 3] = [
+        let actions: [SyncAction; 3] = [
             (
                 publish,
                 "statusbar.publish",
