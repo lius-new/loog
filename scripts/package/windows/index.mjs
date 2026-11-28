@@ -1,12 +1,13 @@
 import {prepareDependencies} from '../../dependencies/ensure.mjs';
 // Windows packaging: a per-user Inno Setup installer and a portable zip, both
-// carrying Loog.exe, the `loog` shell command and a managed MinGit runtime
-// under `runtime/git`.
+// carrying Loog.exe, the app-local Visual C++ runtime DLLs, the `loog` shell
+// command and a managed MinGit runtime under `runtime/git`.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stageBundled } from '../lib/lock.mjs';
+import { stageRuntime } from './vcruntime.mjs';
 
 import {
   DIST_DIR,
@@ -156,6 +157,9 @@ export function packageApp({ version }) {
   fs.rmSync(path.join(PLATFORM_DIR, 'stage'), { recursive: true, force: true });
   fs.mkdirSync(path.join(stage, 'bin'), { recursive: true });
   fs.copyFileSync(exe, path.join(stage, 'Loog.exe'));
+  // Machines without the Visual C++ Redistributable report MSVCP140.dll missing.
+  step('Bundling the Visual C++ runtime');
+  info(stageRuntime({ executable: exe, destination: stage }).join(', ') || 'no runtime DLLs imported');
   stageBundled({ destination: path.join(stage, 'extensions') });
   fs.writeFileSync(path.join(stage, 'bin', 'loog.cmd'), LOOG_CMD);
   for (const file of APP_FILES) {

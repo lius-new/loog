@@ -143,6 +143,15 @@ ready-to-install confirmation page. Silent updates skip these interactive pages.
   `/relaunch=1` starts Loog when Setup finishes; in-app updates use it. Uninstalling removes the
   installed files, shortcuts, menu entries and PATH entry, never user data.
 - `Loog-<version>-windows-x86_64-portable.zip`: the same application folder.
+- Both carry the Visual C++ runtime DLLs Loog.exe imports (`msvcp140.dll`,
+  `vcruntime140.dll`, ...) next to it, so a machine without the Visual C++
+  Redistributable starts Loog instead of reporting a missing MSVCP140.dll. The
+  `package` step reads the executable's imports, copies those DLLs (and the ones
+  they import) from the Visual Studio redistributable folder found with
+  `vswhere`, and fails when one is missing. `LOOG_VC_REDIST_DIR` may name another
+  `Microsoft.VC*.CRT` folder. The CRT stays dynamic because the pinned Skia
+  archives need it. Check the logic with
+  `node --test scripts/package/windows/vcruntime.test.mjs`.
 - Both carry MinGit under `runtime/git` with `MANIFEST.json`, `VERSION`,
   `SOURCE.txt` and Git's `LICENSE.txt`.
 - Packages are not code-signed yet, so SmartScreen will warn on first run.
