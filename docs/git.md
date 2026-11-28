@@ -3,7 +3,7 @@
 Press `Ctrl+Shift+G` (or `Command+Shift+G`) to open Source Control. Loog discovers
 repositories for every workspace root and direct nested repository, then keeps
 branch, upstream, ahead/behind, staged, working-tree, untracked, rename and
-conflict state refreshed in the background. The title bar, status bar, file
+conflict state refreshed in the background. The status bar, file
 tree, editor gutter and Source Control drawer consume the same immutable
 repository snapshot.
 

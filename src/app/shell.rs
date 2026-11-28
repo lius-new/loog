@@ -1436,24 +1436,10 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     // only that component and reuses this output. An application state change dirties this
     // component and forces it to render again.
     root = root.child({
-        let (state, git_store) = (state.clone(), git_store.clone());
-        component(
-            (titlebar_rect, s.git.model.diff_loading().is_some()),
-            move |_cx, &(titlebar_rect, diff_loading)| {
-                super::chrome::title(
-                    titlebar_rect,
-                    state.clone(),
-                    crate::ui::git::badge::attach(
-                        group(titlebar_rect),
-                        titlebar_rect,
-                        titlebar_rect.left + 8.0,
-                        super::git_view::binding(&state, &git_store),
-                        git_store.clone().into(),
-                        diff_loading,
-                    ),
-                )
-            },
-        )
+        let state = state.clone();
+        component(titlebar_rect, move |_cx, &titlebar_rect| {
+            super::chrome::title(titlebar_rect, state.clone())
+        })
     });
 
     for (&(pane, strip), &(_, body)) in strips.iter().zip(bodies.iter()) {
@@ -1700,10 +1686,45 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     }
 
     root = root.child({
-        let state = state.clone();
-        component(statusbar_rect, move |_cx, &statusbar_rect| {
-            super::chrome::status(statusbar_rect, state.clone())
-        })
+        let (state, git_store) = (state.clone(), git_store.clone());
+        component(
+            (statusbar_rect, s.git.model.diff_loading().is_some()),
+            move |_cx, &(statusbar_rect, diff_loading)| {
+                let app = state.get();
+                let manage = crate::ui::git::badge::Manage {
+                    open: app
+                        .chrome
+                        .menu
+                        .is_some_and(|open| open.kind == super::action_menu::Kind::Manage),
+                    attention: super::extensions_view::needs_attention(&state),
+                    press: {
+                        let state = state.clone();
+                        std::sync::Arc::new(move || {
+                            state.update(|app| {
+                                super::action_menu::toggle(app, super::action_menu::Kind::Manage)
+                            })
+                        })
+                    },
+                };
+                let leading_state = state.clone();
+                let leading_store = git_store.clone();
+                super::chrome::status_with(
+                    statusbar_rect,
+                    state.clone(),
+                    Some(move |origin| {
+                        crate::ui::git::badge::status_leading(
+                            origin,
+                            statusbar_rect.height(),
+                            statusbar_rect.left + crate::ui::git::badge::LEFT,
+                            manage.clone(),
+                            super::git_view::binding(&leading_state, &leading_store),
+                            leading_store.clone().into(),
+                            diff_loading,
+                        )
+                    }),
+                )
+            },
+        )
     });
     // Content backgrounds can blend onto the same physical pixel row at
     // fractional scales. Paint the title bar rule above them, before popups.
@@ -1792,6 +1813,51 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
                 super::image_preview::send(&state, menu.view),
             ));
         }
+    }
+    let chrome_menu_focus = cx.focus_handle(UiId::new(crate::ui::action_menu::FOCUS_ID));
+    crate::ui::hold_focus(
+        cx,
+        s.chrome.menu.map(|open| open.restore_terminal),
+        chrome_menu_focus,
+        terminal_focus.clone(),
+        editor_focus.clone(),
+    );
+    if let Some(open) = s.chrome.menu {
+        use super::action_menu::Kind;
+        use crate::ui::action_menu::Placement;
+        let (anchor, placement) = match open.kind {
+            // The project button's left edge, under the title bar.
+            Kind::Project => (
+                UiRect::new(
+                    titlebar_rect.left + 6.0,
+                    titlebar_rect.top,
+                    titlebar_rect.left + 6.0,
+                    titlebar_rect.bottom,
+                ),
+                Placement::Below,
+            ),
+            // The manage button, above the status bar.
+            Kind::Manage => (
+                UiRect::new(
+                    statusbar_rect.left + crate::ui::git::badge::LEFT,
+                    statusbar_rect.top,
+                    statusbar_rect.left
+                        + crate::ui::git::badge::LEFT
+                        + crate::ui::git::badge::MANAGE_W,
+                    statusbar_rect.bottom,
+                ),
+                Placement::Above,
+            ),
+        };
+        let menu_state = state.clone();
+        root = root.child(crate::ui::action_menu::render(
+            vp,
+            anchor,
+            placement,
+            super::action_menu::items(&state, &s, open.kind),
+            open.selected,
+            std::sync::Arc::new(move |event| super::action_menu::run(&menu_state, event)),
+        ));
     }
     let editing_focus = cx.focus_handle(UiId::new(crate::ui::editing_menu::FOCUS_ID));
     crate::ui::hold_focus(
@@ -1901,7 +1967,8 @@ fn render_app(cx: &mut RenderCx<'_, '_>) -> Element {
     if let Some(picker) = &s.git.ui.branch_picker {
         root = root.child(branch_picker::render(
             vp,
-            titlebar_rect.bottom,
+            statusbar_rect.top,
+            true,
             picker,
             s.git.ui.branch_picker_input.text(),
             super::git_view::binding(&state, &git_store),

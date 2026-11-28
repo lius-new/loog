@@ -108,6 +108,9 @@ pub(crate) fn svg_icons() -> SvgIconRegistry {
             .with_icon("extension-tools", icondata::VsTools)
             .with_icon("warning", icondata::VsWarning)
             .with_icon("folder-opened", icondata::VsFolderOpened)
+            .with_icon("folder-add", icondata::VsNewFolder)
+            .with_icon("menu-keyboard", icondata::VsRecordKeys)
+            .with_icon("menu-command", icondata::VsTerminalCmd)
             // Codicon's `remove` spans 14 of 16 px and reads wider than
             // `plus` beside it; this one matches the plus visually.
             .with_icon("minus", include_str!("../../assets/icons/minus.svg"))

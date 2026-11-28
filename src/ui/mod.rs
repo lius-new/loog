@@ -4,6 +4,7 @@
 //! Migrated components accept data and callbacks; legacy State<AppState>
 //! adapters remain registered. app/shell.rs owns layout and composition.
 
+pub(crate) mod action_menu;
 pub mod close_confirmation;
 pub mod components;
 pub mod diff_editor;

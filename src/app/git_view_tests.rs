@@ -447,7 +447,7 @@ mod panel_virtualization_tests {
     }
 
     #[test]
-    fn repository_actions_live_only_in_the_title_bar_and_keep_their_commands() {
+    fn repository_actions_live_only_in_the_status_bar_and_keep_their_commands() {
         use crate::ui::git::commands::{Binding, Command, Frame};
         use crate::ui::git::state::GitPanelState;
         use lgui::application::{AppView, ApplicationContext};
@@ -466,7 +466,7 @@ mod panel_virtualization_tests {
         );
         for (tracking, ahead, behind, busy, expected) in [
             (false, 0, 0, false, vec![("Publish branch", "push", None)]),
-            (true, 0, 0, false, vec![("Fetch from remote", "sync", None)]),
+            (true, 0, 0, false, vec![]),
             (true, 3, 0, false, vec![("Push changes", "push", Some("3"))]),
             (true, 0, 2, false, vec![("Pull changes", "pull", Some("2"))]),
             (
@@ -527,13 +527,20 @@ mod panel_virtualization_tests {
                     });
                     true
                 });
-                let bar = crate::ui::git::badge::attach(
-                    panel(title, VisualStyle::filled(theme::c().sidebar)),
-                    title,
-                    0.0,
-                    binding.clone(),
-                    store.clone().into(),
-                    false,
+                let bar = panel(title, VisualStyle::filled(theme::c().sidebar)).child(
+                    crate::ui::git::badge::status_leading(
+                        (0.0, 0.0),
+                        title.height(),
+                        0.0,
+                        crate::ui::git::badge::Manage {
+                            open: false,
+                            attention: false,
+                            press: Arc::new(|| {}),
+                        },
+                        binding.clone(),
+                        store.clone().into(),
+                        false,
+                    ),
                 );
                 group(viewport).child(bar).child(render(
                     drawer,
@@ -584,7 +591,7 @@ mod panel_virtualization_tests {
                 assert!(
                     button.layout_rect.top >= title.top
                         && button.layout_rect.bottom <= title.bottom,
-                    "{name} belongs in the title bar"
+                    "{name} belongs in the status bar"
                 );
                 assert!(
                     button.layout_rect.left >= previous_right,
@@ -637,7 +644,7 @@ mod panel_virtualization_tests {
                 &session,
                 &context,
                 viewport,
-                &format!("git-title-actions-{tracking}-{ahead}-{behind}-{busy}"),
+                &format!("git-status-actions-{tracking}-{ahead}-{behind}-{busy}"),
             );
         }
     }
@@ -2776,6 +2783,7 @@ mod panel_virtualization_tests {
                 root = root.child(crate::ui::git::branch_picker::render(
                     viewport,
                     24.0,
+                    false,
                     &picker,
                     state.get().git.ui.branch_picker_input.text(),
                     binding.clone(),
@@ -3894,6 +3902,7 @@ mod branch_picker_tests {
                 root.child(render(
                     viewport,
                     24.0,
+                    false,
                     picker,
                     app.git.ui.branch_picker_input.text(),
                     crate::app::git_view::binding(&state, &store),

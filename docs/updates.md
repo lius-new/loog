@@ -2,8 +2,8 @@
 
 Packaged builds of Loog check for a new release about ten seconds after
 startup and then once a day. When one is available, a badge with a download
-icon and the new version (**⭳ x.y.z**) appears in the title bar, left of
-Settings:
+icon and the new version (**⭳ x.y.z**) appears in the title bar, left of the
+layout button:
 
 | Install | Clicking the badge downloads | Then **Restart to update** |
 | --- | --- | --- |

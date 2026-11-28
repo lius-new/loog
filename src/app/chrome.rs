@@ -1,13 +1,14 @@
 //! Chrome composition: views receive only their relevant frames and commands.
 use crate::app::context::AppContext;
 use crate::app::terminal_binding::TerminalStore;
-use crate::ui::chrome::{HomeBinding, HomeCommand, HomeFrame, TitleBinding, TitleFrame};
+use crate::ui::chrome::{
+    HomeBinding, HomeCommand, HomeFrame, PathSegment, Project, TitleBinding, TitleFrame,
+};
 use lgui::core::{UiFocusHandle, UiId};
 use lgui::prelude::{Element, UiRect};
 
 pub fn title_binding(state: &AppContext) -> TitleBinding {
-    use crate::features::keymap::action::Action;
-    let (reader, writer, extensions, updater, toggler, reviewer) = (
+    let (reader, writer, revealer, updater, toggler, reviewer) = (
         state.clone(),
         state.clone(),
         state.clone(),
@@ -18,11 +19,8 @@ pub fn title_binding(state: &AppContext) -> TitleBinding {
     TitleBinding::new(
         move || {
             let app = reader.get();
+            let (project, path) = title_context(&app);
             TitleFrame {
-                settings_open: app.workspace.active_is_settings(),
-                extensions_open: app.workspace.active_page()
-                    == Some(crate::app::workspace::AppPage::Extensions),
-                extensions_attention: crate::app::extensions_view::needs_attention(&reader),
                 maximized: crate::app::window::is_maximized(),
                 update: app.update.indicator(),
                 restricted: reader
@@ -30,20 +28,69 @@ pub fn title_binding(state: &AppContext) -> TitleBinding {
                     .and_then(|runtime| crate::app::trust_prompt::restricted(&app, runtime.trust()))
                     .map(|(count, label)| crate::ui::chrome::Restricted { count, label }),
                 layout_open: app.layout.visibility_popup.is_some(),
+                project,
+                path,
             }
         },
-        move || writer.update(|app| app.apply(Action::OpenSettings)),
         move || {
-            extensions.update(|app| app.apply(Action::OpenExtensions));
-            crate::app::extensions_view::opened(&extensions);
+            writer.update(|app| {
+                crate::app::action_menu::toggle(app, crate::app::action_menu::Kind::Project)
+            })
         },
+        move |folder| crate::app::explorer::reveal_folder(&revealer, &folder),
         move || crate::app::update::activate(&updater),
         move || crate::app::layout_visibility::open(&toggler),
         move || crate::app::trust_prompt::review(&reviewer),
     )
 }
-pub fn title(rect: UiRect, state: AppContext, git: Element) -> Element {
-    crate::ui::titlebar::render(rect, title_binding(&state), git)
+
+/// The project the title bar names and the active file's path below it.
+fn title_context(app: &crate::app::state::AppState) -> (Project, Vec<PathSegment>) {
+    use std::path::Path;
+    let file = app.workspace.active_path().map(Path::to_path_buf);
+    let root = file
+        .as_deref()
+        .and_then(|path| app.workspace_folder_of(path))
+        .map(Path::to_path_buf)
+        .or_else(|| app.explorer.model.roots().first().cloned());
+    let name = root
+        .as_deref()
+        .map(crate::app::action_menu::folder_name)
+        .unwrap_or_default();
+    let mut path = Vec::new();
+    if let (Some(file), Some(root)) = (&file, &root)
+        && let Ok(relative) = file.strip_prefix(root)
+    {
+        let parts: Vec<_> = relative.components().collect();
+        let mut folder = root.clone();
+        for (index, part) in parts.iter().enumerate() {
+            let label = part.as_os_str().to_string_lossy().into_owned();
+            if index + 1 == parts.len() {
+                path.push(PathSegment {
+                    label,
+                    folder: None,
+                });
+            } else {
+                folder.push(part);
+                path.push(PathSegment {
+                    label,
+                    folder: Some(folder.clone()),
+                });
+            }
+        }
+    }
+    let project = Project {
+        initial: crate::app::action_menu::initial(&name),
+        menu_open: app
+            .chrome
+            .menu
+            .is_some_and(|open| open.kind == crate::app::action_menu::Kind::Project),
+        name,
+    };
+    (project, path)
+}
+pub fn title(rect: UiRect, state: AppContext) -> Element {
+    crate::ui::titlebar::render(rect, title_binding(&state))
 }
 pub fn home_binding(
     state: &AppContext,
@@ -299,15 +346,37 @@ fn syntax_notes() -> Vec<crate::ui::chrome::StatusNote> {
 }
 
 pub fn status(rect: UiRect, state: AppContext) -> Element {
+    status_with(rect, state, None::<fn((f32, f32)) -> Element>)
+}
+
+/// The status bar with `leading` at its left end: the manage button and the repository's
+/// controls, from `ui::git::badge::status_leading`. It draws them from the origin it is
+/// given, which is the bar's own origin where the bar docks them and the window's where it
+/// does not.
+pub fn status_with(
+    rect: UiRect,
+    state: AppContext,
+    leading: Option<impl Fn((f32, f32)) -> Element>,
+) -> Element {
     let app = state.get();
     if let Some(view) = app.workspace.active()
         && let Some(frame) = crate::app::image_preview::frame(&app, view)
     {
-        return crate::ui::image_preview::status(
+        let bar = crate::ui::image_preview::status(
             rect,
             &frame,
             crate::app::image_preview::send(&state, view),
         );
+        return match leading {
+            Some(leading) => {
+                bar.child(leading((rect.left + crate::ui::git::badge::LEFT, rect.top)))
+            }
+            None => bar,
+        };
     }
-    crate::ui::statusbar::render(rect, status_binding(&state))
+    crate::ui::statusbar::render_with(
+        rect,
+        status_binding(&state),
+        leading.map(|leading| leading((0.0, 0.0))),
+    )
 }

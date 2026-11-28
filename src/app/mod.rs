@@ -116,6 +116,7 @@ pub(crate) mod file_watcher;
 
 pub(crate) mod window;
 
+pub(crate) mod action_menu;
 pub(crate) mod chrome;
 
 pub(crate) mod close_dialog;

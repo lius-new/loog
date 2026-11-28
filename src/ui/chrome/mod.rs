@@ -49,15 +49,29 @@ impl HomeBinding {
 }
 #[derive(Clone)]
 pub struct TitleFrame {
-    pub settings_open: bool,
-    pub extensions_open: bool,
-    /// An extension failed to start: the title bar button carries a dot.
-    pub extensions_attention: bool,
     pub maximized: bool,
     pub update: Option<crate::features::update::Indicator>,
     /// Open folders were declined, so extensions may not run programs there.
     pub restricted: Option<Restricted>,
     pub layout_open: bool,
+    pub project: Project,
+    /// The active file below its project folder, one entry per folder and then the file.
+    pub path: Vec<PathSegment>,
+}
+/// The project the title bar names: the open folder the active file is in, else the first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Project {
+    /// Empty when no folder is open.
+    pub name: String,
+    pub initial: char,
+    pub menu_open: bool,
+}
+/// One part of the active file's path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PathSegment {
+    pub label: String,
+    /// The folder a click shows in the file tree; none for the file itself.
+    pub folder: Option<PathBuf>,
 }
 /// The title bar's standing note that open folders are not trusted.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,8 +84,8 @@ pub struct Restricted {
 #[derive(Clone)]
 pub struct TitleBinding {
     read: Arc<dyn Fn() -> TitleFrame + Send + Sync>,
-    open: Arc<dyn Fn() + Send + Sync>,
-    open_extensions: Arc<dyn Fn() + Send + Sync>,
+    open_project: Arc<dyn Fn() + Send + Sync>,
+    reveal: Arc<dyn Fn(PathBuf) + Send + Sync>,
     update: Arc<dyn Fn() -> bool + Send + Sync>,
     open_layout: Arc<dyn Fn() + Send + Sync>,
     review_trust: Arc<dyn Fn() + Send + Sync>,
@@ -79,16 +93,16 @@ pub struct TitleBinding {
 impl TitleBinding {
     pub fn new(
         read: impl Fn() -> TitleFrame + Send + Sync + 'static,
-        open: impl Fn() + Send + Sync + 'static,
-        open_extensions: impl Fn() + Send + Sync + 'static,
+        open_project: impl Fn() + Send + Sync + 'static,
+        reveal: impl Fn(PathBuf) + Send + Sync + 'static,
         update: impl Fn() -> bool + Send + Sync + 'static,
         open_layout: impl Fn() + Send + Sync + 'static,
         review_trust: impl Fn() + Send + Sync + 'static,
     ) -> Self {
         Self {
             read: Arc::new(read),
-            open: Arc::new(open),
-            open_extensions: Arc::new(open_extensions),
+            open_project: Arc::new(open_project),
+            reveal: Arc::new(reveal),
             update: Arc::new(update),
             open_layout: Arc::new(open_layout),
             review_trust: Arc::new(review_trust),
@@ -104,11 +118,13 @@ impl TitleBinding {
     pub fn open_layout(&self) {
         (self.open_layout)();
     }
-    pub fn open_settings(&self) {
-        (self.open)();
+    /// Open the project menu, or close it when it is open.
+    pub fn open_project(&self) {
+        (self.open_project)();
     }
-    pub fn open_extensions(&self) {
-        (self.open_extensions)();
+    /// Show a folder of the active file's path in the file tree.
+    pub fn reveal(&self, folder: PathBuf) {
+        (self.reveal)(folder);
     }
     /// Run the update button's action; true asks to close the window so the
     /// installer can run.

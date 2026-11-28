@@ -776,6 +776,7 @@ impl AppState {
         self.palette.close();
         self.highlight_menu.close();
         self.language_services_menu.close();
+        self.chrome.menu = None;
         self.terminal.ui.terminal_workspace_picker = None;
         self.editor.menu = None;
         self.explorer.ui.menu = None;

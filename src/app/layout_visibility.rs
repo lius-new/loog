@@ -257,7 +257,6 @@ mod tests {
             root.child(crate::ui::titlebar::render(
                 bar,
                 crate::app::chrome::title_binding(&state),
-                group(UiRect::default()),
             ))
             .child(crate::ui::layout_visibility::render(
                 viewport, anchor, binding,

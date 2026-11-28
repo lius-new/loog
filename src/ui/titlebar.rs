@@ -1,5 +1,5 @@
-//! Custom frameless title bar: repository controls on the left; the update
-//! button, layout view, Settings and the native window controls on the right.
+//! Custom frameless title bar: the project menu and the active file's path on the left;
+//! standing notes, the layout view and the native window controls on the right.
 //!
 //! The bar is marked as a native window drag region; interactive children
 //! (the buttons) are excluded automatically by hit testing.
@@ -8,12 +8,12 @@ use lgui::core::{
     AnimProperty, AnimationBinding, Color, CursorIcon, EventPolicy, IconStyle, PhysicalRect,
     SemanticRole, Semantics, UiElement, UiEventContext, UiId, UiScale,
 };
-use lgui::prelude::{Element, UiRect, VisualStyle, panel};
+use lgui::prelude::{Element, UiRect, VisualStyle, panel, text};
 
 use crate::features::update::{Indicator, Stage};
 use crate::ui::git::badge::{BADGE_H, BADGE_ICON, BADGE_PAD, ICON_GAP, TEXT_MARGIN, measure};
 
-use crate::ui::chrome::{Restricted, TitleBinding};
+use crate::ui::chrome::{PathSegment, Project, Restricted, TitleBinding};
 use crate::ui::theme;
 
 /// Windows 11 caption close-button red, the same in light and dark themes.
@@ -245,14 +245,13 @@ fn restricted_button(
     .on_click(move |_: &mut UiEventContext| state.review_trust())
 }
 
-const TOGGLE_W: f32 = 32.0;
-
-/// The popover is aligned with the single layout control.
+/// The popover is aligned with the single layout control, which sits against the window
+/// controls.
 pub(crate) fn layout_toggle_rect(rect: UiRect) -> UiRect {
     UiRect::new(
-        rect.right - 212.0,
+        rect.right - 140.0,
         rect.top,
-        rect.right - 180.0,
+        rect.right - 108.0,
         rect.bottom,
     )
 }
@@ -261,29 +260,238 @@ pub(crate) fn bottom_border(rect: UiRect) -> Element {
     crate::ui::components::divider::bottom(rect).inert(true)
 }
 
-pub fn render(rect: UiRect, state: TitleBinding, git_controls: Element) -> Element {
+const PROJECT_H: f32 = 24.0;
+const TILE: f32 = 18.0;
+/// Space left of the project button, and between it and the path.
+const EDGE: f32 = 6.0;
+const PATH_GAP: f32 = 8.0;
+/// Padding inside one path segment.
+const SEGMENT_PAD: f32 = 4.0;
+
+fn project_label(project: &Project) -> &str {
+    if project.name.is_empty() {
+        "No Folder"
+    } else {
+        &project.name
+    }
+}
+
+fn project_style() -> lgui::prelude::TextStyle {
+    theme::mono_bold(mix(theme::c().accent, Color::WHITE, 0.55), theme::UI_SIZE)
+}
+
+/// The project menu's button: a tinted fill, the project's initial on a solid tile, its
+/// name and a chevron. It is a control, so it is the one filled thing in the corner.
+fn project_button(bar: UiRect, project: Project, state: TitleBinding) -> (Element, f32) {
+    let label = project_label(&project).to_owned();
+    let width =
+        3.0 + TILE + 7.0 + measure(&label, &project_style()) + TEXT_MARGIN + 7.0 + 12.0 + 8.0;
+    let top = bar.top + (bar.height() - PROJECT_H) / 2.0;
+    let rect = UiRect::new(
+        bar.left + EDGE,
+        top,
+        bar.left + EDGE + width,
+        top + PROJECT_H,
+    );
+    let open = project.menu_open;
+    let initial = project.initial.to_string();
+    let accessible = format!("Project {label}");
+    let element = Element::new(move |cx| {
+        let c = theme::c();
+        let hover = cx.animation_value(AnimProperty::Hover).clamp(0.0, 1.0);
+        let strength = 0.16 + 0.10 * if open { 1.0 } else { hover };
+        let fill = VisualStyle {
+            fill: Some(c.accent),
+            fill_alpha: (strength * 255.0_f32).round() as u8,
+            ..VisualStyle::default()
+        }
+        .radius(6.0);
+        let middle = (rect.top + rect.bottom) / 2.0;
+        let tile = UiRect::new(
+            rect.left + 3.0,
+            middle - TILE / 2.0,
+            rect.left + 3.0 + TILE,
+            middle + TILE / 2.0,
+        );
+        let text_left = tile.right + 7.0;
+        let chevron_left = rect.right - 8.0 - 12.0;
+        UiElement::panel(cx.id, rect, fill)
+            .child(
+                UiElement::panel(
+                    UiId::new("titlebar.project.tile"),
+                    tile,
+                    VisualStyle::filled(c.accent).radius(4.0),
+                )
+                .child(UiElement::text(
+                    UiId::new("titlebar.project.initial"),
+                    tile,
+                    initial.clone(),
+                    crate::ui::highlight_menu::centered(c.sidebar, 11.0, 700),
+                )),
+            )
+            .child(UiElement::text(
+                UiId::new("titlebar.project.name"),
+                UiRect::new(text_left, rect.top, chevron_left, rect.bottom),
+                label.clone(),
+                project_style(),
+            ))
+            .child(
+                UiElement::icon(
+                    UiId::new("titlebar.project.chevron"),
+                    UiRect::new(
+                        chevron_left,
+                        middle - 6.0,
+                        chevron_left + 12.0,
+                        middle + 6.0,
+                    ),
+                    "chevron-down",
+                )
+                .icon_style(IconStyle::new(project_style().color)),
+            )
+    })
+    .key("titlebar.project.button")
+    .animation(AnimationBinding::new(AnimProperty::Hover, 0.0, 1.0))
+    .semantics(Semantics::new(SemanticRole::Button).name(accessible))
+    .event_policy(EventPolicy::INTERACTIVE)
+    .cursor(CursorIcon::Pointer)
+    .on_click(move |_: &mut UiEventContext| state.open_project());
+    (element, rect.right)
+}
+
+fn path_style() -> lgui::prelude::TextStyle {
+    theme::mono(theme::c().text_dim, theme::UI_SIZE)
+}
+
+fn separator_width() -> f32 {
+    measure("›", &theme::mono(theme::c().text_faint, theme::UI_SIZE)) + SEGMENT_PAD
+}
+
+fn segment_width(label: &str) -> f32 {
+    measure(label, &path_style()) + TEXT_MARGIN + SEGMENT_PAD * 2.0
+}
+
+fn path_width(segments: &[PathSegment]) -> f32 {
+    segments
+        .iter()
+        .map(|s| segment_width(&s.label))
+        .sum::<f32>()
+        + separator_width() * segments.len().saturating_sub(1) as f32
+}
+
+/// The path that fits in `budget`: the whole path, else its leading folders folded into
+/// "…" until it fits, always keeping the last two parts.
+fn fit_path(segments: Vec<PathSegment>, budget: f32) -> Vec<PathSegment> {
+    let most = segments.len().saturating_sub(2);
+    for hidden in 0..=most {
+        let shown: Vec<PathSegment> = if hidden == 0 {
+            segments.clone()
+        } else {
+            std::iter::once(PathSegment {
+                label: "…".to_owned(),
+                folder: segments[hidden - 1].folder.clone(),
+            })
+            .chain(segments[hidden..].iter().cloned())
+            .collect()
+        };
+        if path_width(&shown) <= budget || hidden == most {
+            return shown;
+        }
+    }
+    segments
+}
+
+/// The active file's path as plain text. Folders show a fill on hover and show themselves in
+/// the file tree when clicked; the file has no fill, and neither has any part at rest.
+fn path_elements(
+    bar: UiRect,
+    left: f32,
+    budget: f32,
+    segments: Vec<PathSegment>,
+    state: &TitleBinding,
+) -> Vec<Element> {
+    let segments = fit_path(segments, budget);
+    let top = bar.top + (bar.height() - 20.0) / 2.0;
+    let mut x = left;
+    let mut elements = Vec::new();
+    for (index, segment) in segments.into_iter().enumerate() {
+        if index > 0 {
+            let width = separator_width();
+            elements.push(
+                text(
+                    UiRect::new(
+                        x + SEGMENT_PAD / 2.0,
+                        bar.top,
+                        x + width + TEXT_MARGIN,
+                        bar.bottom,
+                    ),
+                    "›".to_owned(),
+                    theme::mono(theme::c().text_faint, theme::UI_SIZE),
+                )
+                .into(),
+            );
+            x += width;
+        }
+        let width = segment_width(&segment.label);
+        let rect = UiRect::new(x, top, x + width, top + 20.0);
+        x += width;
+        let label = segment.label;
+        let Some(folder) = segment.folder else {
+            elements.push(
+                text(
+                    UiRect::new(rect.left + SEGMENT_PAD, bar.top, rect.right, bar.bottom),
+                    label,
+                    path_style(),
+                )
+                .into(),
+            );
+            continue;
+        };
+        let reveal = state.clone();
+        let name = format!("Show {label} in the file tree");
+        elements.push(
+            Element::new(move |cx| {
+                let c = theme::c();
+                let hover = cx.animation_value(AnimProperty::Hover).clamp(0.0, 1.0);
+                let fill = VisualStyle {
+                    fill: Some(c.active_line),
+                    fill_alpha: (hover * 255.0_f32).round() as u8,
+                    ..VisualStyle::default()
+                }
+                .radius(3.0);
+                let color = if hover > 0.5 {
+                    c.text_muted
+                } else {
+                    c.text_dim
+                };
+                UiElement::panel(cx.id, rect, fill).child(UiElement::text(
+                    UiId::owned(format!("titlebar.path.{index}")),
+                    UiRect::new(rect.left + SEGMENT_PAD, rect.top, rect.right, rect.bottom),
+                    label.clone(),
+                    theme::mono(color, theme::UI_SIZE),
+                ))
+            })
+            .key(format!("titlebar.path.{index}"))
+            .animation(AnimationBinding::new(AnimProperty::Hover, 0.0, 1.0))
+            .semantics(Semantics::new(SemanticRole::Button).name(name))
+            .event_policy(EventPolicy::INTERACTIVE)
+            .cursor(CursorIcon::Pointer)
+            .on_click(move |_: &mut UiEventContext| reveal.reveal(folder.clone())),
+        );
+    }
+    elements
+}
+
+pub fn render(rect: UiRect, state: TitleBinding) -> Element {
     let frame = state.frame();
     let maximized = frame.maximized;
     let mut bar = panel(rect, VisualStyle::filled(theme::c().sidebar)).window_drag_region();
-
-    // ---- Left: repository, branch and sync ----------------------------
-    bar = bar.child(git_controls);
 
     // ---- Right cluster (anchored to the window controls) --------------
     // Flush with the window edge, like native caption buttons, so the close
     // button's hover fill reaches the corner.
     let right = rect.right;
 
-    // Settings, just left of the window controls.
-    let settings_r = UiRect::new(right - 148.0, rect.top, right - 116.0, rect.bottom);
-    let settings_open = frame.settings_open;
-
-    let extensions_r = UiRect::new(
-        settings_r.left - TOGGLE_W,
-        rect.top,
-        settings_r.left,
-        rect.bottom,
-    );
+    // The layout control sits against the window controls; its popover opens on hover.
     let layout_rect = layout_toggle_rect(rect);
     let toggle_state = state.clone();
     bar = bar.child(
@@ -320,66 +528,33 @@ pub fn render(rect: UiRect, state: TitleBinding, git_controls: Element) -> Eleme
         notes_right -= width + 6.0;
     }
     if let Some(restricted) = frame.restricted {
+        let width = badge_width(&if restricted.count > 1 {
+            format!("Restricted · {}", restricted.count)
+        } else {
+            "Restricted".to_owned()
+        });
         bar = bar.child(restricted_button(
             notes_right,
             rect,
             restricted,
             state.clone(),
         ));
+        notes_right -= width + 6.0;
     }
-    let extensions_state = state.clone();
-    let extensions = caption_button(
-        "titlebar.extensions.button",
-        extensions_r,
-        CaptionIcon {
-            id: "titlebar.extensions",
-            key: "extensions",
-            color: if frame.extensions_open {
-                theme::c().accent
-            } else {
-                theme::c().text_muted
-            },
-            glyph: Glyph::Ui,
-        },
-        false,
-        move |_: &mut UiEventContext| extensions_state.open_extensions(),
-    )
-    .semantics(Semantics::new(SemanticRole::Button).name("Extensions"))
-    .cursor(CursorIcon::Pointer);
-    bar = bar.child(extensions);
-    if frame.extensions_attention {
-        // A failed extension: a dot at the icon's top-right corner.
-        let (cx, cy) = (
-            (extensions_r.left + extensions_r.right) / 2.0 + 6.0,
-            (extensions_r.top + extensions_r.bottom) / 2.0 - 6.0,
-        );
-        bar = bar.child(
-            panel(
-                UiRect::new(cx - 3.0, cy - 3.0, cx + 3.0, cy + 3.0),
-                VisualStyle::filled(theme::c().warning).radius(3.0),
-            )
-            .event_policy(EventPolicy::NONE),
-        );
+
+    // ---- Left: the project, then the active file's path ---------------
+    let (project, project_right) = project_button(rect, frame.project, state.clone());
+    bar = bar.child(project);
+    let path_left = project_right + PATH_GAP;
+    for element in path_elements(
+        rect,
+        path_left,
+        (notes_right - 8.0 - path_left).max(0.0),
+        frame.path,
+        &state,
+    ) {
+        bar = bar.child(element);
     }
-    bar = bar.child(
-        caption_button(
-            "titlebar.settings.button",
-            settings_r,
-            CaptionIcon {
-                id: "titlebar.settings",
-                key: "settings",
-                color: if settings_open {
-                    theme::c().accent
-                } else {
-                    theme::c().text_muted
-                },
-                glyph: Glyph::Ui,
-            },
-            false,
-            move |_: &mut UiEventContext| state.open_settings(),
-        )
-        .cursor(CursorIcon::Pointer),
-    );
 
     // ---- Window controls (far right) ----------------------------------
     let min_r = UiRect::new(right - 108.0, rect.top, right - 72.0, rect.bottom);

@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loog title bar prototype</title>
+<style>
+  /* The single target for the title bar change. Sizes follow src/ui/theme.rs:
+     title bar 32px, tab strip 28px, status bar 24px. Colors are the dark theme palette. */
+  :root {
+    color-scheme: dark;
+    --page: #0b0c0f; --bg: #14161b; --side: #111216; --line: #262a35; --hover: #1a1d24;
+    --accent: #818cf8; --accent-soft: #c7ccff; --warn: #fbbf24;
+    --t1: #d4d4d8; --t2: #a1a1aa; --t3: #71717a; --t4: #52525b;
+    --mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+    --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--t1); font: 14px/1.55 var(--sans); padding: 32px max(16px, env(safe-area-inset-right, 0px)) 64px max(16px, env(safe-area-inset-left, 0px)); }
+  main { max-width: 1040px; margin: 0 auto; display: grid; gap: 28px; }
+  h1 { font: 600 22px/1.3 var(--sans); margin: 0 0 6px; }
+  h2 { font: 600 15px/1.3 var(--sans); margin: 0 0 10px; }
+  p { margin: 0; color: var(--t2); max-width: 74ch; }
+  code { font: 12px var(--mono); color: var(--t1); }
+
+  .scroll { overflow-x: auto; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
+  .win { min-width: 960px; position: relative; font: 12px/1 var(--mono); color: var(--t2); user-select: none; }
+  .tb { height: 32px; background: var(--side); display: flex; align-items: center; border-bottom: 1px solid var(--line); position: relative; }
+  .tb .l { display: flex; align-items: center; gap: 8px; padding-left: 6px; }
+  .tb .r { margin-left: auto; display: flex; align-items: center; height: 100%; }
+  .tabs { height: 28px; background: var(--side); display: flex; border-bottom: 1px solid var(--line); }
+  .tab { display: flex; align-items: center; padding: 0 14px; color: var(--t3); border-right: 1px solid var(--line); }
+  .tab.on { background: var(--bg); color: var(--t1); box-shadow: inset 0 -2px 0 var(--accent); }
+  .body { height: 150px; padding: 14px 0; display: grid; grid-template-columns: 44px 1fr; color: var(--t3); }
+  .gut { text-align: right; padding-right: 14px; line-height: 19px; color: var(--t4); }
+  .code { line-height: 19px; white-space: pre; color: var(--t2); }
+  .code .k { color: var(--accent); } .code .s { color: #86efac; } .code .c { color: var(--t4); }
+  .sb { height: 24px; background: var(--side); border-top: 1px solid var(--line); display: flex; align-items: center; padding: 0 8px 0 4px; gap: 10px; font-size: 11px; position: relative; }
+  .sb .grow { margin-left: auto; display: flex; gap: 10px; align-items: center; color: var(--t3); }
+
+  button { font: inherit; color: inherit; cursor: pointer; border: 0; background: transparent; }
+  .btn { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 6px; border-radius: 4px; }
+  .btn:hover, .btn.open { background: var(--hover); }
+  svg.i { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .wc { width: 36px; height: 32px; display: grid; place-items: center; color: var(--t1); }
+  .wc svg { width: 11px; height: 11px; stroke-width: 1.1; }
+  .ibtn { width: 32px; height: 32px; padding: 0; border-radius: 0; justify-content: center; color: var(--t2); }
+
+  /* project button: tinted fill, solid initial tile */
+  .proj { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 8px 0 3px; border-radius: 6px; font-weight: 600; background: rgba(129,140,248,.16); color: var(--accent-soft); }
+  .proj:hover, .proj.open { background: rgba(129,140,248,.26); }
+  .tile { width: 18px; height: 18px; border-radius: 4px; background: var(--accent); color: #101223; font: 700 11px var(--mono); display: grid; place-items: center; flex: none; }
+  /* path: plain text, one style for every segment, a fill only on hover */
+  .q { color: var(--t3); padding: 0 4px; height: 20px; display: inline-flex; align-items: center; border-radius: 3px; cursor: pointer; }
+  .q:hover { background: var(--hover); color: var(--t2); }
+  .qs { color: var(--t4); }
+
+  .repo { color: var(--t1); font-weight: 700; }
+  .dirty { color: var(--warn); } .accent { color: var(--accent); } .warn { color: var(--warn); }
+  .gear { width: 24px; padding: 0; justify-content: center; position: relative; color: var(--t2); }
+  .dot { position: absolute; top: 2px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+
+  .pop { position: absolute; z-index: 5; min-width: 230px; background: var(--side); border: 1px solid var(--line); border-radius: 6px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.45); display: none; }
+  .pop.show { display: block; }
+  .pop.up { bottom: 26px; }
+  .pop.down { top: 34px; }
+  .pop .it { display: flex; align-items: center; gap: 9px; height: 26px; padding: 0 8px; border-radius: 4px; color: var(--t1); cursor: pointer; font-size: 12px; }
+  .pop .it:hover { background: var(--hover); }
+  .pop .k { margin-left: auto; color: var(--t4); font-size: 10px; padding-left: 18px; }
+  .pop .flag { margin-left: auto; color: var(--warn); font-size: 10px; }
+  .pop .hr { height: 1px; background: var(--line); margin: 4px 2px; }
+  .pop .cap { padding: 4px 8px; color: var(--t4); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+  .pop .tile { width: 18px; height: 18px; font-size: 10px; }
+  .hv:hover .pop { display: block; }
+  .box { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--t4); display: inline-block; }
+  .box.on { background: var(--accent); border-color: var(--accent); }
+
+  .spec { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px 32px; }
+  .spec ul { margin: 0; padding-left: 18px; color: var(--t2); display: grid; gap: 4px; }
+  .open-items { border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; background: var(--side); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Loog title bar prototype</h1>
+    <p>The target for the title bar change. Click the project button, the gear and the branch to open their menus; hover the layout icon for its popover. Earlier exploration rounds are superseded by this file.</p>
+  </header>
+
+  <div class="scroll"><div class="win" id="win"></div></div>
+
+  <section class="spec">
+    <div>
+      <h2>Title bar, left to right</h2>
+      <ul>
+        <li><b>Project button</b>: tinted fill (accent at 16%, 26% on hover or open), solid accent tile with the project initial, name, chevron. Opens the project menu.</li>
+        <li><b>Path</b>: the active file, segments separated by ›. One quiet style for every segment, including the file; a fill only on hover. Each segment opens that folder in the tree.</li>
+        <li><b>Notes</b>, only when present: Restricted, then the update note. Unchanged.</li>
+        <li><b>Layout view</b>: icon button, 32px wide, directly left of the window controls (right edge 108px from the window edge). The popover opens on hover, as today.</li>
+        <li><b>Window controls</b>: unchanged.</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Removed from the title bar</h2>
+      <ul>
+        <li>Repository / branch badge, and fetch, pull, push and publish.</li>
+        <li>Extensions and Settings buttons.</li>
+        <li>The Git operation message ("Fetching…", "Loading diff…").</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Status bar, left side (new)</h2>
+      <ul>
+        <li><b>Gear</b>: menu with Settings, Extensions, Keyboard Shortcuts, Command Palette. Amber dot while an extension has failed. Layout view is not in this menu.</li>
+        <li><b>Branch</b>: <code>main*</code> with ahead and behind counts. Menu: branches, Pull, Push, Fetch (Publish when the branch has no upstream). Disabled while a Git operation runs.</li>
+        <li><b>Problems</b>: unchanged.</li>
+        <li>Right side unchanged.</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Project menu</h2>
+      <ul>
+        <li>Recent folders, each with its own tile; Open Folder…; Add Folder to Workspace….</li>
+        <li>The current project is marked "current".</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="open-items">
+    <h2>Not decided yet</h2>
+    <ul style="margin:0;padding-left:18px;color:var(--t2);display:grid;gap:4px">
+      <li>Path form: chevron segments are assumed. Other forms were shown (one plain string, last folders only, file icon) and none was chosen.</li>
+      <li>Tile color: always the accent, or a color derived from the folder name. The mock uses the accent for the current project and fixed colors for the others in the menu.</li>
+      <li>Where the Git operation message goes: proposed beside the branch in the status bar.</li>
+      <li>Long paths: proposed to collapse the middle into …, keeping the last two segments.</li>
+      <li>Moving Git actions out of the title bar reverses commit 84f1f9d.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+  const I = {
+    layout: '<path d="M2 3.5h12v9H2zM6.5 3.5v9"/>',
+    gear: '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1"/>',
+    ext: '<path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5V7H9zM2.5 9H7v4.5H2.5zM9 9h4.5v4.5H9z"/>',
+    branch: '<circle cx="4.5" cy="3.5" r="1.4"/><circle cx="4.5" cy="12.5" r="1.4"/><circle cx="11.5" cy="5.5" r="1.4"/><path d="M4.5 4.9v6.2M11.5 6.9c0 2.6-3 2.4-7 4"/>',
+    sync: '<path d="M13 6.5A5 5 0 0 0 3.7 5M3 2.5V5h2.5M3 9.5A5 5 0 0 0 12.3 11M13 13.5V11h-2.5"/>',
+    up: '<path d="M8 13V3M4 7l4-4 4 4"/>', down: '<path d="M8 3v10M4 9l4 4 4-4"/>',
+    dl: '<path d="M8 2.5v8M4.5 7.5 8 11l3.5-3.5M3 13.5h10"/>',
+    keys: '<path d="M2 4.5h12v7H2zM4.5 7h.01M7 7h.01M9.5 7h.01M12 7h.01M5 9.5h6"/>',
+    cmd: '<path d="m3 4.5 3.5 3.5L3 11.5M8 12h5"/>',
+    folder: '<path d="M2 4.5h4l1.2 1.5H14v6.5H2z"/>',
+    chev: '<path d="m4 6 4 4 4-4"/>',
+    err: '<circle cx="8" cy="8" r="5.5"/><path d="M8 5v3.4M8 10.6v.01"/>',
+    wrn: '<path d="M8 2.5 14 13H2zM8 6.5v3M8 11.2v.01"/>',
+    inf: '<circle cx="8" cy="8" r="5.5"/><path d="M8 7.2v3.4M8 5.2v.01"/>',
+    min: '<path d="M1 5.5h10"/>', max: '<rect x="1.5" y="1.5" width="8" height="8"/>', cls: '<path d="m1.5 1.5 8 8M9.5 1.5l-8 8"/>'
+  };
+  const ic = (k, c = '') => `<svg class="i ${c}" viewBox="0 0 16 16">${I[k]}</svg>`;
+  const wc = (k) => `<span class="wc"><svg class="i" viewBox="0 0 12 12">${I[k]}</svg></span>`;
+  const tile = (bg, ch) => `<span class="tile" style="background:${bg}">${ch}</span>`;
+  const check = (on, label) => `<div class="it"><span class="box ${on ? 'on' : ''}"></span>${label}</div>`;
+
+  const projectMenu = `<div class="pop down" id="m-project" style="left:6px"><div class="cap">Recent</div><div class="it">${tile('#818cf8', 'L')}loog<span class="k">current</span></div><div class="it">${tile('#34d399', 'L')}lgui</div><div class="it">${tile('#fbbf24', 'N')}notes</div><div class="hr"></div><div class="it">${ic('folder')}Open Folder…</div><div class="it">${ic('folder')}Add Folder to Workspace…</div></div>`;
+  const layoutPop = `<span class="hv"><button class="btn ibtn" title="Layout view">${ic('layout')}</button><div class="pop down" style="right:108px;top:32px;min-width:170px"><div class="cap">Layout view</div>${check(true, 'Explorer')}${check(true, 'Editor')}${check(false, 'Source Control')}${check(true, 'Terminal')}</div></span>`;
+  const gearMenu = `<div class="pop up" id="m-gear" style="left:4px"><div class="it">${ic('gear')}Settings<span class="k">Ctrl+,</span></div><div class="it">${ic('ext')}Extensions<span class="flag">1 failed</span></div><div class="it">${ic('keys')}Keyboard Shortcuts</div><div class="hr"></div><div class="it">${ic('cmd')}Command Palette<span class="k">Ctrl+Shift+P</span></div></div>`;
+  const branchMenu = `<div class="pop up" id="m-branch" style="left:34px"><div class="it">${ic('branch')}main<span class="k">current</span></div><div class="it">${ic('branch')}feat/title-bar</div><div class="it">${ic('branch')}fix/status-bar</div><div class="hr"></div><div class="it">${ic('down')}Pull 2 commits</div><div class="it">${ic('up')}Push 1 commit</div><div class="it">${ic('sync')}Fetch</div></div>`;
+  const problem = (k, n, hot) => `<span class="btn ${hot ? 'warn' : ''}" style="${hot ? '' : 'color:var(--t4)'}">${ic(k)}${n}</span>`;
+
+  document.getElementById('win').innerHTML = `
+    <div class="tb">
+      <div class="l">
+        <button class="proj" data-pop="m-project">${tile('var(--accent)', 'L')}loog${ic('chev')}</button>
+        <span><span class="q">src</span><span class="qs">›</span><span class="q">ui</span><span class="qs">›</span><span class="q">titlebar.rs</span></span>
+      </div>
+      <div class="r"><button class="btn" style="color:var(--accent);margin-right:6px">${ic('dl')}0.9.2</button>${layoutPop}${wc('min')}${wc('max')}${wc('cls')}</div>
+      ${projectMenu}
+    </div>
+    <div class="tabs"><div class="tab on">main.rs</div><div class="tab">titlebar.rs</div></div>
+    <div class="body"><div class="gut">40<br>41<br>42<br>43<br>44<br>45</div><div class="code"><span class="k">fn</span> render(rect: UiRect, state: TitleBinding) -> Element {
+    <span class="c">// repository controls on the left</span>
+    <span class="k">let</span> mut bar = panel(rect, <span class="s">"sidebar"</span>);
+    bar = bar.child(git_controls);
+    bar
+}</div></div>
+    <div class="sb">
+      <button class="btn gear" data-pop="m-gear">${ic('gear')}<i class="dot"></i></button>
+      <button class="btn" data-pop="m-branch">${ic('branch', 'dirty')}<span class="dirty">main*</span><span class="accent">↓2 ↑1</span></button>
+      <span style="width:4px"></span>${problem('err', 0)}${problem('wrn', 2, true)}${problem('inf', 0)}
+      <div class="grow"><span>Language Services: Ready</span><span>Ln 42, Col 8</span><span>Spaces: 4</span><span>LF</span><span>UTF-8</span><b style="color:#f97316">RS</b></div>
+      ${gearMenu}${branchMenu}
+    </div>`;
+
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-pop]');
+    const target = b && document.getElementById(b.dataset.pop);
+    const was = target && target.classList.contains('show');
+    document.querySelectorAll('.pop.show').forEach(p => p.classList.remove('show'));
+    document.querySelectorAll('.open').forEach(x => x.classList.remove('open'));
+    if (target && !was) { target.classList.add('show'); b.classList.add('open'); }
+  });
+</script>
+</body>
+</html>

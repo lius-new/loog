@@ -407,11 +407,13 @@ pub(crate) fn icon(id: impl Into<UiId>, key: &'static str, rect: UiRect, color: 
     precompiled(UiElement::icon(id.into(), rect, key).icon_style(IconStyle::new(color)))
 }
 
-/// The picker card, dropped down below the title bar whose bottom is `top`.
+/// The picker card, dropped down below an edge at `edge`, or lifted above it when `above`: the
+/// status bar's branch opens it above the bar.
 #[allow(clippy::too_many_arguments)]
 pub fn render(
     viewport: UiRect,
-    top: f32,
+    edge: f32,
+    above: bool,
     picker: &BranchPicker,
     query: &str,
     state: Binding,
@@ -443,7 +445,12 @@ pub fn render(
         viewport.left + 8.0,
         (viewport.right - 8.0 - card_w).max(viewport.left + 8.0),
     );
-    let card = UiRect::new(left, top + 4.0, left + card_w, top + 4.0 + card_h);
+    let top = if above {
+        (edge - 4.0 - card_h).max(viewport.top + 4.0)
+    } else {
+        edge + 4.0
+    };
+    let card = UiRect::new(left, top, left + card_w, top + card_h);
 
     // Invisible backdrop: a press outside the card closes the picker.
     let close_state = state.clone();

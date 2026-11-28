@@ -533,7 +533,7 @@ mod tests {
     fn tab_and_drawer_dividers_stay_crisp_at_fractional_scales() {
         use lgui::application::{AppView, ApplicationContext};
         use lgui::core::{UiId, UiScale};
-        use lgui::prelude::{VisualStyle, group, panel};
+        use lgui::prelude::{VisualStyle, panel};
         use lgui::renderer::{FrameInfo, FrameReason};
         use lgui::session::UiSession;
         use std::sync::Arc;
@@ -571,7 +571,6 @@ mod tests {
                 .child(crate::ui::titlebar::render(
                     title,
                     crate::app::chrome::title_binding(&state),
-                    group(title),
                 ))
                 .child(render(
                     pane,

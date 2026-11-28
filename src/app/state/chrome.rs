@@ -80,6 +80,8 @@ pub struct ChromeState {
     pub trust_prompt: Option<std::path::PathBuf>,
     /// A declined folder the person asked to decide on again, from the title bar.
     pub trust_review: Option<std::path::PathBuf>,
+    /// The project or manage menu, opened from the title bar or the status bar.
+    pub menu: Option<crate::app::action_menu::Open>,
 }
 
 impl ChromeState {

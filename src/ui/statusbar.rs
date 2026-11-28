@@ -99,6 +99,12 @@ pub fn encoding_anchor(rect: UiRect, frame: &StatusFrame) -> Option<UiRect> {
 }
 
 pub fn render(rect: UiRect, state: StatusBinding) -> Element {
+    render_with(rect, state, None)
+}
+
+/// The bar with `leading` at its left end, drawn from the origin of its own rect: the manage
+/// button and the repository's controls.
+pub fn render_with(rect: UiRect, state: StatusBinding, leading: Option<Element>) -> Element {
     let s = state.frame();
     let items = status_items(&s);
     use lgui::core::{
@@ -344,6 +350,7 @@ pub fn render(rect: UiRect, state: StatusBinding) -> Element {
                     gap: Dimension::Points(GAP),
                 })
                 .child(settings)
+                .children(leading.map(|leading| leading.dock(DockSide::Left)))
                 .children(has_problems.then_some(problem_group))
                 .child(vim)
                 .child(mount),
