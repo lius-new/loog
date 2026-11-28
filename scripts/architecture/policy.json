@@ -1216,7 +1216,8 @@
       "workspace_home_hover",
       "trust_prompt",
       "trust_review",
-      "encoding"
+      "encoding",
+      "menu"
     ],
     "SidebarChrome": [
       "visible",
